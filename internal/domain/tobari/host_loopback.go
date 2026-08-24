@@ -10,10 +10,11 @@ import (
 )
 
 const (
-	HostLoopbackHostname           = "host.tobari.test"
-	HostLoopbackURLTemplate        = "http://host.tobari.test:{port}"
+	RetiredHostLoopbackHostname    = "host.tobari.test"
+	HostLoopbackHostname           = "host.tobari.internal"
+	HostLoopbackURLTemplate        = "http://host.tobari.internal:{port}"
 	HostLoopbackCapabilitySchema   = 1
-	HostLoopbackRegistrySchema     = 1
+	HostLoopbackRegistrySchema     = 2
 	MinHostLoopbackPort            = 1024
 	MaxHostLoopbackPort            = 65535
 	AuthorityLifetimePersistent    = "persistent"
@@ -46,9 +47,9 @@ func ValidateAttachmentEpochID(value string) error {
 	return nil
 }
 
-func hostLoopbackRouteID(epochID, contextID, projectID string) string {
+func hostLoopbackRouteID(epochID, contextID, workspaceID, hostname string) string {
 	sum := sha256.Sum256([]byte(strings.Join([]string{
-		"tobari-host-loopback-route-v1", epochID, contextID, projectID,
+		"tobari-host-loopback-route-v2", epochID, contextID, workspaceID, hostname,
 	}, "\x00")))
 	return "hlr_" + hex.EncodeToString(sum[:16])
 }
@@ -59,16 +60,15 @@ func hostLoopbackRouteID(epochID, contextID, projectID string) string {
 type AttachmentHostLoopbackRoute struct {
 	ID      string `json:"id"`
 	EpochID string `json:"attachment_epoch_id"`
-	// These three tags are frozen Gateway route schema-v1 tokens. Current Go
-	// names retain the Workspace/Manifest domain model without creating a wire
-	// alias that the Gateway could interpret ambiguously.
-	WorkspaceManifestID   string `json:"context_id"`
-	WorkspaceManifestName string `json:"context"`
-	ProjectID             string `json:"project_id"`
-	ProjectRoot           string `json:"project_root"`
-	Hostname              string `json:"hostname"`
-	RelayPort             int    `json:"relay_port"`
-	RelayToken            string `json:"relay_token"`
+	// These JSON tags are frozen private compatibility tokens. Their values are
+	// final Context and Workspace authority, not predecessor Manifest aliases.
+	ContextID           string `json:"context_id"`
+	ContextPresentation string `json:"context"`
+	WorkspaceID         string `json:"project_id"`
+	ProjectRoot         string `json:"project_root"`
+	Hostname            string `json:"hostname"`
+	RelayPort           int    `json:"relay_port"`
+	RelayToken          string `json:"relay_token"`
 }
 
 func NewAttachmentHostLoopbackRoute(
@@ -90,9 +90,9 @@ func NewAttachmentHostLoopbackRouteForPrincipal(
 	relayPort int, relayToken string,
 ) (AttachmentHostLoopbackRoute, error) {
 	route := AttachmentHostLoopbackRoute{
-		ID: hostLoopbackRouteID(epochID, contextID, workspaceID), EpochID: epochID,
-		WorkspaceManifestID: contextID, WorkspaceManifestName: contextPresentation,
-		ProjectID: workspaceID, ProjectRoot: projectRoot,
+		ID: hostLoopbackRouteID(epochID, contextID, workspaceID, HostLoopbackHostname), EpochID: epochID,
+		ContextID: contextID, ContextPresentation: contextPresentation,
+		WorkspaceID: workspaceID, ProjectRoot: projectRoot,
 		Hostname: HostLoopbackHostname, RelayPort: relayPort, RelayToken: relayToken,
 	}
 	if err := route.Validate(); err != nil {
@@ -102,20 +102,20 @@ func NewAttachmentHostLoopbackRouteForPrincipal(
 }
 
 func (r AttachmentHostLoopbackRoute) Validate() error {
-	if !hostLoopbackRoutePattern.MatchString(r.ID) || r.ID != hostLoopbackRouteID(r.EpochID, r.WorkspaceManifestID, r.ProjectID) {
+	if !hostLoopbackRoutePattern.MatchString(r.ID) || r.ID != hostLoopbackRouteID(r.EpochID, r.ContextID, r.WorkspaceID, r.Hostname) {
 		return fmt.Errorf("host loopback route ID is invalid")
 	}
 	if err := ValidateAttachmentEpochID(r.EpochID); err != nil {
 		return err
 	}
-	if err := ValidateWorkspaceManifestID(r.WorkspaceManifestID); err != nil {
-		return fmt.Errorf("host loopback Workspace Manifest ID is invalid")
+	if err := ContextID(r.ContextID).Validate(); err != nil {
+		return fmt.Errorf("host loopback Context ID is invalid")
 	}
-	if err := ValidateName(r.WorkspaceManifestName); err != nil {
-		return fmt.Errorf("host loopback Workspace Manifest name is invalid")
+	if err := ValidateName(r.ContextPresentation); err != nil {
+		return fmt.Errorf("host loopback Context presentation is invalid")
 	}
-	if err := ValidateWorkspaceID(r.ProjectID); err != nil {
-		return fmt.Errorf("host loopback project ID is invalid")
+	if err := WorkspaceID(r.WorkspaceID).Validate(); err != nil {
+		return fmt.Errorf("host loopback Workspace ID is invalid")
 	}
 	if r.ProjectRoot == "" || r.ProjectRoot[0] != '/' {
 		return fmt.Errorf("host loopback project root is invalid")
@@ -144,11 +144,11 @@ func (r HostLoopbackRegistry) Validate() error {
 		if _, exists := seenIDs[route.ID]; exists {
 			return fmt.Errorf("host loopback route ID is duplicated")
 		}
-		if _, exists := seenProjects[route.ProjectID]; exists {
+		if _, exists := seenProjects[route.WorkspaceID]; exists {
 			return fmt.Errorf("host loopback registry has several routes for one Workspace")
 		}
 		seenIDs[route.ID] = struct{}{}
-		seenProjects[route.ProjectID] = struct{}{}
+		seenProjects[route.WorkspaceID] = struct{}{}
 	}
 	return nil
 }
@@ -193,18 +193,18 @@ func (p HostLoopbackCapabilityProjection) Validate() error {
 // AttachmentGrant is separate from LearnedPolicyRule and can authorize only
 // one exact Host Loopback effect for one active attachment.
 type AttachmentGrant struct {
-	ID                  string `json:"id"`
-	Decision            string `json:"decision"`
-	Lifetime            string `json:"lifetime"`
-	DestinationKind     string `json:"destination_kind"`
-	WorkspaceManifestID string `json:"context_id"`
-	ProjectID           string `json:"project_id"`
-	EpochID             string `json:"attachment_epoch_id"`
-	Hostname            string `json:"host"`
-	TargetPort          int    `json:"target_port"`
-	Method              string `json:"method"`
-	Path                string `json:"path"`
-	SourceCandidate     string `json:"source_candidate"`
+	ID              string `json:"id"`
+	Decision        string `json:"decision"`
+	Lifetime        string `json:"lifetime"`
+	DestinationKind string `json:"destination_kind"`
+	ContextID       string `json:"context_id"`
+	WorkspaceID     string `json:"project_id"`
+	EpochID         string `json:"attachment_epoch_id"`
+	Hostname        string `json:"host"`
+	TargetPort      int    `json:"target_port"`
+	Method          string `json:"method"`
+	Path            string `json:"path"`
+	SourceCandidate string `json:"source_candidate"`
 }
 
 func NewAttachmentGrantFromCandidate(decision string, candidate PolicyCandidate) (AttachmentGrant, error) {
@@ -216,7 +216,7 @@ func NewAttachmentGrantFromCandidate(decision string, candidate PolicyCandidate)
 	}
 	grant := AttachmentGrant{
 		Decision: decision, Lifetime: AuthorityLifetimeAttachment, DestinationKind: PolicyDestinationHostLoopback,
-		WorkspaceManifestID: candidate.WorkspaceManifestID, ProjectID: candidate.ProjectID, EpochID: candidate.AttachmentEpochID,
+		ContextID: candidate.WorkspaceManifestID, WorkspaceID: candidate.ProjectID, EpochID: candidate.AttachmentEpochID,
 		Hostname: candidate.Host, TargetPort: candidate.Port, Method: candidate.Method, Path: candidate.Path,
 		SourceCandidate: candidate.ID,
 	}
@@ -229,7 +229,7 @@ func NewAttachmentGrantFromCandidate(decision string, candidate PolicyCandidate)
 
 func attachmentGrantID(g AttachmentGrant) string {
 	sum := sha256.Sum256([]byte(strings.Join([]string{
-		"tobari-attachment-grant-v2", g.Decision, g.WorkspaceManifestID, g.ProjectID, g.EpochID,
+		"tobari-attachment-grant-v2", g.Decision, g.ContextID, g.WorkspaceID, g.EpochID,
 		g.Hostname, strconv.Itoa(g.TargetPort), g.Method, g.Path, g.SourceCandidate,
 	}, "\x00")))
 	return "pag_" + hex.EncodeToString(sum[:16])
@@ -245,10 +245,10 @@ func (g AttachmentGrant) Validate() error {
 	if g.Lifetime != AuthorityLifetimeAttachment || g.DestinationKind != PolicyDestinationHostLoopback {
 		return fmt.Errorf("attachment grant authority kind is invalid")
 	}
-	if err := ValidateWorkspaceManifestID(g.WorkspaceManifestID); err != nil {
+	if err := ContextID(g.ContextID).Validate(); err != nil {
 		return err
 	}
-	if err := ValidateWorkspaceID(g.ProjectID); err != nil {
+	if err := WorkspaceID(g.WorkspaceID).Validate(); err != nil {
 		return err
 	}
 	if err := ValidateAttachmentEpochID(g.EpochID); err != nil {
@@ -274,6 +274,37 @@ type AttachmentGrantRegistry struct {
 	Grants        []AttachmentGrant `json:"grants"`
 }
 
+// AttachmentGrantPublication is the confirmed result of consuming one
+// attachment-local Host Loopback candidate. It deliberately carries no
+// Policy Memory revision because the grant belongs only to the live
+// attachment epoch.
+type AttachmentGrantPublication struct {
+	Candidate  PolicyCandidate
+	Grant      AttachmentGrant
+	Activation PolicyActivationReceipt
+}
+
+func (p AttachmentGrantPublication) ValidateFor(candidateID string, decision PolicyMemoryDecision) error {
+	if err := p.Candidate.Validate(); err != nil {
+		return err
+	}
+	if p.Candidate.ID != candidateID || p.Candidate.EffectiveDestinationKind() != PolicyDestinationHostLoopback ||
+		p.Candidate.EffectiveAuthorityLifetime() != AuthorityLifetimeAttachment {
+		return fmt.Errorf("attachment grant publication does not consume the exact Host Loopback candidate")
+	}
+	if err := p.Grant.Validate(); err != nil {
+		return err
+	}
+	want, err := NewAttachmentGrantFromCandidate(string(decision), p.Candidate)
+	if err != nil {
+		return err
+	}
+	if p.Grant != want {
+		return fmt.Errorf("attachment grant publication changed the requested exact decision")
+	}
+	return p.Activation.Validate()
+}
+
 func (r AttachmentGrantRegistry) Validate() error {
 	if r.SchemaVersion != HostLoopbackRegistrySchema || r.Grants == nil || len(r.Grants) > 512 {
 		return fmt.Errorf("attachment grant registry is invalid")
@@ -283,7 +314,7 @@ func (r AttachmentGrantRegistry) Validate() error {
 		if err := grant.Validate(); err != nil {
 			return err
 		}
-		key := strings.Join([]string{grant.ProjectID, grant.EpochID, strconv.Itoa(grant.TargetPort), grant.Method, grant.Path}, "\x00")
+		key := strings.Join([]string{grant.WorkspaceID, grant.EpochID, strconv.Itoa(grant.TargetPort), grant.Method, grant.Path}, "\x00")
 		if _, exists := seen[key]; exists {
 			return fmt.Errorf("attachment grant effect is duplicated")
 		}

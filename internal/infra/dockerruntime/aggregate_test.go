@@ -142,7 +142,7 @@ func TestAggregateRouterKeepsHostLoopbackAuthorityAttachmentScoped(t *testing.T)
 		t.Fatal(err)
 	}
 	text := string(router)
-	for _, required := range []string{`kind == "host_loopback"`, `host_loopback_identity_valid`, `^att_[0-9a-f]{32}$`, `grant.lifetime == "attachment"`, `grant.attachment_epoch_id == input.destination.attachment_epoch_id`, `grant.target_port == input.request.authority.port`, `"Host Loopback requires attachment policy review"`, `not host_loopback_request`} {
+	for _, required := range []string{`kind == "host_loopback"`, `input.request.authority.scheme == "http"`, `input.request.authority.host == "host.tobari.internal"`, `input.request.authority.port >= 1024`, `input.request.authority.port <= 65535`, `host_loopback_identity_valid`, `^att_[0-9a-f]{32}$`, `grant.lifetime == "attachment"`, `grant.attachment_epoch_id == input.destination.attachment_epoch_id`, `grant.target_port == input.request.authority.port`, `"Host Loopback requires attachment policy review"`, `not host_loopback_request`} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("Host Loopback router omitted %q:\n%s", required, text)
 		}

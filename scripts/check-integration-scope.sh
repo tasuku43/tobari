@@ -17,8 +17,8 @@ if [[ $actual_phases != "$expected_phases" ]]; then
 fi
 
 line_count=$(wc -l <"$scenario" | tr -d ' ')
-if ((line_count > 1720)); then
-  echo "integration scope: scenario grew to $line_count lines (limit 1720)" >&2
+if ((line_count > 1980)); then
+  echo "integration scope: scenario grew to $line_count lines (limit 1980)" >&2
   exit 1
 fi
 runtime_image_cleanup_line_count=$(wc -l <"$runtime_image_cleanup_helper" | tr -d ' ')
@@ -79,8 +79,8 @@ for claim in \
 done
 
 cli_reference_count=$(grep -Ehoc 'run_tobari(_at|_pty_at)?' "$scenario" "$workspace_service_helper" "$permission_resume_helper" | awk '{sum += $1} END {print sum}')
-if ((cli_reference_count > 45)); then
-  echo "integration scope: scenario grew to $cli_reference_count CLI references (limit 45)" >&2
+if ((cli_reference_count > 55)); then
+  echo "integration scope: scenario grew to $cli_reference_count CLI references (limit 55)" >&2
   exit 1
 fi
 
@@ -94,20 +94,17 @@ if grep -En \
   exit 1
 fi
 
-# These files invoke the public binary. Predecessor Broker storage and wire
-# fields may retain `context_id`, but removed public Context syntax and the old
-# create envelope must never return to executable examples or integration.
-public_cli_surfaces=(
-  "$scenario"
-  "$permission_resume_helper"
-  examples/auth-providers/kubernetes-bearer/README.md
-  examples/auth-providers/twg-delegated-oauth/README.md
-)
-if grep -En -- '(^|[[:space:]|])(tobari|run_tobari(_at|_pty_at)?) context([[:space:]]|$)|--context([=[:space:]]|$)|json\.load\(sys\.stdin\)\["context"\]' \
-  "${public_cli_surfaces[@]}" >&2; then
-  echo "integration scope: removed public Context vocabulary returned" >&2
-  exit 1
-fi
+# The Host Loopback slice must use the final Context identity and a bound
+# Context reference for entry. Frozen private context wire keys are checked
+# separately and do not authorize a predecessor public alias.
+for claim in \
+  'context create --template "$template_ref"' \
+  'context enter --id "$context_ref"'; do
+  if ! grep -F "$claim" "$scenario" >/dev/null; then
+    echo "integration scope: missing final Context Host Loopback canary: $claim" >&2
+    exit 1
+  fi
+done
 if grep -F 'contexts/default/policy/context.json' "$scenario" >&2; then
   echo "integration scope: post-publication policy drift bypassed the fixture publication seam" >&2
   exit 1

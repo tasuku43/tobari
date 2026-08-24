@@ -108,7 +108,7 @@ func (r *Runtime) bindActiveHostLoopbackDenials(items []tobari.PolicyDenial) ([]
 			continue
 		}
 		for _, route := range registry.Routes {
-			if route.ProjectID == items[index].ProjectID && route.WorkspaceManifestID == items[index].WorkspaceManifestID {
+			if route.WorkspaceID == items[index].ProjectID && route.ContextID == items[index].WorkspaceManifestID {
 				items[index].DestinationKind = tobari.PolicyDestinationHostLoopback
 				items[index].AuthorityLifetime = tobari.AuthorityLifetimeAttachment
 				items[index].AttachmentEpochID = route.EpochID

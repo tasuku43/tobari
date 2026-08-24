@@ -35,6 +35,11 @@ type PolicyMemoryReadPort interface {
 	ListPolicyMemoryRuleAuthority(context.Context) (tobari.PolicyMemoryRuleList, error)
 }
 
+type AttachmentPolicyCandidatePort interface {
+	ListPolicyCandidatesIncludingAttachments(context.Context) (tobari.PolicyCandidateAuthorityList, error)
+	ApplyAttachmentPolicyCandidate(context.Context, string, tobari.PolicyMemoryDecision) (tobari.AttachmentGrantPublication, bool, error)
+}
+
 type PolicyMemoryReviewPort interface {
 	ReadPolicyMemoryReviewSnapshot(context.Context) (tobari.PolicyMemoryReviewSnapshot, error)
 }
@@ -55,12 +60,13 @@ func (policyMemoryMutationPolicy) Check(_ context.Context, intent operation.Inte
 }
 
 type PolicyMemoryService struct {
-	read      PolicyMemoryReadPort
-	review    PolicyMemoryReviewPort
-	candidate PolicyCandidatePort
-	rule      PolicyRulePort
-	reviewed  PolicyReviewedPort
-	mutator   *execution.Invoker
+	read       PolicyMemoryReadPort
+	review     PolicyMemoryReviewPort
+	candidate  PolicyCandidatePort
+	attachment AttachmentPolicyCandidatePort
+	rule       PolicyRulePort
+	reviewed   PolicyReviewedPort
+	mutator    *execution.Invoker
 }
 
 func NewPolicyMemoryService(port any) *PolicyMemoryService {
@@ -68,6 +74,7 @@ func NewPolicyMemoryService(port any) *PolicyMemoryService {
 	service.read, _ = port.(PolicyMemoryReadPort)
 	service.review, _ = port.(PolicyMemoryReviewPort)
 	service.candidate, _ = port.(PolicyCandidatePort)
+	service.attachment, _ = port.(AttachmentPolicyCandidatePort)
 	service.rule, _ = port.(PolicyRulePort)
 	service.reviewed, _ = port.(PolicyReviewedPort)
 	return service
@@ -88,6 +95,16 @@ func (s *PolicyMemoryService) ReviewSnapshot(ctx context.Context) (tobari.Policy
 }
 
 func (s *PolicyMemoryService) Candidates(ctx context.Context) (tobari.PolicyCandidateAuthorityList, error) {
+	if s != nil && !portcheck.IsNil(s.attachment) {
+		result, err := s.attachment.ListPolicyCandidatesIncludingAttachments(ctx)
+		if err != nil {
+			return tobari.PolicyCandidateAuthorityList{}, readFault(err, "policy_candidate_read_failed", "Policy candidates could not be read")
+		}
+		if err := result.Validate(); err != nil {
+			return tobari.PolicyCandidateAuthorityList{}, contractFault("invalid_policy_candidate_list", "Policy candidate list is invalid", err)
+		}
+		return result.Clone(), nil
+	}
 	if s == nil || portcheck.IsNil(s.read) {
 		return tobari.PolicyCandidateAuthorityList{}, missingPort("Policy candidate read")
 	}
@@ -119,20 +136,20 @@ func PolicyMemoryImpact() operation.Impact {
 	return operation.Impact{Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}
 }
 
-func (s *PolicyMemoryService) Allow(ctx context.Context, intent operation.Intent, candidateRef string) (tobari.PolicyCandidatePublication, error) {
+func (s *PolicyMemoryService) Allow(ctx context.Context, intent operation.Intent, candidateRef string) (tobari.PolicyCandidateDecisionPublication, error) {
 	return s.applyCandidate(ctx, intent, candidateRef, tobari.PolicyMemoryAllow)
 }
 
-func (s *PolicyMemoryService) Deny(ctx context.Context, intent operation.Intent, candidateRef string) (tobari.PolicyCandidatePublication, error) {
+func (s *PolicyMemoryService) Deny(ctx context.Context, intent operation.Intent, candidateRef string) (tobari.PolicyCandidateDecisionPublication, error) {
 	return s.applyCandidate(ctx, intent, candidateRef, tobari.PolicyMemoryDeny)
 }
 
-func (s *PolicyMemoryService) applyCandidate(ctx context.Context, intent operation.Intent, candidateRef string, decision tobari.PolicyMemoryDecision) (tobari.PolicyCandidatePublication, error) {
+func (s *PolicyMemoryService) applyCandidate(ctx context.Context, intent operation.Intent, candidateRef string, decision tobari.PolicyMemoryDecision) (tobari.PolicyCandidateDecisionPublication, error) {
 	if s == nil || portcheck.IsNil(s.candidate) {
-		return tobari.PolicyCandidatePublication{}, missingPort("Policy Memory candidate")
+		return tobari.PolicyCandidateDecisionPublication{}, missingPort("Policy Memory candidate")
 	}
 	if err := tobari.ValidatePolicyCandidateID(candidateRef); err != nil {
-		return tobari.PolicyCandidatePublication{}, invalidFault("invalid_policy_candidate_ref", "policy candidate reference is invalid", err, "policy candidates")
+		return tobari.PolicyCandidateDecisionPublication{}, invalidFault("invalid_policy_candidate_ref", "policy candidate reference is invalid", err, "policy candidates")
 	}
 	command := TaskPolicyAllow
 	if decision == tobari.PolicyMemoryDeny {
@@ -140,8 +157,21 @@ func (s *PolicyMemoryService) applyCandidate(ctx context.Context, intent operati
 	}
 	target := operation.TargetRef{Kind: tobari.PolicyCandidateKind, ID: candidateRef}
 	request := execution.Request{Intent: intent, ExpectedCommand: command, ExpectedEffect: operation.EffectWrite, ExpectedTarget: target, ExpectedImpact: PolicyMemoryImpact()}
-	var result tobari.PolicyCandidatePublication
+	var result tobari.PolicyCandidateDecisionPublication
 	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		if !portcheck.IsNil(s.attachment) {
+			publication, handled, attachmentErr := s.attachment.ApplyAttachmentPolicyCandidate(actionContext, candidateRef, decision)
+			if attachmentErr != nil {
+				return policyMemoryMutationFault(attachmentErr)
+			}
+			if handled {
+				result = tobari.NewAttachmentPolicyCandidateDecisionPublication(publication)
+				if err := result.ValidateFor(candidateRef, decision); err != nil {
+					return contractFault("invalid_policy_memory_result", "attachment policy candidate publication is invalid", err)
+				}
+				return nil
+			}
+		}
 		var publication tobari.PolicyCandidatePublication
 		var err error
 		if decision == tobari.PolicyMemoryAllow {
@@ -155,7 +185,7 @@ func (s *PolicyMemoryService) applyCandidate(ctx context.Context, intent operati
 		if err := publication.ValidateFor(candidateRef, decision); err != nil {
 			return contractFault("invalid_policy_memory_result", "Policy Memory candidate publication is invalid", err)
 		}
-		result = publication
+		result = tobari.NewPersistentPolicyCandidateDecisionPublication(publication)
 		return nil
 	})
 	return result, err

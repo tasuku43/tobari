@@ -239,7 +239,7 @@ func runFinalPolicyCandidateMutation(ctx context.Context, c *CLI, command Comman
 	if c == nil || c.finalPolicy == nil {
 		return c.fail(ctx, missingRuntimeFault())
 	}
-	var publication tobari.PolicyCandidatePublication
+	var publication tobari.PolicyCandidateDecisionPublication
 	var err error
 	candidateRef := inputs.One("--id")
 	intent := operation.Intent{Command: command.Path, Effect: command.Effect, Target: operation.TargetRef{Kind: tobari.PolicyCandidateKind, ID: candidateRef}, Impact: command.Agent.Mutation.Impact}
@@ -255,7 +255,7 @@ func runFinalPolicyCandidateMutation(ctx context.Context, c *CLI, command Comman
 	if !ok {
 		return code
 	}
-	result := finalPolicyDirectResult{Task: command.Path, Decision: decision, Applied: true, ActiveRevision: string(publication.Memory.Snapshot.PolicyMemory.Revision)}
+	result := finalPolicyDirectResult{Task: command.Path, Decision: decision, Applied: true, ActiveRevision: publication.ActiveRevision()}
 	text := []byte(fmt.Sprintf("%s applied.\nActive revision %s\n", safeExternalText(command.Summary), result.ActiveRevision))
 	output, err := finalPolicyOutput(command.Path, "result", result, format, text)
 	if err != nil {

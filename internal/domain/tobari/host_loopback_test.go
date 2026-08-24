@@ -14,31 +14,51 @@ const (
 
 func testAttachmentHostLoopbackRoute(t *testing.T) AttachmentHostLoopbackRoute {
 	t.Helper()
-	project := Workspace{
-		SchemaVersion: WorkspaceStateSchemaVersion, ID: hostLoopbackTestProject,
-		Root: "/workspace/project", WorkspaceManifestID: hostLoopbackTestContext, WorkspaceManifestName: "default",
-		Profile: DefaultProfile, Runtime: WorkspaceRuntime{},
-	}
-	route, err := NewAttachmentHostLoopbackRoute(hostLoopbackTestEpoch, project, 43179, strings.Repeat("3", 64))
+	route, err := NewAttachmentHostLoopbackRouteForPrincipal(
+		hostLoopbackTestEpoch, hostLoopbackTestContext, "default",
+		hostLoopbackTestProject, "/workspace/project", 43179, strings.Repeat("3", 64),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return route
 }
 
-func TestAttachmentHostLoopbackRouteIdentityBindsEpochContextAndProject(t *testing.T) {
+func TestAttachmentHostLoopbackRouteIdentityBindsEpochContextWorkspaceAndHostname(t *testing.T) {
 	route := testAttachmentHostLoopbackRoute(t)
 	for name, mutate := range map[string]func(*AttachmentHostLoopbackRoute){
-		"epoch":   func(r *AttachmentHostLoopbackRoute) { r.EpochID = "att_abcdef0123456789abcdef0123456789" },
-		"context": func(r *AttachmentHostLoopbackRoute) { r.WorkspaceManifestID = "01912345-6789-7abc-8def-0123456789ac" },
-		"project": func(r *AttachmentHostLoopbackRoute) { r.ProjectID = "01912345-6789-7abc-8def-0123456789ac" },
-		"host":    func(r *AttachmentHostLoopbackRoute) { r.Hostname = "example.com" },
+		"epoch":     func(r *AttachmentHostLoopbackRoute) { r.EpochID = "att_abcdef0123456789abcdef0123456789" },
+		"context":   func(r *AttachmentHostLoopbackRoute) { r.ContextID = "01912345-6789-7abc-8def-0123456789ac" },
+		"workspace": func(r *AttachmentHostLoopbackRoute) { r.WorkspaceID = "01912345-6789-7abc-8def-0123456789ac" },
+		"host":      func(r *AttachmentHostLoopbackRoute) { r.Hostname = "example.com" },
 	} {
 		changed := route
 		mutate(&changed)
 		if err := changed.Validate(); err == nil {
 			t.Errorf("%s mutation remained valid", name)
 		}
+	}
+}
+
+func TestHostLoopbackSchemaAndAuthorityHardCut(t *testing.T) {
+	if HostLoopbackCapabilitySchema != 1 || HostLoopbackRegistrySchema != 2 {
+		t.Fatalf("capability/registry schemas = %d/%d, want 1/2", HostLoopbackCapabilitySchema, HostLoopbackRegistrySchema)
+	}
+	if HostLoopbackHostname != "host.tobari.internal" || HostLoopbackURLTemplate != "http://host.tobari.internal:{port}" {
+		t.Fatalf("current Host Loopback authority = %q %q", HostLoopbackHostname, HostLoopbackURLTemplate)
+	}
+	if RetiredHostLoopbackHostname != "host.tobari.test" {
+		t.Fatalf("retired Host Loopback authority = %q", RetiredHostLoopbackHostname)
+	}
+	route := testAttachmentHostLoopbackRoute(t)
+	oldID := route.ID
+	route.Hostname = RetiredHostLoopbackHostname
+	if route.Validate() == nil {
+		t.Fatal("retired hostname remained valid route authority")
+	}
+	route.ID = hostLoopbackRouteID(route.EpochID, route.ContextID, route.WorkspaceID, route.Hostname)
+	if route.ID == oldID || route.Validate() == nil {
+		t.Fatal("hostname-bound fresh route ID authorized the retired hostname")
 	}
 }
 
@@ -152,7 +172,7 @@ func TestHostLoopbackCandidateProducesOnlyAttachmentGrantAndExactReviewItem(t *t
 		t.Fatalf("review items = %+v, %v", items, err)
 	}
 	grant, err := NewAttachmentGrantFromCandidate(PolicyDecisionAllow, candidate)
-	if err != nil || grant.TargetPort != 3000 || grant.EpochID != candidate.AttachmentEpochID {
+	if err != nil || grant.ContextID != candidate.WorkspaceManifestID || grant.WorkspaceID != candidate.ProjectID || grant.TargetPort != 3000 || grant.EpochID != candidate.AttachmentEpochID {
 		t.Fatalf("attachment grant = %+v, %v", grant, err)
 	}
 }

@@ -69,10 +69,12 @@ func (f *finalAuthorityDeleteCounter) UpdateWorkspaceTemplateByReference(context
 type finalFirstEntryFixture struct {
 	publication tobari.ContextEntryPublication
 	calls       int
+	session     tobari.WorkspaceSessionRequest
 }
 
-func (f *finalFirstEntryFixture) EnterContextByReference(_ context.Context, _ string, _ tobari.WorkspaceSessionRequest, _ io.Reader, _, _ io.Writer) (tobari.ContextEntryPublication, error) {
+func (f *finalFirstEntryFixture) EnterContextByReference(_ context.Context, _ string, session tobari.WorkspaceSessionRequest, _ io.Reader, _, _ io.Writer) (tobari.ContextEntryPublication, error) {
 	f.calls++
+	f.session = session
 	return f.publication, nil
 }
 
@@ -480,6 +482,14 @@ func TestFinalContextEnterHelpAndInvocationPermitFirstEntrySettlement(t *testing
 	contextRef, _ := tobari.ContextRef(contextID)
 	if code := command.RunContext(context.Background(), []string{"context", "enter", "--id", contextRef}); code != ExitOK || port.calls != 1 {
 		t.Fatalf("first entry code=%d calls=%d stdout=%q stderr=%q", code, port.calls, out.String(), errOut.String())
+	}
+	directScript := `port=$1; printf "%s\n" "$TOBARI_CAPABILITIES_JSON" > /var/lib/tobari/host-probe`
+	if code := command.RunContext(context.Background(), []string{"context", "enter", "--id", contextRef, "--", "/bin/bash", "-lc", directScript, "bash", "3000"}); code != ExitOK {
+		t.Fatalf("direct first entry code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	wantArgv := []string{"/bin/bash", "-lc", directScript, "bash", "3000"}
+	if !port.session.Direct() || !reflect.DeepEqual(port.session.Argv(), wantArgv) {
+		t.Fatalf("direct session argv=%q", port.session.Argv())
 	}
 }
 

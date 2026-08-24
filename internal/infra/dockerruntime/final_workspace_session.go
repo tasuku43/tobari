@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -23,6 +24,64 @@ const (
 	FinalWorkspaceSessionLive   FinalWorkspaceSessionState = "live"
 	FinalWorkspaceSessionAbsent FinalWorkspaceSessionState = "absent"
 )
+
+// HasLiveFinalWorkspaceSession exposes only the canonical owner/liveness
+// predicate needed by dependent attachment capabilities. Permission-ingestion
+// transport, nonce, lease, ACK, and wait-registry authority stay private to
+// this file and are never returned to Host Loopback consumers.
+func (r *Runtime) HasLiveFinalWorkspaceSession(ctx context.Context) (bool, error) {
+	if r == nil {
+		return false, fmt.Errorf("Docker runtime is unavailable")
+	}
+	if err := requirePrivateDirectory(r.interactiveAttachmentDirectory()); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	if err := requireOwnerOnlyRegularFile(r.interactiveAttachmentSessionRegistryPath()); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	if err := requireOwnerOnlyRegularFile(filepath.Join(r.configDirectory, "interactive-attachment.lock")); err != nil {
+		return false, fmt.Errorf("validate canonical interactive attachment lock: %w", err)
+	}
+	live := false
+	err := r.withInteractiveAttachmentLock(ctx, func() error {
+		if err := requirePrivateDirectory(r.interactiveAttachmentDirectory()); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		if err := requireOwnerOnlyRegularFile(r.interactiveAttachmentSessionRegistryPath()); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		var registry tobari.InteractiveAttachmentSessionRegistry
+		if err := readStrictJSON(r.interactiveAttachmentSessionRegistryPath(), &registry); err != nil {
+			return err
+		}
+		if err := registry.Validate(); err != nil {
+			return err
+		}
+		for _, session := range registry.Sessions {
+			if r.permissionSessionActive(session) {
+				live = true
+				continue
+			}
+			if permissionSessionLeaseCurrent(session, time.Now()) {
+				return fmt.Errorf("canonical interactive attachment liveness is ambiguous")
+			}
+		}
+		return nil
+	})
+	return live, err
+}
 
 // ConfirmNoFinalWorkspaceSessions proves the complete canonical WP07 registry
 // has no owner at all. Gateway replacement is installation-wide, so checking

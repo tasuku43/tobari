@@ -10,9 +10,11 @@ import threading
 import time
 import unittest
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest import mock
 
-from mitmproxy import http
+from mitmproxy import connection, http
+from mitmproxy.addons import tlsconfig
 from mitmproxy.test import tflow
 
 import broker_credentials as broker
@@ -187,15 +189,15 @@ def permission_session_registry(now=None, transport="unix", endpoint=None):
 
 
 def host_loopback_registry(epoch="att_" + "1" * 32):
-    material = "\x00".join(("tobari-host-loopback-route-v1", epoch, CONTEXT, PROJECT))
+    material = "\x00".join(("tobari-host-loopback-route-v2", epoch, CONTEXT, PROJECT, "host.tobari.internal"))
     route_id = "hlr_" + gateway.hashlib.sha256(material.encode()).hexdigest()[:32]
     route = {
         "id": route_id, "attachment_epoch_id": epoch, "context_id": CONTEXT,
         "context": "default", "project_id": PROJECT, "project_root": "/workspace/project",
-        "hostname": "host.tobari.test",
+        "hostname": "host.tobari.internal",
         "relay_port": 43179, "relay_token": "3" * 64,
     }
-    return {"schema_version": 1, "routes": [route]}, route
+    return {"schema_version": 2, "routes": [route]}, route
 
 
 def attachment_grant(route, decision="allow", target_port=3000):
@@ -686,8 +688,8 @@ class PermissionResumeProjectionTests(unittest.TestCase):
             with self.subTest(case=case):
                 addon = self._denial_addon(principal)
                 addon._permission_resume = mock.Mock()
-                url = "http://host.tobari.test:3000/health" if case == "host_loopback" else "https://api.example.com/items"
-                scheme, host, port = ("http", "host.tobari.test", 3000) if case == "host_loopback" else ("https", "api.example.com", 443)
+                url = "http://host.tobari.internal:3000/health" if case == "host_loopback" else "https://api.example.com/items"
+                scheme, host, port = ("http", "host.tobari.internal", 3000) if case == "host_loopback" else ("https", "api.example.com", 443)
                 if case == "host_loopback":
                     registry, route = host_loopback_registry()
                     addon.host_loopback_source.resolve.return_value = (
@@ -710,6 +712,19 @@ class PermissionResumeProjectionTests(unittest.TestCase):
                     addon.requestheaders(flow)
                 addon._permission_resume.assert_not_called()
                 self.assertNotIn("resume", json.loads(flow.response.content)["tobari"])
+
+    def test_permission_wait_excludes_current_and_retired_host_loopback(self):
+        base = {
+            "request": {
+                "authority": {"scheme": "http", "host": "", "port": 3000},
+                "method": "GET", "path": {"raw": "/health", "segments": ["health"]},
+            }
+        }
+        for hostname in (gateway.HOST_LOOPBACK_HOSTNAME, gateway.RETIRED_HOST_LOOPBACK_HOSTNAME):
+            document = copy.deepcopy(base)
+            document["request"]["authority"]["host"] = hostname
+            with self.subTest(hostname=hostname):
+                self.assertIsNone(gateway._permission_wait_effect(document))
 
     def test_invalid_session_state_omits_resume_but_preserves_policy_denial(self):
         principal = gateway._parse_project_principals(
@@ -821,6 +836,90 @@ class ProtocolEndpointDeclarationTests(unittest.TestCase):
 
 class ValidatedRuntimeFileCacheTests(unittest.TestCase):
 
+    def test_retired_http_is_terminal_before_every_authority_consumer(self):
+        addon = gateway.TobariGateway.__new__(gateway.TobariGateway)
+        addon.cluster = "default"
+        addon.principal_source = mock.Mock()
+        addon.credential_adapter = mock.Mock()
+        addon.host_loopback_source = mock.Mock()
+        addon.host_loopback_bridges = mock.Mock()
+        addon.permission_session_source = mock.Mock()
+        flow = tflow.tflow(req=http.Request.make("GET", "http://host.tobari.test:3000/health"))
+        with (
+            mock.patch.object(gateway, "normalize_ingress_authority", return_value=("http", gateway.RETIRED_HOST_LOOPBACK_HOSTNAME, 3000)),
+            mock.patch.object(gateway, "resolve_project_principal") as principal,
+            mock.patch.object(gateway, "query_opa") as opa,
+            mock.patch.object(gateway, "resolve_upstream_address") as upstream,
+            mock.patch.object(gateway, "_audit") as audit,
+        ):
+            addon.requestheaders(flow)
+        self.assertEqual(flow.response.status_code, 410)
+        self.assertEqual(json.loads(flow.response.content), {"error": "retired_host_loopback_authority"})
+        principal.assert_not_called()
+        addon.principal_source.load.assert_not_called()
+        addon.credential_adapter.prepare.assert_not_called()
+        addon.host_loopback_source.resolve.assert_not_called()
+        addon.host_loopback_bridges.open.assert_not_called()
+        addon.permission_session_source.resolve.assert_not_called()
+        opa.assert_not_called()
+        upstream.assert_not_called()
+        self.assertEqual(audit.call_count, 1)
+        self.assertFalse(audit.call_args.kwargs["learnable"])
+
+    def test_terminal_tls_hook_supplies_no_certificate_context(self):
+        cases = (
+            ("current", SimpleNamespace(sni="host.tobari.internal", extensions=[]), "host_loopback_tls_unsupported"),
+            ("retired", SimpleNamespace(sni="host.tobari.test", extensions=[]), "host_loopback_tls_unsupported"),
+            ("case", SimpleNamespace(sni="HOST.TOBARI.INTERNAL.", extensions=[]), "host_loopback_tls_unsupported"),
+            ("absent", SimpleNamespace(sni=None, extensions=[]), "tls_authority_unobservable"),
+            ("ech", SimpleNamespace(sni="public.example", extensions=[(0xFE0D, b"encrypted")]), "tls_authority_unobservable"),
+            ("malformed", SimpleNamespace(sni="host.tobari.internal", extensions=None), "tls_authority_malformed"),
+        )
+        addon = gateway.TobariGateway.__new__(gateway.TobariGateway)
+        for name, hello, reason in cases:
+            with self.subTest(name=name):
+                context = SimpleNamespace()
+                clienthello = SimpleNamespace(client_hello=hello, context=context, establish_server_tls_first=True)
+                addon.tls_clienthello(clienthello)
+                self.assertEqual(context.tobari_terminal_tls_reason, reason)
+                self.assertFalse(clienthello.establish_server_tls_first)
+                start = SimpleNamespace(context=context, ssl_conn=object())
+                addon.tls_start_client(start)
+                self.assertIs(start.ssl_conn, False)
+
+        ordinary = SimpleNamespace(sni="api.example.com", extensions=[])
+        self.assertIsNone(gateway._terminal_tls_reason(ordinary))
+        context = SimpleNamespace()
+        start = SimpleNamespace(context=context, ssl_conn="ordinary-context")
+        addon.tls_start_client(start)
+        self.assertEqual(start.ssl_conn, "ordinary-context")
+
+        # Cross the pinned mitmproxy boundary as well: its TLSConfig must stop
+        # before certificate selection for our false context. An ordinary
+        # control reaches get_cert, which is replaced with a bounded marker.
+        config = object.__new__(tlsconfig.TlsConfig)
+        config.get_cert = mock.Mock(side_effect=RuntimeError("certificate lookup reached"))
+        tlsconfig.TlsConfig.tls_start_client(
+            config,
+            SimpleNamespace(ssl_conn=False),
+        )
+        config.get_cert.assert_not_called()
+        ordinary_client = connection.Client(
+            peername=("192.0.2.1", 50000),
+            sockname=("198.51.100.1", 443),
+        )
+        ordinary_context = SimpleNamespace(server=connection.Server(address=("example.com", 443)))
+        with self.assertRaisesRegex(RuntimeError, "certificate lookup reached"):
+            tlsconfig.TlsConfig.tls_start_client(
+                config,
+                SimpleNamespace(
+                    ssl_conn=None,
+                    conn=ordinary_client,
+                    context=ordinary_context,
+                ),
+            )
+        config.get_cert.assert_called_once_with(ordinary_context)
+
     def test_host_loopback_source_binds_workspace_epoch_port_and_attachment_grants(self):
         with tempfile.TemporaryDirectory() as temporary:
             service_path = os.path.join(temporary, "services.json")
@@ -828,7 +927,7 @@ class ValidatedRuntimeFileCacheTests(unittest.TestCase):
             registry, route = host_loopback_registry()
             grant = attachment_grant(route)
             atomic_json(service_path, registry)
-            atomic_json(grant_path, {"schema_version": 1, "grants": [grant]})
+            atomic_json(grant_path, {"schema_version": 2, "grants": [grant]})
             source = gateway.HostLoopbackRegistrySource(service_path, grant_path)
             principal = {"context_id": CONTEXT, "project_id": PROJECT}
             resolved, grants = source.resolve(principal, "http", route["hostname"], 3000)
@@ -848,13 +947,21 @@ class ValidatedRuntimeFileCacheTests(unittest.TestCase):
                 with self.assertRaises(gateway.HostLoopbackError):
                     gateway._parse_host_loopback_routes(json.dumps(changed).encode())
 
+        predecessor = copy.deepcopy(registry)
+        predecessor["schema_version"] = 1
+        with self.assertRaises(gateway.HostLoopbackError):
+            gateway._parse_host_loopback_routes(json.dumps(predecessor).encode())
+
     def test_attachment_grant_identity_binds_target_port(self):
         _, route = host_loopback_registry()
         grant = attachment_grant(route, target_port=3000)
         changed = copy.deepcopy(grant)
         changed["target_port"] = 3001
         with self.assertRaises(gateway.HostLoopbackError):
-            gateway._parse_attachment_grants(json.dumps({"schema_version": 1, "grants": [changed]}).encode())
+            gateway._parse_attachment_grants(json.dumps({"schema_version": 2, "grants": [changed]}).encode())
+
+        with self.assertRaises(gateway.HostLoopbackError):
+            gateway._parse_attachment_grants(json.dumps({"schema_version": 1, "grants": [grant]}).encode())
 
     def test_host_loopback_policy_precedes_port_bound_authenticated_relay_selection(self):
         _, route = host_loopback_registry()
@@ -873,8 +980,8 @@ class ValidatedRuntimeFileCacheTests(unittest.TestCase):
                 prepared = mock.Mock(secret_headers=set(), broker_provider=None, deferred=False)
                 addon.credential_adapter = mock.Mock()
                 addon.credential_adapter.prepare.return_value = prepared
-                request = http.Request.make("GET", "http://host.tobari.test:3000/health")
-                request.headers["Host"] = "host.tobari.test:3000"
+                request = http.Request.make("GET", "http://host.tobari.internal:3000/health")
+                request.headers["Host"] = "host.tobari.internal:3000"
                 flow = tflow.tflow(req=request)
                 captured = []
 
@@ -898,7 +1005,7 @@ class ValidatedRuntimeFileCacheTests(unittest.TestCase):
                     addon.host_loopback_bridges.open.assert_called_once_with(route["relay_port"], route["relay_token"], 3000)
                     self.assertEqual(flow.server_conn.address, ("127.0.0.1", 45000))
                     self.assertEqual((flow.request.host, flow.request.port), ("127.0.0.1", 45000))
-                    self.assertEqual(flow.request.host_header, "host.tobari.test:3000")
+                    self.assertEqual(flow.request.host_header, "host.tobari.internal:3000")
                 else:
                     addon.host_loopback_bridges.open.assert_not_called()
                     self.assertEqual(flow.response.status_code, 403)
@@ -1010,7 +1117,7 @@ class ValidatedRuntimeFileCacheTests(unittest.TestCase):
         grant["workspace_manifest_id"] = grant.pop("context_id")
         with self.assertRaises(gateway.HostLoopbackError):
             gateway._parse_attachment_grants(
-                json.dumps({"schema_version": 1, "grants": [grant]}).encode()
+                json.dumps({"schema_version": 2, "grants": [grant]}).encode()
             )
 
     def test_principal_registry_permission_change_invalidates_cache(self):

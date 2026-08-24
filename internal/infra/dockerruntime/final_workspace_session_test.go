@@ -26,6 +26,25 @@ type finalWorkspaceSessionRunner struct {
 	runs    int
 }
 
+func TestHasLiveFinalWorkspaceSessionDoesNotCreateFreshState(t *testing.T) {
+	root := t.TempDir()
+	runtime, err := newRuntime(root+"/config", root+"/state", &finalWorkspaceSessionRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	live, err := runtime.HasLiveFinalWorkspaceSession(context.Background())
+	if err != nil || live {
+		t.Fatalf("fresh session observation live=%t err=%v", live, err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("fresh session observation created state: %v", entries)
+	}
+}
+
 func (r *finalWorkspaceSessionRunner) Run(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error {
 	r.runs++
 	return nil

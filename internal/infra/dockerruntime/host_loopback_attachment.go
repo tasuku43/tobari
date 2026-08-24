@@ -189,9 +189,9 @@ func (r *Runtime) beginHostLoopbackAttachmentForPrincipal(
 			return err
 		}
 		for _, existing := range registry.Routes {
-			if existing.ProjectID == principal.workspaceID {
-				if existing.WorkspaceManifestID != principal.contextID ||
-					existing.WorkspaceManifestName != principal.contextPresentation ||
+			if existing.WorkspaceID == principal.workspaceID {
+				if existing.ContextID != principal.contextID ||
+					existing.ContextPresentation != principal.contextPresentation ||
 					existing.ProjectRoot != principal.projectRoot || existing.EpochID != epochID {
 					return fmt.Errorf("Host Loopback route does not belong to the canonical interactive attachment")
 				}
@@ -307,7 +307,7 @@ func (r *Runtime) hostLoopbackPortAllowed(projectID, epochID string, targetPort 
 	}
 	active := false
 	for _, route := range routes.Routes {
-		active = active || (route.ProjectID == projectID && route.EpochID == epochID)
+		active = active || (route.WorkspaceID == projectID && route.EpochID == epochID)
 	}
 	if !active {
 		return false
@@ -317,7 +317,7 @@ func (r *Runtime) hostLoopbackPortAllowed(projectID, epochID string, targetPort 
 		return false
 	}
 	for _, grant := range grants.Grants {
-		if grant.ProjectID == projectID && grant.EpochID == epochID && grant.TargetPort == targetPort && grant.Decision == tobari.PolicyDecisionAllow {
+		if grant.WorkspaceID == projectID && grant.EpochID == epochID && grant.TargetPort == targetPort && grant.Decision == tobari.PolicyDecisionAllow {
 			return true
 		}
 	}
@@ -414,7 +414,7 @@ func (r *Runtime) ApplyAttachmentGrantDecisionSet(
 			}
 			active := false
 			for _, route := range routes.Routes {
-				active = active || (route.EpochID == grant.EpochID && route.ProjectID == grant.ProjectID && route.WorkspaceManifestID == grant.WorkspaceManifestID && route.Hostname == grant.Hostname)
+				active = active || (route.EpochID == grant.EpochID && route.WorkspaceID == grant.WorkspaceID && route.ContextID == grant.ContextID && route.Hostname == grant.Hostname)
 			}
 			if !active {
 				return fmt.Errorf("attachment grant route is no longer active")
@@ -430,7 +430,7 @@ func (r *Runtime) ApplyAttachmentGrantDecisionSet(
 		for _, addition := range grants {
 			kept := registry.Grants[:0]
 			for _, existing := range registry.Grants {
-				if existing.ProjectID == addition.ProjectID && existing.EpochID == addition.EpochID && existing.TargetPort == addition.TargetPort && existing.Method == addition.Method && existing.Path == addition.Path {
+				if existing.WorkspaceID == addition.WorkspaceID && existing.EpochID == addition.EpochID && existing.TargetPort == addition.TargetPort && existing.Method == addition.Method && existing.Path == addition.Path {
 					continue
 				}
 				kept = append(kept, existing)

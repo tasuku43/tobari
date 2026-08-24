@@ -414,7 +414,7 @@ func TestPolicyMemoryActionRejectsCrossBoundaryAndKeepsCandidateRef(t *testing.T
 	service := NewPolicyMemoryService(fake)
 	target := operation.TargetRef{Kind: tobari.PolicyCandidateKind, ID: candidate.ID}
 	result, err := service.Allow(context.Background(), intent(TaskPolicyAllow, operation.EffectWrite, target, PolicyMemoryImpact()), candidate.ID)
-	if err != nil || result.Candidate.ID != candidate.ID || fake.lastRef != candidate.ID {
+	if err != nil || result.Persistent == nil || result.Persistent.Candidate.ID != candidate.ID || fake.lastRef != candidate.ID {
 		t.Fatalf("allow=%#v ref=%q err=%v", result, fake.lastRef, err)
 	}
 	bad := snapshot

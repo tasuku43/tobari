@@ -320,7 +320,7 @@ func aggregateRouter(items []aggregateContext) ([]byte, error) {
 	var builder strings.Builder
 	builder.WriteString("package tobari.http\n\nimport rego.v1\n\n")
 	builder.WriteString("default decision := {\"allow\": false, \"reason\": \"unknown or invalid Context authority\", \"status_code\": 403, \"learnable\": false}\n\n")
-	builder.WriteString("host_loopback_request if { object.get(input, \"destination\", {}).kind == \"host_loopback\" }\n")
+	builder.WriteString("host_loopback_request if { object.get(input, \"destination\", {}).kind == \"host_loopback\"; input.request.authority.scheme == \"http\"; input.request.authority.host == \"host.tobari.internal\"; input.request.authority.port >= 1024; input.request.authority.port <= 65535 }\n")
 	builder.WriteString("host_loopback_identity_valid if { regex.match(\"^att_[0-9a-f]{32}$\", input.destination.attachment_epoch_id) }\n")
 	builder.WriteString("attachment_grant_matches(grant) if { grant.lifetime == \"attachment\"; grant.destination_kind == \"host_loopback\"; grant.context_id == input.principal.context_id; grant.project_id == input.principal.project_id; grant.attachment_epoch_id == input.destination.attachment_epoch_id; grant.host == input.request.authority.host; grant.target_port == input.request.authority.port; grant.method == input.request.method; grant.path == input.request.path.raw }\n")
 	builder.WriteString("attachment_allowed if { some grant in object.get(input.authorization, \"attachment_grants\", []); grant.decision == \"allow\"; attachment_grant_matches(grant) }\n")

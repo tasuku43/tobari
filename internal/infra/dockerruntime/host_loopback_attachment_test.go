@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -19,8 +20,8 @@ func hostLoopbackGrant(t *testing.T, route tobari.AttachmentHostLoopbackRoute, p
 	denial := tobari.PolicyDenial{
 		PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "http", Protocol: tobari.PolicyProtocolHTTP},
 		Timestamp:              "2026-08-17T12:00:00Z", RequestID: strings.Repeat("1", 32),
-		WorkspaceManifestID: route.WorkspaceManifestID, WorkspaceManifestName: route.WorkspaceManifestName,
-		ProjectID: route.ProjectID, ProjectRoot: route.ProjectRoot,
+		WorkspaceManifestID: route.ContextID, WorkspaceManifestName: route.ContextPresentation,
+		ProjectID: route.WorkspaceID, ProjectRoot: route.ProjectRoot,
 		Host: tobari.HostLoopbackHostname, Port: port, Method: "GET", Path: "/health",
 		Reason: "review", StatusCode: 403, Learnable: true,
 		DestinationKind: tobari.PolicyDestinationHostLoopback, AuthorityLifetime: tobari.AuthorityLifetimeAttachment,
@@ -124,6 +125,33 @@ func TestHostLoopbackRelayRequiresTokenAndPortGrantBeforeTargetDial(t *testing.T
 		t.Fatalf("relay acknowledgement = %q, %v", ack, err)
 	}
 	_ = connection.Close()
+}
+
+func TestHostLoopbackStoreRejectsPredecessorSchemaWithoutMutation(t *testing.T) {
+	root := t.TempDir()
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(runtime.hostLoopbackDirectory(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	routes := []byte("{\"schema_version\":1,\"routes\":[]}\n")
+	grants := []byte("{\"schema_version\":1,\"grants\":[]}\n")
+	if err := os.WriteFile(runtime.hostLoopbackRegistryPath(), routes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(runtime.attachmentGrantRegistryPath(), grants, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.ensureHostLoopbackStore(context.Background()); err == nil {
+		t.Fatal("predecessor Host Loopback schema was accepted")
+	}
+	gotRoutes, routeErr := os.ReadFile(runtime.hostLoopbackRegistryPath())
+	gotGrants, grantErr := os.ReadFile(runtime.attachmentGrantRegistryPath())
+	if routeErr != nil || grantErr != nil || string(gotRoutes) != string(routes) || string(gotGrants) != string(grants) {
+		t.Fatalf("predecessor registry changed: routes=%q/%v grants=%q/%v", gotRoutes, routeErr, gotGrants, grantErr)
+	}
 }
 
 func TestHostLoopbackConcurrentAttachmentBorrowsOwnerWithoutExtendingLifetime(t *testing.T) {

@@ -62,6 +62,57 @@ func TestConfigOnlyLegacyResearchAuthorityBlocksFreshFinalStoreWithoutMutation(t
 	}
 }
 
+func TestPredecessorHostLoopbackSchemaBlocksFreshFinalStoreWithoutMutation(t *testing.T) {
+	root := t.TempDir()
+	configHome := filepath.Join(root, "config")
+	stateHome := filepath.Join(root, "state")
+	dataHome := filepath.Join(root, "data")
+	for _, path := range []string{configHome, stateHome, dataHome} {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	legacyRoot := filepath.Join(configHome, "tobari", "host-loopback")
+	if err := os.MkdirAll(legacyRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"routes.json": `{"schema_version":1,"routes":[]}`,
+		"grants.json": `{"schema_version":1,"grants":[]}`,
+	} {
+		if err := os.WriteFile(filepath.Join(legacyRoot, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runtime, err := dockerruntime.New(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := workspaceauthoritystore.NewFinalOnly(filepath.Join(stateHome, "tobari", "workspace-authority"), runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := legacyGuardTree(t, root)
+	if _, _, err := store.ReadComplete(context.Background()); err == nil || !errors.Is(err, tobari.ErrPreReleaseLegacyAuthority) {
+		t.Fatalf("predecessor Host Loopback final-store error = %v", err)
+	}
+	after := legacyGuardTree(t, root)
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("predecessor Host Loopback rejection mutated installation:\nbefore=%v\nafter=%v", before, after)
+	}
+	for _, forbidden := range []string{
+		filepath.Join(stateHome, "tobari", "workspace-authority"),
+		filepath.Join(stateHome, "tobari", "lifecycle.lock"),
+	} {
+		if _, err := os.Lstat(forbidden); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("predecessor Host Loopback rejection created %q: %v", forbidden, err)
+		}
+	}
+}
+
 func TestEveryDeclaredLegacyRootBlocksFreshFinalStoreWithoutMutation(t *testing.T) {
 	paths := []string{
 		"config/tobari/contexts",

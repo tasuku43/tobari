@@ -36,6 +36,7 @@ type finalWorkspaceAuthorityAdapter struct {
 	*workspaceauthoritystore.Store
 	*workspaceauthoritystore.Mutator
 	*workspaceauthoritystore.ContextEntryAdapter
+	*workspaceauthoritystore.HostLoopbackPolicyAdapter
 }
 
 var (
@@ -164,7 +165,15 @@ func New(lifetime context.Context, in io.Reader, out, errOut io.Writer) *CLI {
 		command.doctor = doctorcmd.New(systemdoctor.New(err))
 		return command
 	}
-	finalAuthority := &finalWorkspaceAuthorityAdapter{Store: authorityStore, Mutator: mutator, ContextEntryAdapter: entry}
+	hostLoopbackPolicy, err := workspaceauthoritystore.NewHostLoopbackPolicyAdapter(authorityStore, runtime)
+	if err != nil {
+		command.doctor = doctorcmd.New(systemdoctor.New(err))
+		return command
+	}
+	finalAuthority := &finalWorkspaceAuthorityAdapter{
+		Store: authorityStore, Mutator: mutator, ContextEntryAdapter: entry,
+		HostLoopbackPolicyAdapter: hostLoopbackPolicy,
+	}
 	command.authorityStore = authorityStore
 	command.finalTemplates = workspaceauthoritycmd.NewTemplateService(finalAuthority)
 	command.finalContexts = workspaceauthoritycmd.NewContextService(finalAuthority)

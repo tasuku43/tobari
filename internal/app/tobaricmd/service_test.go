@@ -998,8 +998,8 @@ func TestHostLoopbackCandidateIsOnlyExposedThroughPolicyReview(t *testing.T) {
 	denial := tobari.PolicyDenial{
 		PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "http", Protocol: tobari.PolicyProtocolHTTP},
 		Timestamp:              "2026-08-17T12:00:00Z", RequestID: "0123456789abcdef0123456789abcdef",
-		WorkspaceManifestID: route.WorkspaceManifestID, WorkspaceManifestName: route.WorkspaceManifestName,
-		ProjectID: route.ProjectID, ProjectRoot: route.ProjectRoot,
+		WorkspaceManifestID: route.ContextID, WorkspaceManifestName: route.ContextPresentation,
+		ProjectID: route.WorkspaceID, ProjectRoot: route.ProjectRoot,
 		Host: route.Hostname, Port: 3000, Method: "GET", Path: "/health",
 		Reason: "review", StatusCode: 403, Learnable: true,
 		DestinationKind: tobari.PolicyDestinationHostLoopback, AuthorityLifetime: tobari.AuthorityLifetimeAttachment,
@@ -1159,7 +1159,7 @@ func TestApplyPolicyReviewDecisionSetKeepsHostLoopbackAuthorityAttachmentScoped(
 	if err != nil {
 		t.Fatal(err)
 	}
-	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "http", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-17T12:00:00Z", RequestID: "0123456789abcdef0123456789abcdef", WorkspaceManifestID: route.WorkspaceManifestID, WorkspaceManifestName: route.WorkspaceManifestName, ProjectID: route.ProjectID, ProjectRoot: route.ProjectRoot, Host: route.Hostname, Port: 3000, Method: "GET", Path: "/health", Reason: "review", StatusCode: 403, Learnable: true, DestinationKind: tobari.PolicyDestinationHostLoopback, AuthorityLifetime: tobari.AuthorityLifetimeAttachment, AttachmentEpochID: route.EpochID}
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "http", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-17T12:00:00Z", RequestID: "0123456789abcdef0123456789abcdef", WorkspaceManifestID: route.ContextID, WorkspaceManifestName: route.ContextPresentation, ProjectID: route.WorkspaceID, ProjectRoot: route.ProjectRoot, Host: route.Hostname, Port: 3000, Method: "GET", Path: "/health", Reason: "review", StatusCode: 403, Learnable: true, DestinationKind: tobari.PolicyDestinationHostLoopback, AuthorityLifetime: tobari.AuthorityLifetimeAttachment, AttachmentEpochID: route.EpochID}
 	candidate, err := tobari.NewPolicyCandidate(denial)
 	if err != nil {
 		t.Fatal(err)

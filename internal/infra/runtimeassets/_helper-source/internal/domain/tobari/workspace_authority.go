@@ -2000,6 +2000,45 @@ type PolicyCandidatePublication struct {
 	Memory    PolicyMemoryPublication
 }
 
+// PolicyCandidateDecisionPublication is the internal direct-action result for
+// the existing policy allow/deny task. Exactly one authority branch changes:
+// persistent candidates publish Policy Memory, while Host Loopback candidates
+// publish an attachment-local grant.
+type PolicyCandidateDecisionPublication struct {
+	Persistent *PolicyCandidatePublication
+	Attachment *AttachmentGrantPublication
+}
+
+func NewPersistentPolicyCandidateDecisionPublication(value PolicyCandidatePublication) PolicyCandidateDecisionPublication {
+	copy := value
+	return PolicyCandidateDecisionPublication{Persistent: &copy}
+}
+
+func NewAttachmentPolicyCandidateDecisionPublication(value AttachmentGrantPublication) PolicyCandidateDecisionPublication {
+	copy := value
+	return PolicyCandidateDecisionPublication{Attachment: &copy}
+}
+
+func (p PolicyCandidateDecisionPublication) ValidateFor(candidateID string, decision PolicyMemoryDecision) error {
+	if (p.Persistent == nil) == (p.Attachment == nil) {
+		return fmt.Errorf("policy candidate decision must change exactly one authority branch")
+	}
+	if p.Persistent != nil {
+		return p.Persistent.ValidateFor(candidateID, decision)
+	}
+	return p.Attachment.ValidateFor(candidateID, decision)
+}
+
+func (p PolicyCandidateDecisionPublication) ActiveRevision() string {
+	if p.Persistent != nil {
+		return string(p.Persistent.Memory.Snapshot.PolicyMemory.Revision)
+	}
+	if p.Attachment != nil {
+		return p.Attachment.Activation.ActiveRevision
+	}
+	return ""
+}
+
 func (p PolicyCandidatePublication) ValidateFor(candidateID string, decision PolicyMemoryDecision) error {
 	if err := ValidatePolicyCandidateID(candidateID); err != nil {
 		return err

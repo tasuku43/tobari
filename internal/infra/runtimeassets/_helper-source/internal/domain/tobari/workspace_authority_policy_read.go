@@ -23,6 +23,7 @@ type PolicyCandidateAuthorityView struct {
 	ObservingWorkspaceRef string                   `json:"-"`
 	Effect                PolicyCandidateEffect    `json:"effect"`
 	Authority             PolicyCandidateAuthority `json:"-"`
+	AttachmentAuthority   *PolicyCandidate         `json:"-"`
 	ContextAuthority      ContextBinding           `json:"-"`
 	ContextID             ContextID                `json:"context_id"`
 	TemplateID            WorkspaceTemplateID      `json:"workspace_template_id"`
@@ -35,10 +36,17 @@ func (v PolicyCandidateAuthorityView) Clone() PolicyCandidateAuthorityView {
 	result := v
 	result.Effect = v.Effect.Clone()
 	result.Authority = v.Authority.Clone()
+	if v.AttachmentAuthority != nil {
+		attachment := *v.AttachmentAuthority
+		result.AttachmentAuthority = &attachment
+	}
 	return result
 }
 
 func (v PolicyCandidateAuthorityView) Validate() error {
+	if v.AttachmentAuthority != nil {
+		return v.validateAttachment()
+	}
 	if err := v.Authority.Validate(); err != nil {
 		return err
 	}
@@ -55,6 +63,39 @@ func (v PolicyCandidateAuthorityView) Validate() error {
 		v.ID != v.Authority.ID || v.ContextRef != contextRef || v.TemplateRef != templateRef ||
 		v.ObservingWorkspaceRef != workspaceRef || !reflect.DeepEqual(v.Effect, v.Authority.Effect) {
 		return fmt.Errorf("Policy candidate view does not bind its exact final authority")
+	}
+	return nil
+}
+
+func (v PolicyCandidateAuthorityView) validateAttachment() error {
+	attachment := *v.AttachmentAuthority
+	if err := attachment.Validate(); err != nil {
+		return err
+	}
+	contextID := ContextID(attachment.WorkspaceManifestID)
+	workspaceID := WorkspaceID(attachment.ProjectID)
+	contextRef, contextErr := ContextRef(contextID)
+	templateRef, templateErr := WorkspaceTemplateRef(v.TemplateID)
+	workspaceRef, workspaceErr := WorkspaceRef(workspaceID)
+	wantEffect := PolicyCandidateEffect{
+		PolicyProtocolIdentity: attachment.PolicyProtocolIdentity,
+		Match:                  PolicyMatchExact, Host: attachment.Host, Port: attachment.Port,
+		Method: attachment.Method, Path: attachment.Path,
+		Segments: []string{}, Examples: []string{attachment.Path},
+	}
+	if contextErr != nil || templateErr != nil || workspaceErr != nil || v.ContextAuthority.Validate() != nil ||
+		attachment.EffectiveDestinationKind() != PolicyDestinationHostLoopback ||
+		attachment.EffectiveAuthorityLifetime() != AuthorityLifetimeAttachment ||
+		contextID != v.ContextID || workspaceID != v.ObservingWorkspaceID ||
+		v.ContextAuthority.ID != contextID || v.ContextAuthority.TemplateID != v.TemplateID ||
+		ValidateName(v.TemplateName) != nil || attachment.WorkspaceManifestName != v.TemplateName ||
+		ValidateCanonicalRoot(v.ObservingProjectRoot) != nil || attachment.ProjectRoot != v.ObservingProjectRoot ||
+		v.ContextAuthority.ProjectRoot != v.ObservingProjectRoot ||
+		v.Context != v.TemplateName || v.Template != v.TemplateName || v.ProjectRoot != v.ContextAuthority.ProjectRoot ||
+		v.ObservingWorkspace != v.ObservingProjectRoot || v.ID != attachment.ID ||
+		v.ContextRef != contextRef || v.TemplateRef != templateRef || v.ObservingWorkspaceRef != workspaceRef ||
+		!reflect.DeepEqual(v.Effect, wantEffect) || v.Authority.ID != "" {
+		return fmt.Errorf("Policy candidate view does not bind its attachment-local authority")
 	}
 	return nil
 }
@@ -76,6 +117,74 @@ func NewPolicyCandidateAuthorityList(collection WorkspaceAuthorityCollection, pr
 	if err != nil {
 		return PolicyCandidateAuthorityList{}, err
 	}
+	return result, result.Validate()
+}
+
+// NewPolicyCandidateAuthorityListWithAttachments joins active attachment-local
+// Host Loopback candidates to the same final Context/Template/Workspace
+// presentation used by persistent candidates. The attachment authority stays
+// out of the final collection and Policy Memory.
+func NewPolicyCandidateAuthorityListWithAttachments(
+	collection WorkspaceAuthorityCollection,
+	present bool,
+	attachments []PolicyCandidate,
+) (PolicyCandidateAuthorityList, error) {
+	result, err := newPolicyCandidateAuthorityList(collection, present)
+	if err != nil {
+		return PolicyCandidateAuthorityList{}, err
+	}
+	if len(attachments) == 0 {
+		return result, result.Validate()
+	}
+	if !present {
+		return PolicyCandidateAuthorityList{}, fmt.Errorf("attachment-local candidates require final authority")
+	}
+	contexts := make(map[ContextID]ContextBinding, len(collection.Contexts))
+	templates := make(map[WorkspaceTemplateID]string, len(collection.Templates))
+	workspaces := make(map[WorkspaceID]WorkspaceBinding, len(collection.Workspaces))
+	for _, record := range collection.Contexts {
+		contexts[record.Context.ID] = record.Context
+	}
+	for _, template := range collection.Templates {
+		templates[template.ID] = template.Name
+	}
+	for _, workspace := range collection.Workspaces {
+		workspaces[workspace.ID] = workspace
+	}
+	for index := range attachments {
+		candidate := attachments[index]
+		if err := candidate.Validate(); err != nil {
+			return PolicyCandidateAuthorityList{}, err
+		}
+		contextID := ContextID(candidate.WorkspaceManifestID)
+		workspaceID := WorkspaceID(candidate.ProjectID)
+		binding, contextFound := contexts[contextID]
+		workspace, workspaceFound := workspaces[workspaceID]
+		templateName, templateFound := templates[binding.TemplateID]
+		if !contextFound || !workspaceFound || !templateFound || workspace.ContextID != contextID ||
+			candidate.ProjectRoot != workspace.ProjectRoot || candidate.WorkspaceManifestName != templateName {
+			return PolicyCandidateAuthorityList{}, fmt.Errorf("attachment-local candidate does not belong to current final authority")
+		}
+		contextRef, _ := ContextRef(contextID)
+		templateRef, _ := WorkspaceTemplateRef(binding.TemplateID)
+		workspaceRef, _ := WorkspaceRef(workspaceID)
+		attachment := candidate
+		result.Items = append(result.Items, PolicyCandidateAuthorityView{
+			ID: candidate.ID, Context: templateName, Template: templateName, ProjectRoot: binding.ProjectRoot,
+			ObservingWorkspace: workspace.ProjectRoot, ContextRef: contextRef, TemplateRef: templateRef,
+			ObservingWorkspaceRef: workspaceRef,
+			Effect: PolicyCandidateEffect{
+				PolicyProtocolIdentity: candidate.PolicyProtocolIdentity,
+				Match:                  PolicyMatchExact, Host: candidate.Host, Port: candidate.Port,
+				Method: candidate.Method, Path: candidate.Path,
+				Segments: []string{}, Examples: []string{candidate.Path},
+			},
+			AttachmentAuthority: &attachment, ContextAuthority: binding,
+			ContextID: contextID, TemplateID: binding.TemplateID, ObservingWorkspaceID: workspaceID,
+			TemplateName: templateName, ObservingProjectRoot: workspace.ProjectRoot,
+		})
+	}
+	sort.Slice(result.Items, func(i, j int) bool { return result.Items[i].ID < result.Items[j].ID })
 	return result, result.Validate()
 }
 

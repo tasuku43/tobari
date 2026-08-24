@@ -338,7 +338,7 @@ func TestEnterProjectRuntimeProjectsAmbientHostLoopbackCapabilityAndRevokesLease
 		t.Fatalf("run count = %d", len(runner.runs))
 	}
 	joined := strings.Join(runner.runs[0].args, "\n")
-	for _, want := range []string{"TOBARI_CAPABILITIES_JSON=", `"url_template":"http://host.tobari.test:{port}"`, `"minimum_port":1024`, `"lifetime":"attachment"`, `"host_docker_control":"unavailable"`} {
+	for _, want := range []string{"TOBARI_CAPABILITIES_JSON=", `"url_template":"http://host.tobari.internal:{port}"`, `"minimum_port":1024`, `"lifetime":"attachment"`, `"host_docker_control":"unavailable"`} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("exec args lack %q: %s", want, joined)
 		}

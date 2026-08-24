@@ -67,6 +67,10 @@ PERMISSION_WAIT_LEASE_SECONDS = 15 * 60
 PERMISSION_INGESTION_UNIX = "unix"
 PERMISSION_INGESTION_LOOPBACK_TCP = "loopback_tcp"
 PERMISSION_INGESTION_GATEWAY_HOST = "host.docker.internal"
+HOST_LOOPBACK_HOSTNAME = "host.tobari.internal"
+RETIRED_HOST_LOOPBACK_HOSTNAME = "host.tobari.test"
+HOST_LOOPBACK_REGISTRY_SCHEMA = 2
+ECH_EXTENSION_TYPES = frozenset({0xFE0D, 0xFFCE})
 PROJECT_ID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
@@ -531,7 +535,7 @@ def _parse_host_loopback_routes(raw: bytes) -> list[dict[str, Any]]:
         document = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise HostLoopbackError("Host Loopback registry is invalid") from error
-    if not isinstance(document, dict) or set(document) != {"schema_version", "routes"} or document.get("schema_version") != 1:
+    if not isinstance(document, dict) or set(document) != {"schema_version", "routes"} or document.get("schema_version") != HOST_LOOPBACK_REGISTRY_SCHEMA:
         raise HostLoopbackError("Host Loopback registry version is invalid")
     routes = document.get("routes")
     if not isinstance(routes, list) or len(routes) > 128:
@@ -544,7 +548,7 @@ def _parse_host_loopback_routes(raw: bytes) -> list[dict[str, Any]]:
             "project_root", "hostname", "relay_port", "relay_token",
         }:
             raise HostLoopbackError("Host Loopback route shape is invalid")
-        identity_material = "\x00".join(("tobari-host-loopback-route-v1", str(route.get("attachment_epoch_id")), str(route.get("context_id")), str(route.get("project_id"))))
+        identity_material = "\x00".join(("tobari-host-loopback-route-v2", str(route.get("attachment_epoch_id")), str(route.get("context_id")), str(route.get("project_id")), str(route.get("hostname"))))
         expected_id = "hlr_" + hashlib.sha256(identity_material.encode()).hexdigest()[:32]
         if (
             not isinstance(route.get("id"), str)
@@ -561,7 +565,7 @@ def _parse_host_loopback_routes(raw: bytes) -> list[dict[str, Any]]:
             or re.fullmatch(r"[a-z][a-z0-9-]{0,62}", route["context"]) is None
             or not isinstance(route.get("project_root"), str)
             or not route["project_root"].startswith("/")
-            or route.get("hostname") != "host.tobari.test"
+            or route.get("hostname") != HOST_LOOPBACK_HOSTNAME
             or not isinstance(route.get("relay_port"), int)
             or isinstance(route["relay_port"], bool)
             or route["relay_port"] < 1024
@@ -580,7 +584,7 @@ def _parse_attachment_grants(raw: bytes) -> list[dict[str, Any]]:
         document = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise HostLoopbackError("attachment grant registry is invalid") from error
-    if not isinstance(document, dict) or set(document) != {"schema_version", "grants"} or document.get("schema_version") != 1:
+    if not isinstance(document, dict) or set(document) != {"schema_version", "grants"} or document.get("schema_version") != HOST_LOOPBACK_REGISTRY_SCHEMA:
         raise HostLoopbackError("attachment grant registry version is invalid")
     grants = document.get("grants")
     if not isinstance(grants, list) or len(grants) > 512:
@@ -606,7 +610,7 @@ def _parse_attachment_grants(raw: bytes) -> list[dict[str, Any]]:
             or PROJECT_ID_PATTERN.fullmatch(grant["project_id"]) is None
             or not isinstance(grant.get("attachment_epoch_id"), str)
             or re.fullmatch(r"att_[0-9a-f]{32}", grant["attachment_epoch_id"]) is None
-            or grant.get("host") != "host.tobari.test"
+            or grant.get("host") != HOST_LOOPBACK_HOSTNAME
             or not isinstance(grant.get("target_port"), int)
             or isinstance(grant["target_port"], bool)
             or grant["target_port"] < 1024
@@ -629,7 +633,7 @@ class HostLoopbackRegistrySource:
         self._grants = StatIdentityCache(grant_path, MAX_HOST_LOOPBACK_CONFIG_BYTES, _parse_attachment_grants)
 
     def resolve(self, principal: dict[str, str], scheme: str, host: str, port: int) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
-        if host != "host.tobari.test":
+        if host != HOST_LOOPBACK_HOSTNAME:
             return None, []
         if scheme != "http" or port < 1024 or port > 65535:
             raise HostLoopbackError("Host Loopback supports plain HTTP on non-privileged ports")
@@ -1240,7 +1244,7 @@ def _permission_wait_effect(policy_input: dict[str, Any]) -> dict[str, Any] | No
         return None
     if (
         scheme not in {"http", "https"}
-        or not isinstance(host, str) or host == "host.tobari.test"
+        or not isinstance(host, str) or host in {HOST_LOOPBACK_HOSTNAME, RETIRED_HOST_LOOPBACK_HOSTNAME}
         or not 1 <= len(host) <= 253 or host != host.lower() or host.endswith(".")
         or any(
             not 1 <= len(label) <= 63 or label.startswith("-") or label.endswith("-")
@@ -1273,6 +1277,30 @@ def _permission_wait_effect(policy_input: dict[str, Any]) -> dict[str, Any] | No
     if normalized != segments:
         return None
     return {"scheme": scheme, "host": host, "port": port, "method": method, "path": raw, "segments": list(segments)}
+
+
+def _terminal_tls_reason(client_hello: Any) -> str | None:
+    """Classify authority that must close before mitmproxy creates a leaf."""
+    try:
+        extensions = client_hello.extensions
+        if not isinstance(extensions, list) or any(
+            not isinstance(item, tuple) or len(item) != 2 or not isinstance(item[0], int)
+            for item in extensions
+        ):
+            return "tls_authority_malformed"
+        if any(extension_type in ECH_EXTENSION_TYPES for extension_type, _ in extensions):
+            return "tls_authority_unobservable"
+        sni = client_hello.sni
+    except (AttributeError, TypeError, UnicodeError, ValueError):
+        return "tls_authority_malformed"
+    if sni is None:
+        return "tls_authority_unobservable"
+    if not isinstance(sni, str):
+        return "tls_authority_malformed"
+    normalized = sni.rstrip(".").lower()
+    if normalized in {HOST_LOOPBACK_HOSTNAME, RETIRED_HOST_LOOPBACK_HOSTNAME}:
+        return "host_loopback_tls_unsupported"
+    return None
 
 
 def _policy_denied(
@@ -1562,6 +1590,21 @@ class TobariGateway:
         except UpstreamAddressError as error:
             data.server.error = str(error)
 
+    def tls_clienthello(self, data: Any) -> None:
+        reason = _terminal_tls_reason(data.client_hello)
+        if reason is None:
+            return
+        # Context is per connection and shared with tls_start_client. Keeping
+        # the marker there avoids a global attacker-sized connection map.
+        data.context.tobari_terminal_tls_reason = reason
+        data.establish_server_tls_first = False
+
+    def tls_start_client(self, data: Any) -> None:
+        if getattr(data.context, "tobari_terminal_tls_reason", None) is not None:
+            # False is intentionally non-None: TLSConfig must not generate a
+            # leaf, and mitmproxy's TLS layer closes on the false context.
+            data.ssl_conn = False
+
     def requestheaders(self, flow: http.HTTPFlow) -> None:
         started = time.monotonic()
         request_id = uuid.uuid4().hex
@@ -1587,6 +1630,11 @@ class TobariGateway:
             request_path = urlsplit(flow.request.url).path or "/"
             audit_path = redacted_audit_path(flow.request.url)
             audit_valid = True
+            if host == RETIRED_HOST_LOOPBACK_HOSTNAME:
+                reason = "retired Host Loopback authority"
+                upstream_status = 410
+                _deny(flow, upstream_status, "retired_host_loopback_authority")
+                return
             principal = resolve_project_principal(
                 flow, self.principal_source.load()
             )
@@ -1595,7 +1643,7 @@ class TobariGateway:
             context_name = principal["context"]
             project_root = principal["project_root"]
             host_loopback, attachment_grants = None, []
-            if host == "host.tobari.test":
+            if host == HOST_LOOPBACK_HOSTNAME:
                 host_loopback, attachment_grants = self.host_loopback_source.resolve(
                     principal, scheme, host, port
                 )

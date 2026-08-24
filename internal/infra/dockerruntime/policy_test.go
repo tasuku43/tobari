@@ -229,7 +229,7 @@ func TestBindActiveHostLoopbackDenialAddsOnlyCurrentEpochAndPort(t *testing.T) {
 	denial := tobari.PolicyDenial{
 		PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "http", Protocol: tobari.PolicyProtocolHTTP},
 		Timestamp:              "2026-08-17T12:00:00Z", RequestID: strings.Repeat("1", 32),
-		WorkspaceManifestID: route.WorkspaceManifestID, WorkspaceManifestName: route.WorkspaceManifestName, ProjectID: route.ProjectID, ProjectRoot: route.ProjectRoot,
+		WorkspaceManifestID: route.ContextID, WorkspaceManifestName: route.ContextPresentation, ProjectID: route.WorkspaceID, ProjectRoot: route.ProjectRoot,
 		Host: tobari.HostLoopbackHostname, Port: 3000, Method: "GET", Path: "/health",
 		Reason: "review", StatusCode: 403, Learnable: true,
 	}

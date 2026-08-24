@@ -8,6 +8,7 @@ source test/integration/permission_resume.sh
 binary=${TOBARI_INTEGRATION_BINARY:-}
 binary_digest=
 custom_base_image=${TOBARI_INTEGRATION_CUSTOM_BASE:-tobari-runtime:dev}
+host_loopback_only=${TOBARI_INTEGRATION_HOST_LOOPBACK_ONLY:-false}
 mock_name=tobari-mock-upstream
 auth_mock_name=tobari-auth-mock-upstream
 auth_network=tobari-auth-integration
@@ -444,6 +445,185 @@ start_cluster() {
   return 1
 }
 
+run_final_host_loopback_evaluator() {
+  begin_phase final-host-loopback-evaluator
+  work_root=$test_root/user/workspace
+  mkdir -p "$work_root"
+
+  run_tobari template create --name default --format json >/dev/null
+  local template_list template_ref context_create context_ref context_id
+  template_list=$(run_tobari template list --format json)
+  template_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["templates"]["items"][0]["template_ref"])' <<<"$template_list")
+  context_create=$(run_tobari_at "$work_root" context create --template "$template_ref" --format json)
+  context_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_ref"])' <<<"$context_create")
+  context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_id"])' <<<"$context_create")
+  start_cluster >/dev/null
+
+  local host_service_port_file host_service_request_log host_service_port
+  host_service_port_file=$test_root/host-service.port
+  host_service_request_log=$test_root/host-service.requests.jsonl
+  python3 - "$host_service_port_file" "$host_service_request_log" <<'PY' &
+import http.server
+import json
+import pathlib
+import socketserver
+import sys
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        with open(sys.argv[2], "a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"host": self.headers.get("Host"), "path": self.path}) + "\n")
+        body = b"host-service-ok\n"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, _format, *_args):
+        pass
+
+with socketserver.TCPServer(("127.0.0.1", 0), Handler) as server:
+    pathlib.Path(sys.argv[1]).write_text(str(server.server_address[1]), encoding="ascii")
+    server.serve_forever()
+PY
+  host_service_server_pid=$!
+  for _ in $(seq 1 60); do
+    [[ -s $host_service_port_file ]] && break
+    sleep 0.1
+  done
+  [[ -s $host_service_port_file ]] || fail "physical-host HTTP fixture did not publish its port"
+  host_service_port=$(<"$host_service_port_file")
+
+  local gateway_ca_before gateway_cert_files_before
+  local host_loopback_hostname=host.tobari.internal
+  local retired_host_loopback_hostname=host.tobari.test
+  local sibling_host_loopback_hostname=sibling.tobari.internal
+  gateway_ca_before=$(docker exec tobari-gateway sha256sum /var/lib/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem | awk '{print $1}')
+  gateway_cert_files_before=$(docker exec tobari-gateway sh -c 'find /var/lib/mitmproxy/.mitmproxy -type f -print | sort')
+
+  run_tobari_at "$work_root" context enter --id "$context_ref" -- /bin/bash -lc \
+    'port=$1; host=$2; retired=$3; { printf "%s\n" "$TOBARI_CAPABILITIES_JSON"; curl -sS -o /dev/null -w "%{http_code}" "http://${host}:${port}/health"; printf "\n"; curl -sS -o /dev/null -w "%{http_code}" "http://${retired}:${port}/health"; printf "\n"; curl -ksS --connect-timeout 5 "https://${host}:${port}/health" >/dev/null 2>&1; printf "%s\n" "$?"; curl -ksS --connect-timeout 5 "https://${retired}:${port}/health" >/dev/null 2>&1; printf "%s\n" "$?"; python3 -c "import socket,sys; print(socket.gethostbyname(sys.argv[1])); print(socket.gethostbyname(sys.argv[2]))" "$host" "$retired"; } > /var/lib/tobari/host-probe.tmp; mv /var/lib/tobari/host-probe.tmp /var/lib/tobari/host-probe; while [[ ! -e /var/lib/tobari/host-probe.done ]]; do sleep 0.1; done' \
+    bash "$host_service_port" "$host_loopback_hostname" "$retired_host_loopback_hostname" \
+    >"$test_root/host-attachment.out" 2>&1 &
+  host_service_attachment_pid=$!
+
+  local workspace_list workspace_ref workspace_id host_probe
+  for _ in $(seq 1 900); do
+    work_container=$(docker ps --filter label=io.tobari.owner=default --filter label=io.tobari.role=work --format '{{.Names}}' | sed -n '1p')
+    if [[ -n $work_container ]]; then
+      workspace_id=$(docker inspect --format '{{index .Config.Labels "io.tobari.id"}}' "$work_container")
+      [[ -n $workspace_id ]] && break
+    fi
+    sleep 0.1
+  done
+  [[ -n $workspace_id ]] || fail "final Context entry did not materialize its exact Workspace container"
+  work_id=$workspace_id
+  for _ in $(seq 1 900); do
+    if run_project test -s /var/lib/tobari/host-probe >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.1
+  done
+  run_project test -s /var/lib/tobari/host-probe >/dev/null 2>&1 || fail "final attachment did not publish Host Loopback probe"
+  host_probe=$(run_project cat /var/lib/tobari/host-probe)
+
+  HOST_CAPABILITIES=$(sed -n '1p' <<<"$host_probe") python3 - <<'PY'
+import json
+import os
+document = json.loads(os.environ["HOST_CAPABILITIES"])
+host_http = document.get("host_http", {})
+if document.get("schema_version") != 1 or host_http != {
+    "url_template": "http://host.tobari.internal:{port}",
+    "minimum_port": 1024,
+    "maximum_port": 65535,
+    "lifetime": "attachment",
+    "audience": "workspace",
+    "access": "policy_review_required",
+}:
+    raise SystemExit(f"invalid public Host Loopback capability: {document!r}")
+PY
+  [[ $(sed -n '2p' <<<"$host_probe") == 403 ]] || fail "current unreviewed Host Loopback was not denied"
+  [[ $(sed -n '3p' <<<"$host_probe") == 410 ]] || fail "retired Host Loopback was not terminally denied"
+  [[ $(sed -n '4p' <<<"$host_probe") != 0 && $(sed -n '5p' <<<"$host_probe") != 0 ]] || fail "Host Loopback TLS did not close"
+  [[ $(sed -n '6p' <<<"$host_probe") == 198.18.0.10 && $(sed -n '7p' <<<"$host_probe") == 198.18.0.10 ]] || fail "Host Loopback bypassed synthetic DNS"
+  [[ ! -s $host_service_request_log ]] || fail "denied Host Loopback traffic reached physical loopback"
+  [[ $(docker exec tobari-gateway sha256sum /var/lib/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem | awk '{print $1}') == "$gateway_ca_before" ]] || fail "Host Loopback TLS rotated the Gateway CA"
+  [[ $(docker exec tobari-gateway sh -c 'find /var/lib/mitmproxy/.mitmproxy -type f -print | sort') == "$gateway_cert_files_before" ]] || fail "Host Loopback TLS changed the persistent certificate store"
+
+  local candidates candidate_ref
+  for _ in $(seq 1 60); do
+    candidates=$(run_tobari policy candidates --format json)
+    candidate_ref=$(python3 -c '
+import json,sys
+items=json.load(sys.stdin)["policy_candidates"]
+port=int(sys.argv[1])
+print(next((item["id"] for item in items if item["effect"]["host"] == "host.tobari.internal" and item["effect"]["port"] == port and item["effect"]["path"] == "/health"), ""))
+' "$host_service_port" <<<"$candidates")
+    [[ -n $candidate_ref ]] && break
+    sleep 0.2
+  done
+  [[ -n $candidate_ref ]] || fail "Host Loopback denial did not create an exact final candidate"
+  run_tobari policy allow --id "$candidate_ref" >/dev/null
+
+  python3 - "$config_directory/host-loopback/routes.json" "$config_directory/host-loopback/grants.json" "$context_id" "$workspace_id" "$host_service_port" <<'PY'
+import hashlib
+import json
+import sys
+routes_doc=json.load(open(sys.argv[1], encoding="utf-8"))
+grants_doc=json.load(open(sys.argv[2], encoding="utf-8"))
+if routes_doc.get("schema_version") != 2 or grants_doc.get("schema_version") != 2:
+    raise SystemExit("private Host Loopback registries are not schema V2")
+route=next(item for item in routes_doc["routes"] if item["project_id"] == sys.argv[4])
+material="\0".join(("tobari-host-loopback-route-v2",route["attachment_epoch_id"],route["context_id"],route["project_id"],route["hostname"]))
+if route["context_id"] != sys.argv[3] or route["hostname"] != "host.tobari.internal" or route["id"] != "hlr_"+hashlib.sha256(material.encode()).hexdigest()[:32]:
+    raise SystemExit(f"route identity drift: {route!r}")
+grant=next(item for item in grants_doc["grants"] if item["project_id"] == sys.argv[4] and item["target_port"] == int(sys.argv[5]))
+if grant["context_id"] != sys.argv[3] or grant["host"] != route["hostname"] or grant["attachment_epoch_id"] != route["attachment_epoch_id"] or grant["lifetime"] != "attachment":
+    raise SystemExit(f"grant identity drift: {grant!r}")
+PY
+
+  assert_contains "$(run_project curl -fsS "http://$host_loopback_hostname:$host_service_port/health")" "host-service-ok" "curl Host Loopback"
+  assert_contains "$(run_project python3 -c 'import sys,urllib.request; print(urllib.request.urlopen(sys.argv[1],timeout=5).read().decode())' "http://$host_loopback_hostname:$host_service_port/health")" "host-service-ok" "Python Host Loopback"
+  [[ $(run_project curl -sS -o /dev/null -w '%{http_code}' "http://$sibling_host_loopback_hostname:$host_service_port/health") == 403 ]] || fail "sibling .internal borrowed Host Loopback authority"
+  python3 - "$host_service_request_log" "$host_service_port" <<'PY'
+import json
+import sys
+entries=[json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
+allowed={"host.tobari.internal",f"host.tobari.internal:{sys.argv[2]}"}
+if len(entries) != 2 or any(item != {"host": item["host"], "path": "/health"} or item["host"] not in allowed for item in entries):
+    raise SystemExit(f"Host header changed or terminal traffic reached the fixture: {entries!r}")
+PY
+  if grep -F 'host.tobari.internal' "$test_root/state/tobari/workspace-authority/authority.json" >/dev/null; then
+    fail "Host Loopback attachment grant entered Context Policy Memory"
+  fi
+
+  run_project touch /var/lib/tobari/host-probe.done
+  wait "$host_service_attachment_pid"
+  host_service_attachment_pid=
+  workspace_list=$(run_tobari workspace list --format json)
+  workspace_ref=$(python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(item["workspace_ref"] for item in d["workspaces"]["items"] if item["workspace_id"] == sys.argv[1]))' "$workspace_id" <<<"$workspace_list")
+  [[ $(run_project curl -sS -o /dev/null -w '%{http_code}' "http://$host_loopback_hostname:$host_service_port/health") == 403 ]] || fail "Host Loopback authority survived attachment teardown"
+  python3 - "$config_directory/host-loopback/routes.json" "$config_directory/host-loopback/grants.json" <<'PY'
+import json
+import sys
+routes=json.load(open(sys.argv[1], encoding="utf-8"))
+grants=json.load(open(sys.argv[2], encoding="utf-8"))
+if routes.get("schema_version") != 2 or grants.get("schema_version") != 2 or routes["routes"] or grants["grants"]:
+    raise SystemExit(f"attachment authority survived teardown: {routes!r} {grants!r}")
+PY
+
+  kill "$host_service_server_pid" >/dev/null 2>&1 || true
+  wait "$host_service_server_pid" >/dev/null 2>&1 || true
+  host_service_server_pid=
+  run_tobari workspace delete --id "$workspace_ref" --confirm=delete --force >/dev/null
+  work_container=
+  run_tobari_at "$work_root" context delete --id "$context_ref" --confirm=delete >/dev/null
+  run_tobari cluster down >/dev/null
+  complete_phase
+  echo "Host Loopback isolated integration: OK"
+}
+
 assert_resource_bounds() {
   local container=$1
   [[ $(docker inspect --format '{{.HostConfig.NanoCpus}}' "$container") == 2000000000 ]] ||
@@ -710,10 +890,9 @@ if [[ -z $binary ]]; then
 fi
 mkdir -p \
   "$test_root/user/workspace" \
-  "$test_root/config/tobari/auth/providers" \
   "$test_root/state" \
   "$test_root/tls"
-chmod 0700 "$test_root/config/tobari/auth" "$test_root/config/tobari/auth/providers" "$test_root/tls"
+chmod 0700 "$test_root/tls"
 chmod 0700 "$test_root/state"
 
 config_directory=$test_root/config/tobari
@@ -721,7 +900,10 @@ tool_auth_value=tobari-tool-auth-canary
 synthetic_default_secret=synthetic-real-default-canary
 synthetic_restricted_secret=synthetic-real-restricted-canary
 synthetic_provider=synthetic-ci
-cat >"$config_directory/auth/providers/$synthetic_provider.json" <<'JSON'
+if [[ $host_loopback_only != true ]]; then
+  mkdir -p "$config_directory/auth/providers"
+  chmod 0700 "$config_directory/auth" "$config_directory/auth/providers"
+  cat >"$config_directory/auth/providers/$synthetic_provider.json" <<'JSON'
 {
   "schema_version": 1,
   "id": "synthetic-ci",
@@ -745,9 +927,13 @@ cat >"$config_directory/auth/providers/$synthetic_provider.json" <<'JSON'
   ]
 }
 JSON
-chmod 0600 "$config_directory/auth/providers/$synthetic_provider.json"
+  chmod 0600 "$config_directory/auth/providers/$synthetic_provider.json"
+fi
 mitmproxy_image=$(awk -F= '$1 == "MITMPROXY_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
 gateway_dev_tag="tobari-gateway-experimental:dev-$(go run ./tools/runtimeassetid gateway)"
+if [[ $host_loopback_only == true ]]; then
+  gateway_dev_tag="tobari-gateway:dev-$(go run ./tools/runtimeassetid gateway)"
+fi
 auth_broker_dev_tag="tobari-auth-broker:dev-$(go run ./tools/runtimeassetid authbroker)"
 gateway_fixture_snapshot_tag
 # The certificate belongs to this temporary integration run, not to binary or
@@ -784,16 +970,21 @@ else
   esac
   docker build --tag "$gateway_base_image" --file gateway/Dockerfile \
     --build-arg "MITMPROXY_IMAGE=$mitmproxy_image" gateway >/dev/null
-  docker build --tag "$experimental_gateway_base_image" \
-    --file gateway/Dockerfile.experimental \
-    --build-arg "TOBARI_GATEWAY_BASE=$gateway_base_image" gateway >/dev/null
-  gateway_wrapper_base=$experimental_gateway_base_image
-  docker build --tag "$auth_broker_dev_tag" --file authbroker/Dockerfile \
-    --build-arg "DEBIAN_IMAGE=$debian_image" \
-    --build-arg "MITMPROXY_IMAGE=$mitmproxy_image" \
-    --build-arg "TARGETARCH=$auth_target_arch" \
-    authbroker >/dev/null
-  go build -tags='tobari_dev tobari_research' -buildvcs=false -trimpath -o "$binary" ./cmd/tobari
+  if [[ $host_loopback_only == true ]]; then
+    gateway_wrapper_base=$gateway_base_image
+    go build -tags=tobari_dev -buildvcs=false -trimpath -o "$binary" ./cmd/tobari
+  else
+    docker build --tag "$experimental_gateway_base_image" \
+      --file gateway/Dockerfile.experimental \
+      --build-arg "TOBARI_GATEWAY_BASE=$gateway_base_image" gateway >/dev/null
+    gateway_wrapper_base=$experimental_gateway_base_image
+    docker build --tag "$auth_broker_dev_tag" --file authbroker/Dockerfile \
+      --build-arg "DEBIAN_IMAGE=$debian_image" \
+      --build-arg "MITMPROXY_IMAGE=$mitmproxy_image" \
+      --build-arg "TARGETARCH=$auth_target_arch" \
+      authbroker >/dev/null
+    go build -tags='tobari_dev tobari_research' -buildvcs=false -trimpath -o "$binary" ./cmd/tobari
+  fi
 fi
 docker build --tag "$gateway_fixture_image" --file test/integration/gateway-auth.Dockerfile \
   --build-arg "TOBARI_GATEWAY_BASE=$gateway_wrapper_base" \
@@ -806,14 +997,23 @@ actual_gateway_ca_digest=$(docker run --rm --entrypoint sha256sum "$gateway_dev_
 docker run --rm --entrypoint sh "$gateway_dev_tag" -eu -c 'certifi_bundle=$(python3 -c "import certifi; print(certifi.where())")
   openssl verify -CAfile "$certifi_bundle" /usr/local/share/ca-certificates/tobari-integration.crt >/dev/null
 ' || fail "Gateway TLS fixture does not trust the run-local CA"
-go version -m "$binary" | grep -F $'build\t-tags=tobari_dev,tobari_research' >/dev/null ||
-  fail "integration binary does not use the research capability surface"
+if [[ $host_loopback_only == true ]]; then
+  go version -m "$binary" | grep -F $'build\t-tags=tobari_dev' >/dev/null ||
+    fail "Host Loopback evaluator binary does not use the standard development surface"
+else
+  go version -m "$binary" | grep -F $'build\t-tags=tobari_dev,tobari_research' >/dev/null ||
+    fail "integration binary does not use the research capability surface"
+fi
 binary_digest=$(shasum -a 256 "$binary" | awk '{print $1}')
+if [[ $host_loopback_only == true ]]; then
+  run_final_host_loopback_evaluator
+  exit 0
+fi
 work_root=$test_root/user/workspace
 other_root=$test_root/user/other-workspace
 mkdir -p "$work_root" "$other_root"
 printf 'host-home-canary\n' >"$test_root/user/host-home-canary"
-if [[ $custom_base_image == tobari-runtime:dev ]] && ! docker image inspect "$custom_base_image" >/dev/null 2>&1; then
+if [[ $host_loopback_only != true && $custom_base_image == tobari-runtime:dev ]] && ! docker image inspect "$custom_base_image" >/dev/null 2>&1; then
   base_image=$(go run ./tools/runtimecheck --print-base-image)
   go_builder_image=$(awk -F= '$1 == "GO_BUILDER_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
   exposure_helper_source=$(go run ./tools/runtimeassetid exposure-helper)
@@ -828,16 +1028,21 @@ if [[ $custom_base_image == tobari-runtime:dev ]] && ! docker image inspect "$cu
     runtimes/base >/dev/null
   created_dev_runtime_tag=true
 fi
-assert_base_bash_contract "$custom_base_image"
-if ! docker image inspect tobari-runtime:dev >/dev/null 2>&1; then
-  docker tag "$custom_base_image" tobari-runtime:dev
-  created_dev_runtime_tag=true
+if [[ $host_loopback_only != true ]]; then
+  assert_base_bash_contract "$custom_base_image"
+  if ! docker image inspect tobari-runtime:dev >/dev/null 2>&1; then
+    docker tag "$custom_base_image" tobari-runtime:dev
+    created_dev_runtime_tag=true
+  fi
 fi
 begin_phase manifests-and-cluster
-runtime_create=$(run_tobari runtime create --name "$runtime_name" --format json)
-runtime_source_path=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["source_path"])' <<<"$runtime_create")
-runtime_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["runtime_ref"])' <<<"$runtime_create")
-python3 - "$runtime_source_path/Dockerfile" "$custom_base_image" test/integration/custom-image.Dockerfile <<'PY'
+if [[ $host_loopback_only == true ]]; then
+  runtime_selection=standard
+else
+  runtime_create=$(run_tobari runtime create --name "$runtime_name" --format json)
+  runtime_source_path=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["source_path"])' <<<"$runtime_create")
+  runtime_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["runtime_ref"])' <<<"$runtime_create")
+  python3 - "$runtime_source_path/Dockerfile" "$custom_base_image" test/integration/custom-image.Dockerfile <<'PY'
 from pathlib import Path
 import json
 import sys
@@ -853,17 +1058,18 @@ for line in source.splitlines():
 destination.write_text("\n".join(lines) + "\n", encoding="utf-8")
 destination.chmod(0o600)
 PY
-runtime_build=$(run_tobari runtime build --id "$runtime_ref" --format json)
-python3 -c \
-  'import json,sys; revision=json.load(sys.stdin)["runtime"]["runtime"]["revisions"][-1]; assert revision["availability"]["state"] == "available"; assert revision["source_digest"]; assert revision["revision_ref"]; assert all(key not in revision for key in ("image", "image_digest", "snapshot_path", "revision"))' \
-  <<<"$runtime_build"
-runtime_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["id"])' <<<"$runtime_build")
-runtime_source_digest=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["revisions"][-1]["source_digest"])' <<<"$runtime_build")
-capture_runtime_image_for_cleanup "$runtime_id" "$runtime_source_digest"
-if [[ ${TOBARI_INTEGRATION_FAIL_AFTER_RUNTIME_CAPTURE:-false} == true ]]; then
-  fail "injected failure after managed Runtime cleanup authority capture"
+  runtime_build=$(run_tobari runtime build --id "$runtime_ref" --format json)
+  python3 -c \
+    'import json,sys; revision=json.load(sys.stdin)["runtime"]["runtime"]["revisions"][-1]; assert revision["availability"]["state"] == "available"; assert revision["source_digest"]; assert revision["revision_ref"]; assert all(key not in revision for key in ("image", "image_digest", "snapshot_path", "revision"))' \
+    <<<"$runtime_build"
+  runtime_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["id"])' <<<"$runtime_build")
+  runtime_source_digest=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["revisions"][-1]["source_digest"])' <<<"$runtime_build")
+  capture_runtime_image_for_cleanup "$runtime_id" "$runtime_source_digest"
+  if [[ ${TOBARI_INTEGRATION_FAIL_AFTER_RUNTIME_CAPTURE:-false} == true ]]; then
+    fail "injected failure after managed Runtime cleanup authority capture"
+  fi
+  runtime_selection="$runtime_name@1"
 fi
-runtime_selection="$runtime_name@1"
 default_manifest_create=$(run_tobari manifest create --name default --runtime "$runtime_selection" \
   --mode guided --source-access read-write --native-readiness enabled --format json)
 default_manifest_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["workspace_manifest"]["workspace_manifest_id"])' \
@@ -1426,14 +1632,18 @@ fi
 
 begin_phase attachment-scoped-host-loopback
 host_service_port_file=$test_root/host-service.port
-python3 - "$host_service_port_file" <<'PY' &
+host_service_request_log=$test_root/host-service.requests.jsonl
+python3 - "$host_service_port_file" "$host_service_request_log" <<'PY' &
 import http.server
+import json
 import pathlib
 import socketserver
 import sys
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
+        with open(sys.argv[2], "a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"host": self.headers.get("Host"), "path": self.path}) + "\n")
         body = b"host-service-ok\n"
         self.send_response(200)
         self.send_header("Content-Type", "text/plain")
@@ -1455,6 +1665,10 @@ for _ in $(seq 1 60); do
 done
 [[ -s $host_service_port_file ]] || fail "physical-host HTTP fixture did not publish its port"
 host_service_port=$(<"$host_service_port_file")
+host_loopback_hostname=host.tobari.internal
+retired_host_loopback_hostname=host.tobari.test
+gateway_ca_before=$(docker exec tobari-gateway sha256sum /var/lib/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem | awk '{print $1}')
+gateway_cert_files_before=$(docker exec tobari-gateway sh -c 'find /var/lib/mitmproxy/.mitmproxy -type f -print | sort')
 
 # Expansion is intentionally deferred to the attached Workspace shell.
 # shellcheck disable=SC2016
@@ -1463,11 +1677,11 @@ import json
 import sys
 print(json.dumps([
     {"after_ms": 500, "data": """curl -sS https://mock-upstream:8080/permission-resume > /var/lib/tobari/permission-denial.json; python3 -c '\''import json,re,sys; document=json.load(open(sys.argv[1], encoding=\"utf-8\")); command=document[\"tobari\"][\"resume\"][\"command\"]; prefix=\"tobari-permission wait --id \"; wait_id=command[len(prefix):] if command.startswith(prefix) else \"\"; match=re.fullmatch(r\"pwt_[0-9a-f]{32}\", wait_id); sys.exit(2) if match is None else None; print(wait_id)'\'' /var/lib/tobari/permission-denial.json > /var/lib/tobari/permission-wait-id; { tobari-permission wait --id \"$(cat /var/lib/tobari/permission-wait-id)\" > /var/lib/tobari/permission-wait.out 2> /var/lib/tobari/permission-wait.err && if grep -qx Allow /var/lib/tobari/permission-wait.out; then curl -fsS https://mock-upstream:8080/permission-resume > /var/lib/tobari/permission-retry.json; fi; } &\n"""},
-    {"after_ms": 3000, "data": """{ printf "%s\\n" "$TOBARI_CAPABILITIES_JSON"; curl -sS -o /dev/null -w "%{http_code}" http://host.tobari.test:""" + sys.argv[1] + """/health; curl_status=$?; printf "\\n"; test "$curl_status" -eq 0; } > /var/lib/tobari/host-probe.tmp && mv /var/lib/tobari/host-probe.tmp /var/lib/tobari/host-probe\n"""},
+    {"after_ms": 3000, "data": """host=""" + sys.argv[2] + """; retired=""" + sys.argv[3] + """; { printf "%s\\n" "$TOBARI_CAPABILITIES_JSON"; curl -sS -o /dev/null -w "%{http_code}" http://${host}:""" + sys.argv[1] + """/health; printf "\\n"; curl -sS -o /dev/null -w "%{http_code}" http://${retired}:""" + sys.argv[1] + """/health; printf "\\n"; curl -ksS --connect-timeout 5 https://${host}:""" + sys.argv[1] + """/health >/dev/null 2>&1; printf "%s\\n" "$?"; curl -ksS --connect-timeout 5 https://${retired}:""" + sys.argv[1] + """/health >/dev/null 2>&1; printf "%s\\n" "$?"; python3 -c '''import socket,sys; print(socket.gethostbyname(sys.argv[1])); print(socket.gethostbyname(sys.argv[2]))''' "$host" "$retired"; } > /var/lib/tobari/host-probe.tmp && mv /var/lib/tobari/host-probe.tmp /var/lib/tobari/host-probe\n"""},
   {"after_ms": 1500, "data": "python3 -m http.server 32123 --bind 127.0.0.1 >/var/lib/tobari/service-server.log 2>&1 & tobari-expose 32123 > /var/lib/tobari/service-exposure.out 2>/var/lib/tobari/service-exposure.err; printf ready > /var/lib/tobari/service-exposure-ready; while [ ! -e /var/lib/tobari/service-stop ]; do sleep 0.1; done; exposure_ref=$(sed -n '\''s/^  Exposure    //p'\'' /var/lib/tobari/service-exposure.out); tobari-expose list > /var/lib/tobari/service-exposure-list.out; tobari-expose stop \"$exposure_ref\" > /var/lib/tobari/service-stop.out; printf stopped > /var/lib/tobari/service-stopped\n"},
     {"after_ms": 25000, "data": "exit\n"},
 ]))
-' "$host_service_port")
+' "$host_service_port" "$host_loopback_hostname" "$retired_host_loopback_hostname")
 TOBARI_TEST_PTY_TIMEOUT_SECONDS=40 \
   TOBARI_TEST_PTY_EVENTS="$host_attachment_events" \
   run_tobari_pty_at "$work_root" \
@@ -1498,13 +1712,26 @@ import os
 
 document = json.loads(os.environ["HOST_CAPABILITIES"])
 host_http = document.get("host_http", {})
-if host_http.get("url_template") != "http://host.tobari.test:{port}" or host_http.get("lifetime") != "attachment":
+if document.get("schema_version") != 1 or host_http.get("url_template") != "http://host.tobari.internal:{port}" or host_http.get("lifetime") != "attachment":
     raise SystemExit(f"active attachment did not project the Host Loopback route: {document!r}")
 if "relay" in os.environ["HOST_CAPABILITIES"] or "token" in os.environ["HOST_CAPABILITIES"]:
     raise SystemExit("Host Loopback capability projection disclosed relay authority")
 PY
 host_denial_status=$(sed -n '2p' <<<"$host_probe")
 [[ $host_denial_status == 403 ]] || fail "unreviewed Host Loopback returned $host_denial_status instead of 403"
+retired_host_status=$(sed -n '3p' <<<"$host_probe")
+[[ $retired_host_status == 410 ]] || fail "retired Host Loopback returned $retired_host_status instead of terminal 410"
+current_tls_status=$(sed -n '4p' <<<"$host_probe")
+retired_tls_status=$(sed -n '5p' <<<"$host_probe")
+[[ $current_tls_status != 0 && $retired_tls_status != 0 ]] ||
+  fail "Host Loopback TLS did not close terminally: current=$current_tls_status retired=$retired_tls_status"
+[[ $(sed -n '6p' <<<"$host_probe") == 198.18.0.10 ]] || fail "current Host Loopback did not use synthetic DNS"
+[[ $(sed -n '7p' <<<"$host_probe") == 198.18.0.10 ]] || fail "retired Host Loopback did not use synthetic DNS before terminal classification"
+[[ ! -s $host_service_request_log ]] || fail "denied or TLS Host Loopback traffic reached physical-host loopback"
+gateway_ca_after_terminal=$(docker exec tobari-gateway sha256sum /var/lib/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem | awk '{print $1}')
+gateway_cert_files_after_terminal=$(docker exec tobari-gateway sh -c 'find /var/lib/mitmproxy/.mitmproxy -type f -print | sort')
+[[ $gateway_ca_after_terminal == "$gateway_ca_before" ]] || fail "terminal Host Loopback TLS rotated the Gateway CA"
+[[ $gateway_cert_files_after_terminal == "$gateway_cert_files_before" ]] || fail "terminal Host Loopback TLS changed the persistent certificate store"
 
 host_review=
 host_review_index=
@@ -1515,7 +1742,7 @@ import json
 import sys
 items = json.load(sys.stdin)["policy_review"]
 print(next((index for index, item in enumerate(items, 1)
-            if item["host"] == "host.tobari.test" and item["port"] == int(sys.argv[1]) and item["path"] == "/health"), ""))
+            if item["host"] == "host.tobari.internal" and item["port"] == int(sys.argv[1]) and item["path"] == "/health"), ""))
 ' "$host_service_port" <<<"$host_review")
   [[ -n $host_review_index ]] && break
   sleep 0.2
@@ -1540,18 +1767,26 @@ if ! host_review_output=$(TOBARI_TEST_PTY_TIMEOUT_SECONDS=15 \
   fail "interactive Host Loopback review permissions failed"
 fi
 python3 - "$config_directory/host-loopback/routes.json" "$work_id" "$host_service_port" <<'PY'
+import hashlib
 import json
 import socket
 import sys
 
-routes = json.load(open(sys.argv[1], encoding="utf-8"))["routes"]
+document = json.load(open(sys.argv[1], encoding="utf-8"))
+if document.get("schema_version") != 2:
+    raise SystemExit(f"Host Loopback route registry is not schema V2: {document!r}")
+routes = document["routes"]
 route = next(item for item in routes if item["project_id"] == sys.argv[2])
+material = "\0".join(("tobari-host-loopback-route-v2", route["attachment_epoch_id"], route["context_id"], route["project_id"], route["hostname"]))
+expected_id = "hlr_" + hashlib.sha256(material.encode()).hexdigest()[:32]
+if route["hostname"] != "host.tobari.internal" or route["id"] != expected_id:
+    raise SystemExit(f"Host Loopback route identity is not bound to the exact authority: {route!r}")
 target_port = int(sys.argv[3])
 with socket.create_connection(("127.0.0.1", route["relay_port"]), timeout=3) as relay:
     relay.sendall(b"C" + route["relay_token"].encode("ascii") + target_port.to_bytes(2, "big"))
     if relay.recv(2) != b"OK":
         raise SystemExit("reviewed Host Loopback relay rejected its trusted-host integration probe")
-    relay.sendall(b"GET /health HTTP/1.1\r\nHost: host.tobari.test\r\nConnection: close\r\n\r\n")
+    relay.sendall(b"GET /health HTTP/1.1\r\nHost: host.tobari.internal\r\nConnection: close\r\n\r\n")
     response = bytearray()
     while chunk := relay.recv(65536):
         response.extend(chunk)
@@ -1580,15 +1815,38 @@ try:
 except OSError:
     raise SystemExit("Gateway could not authenticate to the active Host Loopback relay")
 '
-host_retry=$(run_project curl -fsS "http://host.tobari.test:$host_service_port/health")
+host_retry=$(run_project curl -fsS "http://$host_loopback_hostname:$host_service_port/health")
 assert_contains "$host_retry" "host-service-ok" "reviewed physical-host HTTP response"
+host_python_retry=$(run_project python3 -c 'import sys,urllib.request; print(urllib.request.urlopen(sys.argv[1], timeout=5).read().decode())' \
+  "http://$host_loopback_hostname:$host_service_port/health")
+assert_contains "$host_python_retry" "host-service-ok" "reviewed Python physical-host HTTP response"
+python3 - "$host_service_request_log" "$host_service_port" <<'PY'
+import json
+import sys
+
+entries = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
+allowed_hosts = {"host.tobari.internal", f"host.tobari.internal:{sys.argv[2]}"}
+if len(entries) < 3 or any(item.get("host") not in allowed_hosts or item.get("path") != "/health" for item in entries):
+    raise SystemExit(f"Host Loopback did not preserve the exact public authority: {entries!r}")
+PY
+python3 - "$config_directory/host-loopback/grants.json" "$work_id" "$host_service_port" <<'PY'
+import json
+import sys
+
+document = json.load(open(sys.argv[1], encoding="utf-8"))
+if document.get("schema_version") != 2:
+    raise SystemExit(f"Host Loopback grant registry is not schema V2: {document!r}")
+grant = next(item for item in document["grants"] if item["project_id"] == sys.argv[2] and item["target_port"] == int(sys.argv[3]))
+if grant["host"] != "host.tobari.internal" or grant["lifetime"] != "attachment":
+    raise SystemExit(f"Host Loopback grant widened its exact attachment authority: {grant!r}")
+PY
 
 verify_workspace_service_exposure
 
 wait "$host_service_attachment_pid"
 host_service_attachment_pid=
 post_detach_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  "http://host.tobari.test:$host_service_port/health")
+  "http://$host_loopback_hostname:$host_service_port/health")
 [[ $post_detach_status == 403 ]] || fail "detached Host Loopback returned $post_detach_status instead of 403"
 python3 - "$config_directory/host-loopback/routes.json" "$config_directory/host-loopback/grants.json" <<'PY'
 import json
@@ -1601,6 +1859,12 @@ PY
 kill "$host_service_server_pid" >/dev/null 2>&1 || true
 wait "$host_service_server_pid" >/dev/null 2>&1 || true
 host_service_server_pid=
+
+if [[ $host_loopback_only == true ]]; then
+  complete_phase
+  echo "Host Loopback isolated integration: OK"
+  exit 0
+fi
 
 begin_phase runtime-failure-boundaries
 diagnostic_surface=$(printf '%s\n' \
