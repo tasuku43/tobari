@@ -48,6 +48,59 @@ type policyActivationFixture struct {
 	confirmErr   error
 }
 
+type finalSettlementFixture struct {
+	activation            *policyActivationFixture
+	calls                 int
+	confirms              int
+	contextDeleteCalls    int
+	contextDeleteConfirms int
+	err                   error
+}
+
+func (s *finalSettlementFixture) SettleFinalContextDeletion(_ context.Context, _, next tobari.WorkspaceAuthorityCollection, contextID tobari.ContextID, _, _ string) error {
+	if s.err != nil {
+		return s.err
+	}
+	for _, record := range next.Contexts {
+		if record.Context.ID == contextID {
+			return fmt.Errorf("deleted Context remains")
+		}
+	}
+	s.contextDeleteCalls++
+	return nil
+}
+
+func (s *finalSettlementFixture) ConfirmFinalContextDeletionSettled(_ context.Context, next tobari.WorkspaceAuthorityCollection, contextID tobari.ContextID) error {
+	for _, record := range next.Contexts {
+		if record.Context.ID == contextID {
+			return fmt.Errorf("deleted Context remains")
+		}
+	}
+	s.contextDeleteConfirms++
+	return nil
+}
+
+func (s *finalSettlementFixture) SettleFinalAuthority(_ context.Context, _ tobari.WorkspaceAuthorityCollection, next tobari.WorkspaceAuthorityCollection, contextID tobari.ContextID, _, _ string) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.calls++
+	_, err := s.activation.ActivatePolicyMemory(context.Background(), next, contextID)
+	return err
+}
+
+func (s *finalSettlementFixture) ConfirmFinalAuthoritySettled(ctx context.Context, next tobari.WorkspaceAuthorityCollection, contextID tobari.ContextID) error {
+	s.confirms++
+	snapshot, err := snapshotForContext(next, contextID)
+	if err != nil {
+		return err
+	}
+	if snapshot.ActivePolicyMemoryRef == nil {
+		return fmt.Errorf("settled final authority omits active Policy Memory")
+	}
+	return s.activation.ConfirmPolicyMemoryActive(ctx, next, contextID, *snapshot.ActivePolicyMemoryRef)
+}
+
 func (a *policyActivationFixture) ConfirmPolicyMemoryActive(_ context.Context, collection tobari.WorkspaceAuthorityCollection, contextID tobari.ContextID, receipt tobari.PolicyMemoryActivationReceipt) error {
 	if a.confirmErr != nil {
 		return a.confirmErr
@@ -132,7 +185,8 @@ func newMutationFixture(t *testing.T, existing *tobari.WorkspaceAuthorityCollect
 	lifecycle := &mutationLifecycle{}
 	deletion := &deletionAuthorityFixture{}
 	activation := &policyActivationFixture{}
-	mutator, err := NewMutator(store, lifecycle, deletion, activation)
+	settlement := &finalSettlementFixture{activation: activation}
+	mutator, err := NewMutator(store, lifecycle, deletion, activation, settlement)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,13 +285,57 @@ func TestMutatorContextCreateDeleteAndWorkspaceRetirementPreserveOwners(t *testi
 	}
 
 	contextRef, _ := tobari.ContextRef(storeContextID)
+	settlement := mutator.settlement.(*finalSettlementFixture)
 	contextResult, err := mutator.DeleteContextByReference(context.Background(), contextRef)
-	if err != nil || !contextResult.Deleted || len(deletion.credentialChecks) != 1 || deletion.credentialChecks[0] != storeContextID {
+	if err != nil || !contextResult.Deleted || len(deletion.credentialChecks) != 1 || deletion.credentialChecks[0] != storeContextID || settlement.contextDeleteCalls != 1 {
 		t.Fatalf("Context result=%#v checks=%#v err=%v", contextResult, deletion.credentialChecks, err)
 	}
 	afterContext, _, err := store.ReadComplete(context.Background())
 	if err != nil || len(afterContext.Contexts) != 0 || len(afterContext.Workspaces) != 0 || len(afterContext.Templates) != 1 {
 		t.Fatalf("after Context=%#v err=%v", afterContext, err)
+	}
+}
+
+func TestContextDeleteSettlementDecisionResumesAndReplaysExactOutcome(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	store, mutator, _, _, _ := newMutationFixture(t, &existing)
+	workspaceRef, _ := tobari.WorkspaceRef(storeWorkspaceID)
+	if _, err := mutator.DeleteWorkspaceByReference(context.Background(), workspaceRef, true); err != nil {
+		t.Fatal(err)
+	}
+	settlement := mutator.settlement.(*finalSettlementFixture)
+	settlement.contextDeleteCalls = 0
+
+	realRename := mutator.rename
+	stage := store.root + ".wp11-mutation-stage"
+	authority := filepath.Join(store.root, authorityFileName)
+	mutator.rename = func(source, target string) error {
+		if source == stage && target == authority {
+			return fmt.Errorf("injected death after Context aggregate settlement")
+		}
+		return realRename(source, target)
+	}
+	contextRef, _ := tobari.ContextRef(storeContextID)
+	if _, err := mutator.DeleteContextByReference(context.Background(), contextRef); err == nil {
+		t.Fatal("interrupted Context deletion was reported as complete")
+	}
+	current, _, err := store.ReadComplete(context.Background())
+	if err != nil || contextRecordIndex(current, storeContextID) < 0 || settlement.contextDeleteCalls != 1 {
+		t.Fatalf("interrupted Context authority=%#v settlements=%d err=%v", current, settlement.contextDeleteCalls, err)
+	}
+	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "blocked-by-context-delete", existing.Templates[0].Current.Body); err == nil {
+		t.Fatal("different mutation crossed active Context deletion")
+	}
+
+	mutator.rename = realRename
+	result, err := mutator.DeleteContextByReference(context.Background(), contextRef)
+	if err != nil || !result.Deleted || result.ContextID != storeContextID || settlement.contextDeleteCalls != 2 {
+		t.Fatalf("resumed Context delete=%#v settlements=%d err=%v", result, settlement.contextDeleteCalls, err)
+	}
+	calls := settlement.contextDeleteCalls
+	replayed, err := mutator.DeleteContextByReference(context.Background(), contextRef)
+	if err != nil || !replayed.Deleted || replayed.ContextID != storeContextID || settlement.contextDeleteCalls != calls || settlement.contextDeleteConfirms != 1 {
+		t.Fatalf("terminal Context replay=%#v settlements=%d confirms=%d err=%v", replayed, settlement.contextDeleteCalls, settlement.contextDeleteConfirms, err)
 	}
 }
 

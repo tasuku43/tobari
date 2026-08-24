@@ -58,13 +58,17 @@ type ContextEntryAdapter struct {
 	afterDecision     func() error
 }
 
-const workspaceEntrySettlementTimeout = 15 * time.Second
+// Gateway/OPA replacement owns a bounded 30-second component-readiness window
+// plus exact principal, policy, and receipt observations. Keep one finite
+// process-lifetime-derived budget large enough for the normal full settlement;
+// tests lower it to prove timeout recovery and lifecycle-lock release.
+const workspaceEntrySettlementTimeout = 90 * time.Second
 
 func NewContextEntryAdapter(mutator *Mutator, runtime WorkspaceEntryRuntimeAuthority, templatePolicy TemplatePolicyActivationAuthority, sessions WorkspaceSessionAuthority, lifetime context.Context) (*ContextEntryAdapter, error) {
 	if mutator == nil || mutator.store == nil || mutator.lifecycle == nil {
 		return nil, fmt.Errorf("final Workspace authority mutator is required")
 	}
-	if runtime == nil || templatePolicy == nil || mutator.activation == nil || sessions == nil || lifetime == nil {
+	if runtime == nil || templatePolicy == nil || mutator.activation == nil || mutator.settlement == nil || sessions == nil || lifetime == nil {
 		return nil, fmt.Errorf("Context entry runtime, activation, and session authorities are required")
 	}
 	return &ContextEntryAdapter{mutator: mutator, runtime: runtime, templatePolicy: templatePolicy, sessions: sessions, lifetime: lifetime, settlementTimeout: workspaceEntrySettlementTimeout}, nil
@@ -318,7 +322,16 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 		return tobari.ContextAuthoritySnapshot{}, nil, fmt.Errorf("Workspace reconciliation returned another authority: %w", err)
 	}
 	completionContext, cancelSettlement := a.newSettlementContext(ctx)
-	confirmedReceipt, confirmErr := a.confirmEntry(completionContext, current, desired, plan, decisionRef)
+	if err := m.settlement.SettleFinalAuthority(completionContext, current.Clone(), next.Clone(), contextID, "context-entry", decisionRef); err != nil {
+		cancelSettlement()
+		return tobari.ContextAuthoritySnapshot{}, nil, err
+	}
+	nextSnapshot, snapshotErr := snapshotForContext(next, contextID)
+	if snapshotErr != nil {
+		cancelSettlement()
+		return tobari.ContextAuthoritySnapshot{}, nil, snapshotErr
+	}
+	confirmedReceipt, confirmErr := a.confirmEntry(completionContext, next, nextSnapshot, plan, decisionRef)
 	cancelSettlement()
 	if confirmErr != nil {
 		return tobari.ContextAuthoritySnapshot{}, nil, confirmErr

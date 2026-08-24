@@ -787,6 +787,100 @@ func TestInteractiveSessionCompactsFullExpiredRegistry(t *testing.T) {
 	}
 }
 
+func TestGlobalFinalSessionFenceReconcilesOnlyExactExpiredOwners(t *testing.T) {
+	newSession := func(_ *Runtime, suffix string, expired bool) tobari.InteractiveAttachmentSession {
+		created := time.Now().UTC().Add(-2 * tobari.PermissionSessionLease)
+		issued := created
+		if !expired {
+			created = time.Now().UTC()
+			issued = created
+		}
+		return tobari.InteractiveAttachmentSession{
+			SchemaVersion:       tobari.PermissionSessionSchema,
+			WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789b2",
+			WorkspaceID:         "01912345-6789-7abc-8def-0123456789b3",
+			AttachmentID:        "att_" + strings.Repeat(suffix, 32), OwnerKind: tobari.PermissionSessionOwnerInteractive,
+			FrozenPrincipalFingerprint: strings.Repeat(suffix, 64), OwnerPID: os.Getpid(),
+			IngestionTransport: tobari.PermissionSessionTransportUnix,
+			IngestionEndpoint:  "pws_" + strings.Repeat(suffix, 32) + ".sock",
+			IngestionNonce:     strings.Repeat(suffix, 64),
+			CreatedAt:          created.Format(time.RFC3339Nano), LeaseIssuedAt: issued.Format(time.RFC3339Nano),
+			ExpiresAt: issued.Add(tobari.PermissionSessionLease).Format(time.RFC3339Nano),
+		}
+	}
+
+	t.Run("missing registry is exact zero owner", func(t *testing.T) {
+		root := t.TempDir()
+		runtime, _ := newRuntime(root+"/config", root+"/state", &recordingRunner{})
+		if err := runtime.ConfirmNoFinalWorkspaceSessions(context.Background()); err != nil {
+			t.Fatalf("missing registry: %v", err)
+		}
+	})
+
+	t.Run("expired refused endpoint is compacted", func(t *testing.T) {
+		root := t.TempDir()
+		runtime, _ := newRuntime(root+"/config", root+"/state", &recordingRunner{})
+		if err := runtime.ensureInteractiveAttachmentStore(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		session := newSession(runtime, "e", true)
+		if err := writeAtomicJSON(runtime.interactiveAttachmentSessionRegistryPath(), tobari.InteractiveAttachmentSessionRegistry{
+			SchemaVersion: tobari.PermissionSessionSchema, Sessions: []tobari.InteractiveAttachmentSession{session},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := runtime.ConfirmNoFinalWorkspaceSessions(context.Background()); err != nil {
+			t.Fatalf("compact expired owner: %v", err)
+		}
+		var registry tobari.InteractiveAttachmentSessionRegistry
+		if err := readStrictJSON(runtime.interactiveAttachmentSessionRegistryPath(), &registry); err != nil || len(registry.Sessions) != 0 {
+			t.Fatalf("compacted registry=%+v err=%v", registry, err)
+		}
+	})
+
+	t.Run("expired live endpoint still blocks", func(t *testing.T) {
+		root := t.TempDir()
+		runtime, _ := newRuntime(root+"/config", root+"/state", &recordingRunner{})
+		if err := runtime.ensureInteractiveAttachmentStore(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		session := newSession(runtime, "d", true)
+		listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: runtime.interactiveAttachmentSocketPath(session), Net: "unix"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer listener.Close()
+		if err := os.Chmod(runtime.interactiveAttachmentSocketPath(session), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeAtomicJSON(runtime.interactiveAttachmentSessionRegistryPath(), tobari.InteractiveAttachmentSessionRegistry{
+			SchemaVersion: tobari.PermissionSessionSchema, Sessions: []tobari.InteractiveAttachmentSession{session},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := runtime.ConfirmNoFinalWorkspaceSessions(context.Background()); err == nil || !strings.Contains(err.Error(), "still live") {
+			t.Fatalf("expired live owner error=%v", err)
+		}
+	})
+
+	t.Run("current unresponsive owner is ambiguous", func(t *testing.T) {
+		root := t.TempDir()
+		runtime, _ := newRuntime(root+"/config", root+"/state", &recordingRunner{})
+		if err := runtime.ensureInteractiveAttachmentStore(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		session := newSession(runtime, "c", false)
+		if err := writeAtomicJSON(runtime.interactiveAttachmentSessionRegistryPath(), tobari.InteractiveAttachmentSessionRegistry{
+			SchemaVersion: tobari.PermissionSessionSchema, Sessions: []tobari.InteractiveAttachmentSession{session},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := runtime.ConfirmNoFinalWorkspaceSessions(context.Background()); err == nil || !strings.Contains(err.Error(), "ambiguous") {
+			t.Fatalf("current unresponsive owner error=%v", err)
+		}
+	})
+}
+
 func TestInteractiveSessionCompactionRemovesExactCrashedSocket(t *testing.T) {
 	root := t.TempDir()
 	runtime, _ := newRuntime(root+"/config", root+"/state", &recordingRunner{})

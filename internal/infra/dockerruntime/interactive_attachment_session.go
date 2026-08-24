@@ -326,6 +326,51 @@ func (r *Runtime) cleanupExpiredPermissionSessionSocket(session tobari.Interacti
 	return nil
 }
 
+// reconcileExpiredInteractiveSessionsLocked is the single canonical
+// registry-wide owner reconciliation used by attachment startup and global
+// Gateway replacement. The caller holds the interactive-attachment lock.
+// Current rows must prove a responsive owner and always block global mutation;
+// an unresponsive current row is ambiguous. Expired rows are removable only
+// when their exact transport endpoint is absent or refused.
+func (r *Runtime) reconcileExpiredInteractiveSessionsLocked(
+	registry *tobari.InteractiveAttachmentSessionRegistry, now time.Time,
+) (bool, error) {
+	if registry == nil {
+		return false, fmt.Errorf("interactive attachment registry is required")
+	}
+	if err := registry.Validate(); err != nil {
+		return false, err
+	}
+	kept := registry.Sessions[:0]
+	changed := false
+	for _, session := range registry.Sessions {
+		if permissionSessionLeaseCurrent(session, now) {
+			if !r.permissionSessionActive(session) {
+				return false, fmt.Errorf("current interactive attachment owner is unresponsive or ambiguous")
+			}
+			kept = append(kept, session)
+			continue
+		}
+		connection, dialErr := r.dialPermissionSession(session, 100*time.Millisecond)
+		if dialErr == nil {
+			_ = connection.Close()
+			return false, fmt.Errorf("expired interactive attachment endpoint is still live")
+		}
+		if !isConnectionRefused(dialErr) && !errors.Is(dialErr, os.ErrNotExist) {
+			return false, fmt.Errorf("expired interactive attachment endpoint is ambiguous: %w", dialErr)
+		}
+		if err := r.cleanupExpiredPermissionSessionSocket(session); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+	registry.Sessions = kept
+	if err := registry.Validate(); err != nil {
+		return false, err
+	}
+	return changed, nil
+}
+
 func (r *Runtime) borrowInteractiveWorkspaceAttachment(
 	ctx context.Context, expected tobari.InteractiveAttachmentSession, fingerprint string,
 ) (*interactiveWorkspaceAttachment, error) {
@@ -440,24 +485,17 @@ func (r *Runtime) beginInteractiveWorkspaceAttachmentForPrincipal(ctx context.Co
 		if err := registry.Validate(); err != nil {
 			return err
 		}
-		now := time.Now()
-		kept := registry.Sessions[:0]
+		changed, err := r.reconcileExpiredInteractiveSessionsLocked(&registry, time.Now())
+		if err != nil {
+			return err
+		}
 		for _, session := range registry.Sessions {
-			expires, _ := time.Parse(time.RFC3339Nano, session.ExpiresAt)
-			if !now.Before(expires) {
-				if err := r.cleanupExpiredPermissionSessionSocket(session); err != nil {
-					return err
-				}
-				continue
-			}
 			if session.WorkspaceManifestID == principal.contextID && session.WorkspaceID == principal.workspaceID {
 				copy := session
 				existing = &copy
 			}
-			kept = append(kept, session)
 		}
-		if len(kept) != len(registry.Sessions) {
-			registry.Sessions = kept
+		if changed {
 			return writeAtomicJSON(r.interactiveAttachmentSessionRegistryPath(), registry)
 		}
 		return nil

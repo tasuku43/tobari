@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"sync"
 	"time"
 
@@ -21,6 +22,59 @@ const (
 	FinalWorkspaceSessionLive   FinalWorkspaceSessionState = "live"
 	FinalWorkspaceSessionAbsent FinalWorkspaceSessionState = "absent"
 )
+
+// ConfirmNoFinalWorkspaceSessions proves the complete canonical WP07 registry
+// has no owner at all. Gateway replacement is installation-wide, so checking
+// only the Workspaces present in one candidate collection would incorrectly
+// ignore a stale or predecessor owner omitted from that candidate. Missing
+// store state is exact absence; every present validated record blocks, while
+// unsafe or malformed state remains observation uncertainty.
+func (r *Runtime) ConfirmNoFinalWorkspaceSessions(ctx context.Context) error {
+	if r == nil {
+		return fmt.Errorf("Docker runtime is unavailable")
+	}
+	return r.withInteractiveAttachmentLock(ctx, func() error {
+		if err := requirePrivateDirectory(r.interactiveAttachmentDirectory()); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		if err := requireOwnerOnlyRegularFile(r.interactiveAttachmentSessionRegistryPath()); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		var registry tobari.InteractiveAttachmentSessionRegistry
+		if err := readStrictJSON(r.interactiveAttachmentSessionRegistryPath(), &registry); err != nil {
+			return err
+		}
+		if err := registry.Validate(); err != nil {
+			return err
+		}
+		changed, err := r.reconcileExpiredInteractiveSessionsLocked(&registry, time.Now())
+		if err != nil {
+			return err
+		}
+		if changed {
+			if err := writeAtomicJSON(r.interactiveAttachmentSessionRegistryPath(), registry); err != nil {
+				return err
+			}
+			var confirmed tobari.InteractiveAttachmentSessionRegistry
+			if err := readStrictJSON(r.interactiveAttachmentSessionRegistryPath(), &confirmed); err != nil {
+				return err
+			}
+			if err := confirmed.Validate(); err != nil || !reflect.DeepEqual(confirmed, registry) {
+				return fmt.Errorf("canonical interactive attachment cleanup was not published exactly: %w", err)
+			}
+		}
+		if len(registry.Sessions) != 0 {
+			return fmt.Errorf("canonical interactive attachment registry is not globally owner-free")
+		}
+		return nil
+	})
+}
 
 // FinalWorkspaceSessionOwner is the narrow host-runtime owner returned to the
 // dormant final-authority bridge. It retains one canonical WP07 attachment;

@@ -177,6 +177,13 @@ type Runtime struct {
 	// dormant final-authority activation after OPA confirmed the exact revision
 	// but before the private active receipt is published.
 	finalPolicyAfterApply func() error
+	// finalGatewayAfterFirstSessionFence is nil in production. Tests use it to
+	// publish a canonical attachment between the two global zero-owner fences.
+	finalGatewayAfterFirstSessionFence func()
+	// finalGatewayAfterEffect is nil in production. Tests interrupt exact
+	// Gateway-settlement effect boundaries while leaving the durable decision
+	// available to the same initiating action.
+	finalGatewayAfterEffect func(string) error
 }
 
 // New resolves XDG paths without creating them.

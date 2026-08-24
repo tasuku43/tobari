@@ -46,6 +46,9 @@ func (r *Runtime) clusterUpWithProgressMode(
 	if err := ctx.Err(); err != nil {
 		return tobari.State{}, err
 	}
+	if err := r.requireNoFinalGatewaySettlement(ctx); err != nil {
+		return tobari.State{}, err
+	}
 	if err := r.validateResolverCompatibility(); err != nil {
 		return tobari.State{}, err
 	}
@@ -691,6 +694,9 @@ func (r *Runtime) recoverInterruptedClusterUp(ctx context.Context, state tobari.
 // which no public shared-cluster State was ever published. It gives explicit
 // cluster down a bounded recovery path without inventing configured state.
 func (r *Runtime) RecoverInterruptedClusterDown(ctx context.Context, purge bool) (bool, error) {
+	if err := r.requireNoFinalGatewaySettlement(ctx); err != nil {
+		return false, err
+	}
 	journal, exists, err := r.readClusterJournal()
 	if err != nil {
 		return false, fmt.Errorf("read interrupted cluster reconcile journal: %w", err)

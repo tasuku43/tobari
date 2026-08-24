@@ -64,6 +64,9 @@ func (r *Runtime) finalPolicyActiveReceiptPath() string {
 // only the existing lifecycle->policy projection lock and never consults the
 // predecessor Manifest store or shared State.
 func (r *Runtime) ActivatePolicyMemory(ctx context.Context, collection tobari.WorkspaceAuthorityCollection, contextID tobari.ContextID) (tobari.PolicyMemoryActivationReceipt, error) {
+	if err := r.requireNoFinalGatewaySettlement(ctx); err != nil {
+		return tobari.PolicyMemoryActivationReceipt{}, err
+	}
 	plan, err := tobari.BuildHotWorkspacePolicyProjection(collection, contextID)
 	if err != nil {
 		return tobari.PolicyMemoryActivationReceipt{}, err
@@ -238,17 +241,24 @@ func (r *Runtime) resumeFinalPolicyActivation(ctx context.Context, record finalP
 }
 
 func (r *Runtime) confirmFinalPolicyActivation(ctx context.Context, plan tobari.WorkspacePolicyProjection, match func(tobari.WorkspacePolicyProjectionContext) bool) error {
+	matched := false
+	for _, item := range plan.Contexts {
+		matched = matched || match(item)
+	}
+	if !matched {
+		return fmt.Errorf("final active policy receipt does not match the requested Context axis")
+	}
+	return r.confirmFinalPolicyProjection(ctx, plan)
+}
+
+// confirmFinalPolicyProjection verifies one complete route-independent live
+// publication. Unlike the per-Context confirmation wrapper, it also supports
+// an empty Context set after exact Context deletion.
+func (r *Runtime) confirmFinalPolicyProjection(ctx context.Context, plan tobari.WorkspacePolicyProjection) error {
 	return r.withPolicyProjectionLock(ctx, func() error {
 		active, err := r.readFinalPolicyActivation(r.finalPolicyActiveReceiptPath())
 		if err != nil {
 			return fmt.Errorf("read final active policy receipt: %w", err)
-		}
-		matched := false
-		for _, item := range plan.Contexts {
-			matched = matched || match(item)
-		}
-		if !matched {
-			return fmt.Errorf("final active policy receipt does not match the requested Context axis")
 		}
 		current, err := r.ObserveFinalWorkspacePolicyProjection(ctx, plan)
 		if err != nil {

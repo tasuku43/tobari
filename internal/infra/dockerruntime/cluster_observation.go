@@ -309,6 +309,9 @@ func (r *Runtime) ClusterDown(ctx context.Context, state tobari.State, purge boo
 	if err := state.Validate(); err != nil {
 		return err
 	}
+	if err := r.requireNoFinalGatewaySettlement(ctx); err != nil {
+		return err
+	}
 	journal, journalExists, err := r.readClusterJournal()
 	if err != nil {
 		return fmt.Errorf("read interrupted cluster reconcile before down: %w", err)

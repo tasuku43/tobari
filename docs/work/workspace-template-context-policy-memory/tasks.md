@@ -207,23 +207,32 @@ implementation is authorized by creating it.
 - [ ] Wire the exact predecessor adapter and migration selection only with the
       atomic final-reader cutover; implement principal/policy projection and
       reconciliation adapters without changing WP03/04/07 mechanisms.
-- [ ] Close the first-entry principal-publication seam in the later atomic
-      entry/runtime projection concern: a newly reconciled Workspace must
-      publish its exact final principal under the same lifecycle decision before
-      `BeginFinalWorkspaceSession`, without making `cluster up` an undocumented
-      prerequisite. The same settlement must cover an existing Workspace whose
-      AppliedEntry/creation authority changes and Workspace retirement that
-      removes the last principal. The dormant policy adapter does not implement
-      or claim entry/deletion principal, Gateway-mount, OPA, or receipt
-      settlement, and no current composition exposes it.
-- [ ] Route Gateway-changing Policy Memory decisions through that same final
-      coordinator. In particular, Allow/Deny/Reset of learned GraphQL endpoint
-      authority can change `gateway.json`; the invoked policy action and its
-      existing recovery decision must settle Gateway replacement, exact
-      principals, OPA, global/per-axis receipts, and envelope publication
-      without requiring a separate `cluster up`. Byte-identical HTTP policy
-      changes may retain the bounded OPA-only hot path. Add GraphQL allow/reset
-      and interruption-resume canaries before public cutover.
+- [x] Implement one dormant lifecycle-owned final settlement coordinator for
+      first entry, existing Workspace AppliedEntry/creation-authority changes,
+      Workspace retirement/re-entry, Context deletion, direct Policy
+      Allow/Deny/Reset, and cluster current/current candidates. Evidence: one
+      durable effect class chooses OPA-only only when Gateway bytes, principals,
+      topology, selected component images/profile/env/mount closure all match;
+      otherwise one exact journal keeps OPA deny-all through global zero-owner
+      fences, candidate principal CAS, bounded healthy Gateway+OPA replacement,
+      candidate OPA, global/per-axis receipt confirmation, and envelope
+      publication. Journaled environment and selected image identities survive
+      process ambient drift; cluster and settlement journals exclude each other;
+      interruption resumes the same action without repeated replacement.
+- [x] Route direct Gateway-changing Policy Memory Allow/Deny/Reset through the
+      same final coordinator, while byte-identical Gateway content retains the
+      bounded OPA-only path. Workspace and Context deletion now retire their
+      complete active principal/policy authority in the initiating durable
+      parent decision; fully inactive Contexts are omitted without adoption,
+      partial active axes fail closed, and Context deletion can produce an exact
+      empty active projection. No current composition exposes these adapters.
+- [ ] Implement fixed-target `policy apply-reviewed` as one complete reviewed-set
+      settlement: advance every reviewed target Policy Memory together, preserve
+      all non-target memories and all active Template-policy axes, and publish
+      one global Gateway/OPA/principal receipt. It must not sequence one
+      settlement per Context or use cluster current/current selection. Add
+      normal/no-op, multi-Context GraphQL+HTTP, interruption, and zero-partial-
+      adoption fixtures before public cutover.
 - [ ] Perform one public Catalog hard cutover with no accidental aliases.
 - [ ] Update human output, JSON schemas, completion, help, examples, site,
       embedded/generated snapshots, and agent-readiness fixtures.
@@ -255,6 +264,17 @@ implementation is authorized by creating it.
       mismatch, post-effect journal recovery, the task-owned >128 KiB codec,
       and over-ceiling rejection before OPA; helper source snapshot and
       `task check:fast` pass with pinned Go 1.26.6/Node 24.18.0.
+- [x] Dormant final Gateway settlement focused tests pass. Evidence: complete
+      standard and race runs of `internal/domain/tobari`,
+      `internal/infra/workspaceauthoritystore`, and
+      `internal/infra/dockerruntime` cover exact OPA-only/full classification,
+      selected image/profile/env/mount/topology closure, bounded component
+      readiness, cluster-journal exclusion, canonical session expiry and both
+      zero-owner fences, principal-before-component deny fencing, every
+      post-effect resume boundary, first entry, Workspace and Context deletion,
+      inactive Context omission/partial-axis rejection, and terminal same-action
+      replay. Canonical/helper sources are byte-identical and `task check:fast`
+      passes with pinned Go 1.26.6/Node 24.18.0.
 - [ ] `task check` passes. Evidence:
 - [ ] `task security` passes. Evidence:
 - [ ] `task public:check` passes. Evidence:

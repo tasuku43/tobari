@@ -411,24 +411,37 @@ contract and source inspection plus the product-owner lifecycle decisions above.
   atomically records the active receipt. Process interruption resumes the exact
   journal; confirmation performs no mutation and compares live content rather
   than the originating collection revision.
-- The dormant cluster seam only prepares the typed current/current candidate
-  and exact artifacts. It does not replace the live principal registry, switch
-  the Gateway mount, or become current composition. Likewise, first Context
-  entry still needs a later lifecycle-owned principal publication between new
-  Workspace reconciliation and session Begin. That later settlement must also
-  cover AppliedEntry/retained-creation changes on an existing Workspace and
-  Workspace deletion/re-entry, because all three change the global principal,
-  Gateway, and OPA content. Cluster reconciliation must not become an
-  undocumented prerequisite for those invoked tasks, and atomic reader/public
-  cutover remains blocked until their journaled settlement is implemented.
-- Learned GraphQL Policy Memory is another normal Gateway-changing input:
-  allowing a new GraphQL endpoint or resetting the last one changes the
-  generated `gateway.json`. The dormant hot adapter intentionally rejects that
-  mismatch rather than mutating OPA against stale Gateway interpretation. The
-  later coordinator must be selected by the same policy action/recovery
-  decision for Gateway-changing content; only byte-identical Gateway content
-  may use the OPA-only hot path. A separate user-issued `cluster up` is not an
-  acceptable completion or recovery prerequisite.
+- One dormant lifecycle-owned final settlement coordinator now joins first
+  entry, existing Workspace AppliedEntry/retained-creation changes, Workspace
+  retirement/re-entry, Context deletion, direct Policy Allow/Deny/Reset, and
+  cluster current/current candidates. It durably fixes OPA-only versus full
+  settlement before effects. Full settlement keeps deny-all active while it
+  proves global zero live owners, publishes the exact candidate principal
+  registry, recreates and boundedly waits for the selected healthy Gateway+OPA
+  closure, activates candidate OPA, publishes the global/per-axis receipt, and
+  then permits the parent envelope publication. Principal CAS precedes the
+  component replacement so an interruption never exposes candidate OPA with a
+  predecessor principal registry.
+- Exact selected Gateway/OPA image IDs, permission profile, managed environment,
+  mount closure, Compose assets, topology, aggregate artifacts, and previous/
+  next collection revisions are journal authority. Recovery replays the
+  journaled environment rather than ambient process values. An interrupted
+  cluster journal and a final-settlement journal exclude each other; expired
+  canonical attachment rows are compacted only under the existing registry
+  lock and current/live or ambiguous owners block both global fences.
+- A Context with neither active receipt is intentionally inactive and omitted
+  from live content while its collection revision remains a plan precondition;
+  exactly one active axis is invalid. Therefore an active Context can receive a
+  hot memory update beside a new inactive Context, and deleting the active
+  Context yields an exact empty active projection without adopting its sibling.
+  Context deletion uses the same durable parent decision, so OPA/Gateway/global
+  receipts cannot retain a deleted Context after the envelope changes.
+- Learned GraphQL Policy Memory remains a normal Gateway-changing input. Direct
+  Allow/Deny/Reset now choose the full settlement when `gateway.json` changes;
+  byte-identical HTTP/MCP changes may use the OPA-only path. The still-open
+  fixed `policy apply-reviewed` adapter must supply one complete multi-Context
+  reviewed plan to this coordinator rather than settle Contexts sequentially or
+  adopt Template.Current. No public/current reader selects these dormant seams.
 
 ## Dormant migration-engine evidence
 

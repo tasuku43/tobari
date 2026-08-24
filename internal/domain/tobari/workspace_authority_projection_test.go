@@ -57,6 +57,15 @@ func TestWorkspacePolicyProjectionKeepsHotAndClusterActivationAxesIndependent(t 
 	if hot.ContentDigest == cluster.ContentDigest {
 		t.Fatal("different selected Template policy content collapsed")
 	}
+	active, err := BuildActiveWorkspacePolicyProjection(collection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active.Mode != WorkspacePolicyProjectionActive || active.TargetContextID != nil ||
+		active.Contexts[0].TemplatePolicy.PolicySliceDigest != oldTemplate.Slices.PolicySliceDigest ||
+		active.Contexts[0].PolicyMemory.Revision != previousMemory.Revision {
+		t.Fatalf("active projection adopted a pending axis: %#v", active)
+	}
 	baseHot, err := BuildHotWorkspacePolicyProjection(base, base.Contexts[0].Context.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -64,6 +73,86 @@ func TestWorkspacePolicyProjectionKeepsHotAndClusterActivationAxesIndependent(t 
 	baseCluster, err := BuildClusterWorkspacePolicyProjection(base)
 	if err != nil || baseHot.ContentDigest != baseCluster.ContentDigest || baseHot.PlanDigest == baseCluster.PlanDigest {
 		t.Fatalf("content/plan identities did not separate route: hot=%#v cluster=%#v err=%v", baseHot, baseCluster, err)
+	}
+}
+
+func TestActiveWorkspacePolicyProjectionRepresentsEmptyAuthority(t *testing.T) {
+	base := workspaceAuthorityCollectionFixture(t)
+	empty, _, err := PublishWorkspaceAuthorityCollection(
+		base.Templates, []WorkspaceAuthorityContextRecord{}, []WorkspaceBinding{}, []PolicyCandidateAuthority{},
+		base.DefaultTemplateID, &base,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := BuildActiveWorkspacePolicyProjection(empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projection.Mode != WorkspacePolicyProjectionActive || projection.TargetContextID != nil || len(projection.Contexts) != 0 {
+		t.Fatalf("empty active projection is inconsistent: %#v", projection)
+	}
+}
+
+func TestWorkspacePolicyProjectionPreservesFullyInactiveContexts(t *testing.T) {
+	base := workspaceAuthorityCollectionFixture(t)
+	inactiveID := ContextID("01912345-6789-7abc-8def-0123456789a4")
+	inactiveMemory, _, err := PublishPolicyMemory(inactiveID, []PolicyMemoryRule{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inactive := WorkspaceAuthorityContextRecord{
+		Context:      ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: inactiveID, ProjectRoot: "/workspace/inactive", TemplateID: base.Templates[0].ID},
+		PolicyMemory: inactiveMemory,
+	}
+	contexts := append(cloneWorkspaceAuthorityContextRecords(base.Contexts), inactive)
+	collection, _, err := PublishWorkspaceAuthorityCollection(
+		base.Templates, contexts, base.Workspaces, base.PendingCandidates, base.DefaultTemplateID, &base,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hot, err := BuildHotWorkspacePolicyProjection(collection, base.Contexts[0].Context.ID)
+	if err != nil || len(hot.Contexts) != 1 || hot.Contexts[0].ContextID != base.Contexts[0].Context.ID {
+		t.Fatalf("hot active Context with inactive sibling: %#v err=%v", hot, err)
+	}
+	active, err := BuildActiveWorkspacePolicyProjection(collection)
+	if err != nil || len(active.Contexts) != 1 || active.Contexts[0].ContextID != base.Contexts[0].Context.ID {
+		t.Fatalf("complete active authority included inactive sibling: %#v err=%v", active, err)
+	}
+	withoutInactive, _, err := PublishWorkspaceAuthorityCollection(
+		base.Templates, base.Contexts, base.Workspaces, base.PendingCandidates, base.DefaultTemplateID, &collection,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterInactiveDelete, err := BuildActiveWorkspacePolicyProjection(withoutInactive)
+	if err != nil || afterInactiveDelete.ContentDigest != active.ContentDigest || afterInactiveDelete.PlanDigest == active.PlanDigest {
+		t.Fatalf("inactive Context deletion changed live content or lost plan identity: before=%#v after=%#v err=%v", active, afterInactiveDelete, err)
+	}
+	cluster, err := BuildClusterWorkspacePolicyProjection(collection)
+	if err != nil || len(cluster.Contexts) != 2 {
+		t.Fatalf("cluster reconciliation did not adopt both desired axes: %#v err=%v", cluster, err)
+	}
+
+	afterDelete, _, err := PublishWorkspaceAuthorityCollection(
+		base.Templates, []WorkspaceAuthorityContextRecord{inactive}, []WorkspaceBinding{}, []PolicyCandidateAuthority{},
+		base.DefaultTemplateID, &collection,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterActive, err := BuildActiveWorkspacePolicyProjection(afterDelete)
+	if err != nil || len(afterActive.Contexts) != 0 {
+		t.Fatalf("deleting the active Context adopted its inactive sibling: %#v err=%v", afterActive, err)
+	}
+
+	partial := collection.Clone()
+	receipt := TemplatePolicyActivationReceipt{ContextID: inactiveID, TemplateID: base.Templates[0].ID, PolicySliceDigest: base.Templates[0].Current.Slices.PolicySliceDigest}
+	partial.Contexts[1].ActiveTemplatePolicy = &receipt
+	partial.Revision, _ = workspaceAuthorityCollectionRevision(partial)
+	if _, err := BuildActiveWorkspacePolicyProjection(partial); err == nil {
+		t.Fatal("partial active Context authority was accepted")
 	}
 }
 

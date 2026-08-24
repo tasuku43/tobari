@@ -13,11 +13,12 @@ type WorkspacePolicyProjectionMode string
 const (
 	WorkspacePolicyProjectionHotMemory WorkspacePolicyProjectionMode = "hot_policy_memory"
 	WorkspacePolicyProjectionCluster   WorkspacePolicyProjectionMode = "cluster_reconciliation"
+	WorkspacePolicyProjectionActive    WorkspacePolicyProjectionMode = "active_authority"
 )
 
 func (m WorkspacePolicyProjectionMode) Validate() error {
 	switch m {
-	case WorkspacePolicyProjectionHotMemory, WorkspacePolicyProjectionCluster:
+	case WorkspacePolicyProjectionHotMemory, WorkspacePolicyProjectionCluster, WorkspacePolicyProjectionActive:
 		return nil
 	default:
 		return fmt.Errorf("Workspace policy projection mode is invalid")
@@ -220,7 +221,7 @@ func (p WorkspacePolicyProjection) Validate() error {
 			return fmt.Errorf("hot Workspace policy projection target is invalid")
 		}
 	} else if p.TargetContextID != nil {
-		return fmt.Errorf("cluster Workspace policy projection cannot carry a hot target")
+		return fmt.Errorf("non-hot Workspace policy projection cannot carry a hot target")
 	}
 	if p.Contexts == nil {
 		return fmt.Errorf("Workspace policy projection Context set is unknown")
@@ -305,6 +306,14 @@ func BuildClusterWorkspacePolicyProjection(collection WorkspaceAuthorityCollecti
 	return buildWorkspacePolicyProjection(collection, WorkspacePolicyProjectionCluster, "")
 }
 
+// BuildActiveWorkspacePolicyProjection selects every Context's independently
+// active Template-policy and Policy-Memory axes without authorizing a new hot
+// target or adopting Template.Current. It is the complete authority used when
+// a Context deletion removes one axis owner from the global projection.
+func BuildActiveWorkspacePolicyProjection(collection WorkspaceAuthorityCollection) (WorkspacePolicyProjection, error) {
+	return buildWorkspacePolicyProjection(collection, WorkspacePolicyProjectionActive, "")
+}
+
 // NewWorkspacePolicyProjection validates one already selected complete set of
 // Context authorities and derives both route-independent content identity and
 // exact request/plan identity. Infrastructure uses it only when preserving the
@@ -358,8 +367,15 @@ func buildWorkspacePolicyProjection(collection WorkspaceAuthorityCollection, mod
 			revision = template.Current.Clone()
 			memory = record.PolicyMemory.Clone()
 		} else {
+			inactive := record.ActiveTemplatePolicy == nil && record.ActivePolicyMemory == nil && record.ActivePolicyMemoryRef == nil
+			if inactive {
+				// An intentionally new Context owns durable desired authority but
+				// contributes no executable global policy until cluster
+				// reconciliation activates both axes together.
+				continue
+			}
 			if record.ActiveTemplatePolicy == nil || record.ActivePolicyMemory == nil || record.ActivePolicyMemoryRef == nil {
-				return WorkspacePolicyProjection{}, fmt.Errorf("hot Policy Memory projection requires both active axes for every Context")
+				return WorkspacePolicyProjection{}, fmt.Errorf("Workspace policy projection has a partial active Context authority")
 			}
 			var found bool
 			for _, retained := range template.Retained {
@@ -379,13 +395,13 @@ func buildWorkspacePolicyProjection(collection WorkspaceAuthorityCollection, mod
 			if !found || record.ActiveTemplatePolicy.ValidateFor(record.Context, revision) != nil {
 				return WorkspacePolicyProjection{}, fmt.Errorf("active Template policy revision is unavailable")
 			}
-			if record.Context.ID == target {
+			if mode == WorkspacePolicyProjectionHotMemory && record.Context.ID == target {
 				targetFound = true
 				memory = record.PolicyMemory.Clone()
 			} else {
 				memory = record.ActivePolicyMemory.Clone()
 			}
-			if record.Context.ID != target && record.ActivePolicyMemoryRef.ValidateFor(record.Context, memory) != nil {
+			if (mode != WorkspacePolicyProjectionHotMemory || record.Context.ID != target) && record.ActivePolicyMemoryRef.ValidateFor(record.Context, memory) != nil {
 				return WorkspacePolicyProjection{}, fmt.Errorf("active Policy Memory authority is unavailable")
 			}
 		}

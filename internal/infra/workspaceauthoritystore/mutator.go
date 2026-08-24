@@ -42,6 +42,17 @@ type PolicyMemoryActivationAuthority interface {
 	ConfirmPolicyMemoryActive(context.Context, tobari.WorkspaceAuthorityCollection, tobari.ContextID, tobari.PolicyMemoryActivationReceipt) error
 }
 
+// FinalAuthoritySettlementAuthority owns the one shared Gateway/principal/OPA
+// settlement beneath the installation lifecycle decision. It receives exact
+// complete previous/next envelopes and one unchanged decision reference; its
+// effect class and recovery are infrastructure-private.
+type FinalAuthoritySettlementAuthority interface {
+	SettleFinalAuthority(context.Context, tobari.WorkspaceAuthorityCollection, tobari.WorkspaceAuthorityCollection, tobari.ContextID, string, string) error
+	ConfirmFinalAuthoritySettled(context.Context, tobari.WorkspaceAuthorityCollection, tobari.ContextID) error
+	SettleFinalContextDeletion(context.Context, tobari.WorkspaceAuthorityCollection, tobari.WorkspaceAuthorityCollection, tobari.ContextID, string, string) error
+	ConfirmFinalContextDeletionSettled(context.Context, tobari.WorkspaceAuthorityCollection, tobari.ContextID) error
+}
+
 // Mutator publishes complete final-authority envelopes behind the existing
 // lifecycle authority. It is dormant until the atomic WP11 reader cutover.
 type Mutator struct {
@@ -49,6 +60,7 @@ type Mutator struct {
 	lifecycle  LifecycleAuthority
 	deletion   DeletionAuthority
 	activation PolicyMemoryActivationAuthority
+	settlement FinalAuthoritySettlementAuthority
 	clock      func() time.Time
 	entropy    io.Reader
 
@@ -66,6 +78,7 @@ type effectDecision struct {
 	PreviousRevision   tobari.SemanticDigest                    `json:"previous_revision"`
 	NextGeneration     uint64                                   `json:"next_generation"`
 	NextRevision       tobari.SemanticDigest                    `json:"next_revision"`
+	ContextID          *tobari.ContextID                        `json:"context_id,omitempty"`
 	WorkspaceID        *tobari.WorkspaceID                      `json:"workspace_id,omitempty"`
 	Workspace          *tobari.WorkspaceBinding                 `json:"workspace,omitempty"`
 	Force              *bool                                    `json:"force,omitempty"`
@@ -88,20 +101,25 @@ func (d effectDecision) validate() error {
 	}
 	switch d.Operation {
 	case "workspace-delete", "workspace-delete-force":
-		if d.NextGeneration != d.PreviousGeneration+1 || d.WorkspaceID == nil || d.WorkspaceID.Validate() != nil || d.Workspace == nil || d.Workspace.ID != *d.WorkspaceID || d.Force == nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil || d.EntryPlan != nil {
+		if d.NextGeneration != d.PreviousGeneration+1 || d.ContextID != nil || d.WorkspaceID == nil || d.WorkspaceID.Validate() != nil || d.Workspace == nil || d.Workspace.ID != *d.WorkspaceID || d.Force == nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil || d.EntryPlan != nil {
 			return fmt.Errorf("Workspace delete effect decision is invalid")
 		}
+	case "context-delete":
+		contextID, err := tobari.ParseContextRef(d.Target)
+		if err != nil || d.NextGeneration != d.PreviousGeneration+1 || d.ContextID == nil || *d.ContextID != contextID || d.ContextID.Validate() != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil || d.EntryPlan != nil {
+			return fmt.Errorf("Context delete effect decision is invalid")
+		}
 	case "policy-allow", "policy-deny":
-		if d.NextGeneration != d.PreviousGeneration+1 || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate == nil || d.Candidate.Validate() != nil || d.RuleID == "" || d.PreviousMemory == nil || d.PreviousMemory.Validate() != nil || d.Decision.Validate() != nil || d.EntryPlan != nil {
+		if d.NextGeneration != d.PreviousGeneration+1 || d.ContextID != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate == nil || d.Candidate.Validate() != nil || d.RuleID == "" || d.PreviousMemory == nil || d.PreviousMemory.Validate() != nil || d.Decision.Validate() != nil || d.EntryPlan != nil {
 			return fmt.Errorf("Policy candidate effect decision is invalid")
 		}
 	case "policy-reset":
-		if d.NextGeneration != d.PreviousGeneration+1 || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID == "" || d.PreviousMemory == nil || d.PreviousMemory.Validate() != nil || d.Decision != "" || d.EntryPlan != nil {
+		if d.NextGeneration != d.PreviousGeneration+1 || d.ContextID != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID == "" || d.PreviousMemory == nil || d.PreviousMemory.Validate() != nil || d.Decision != "" || d.EntryPlan != nil {
 			return fmt.Errorf("Policy reset effect decision is invalid")
 		}
 	case "context-entry":
 		contextID, err := tobari.ParseContextRef(d.Target)
-		if err != nil || d.EntryPlan == nil || d.EntryPlan.Workspace.ContextID != contextID || d.EntryPlan.Applied.ContextID != contextID || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil {
+		if err != nil || d.EntryPlan == nil || d.EntryPlan.Workspace.ContextID != contextID || d.EntryPlan.Applied.ContextID != contextID || d.ContextID != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil {
 			return fmt.Errorf("Context entry effect decision is invalid")
 		}
 		binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, ProjectRoot: d.EntryPlan.Workspace.ProjectRoot, TemplateID: d.EntryPlan.Applied.TemplateID}
@@ -126,7 +144,7 @@ type effectPlan struct {
 	effect   func(context.Context) error
 }
 
-func NewMutator(store *Store, lifecycle LifecycleAuthority, deletion DeletionAuthority, activation PolicyMemoryActivationAuthority) (*Mutator, error) {
+func NewMutator(store *Store, lifecycle LifecycleAuthority, deletion DeletionAuthority, activation PolicyMemoryActivationAuthority, settlement FinalAuthoritySettlementAuthority) (*Mutator, error) {
 	if store == nil || store.root == "" {
 		return nil, fmt.Errorf("final Workspace authority store is required")
 	}
@@ -134,7 +152,7 @@ func NewMutator(store *Store, lifecycle LifecycleAuthority, deletion DeletionAut
 		return nil, fmt.Errorf("installation lifecycle authority is required")
 	}
 	return &Mutator{
-		store: store, lifecycle: lifecycle, deletion: deletion, activation: activation,
+		store: store, lifecycle: lifecycle, deletion: deletion, activation: activation, settlement: settlement,
 		clock: time.Now, entropy: rand.Reader, rename: os.Rename, sync: syncMutationDirectory,
 	}, nil
 }
@@ -301,21 +319,21 @@ func (m *Mutator) DeleteContextByReference(ctx context.Context, ref string) (res
 	if err != nil {
 		return result, err
 	}
-	resultErr = m.mutate(ctx, func(current tobari.WorkspaceAuthorityCollection, present bool) (tobari.WorkspaceAuthorityCollection, bool, error) {
+	committedDecision, resultErr := m.effectfulMutate(ctx, "context-delete", ref, func(current tobari.WorkspaceAuthorityCollection, _ bool) (effectPlan, error) {
 		index := contextRecordIndex(current, id)
 		if index < 0 {
-			return current, false, tobari.ErrContextBindingNotFound
+			return effectPlan{}, tobari.ErrContextBindingNotFound
 		}
 		for _, workspace := range current.Workspaces {
 			if workspace.ContextID == id {
-				return current, false, tobari.ErrContextBindingProtected
+				return effectPlan{}, tobari.ErrContextBindingProtected
 			}
 		}
 		if m.deletion == nil {
-			return current, false, fmt.Errorf("Context credential deletion authority is unavailable")
+			return effectPlan{}, fmt.Errorf("Context credential deletion authority is unavailable")
 		}
 		if err := m.deletion.ConfirmContextCredentialAbsent(ctx, id); err != nil {
-			return current, false, err
+			return effectPlan{}, err
 		}
 		contexts := append(cloneContextRecords(current.Contexts[:index]), cloneContextRecords(current.Contexts[index+1:])...)
 		candidates := make([]tobari.PolicyCandidateAuthority, 0, len(current.PendingCandidates))
@@ -325,9 +343,29 @@ func (m *Mutator) DeleteContextByReference(ctx context.Context, ref string) (res
 			}
 		}
 		result = tobari.ContextDeleteResult{ContextID: id, Deleted: true}
-		next, changed, err := publishCollection(current, present, current.Templates, contexts, current.Workspaces, candidates, current.DefaultTemplateID)
-		return next, changed, err
+		next, changed, err := publishCollection(current, true, current.Templates, contexts, current.Workspaces, candidates, current.DefaultTemplateID)
+		if err != nil {
+			return effectPlan{}, err
+		}
+		if !changed {
+			return effectPlan{}, fmt.Errorf("Context deletion did not change authority")
+		}
+		contextID := id
+		return effectPlan{
+			next:     next,
+			decision: effectDecision{ContextID: &contextID},
+			effect: func(effectContext context.Context) error {
+				if m.settlement == nil {
+					return fmt.Errorf("final Gateway settlement authority is unavailable")
+				}
+				decisionRef := contextDeletionSettlementDecisionRef(id, next.Revision)
+				return m.settlement.SettleFinalContextDeletion(effectContext, current.Clone(), next.Clone(), id, "context-delete", decisionRef)
+			},
+		}, nil
 	})
+	if resultErr == nil && !result.Deleted && committedDecision.ContextID != nil {
+		result = tobari.ContextDeleteResult{ContextID: *committedDecision.ContextID, Deleted: true}
+	}
 	return result, resultErr
 }
 
@@ -383,6 +421,12 @@ func (m *Mutator) DeleteWorkspaceByReference(ctx context.Context, ref string, fo
 			decision: effectDecision{WorkspaceID: &workspaceID, Workspace: &workspaceEvidence, Force: &forceValue},
 			effect: func(effectContext context.Context) error {
 				decisionRef := workspaceRetirementDecisionRef(workspace.ID, next.Revision)
+				if m.settlement == nil {
+					return fmt.Errorf("final Gateway settlement authority is unavailable")
+				}
+				if err := m.settlement.SettleFinalAuthority(effectContext, current.Clone(), next.Clone(), workspace.ContextID, operation, decisionRef); err != nil {
+					return err
+				}
 				if err := m.deletion.RetireWorkspace(effectContext, workspace, force, decisionRef); err != nil {
 					return err
 				}
@@ -467,7 +511,7 @@ func (m *Mutator) applyPolicyCandidate(ctx context.Context, ref string, decision
 		if !collectionChanged {
 			return effectPlan{}, fmt.Errorf("Policy candidate did not change final authority")
 		}
-		activationEffect := m.policyMemoryActivationEffect(next, candidate.ContextID, expectedReceipt)
+		activationEffect := m.policyMemoryActivationEffect(current, next, candidate.ContextID, operation, ref, expectedReceipt)
 		candidateEvidence := candidate.Clone()
 		previousEvidence := previous.Clone()
 		return effectPlan{
@@ -535,7 +579,7 @@ func (m *Mutator) ResetPolicyMemoryRuleByReference(ctx context.Context, ref stri
 		if !collectionChanged {
 			return effectPlan{}, fmt.Errorf("Policy reset did not change final authority")
 		}
-		activationEffect := m.policyMemoryActivationEffect(next, previous.ContextID, expectedReceipt)
+		activationEffect := m.policyMemoryActivationEffect(current, next, previous.ContextID, "policy-reset", ref, expectedReceipt)
 		previousEvidence := previous.Clone()
 		return effectPlan{
 			next:     next,
@@ -560,18 +604,21 @@ func (m *Mutator) preparePolicyMemoryActivation(record *tobari.WorkspaceAuthorit
 	return expectedReceipt, nil
 }
 
-func (m *Mutator) policyMemoryActivationEffect(collection tobari.WorkspaceAuthorityCollection, contextID tobari.ContextID, expectedReceipt tobari.PolicyMemoryActivationReceipt) func(context.Context) error {
+func (m *Mutator) policyMemoryActivationEffect(previous, collection tobari.WorkspaceAuthorityCollection, contextID tobari.ContextID, operation, target string, expectedReceipt tobari.PolicyMemoryActivationReceipt) func(context.Context) error {
 	return func(ctx context.Context) error {
-		receipt, err := m.activation.ActivatePolicyMemory(ctx, collection.Clone(), contextID)
-		if err != nil {
+		if m.settlement == nil {
+			return fmt.Errorf("final Gateway settlement authority is unavailable")
+		}
+		decisionRef := policySettlementDecisionRef(operation, target, collection.Revision)
+		if err := m.settlement.SettleFinalAuthority(ctx, previous.Clone(), collection.Clone(), contextID, operation, decisionRef); err != nil {
 			return err
 		}
 		snapshot, snapshotErr := snapshotForContext(collection, contextID)
 		if snapshotErr != nil || snapshot.ActivePolicyMemory == nil {
 			return fmt.Errorf("Policy Memory activation candidate is incomplete: %w", snapshotErr)
 		}
-		if err := receipt.ValidateFor(snapshot.Context, *snapshot.ActivePolicyMemory); err != nil || receipt != expectedReceipt {
-			return fmt.Errorf("Policy Memory activation returned another authority: %w", err)
+		if err := expectedReceipt.ValidateFor(snapshot.Context, *snapshot.ActivePolicyMemory); err != nil {
+			return fmt.Errorf("Policy Memory activation candidate is invalid: %w", err)
 		}
 		return nil
 	}
@@ -683,6 +730,13 @@ func (m *Mutator) effectfulMutate(ctx context.Context, operation, target string,
 
 func (m *Mutator) terminalConsequenceCurrent(current tobari.WorkspaceAuthorityCollection, decision effectDecision) error {
 	switch decision.Operation {
+	case "context-delete":
+		for _, record := range current.Contexts {
+			if record.Context.ID == *decision.ContextID {
+				return fmt.Errorf("terminal Context delete target is present")
+			}
+		}
+		return nil
 	case "workspace-delete", "workspace-delete-force":
 		for _, workspace := range current.Workspaces {
 			if workspace.ID == *decision.WorkspaceID {
@@ -745,12 +799,23 @@ func terminalPolicyMemoryCurrent(current tobari.WorkspaceAuthorityCollection, wa
 
 func (m *Mutator) confirmCommittedEffect(ctx context.Context, current tobari.WorkspaceAuthorityCollection, decision effectDecision) error {
 	switch decision.Operation {
+	case "context-delete":
+		if m.settlement == nil {
+			return fmt.Errorf("final Context deletion settlement recovery authority is unavailable")
+		}
+		return m.settlement.ConfirmFinalContextDeletionSettled(ctx, current.Clone(), *decision.ContextID)
 	case "workspace-delete", "workspace-delete-force":
 		contextIndex := contextRecordIndex(current, decision.Workspace.ContextID)
 		if contextIndex < 0 || decision.Workspace.ValidateFor(current.Contexts[contextIndex].Context) != nil {
 			return fmt.Errorf("terminal Workspace retirement evidence crosses Context authority")
 		}
 		decisionRef := workspaceRetirementDecisionRef(*decision.WorkspaceID, decision.NextRevision)
+		if m.settlement == nil {
+			return fmt.Errorf("final Gateway settlement recovery authority is unavailable")
+		}
+		if err := m.settlement.ConfirmFinalAuthoritySettled(ctx, current.Clone(), decision.Workspace.ContextID); err != nil {
+			return err
+		}
 		return m.deletion.ConfirmWorkspaceRetired(ctx, *decision.Workspace, decisionRef)
 	case "policy-allow", "policy-deny", "policy-reset":
 		if m.activation == nil || decision.PreviousMemory == nil {
@@ -809,6 +874,14 @@ func (m *Mutator) recoverResetPublication(ctx context.Context, decision effectDe
 
 func workspaceRetirementDecisionRef(id tobari.WorkspaceID, revision tobari.SemanticDigest) string {
 	return "workspace-retirement:" + string(id) + ":" + string(revision)
+}
+
+func policySettlementDecisionRef(operation, target string, revision tobari.SemanticDigest) string {
+	return "policy-settlement:" + operation + ":" + target + ":" + string(revision)
+}
+
+func contextDeletionSettlementDecisionRef(id tobari.ContextID, revision tobari.SemanticDigest) string {
+	return "context-deletion-settlement:" + string(id) + ":" + string(revision)
 }
 
 func (m *Mutator) effectDecisionPath() string     { return m.store.root + ".wp11-mutation-decision.json" }
