@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "answers": [
+    {
+      "id": "E1",
+      "expected_stages": ["check_requirements", "resolve_context", "prepare_protection", "prepare_workspace", "enter_workspace"],
+      "expected_next": "",
+      "expected_change_state": "",
+      "required_gates": []
+    },
+    {
+      "id": "E2",
+      "expected_stages": [],
+      "expected_next": "doctor",
+      "expected_change_state": "none",
+      "required_gates": []
+    },
+    {
+      "id": "E3",
+      "expected_stages": [],
+      "expected_next": "status",
+      "expected_change_state": "unknown",
+      "required_gates": []
+    },
+    {
+      "id": "E4",
+      "expected_stages": [],
+      "expected_next": "context enter",
+      "expected_change_state": "",
+      "required_gates": []
+    },
+    {
+      "id": "E5",
+      "expected_stages": ["check_requirements", "resolve_context", "prepare_protection", "prepare_workspace", "enter_workspace"],
+      "expected_next": "status_schema_3_or_catalog_fault",
+      "expected_change_state": "typed",
+      "required_gates": []
+    },
+    {
+      "id": "E6",
+      "expected_stages": [],
+      "expected_next": "tobari",
+      "expected_change_state": "known_safe",
+      "required_gates": []
+    },
+    {
+      "id": "E7",
+      "expected_stages": [],
+      "expected_next": "",
+      "expected_change_state": "",
+      "required_gates": ["task check", "task security", "task public:check", "task release:check"]
+    }
+  ]
+}

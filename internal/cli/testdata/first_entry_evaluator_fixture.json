@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "rows": [
+    {"id": "E1", "scenario": "fresh_first_use"},
+    {"id": "E2", "scenario": "stopped_engine_or_cluster"},
+    {"id": "E3", "scenario": "interrupted_or_partial_authority"},
+    {"id": "E4", "scenario": "explicit_entry_and_retry"},
+    {"id": "E5", "scenario": "truthful_progress_and_next"},
+    {"id": "E6", "scenario": "idempotent_convergence"},
+    {"id": "E7", "scenario": "final_repository_integration"}
+  ]
+}
