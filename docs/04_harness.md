@@ -3,6 +3,8 @@
 The surface/resolver matrices and release absence gates implement [ADR 0082](decisions/0082-release-and-research-build-surfaces.md).
 The Host Loopback naming, retired-name, TLS, and resolver gates implement
 [ADR 0083](decisions/0083-name-the-physical-host-loopback-authority.md).
+The status-home 0/6/12 observation budget, zero-write boundary, and semantic
+output fixtures implement [ADR 0085](decisions/0085-make-status-the-cwd-home.md).
 
 The harness is the executable counterpart of the theses, product contract, architecture, security model, and release policy. Its goal is not to maximize the number of tools. Its goal is to make important regressions fail through one understandable interface.
 
@@ -636,7 +638,7 @@ The test suite has complementary levels:
   and missing common runtime failure declarations.
 - Reference-graph tests connect discover producers to act consumers by kind and exact field/argument declarations.
 - Opaque-ID round-trip tests pass discovery output unchanged into action input.
-- CWD-owned lifecycle integration creates same-root/different-Workspace Manifest and
+- CWD-owned lifecycle integration creates same-root/different-Template Contexts and
   independent-root Workspaces, then proves their actual containers, networks,
   and XDG homes are distinct while Gateway, OPA, and public CA state are
   shared. It retains one partial container/network cleanup followed by exact
@@ -645,14 +647,13 @@ The test suite has complementary levels:
   repeated/concurrent creation, drift reconciliation, child exit semantics,
   and attachment guards are owned by deterministic domain, application,
   infrastructure, and CLI tests.
-- Lifecycle target-safety tests exercise both Workspace Manifest flag placements for root
-  entry, status, and delete; reject duplicate, explicit-empty, unknown, and
-  stale selectors before handler, Workspace, or Docker I/O; bind a force
-  preview to its displayed stable Workspace Manifest ID; retain Workspace Manifest scope for an empty
-  status; and prove same-root/different-Workspace Manifest selection through a bound
-  manifest. Frozen typed status, answer-key, and text fixtures verify schema-1
-  Workspace Manifest/attachment/next-argv semantics, exact human Runtime selection,
-  suppression of healthy diagnostic IDs/home, and the complete delete impact.
+- Lifecycle target-safety tests prove root, status, and delete expose no
+  Template/Context selector; bind destructive actions through exact opaque
+  references where required; keep root selection CWD-first; and prove
+  same-root/different-Template Contexts remain siblings. Frozen typed status,
+  answer-key, and text fixtures verify schema-3 independent axes, structured
+  Next/Attention, exact human Runtime selection, suppression of healthy
+  diagnostic IDs/home, and the complete delete impact.
 - Logical lifecycle tests inject interruptions at home, instance, root-index,
   runtime, and deletion boundaries; they prove journals recover without
   duplicate IDs and diagnose orphaned one-sided records. Runtime interruption
@@ -1006,6 +1007,7 @@ Every strong statement should identify its enforcement path.
 | Workspace Manifest definition and selection | Stable-ID manifest/domain tests; required immutable source access, Workspace Manifest policy revision, complete method ceilings, and explicit native-readiness selection; a catalog-wide negative check that no existing-Workspace Manifest write accepts Boundary inputs; exact fixed targets for the mutable Runtime binding, shell/Git session defaults, and future-Workspace bootstrap; reviewed creation defaults; seeded partial-input terminal creation with supplied-stage preservation; complete direct-group compatibility; partial non-TTY/JSON and cancellation zero-mutation canaries; valid name/source/complete method decisions; composed snapshot filtering/digest binding; typed result-first list summaries with exact Runtime and action markers, same-fixture before/after goldens, schema-2 Runtime-selection non-leakage, and readiness/position negative-inference canaries; one typed `manifest show` fixture with concise and detailed lifecycle goldens that separate fixed Boundary, next-entry Runtime, later-entry/session defaults, new-home-only AWS/EKS setup, and login ownership; active-Runtime and current-Workspace-bootstrap negative-inference canaries; one typed `manifest create` fixture with legacy and shared-summary goldens; complete method-override, create-cluster-state, detailed-inspection, and Workspace Manifest-preserving-next-action answer keys; byte-identical JSON with or without `--details` and unchanged complete-direct JSON; catalog effect/input contracts; owner-only atomic store tests; default-only selection; explicit synthetic/persisted observation state; first-use zero-write and concurrent/read-only XDG canaries; permanent Workspace binding; unsupported-version fixtures; and agent-readiness transcript |
 | Manifest revision authority and history | WorkspaceManifestID+semantic-digest authority tests; generation correlation-only validation; semantic no-op leaves generation unchanged; A→B→A creates a later generation with the same A digest; retained `generation+digest` receipt accepts only exact same-ID/canonical-body idempotence and rejects other identity/body or partial artifacts |
 | Desired/applied/observed reconciliation | Typed desired, AppliedEntry, observation, adoption, and failure fixtures; Current/Next human and schema-2 JSON contracts; entry and cluster-up as the only mutation boundaries; attached pending adoption zero-Docker-call rejection; success-after-verification ordering; failure/cancellation preserves last success under the same lifecycle lock; status/list/show/doctor/completion fresh and existing-state zero-write canaries |
+| CWD status home | Nearest-root-before-default selection; one task-owned port/snapshot; independent Template-policy, Policy-Memory, AppliedEntry, Runtime-material, cluster, attachment, permission, and Service axes; no overall status; structured Next/Attention; schema-3 recursive Catalog/output/reference fixtures; fresh zero-write/zero-Docker evidence; exact 6-call normal and 12-call one-retry ceilings; sibling-count independence; non-creating owner reads; and release absence of predecessor, private Runtime, Service action, inferred usage, and research capability fields |
 | Pre-release final-authority clean break | Exact fresh-final-empty classification; bounded fixed-path legacy and unsafe/drift rejection; whole-tree and Docker/OPA/Gateway/Broker zero-mutation evidence; no predecessor UUID, home, rule, Runtime, principal, session, or auth adoption; no public migration/rollback route; secret/path-free reset guidance; and a future-release-policy guard |
 | Workspace Manifest deletion boundary | Fixed catalog-target destructive intent, exact stable-ID result correlation, lifecycle-lock coverage, protected-default/current/Workspace-bound rejection before removal, exact Workspace Manifest and Workspace Manifest-ID authentication store deletion, project-root/shared-image preservation, reconciliation status, hostile-path and symlink canaries, and text/JSON output contracts |
 | Workspace Manifest source-access boundary | Closed enum/default tests, exact desired-spec hash and Docker bind inspection, read/change/delete/Git-write canaries, writable home/tmpfs checks, no writable alias inventory, same-root cross-Workspace Manifest observation, nested home-relative roots, and unsupported-state rejection |

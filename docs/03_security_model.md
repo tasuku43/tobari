@@ -5,6 +5,16 @@ fixed by [ADR 0082](decisions/0082-release-and-research-build-surfaces.md).
 Physical-host loopback authority, retired-name denial, and private-registry
 cutover are fixed by
 [ADR 0083](decisions/0083-name-the-physical-host-loopback-authority.md).
+The public status-home trust boundary and zero-mutation observation contract are
+fixed by [ADR 0085](decisions/0085-make-status-the-cwd-home.md).
+
+`status` reads one exact CWD-selected scope through non-creating observation
+seams. It never creates or acquires a mutation lock, initializes state, repairs
+or cleans owner records, reconciles Docker, inspects credential files, or
+invokes a permission, Service, authentication, browser, or Runtime lifecycle
+action. Owner summaries expose typed counts/state only. Unsafe paths, foreign
+ownership, contradictory identity, ambiguous scope, and continued anchor churn
+fail closed; expected absence or live unavailability never becomes false zero.
 
 This document is the durable Tobari security contract. The detailed threat
 catalog and operational limits are in [Threat Model](THREAT_MODEL.md).
@@ -1080,14 +1090,13 @@ mutations. `exit` only detaches the session; `delete` resolves the same target
 and is the only routine lifecycle-ending mutation. Ordinary delete observes
 active exec sessions and rejects when one is attached; `--force` is the
 explicit override.
-Neither operation accepts an ID or arbitrary root selector. Root entry,
-status, and delete accept a Workspace Manifest name only as a host-side selector resolved
-to stable identity before CWD, Workspace-state, or Docker observation. Prefix
-and command-local spellings normalize through the same catalog input; empty,
-duplicate, unknown, invalid, or stale bindings fail before downstream
-lifecycle I/O. A force-delete preview carries the resolved Workspace Manifest ID back into
-the mutation boundary, which rejects a changed authority instead of
-rediscovering or falling back to the default Workspace Manifest.
+Root entry, status, and delete accept no Template, Context, Workspace ID, or
+arbitrary-root selector. Status fixes the canonical nearest ProjectRoot from
+CWD before consulting the installation default Template, then keeps exact
+Context and Workspace identity internal to its one read snapshot. Explicit
+nondefault mutations consume unchanged opaque references through their owning
+commands; they never reconstruct authority from a name, root, label, or
+presentation field.
 All mutations use complete intent and impact declarations before Docker
 execution. Ordinary runtime reconciliation needs no human approval;
 ordinary deletion requires no attached session, while `--force` overrides that

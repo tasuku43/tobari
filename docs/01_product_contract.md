@@ -4,6 +4,8 @@ The release/research capability vocabulary, resolver axis, breaking V1 schema
 cutover, and archive boundary are governed by [ADR 0082](decisions/0082-release-and-research-build-surfaces.md).
 Physical-host loopback naming, retirement, and cutover are governed by
 [ADR 0083](decisions/0083-name-the-physical-host-loopback-authority.md).
+The CWD-first status-home selection, snapshot, output, and call-budget contract
+is governed by [ADR 0085](decisions/0085-make-status-the-cwd-home.md).
 
 ## Product statement
 
@@ -386,7 +388,7 @@ The public commands are:
 | `runtime prune dry-run [--format text\|json]` | discover | read | Produce one exact opaque prune-plan reference from a complete coherent installation observation, listing every eligible unused owned image tag, protection, blocker, preserved source/snapshot byte count, and bounded Docker observation without creating state or changing Docker |
 | `runtime prune apply --plan RUNTIME_PRUNE_PLAN_REF --confirm=prune [--format text\|json]` | act, reference bound | write | Revalidate and apply one unchanged reviewed plan, removing only exact Tobari-owned unused image tags while preserving Runtime source, immutable snapshots, revision history, Workspace Manifests, Workspaces, homes, IDs, and shared image content |
 | `tobari [-- <command>...]` | act | create | Atomically initialize a fresh default Template and Context when required, then reconcile and enter their exact Workspace |
-| `status [--format text|json]` | discover | read | Return desired, independently active, and applied authority for the exact final default Template and canonical Project Context |
+| `status [--format text|json]` | discover | read | Return one CWD-first schema-3 home snapshot for the nearest Project root and installation-default Template, with independent desired/active/applied/observed facts, one Next, and ordered Attention |
 
 Bare `tobari review` is a pure Catalog namespace listing with exactly the
 public task leaves `permissions`, `runtimes`, and `services`; it performs no task read or
@@ -418,12 +420,12 @@ inspection; it may open the host browser, stages decisions without authority,
 and delegates one confirmed reviewed set to the canonical fixed-target Apply.
 The release-surface development binary and release archives omit this command.
 
-For the CWD lifecycle commands `tobari`, `status`, and `delete`, one non-empty
-invocation Workspace Manifest may appear before or after the command path: for example,
-`tobari --manifest toolbox status` and `tobari status --manifest toolbox` are
-equivalent. Omission resolves the default Workspace Manifest without changing it;
-duplicate or explicit-empty placement is invalid. After name resolution, the
-stable Workspace Manifest ID is authoritative for the remainder of the operation.
+The CWD lifecycle commands `tobari`, `status`, and `delete` have no Template or
+Context selector. Bare `status` resolves the nearest canonical ProjectRoot
+from CWD before applying the installation default Template; same-root Contexts
+for other Templates remain siblings and never redirect selection. Nondefault
+work uses an opaque Context or Workspace reference obtained from its owning
+discovery command.
 
 The root command is interactive and requires a TTY on stdin, stdout, and stderr.
 It does not silently create state in a non-interactive context. With no
@@ -1117,11 +1119,11 @@ Detached session + Workspace exists
 Workspace absent
 ```
 
-`status` and `delete` resolve one stable Workspace Manifest before the nearest canonical
-Workspace containing the host current directory. Status distinguishes logical
-absence from an existing Workspace whose runtime is missing, and reports
-`attached`, `detached`, or `not_applicable` directly rather than inferring it
-from labels or presentation order. When several ancestor Workspaces exist,
+`status` resolves the nearest canonical Context ProjectRoot before applying the
+installation default Template. It distinguishes logical absence from an
+existing Workspace whose runtime is missing, and reports attachment as a
+separate typed fact rather than inferring it from labels or presentation
+order. When several ancestor Workspaces exist,
 run the destructive command from a directory whose nearest Workspace is the
 one intended for removal. If that Workspace has an attached session, add
 `--force` only when terminating that session and removing its persistent home

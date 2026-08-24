@@ -3,6 +3,8 @@
 Build-surface and resolver authority follow [ADR 0082](decisions/0082-release-and-research-build-surfaces.md); this document describes the resulting topology and layer seams.
 Physical-host loopback authority and migration follow
 [ADR 0083](decisions/0083-name-the-physical-host-loopback-authority.md).
+The task-owned CWD status snapshot and its zero-mutation observation budget
+follow [ADR 0085](decisions/0085-make-status-the-cwd-home.md).
 
 ## System topology
 
@@ -1275,15 +1277,14 @@ operation is represented as a catalog-owned fixed current-directory target even
 though it has no argv path words. Handlers receive parsed inputs and call one
 application service. `tobari` and `delete` declare complete fixed-target
 mutation impacts; `tobari` keeps its target fixed to the canonical CWD even
-when its selected Workspace root is an ancestor. `status` resolves the same CWD
-target. For those three lifecycle commands, the dispatcher normalizes the
-prefix or command-local Workspace Manifest spelling into the command's one catalog input;
-the typed parser rejects duplicates and explicit empty values. Application
-resolves that selector to one validated manifest before CWD or Workspace
-selection, and infrastructure receives the bound manifest rather than
-rediscovering its display name. Status and force-delete preview retain that
-stable Workspace Manifest identity through presentation and exact follow-up argv. `list`
-reports IDs as diagnostic fields but no public lifecycle action consumes them.
+when its selected Workspace root is an ancestor. `status` has a dedicated
+task-owned read port: it canonicalizes CWD, selects the nearest existing Context
+ProjectRoot without consulting the default Template, then applies the exact
+installation default within that root. Its one snapshot revalidates root and
+authority after bounded live observation; presentation performs no joins.
+`status` has no selector, mutation lock, recovery route, or sibling-handler
+call. The selected Workspace reference is its only produced reference. `list`
+reports its own exhaustive inventory independently.
 The dependency-free terminal capability is an infrastructure
 adapter used only by the CLI's human selector; a line-input fallback keeps
 raw-mode availability out of the public command contract.
