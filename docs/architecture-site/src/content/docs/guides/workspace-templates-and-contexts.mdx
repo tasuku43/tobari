@@ -1,0 +1,103 @@
+---
+title: Workspace Templates and Contexts
+description: Reuse one reviewed setup, bind it to a Project with a Context, and enter its replaceable Workspace.
+---
+
+A **Workspace Template** is reusable installation setup. A **Context** binds one
+canonical Project root to one Template and owns that Project's remembered
+policy decisions. A **Workspace** is the replaceable applied instance and
+persistent home for one Context.
+
+## Discover Templates
+
+```sh
+tobari template list --format json
+tobari template show --name review --format json
+```
+
+Names are read-only discovery text. Actions consume the opaque references
+returned by discovery.
+
+## Create or copy
+
+Create the reviewed built-in setup:
+
+```sh
+tobari template create --name review
+```
+
+Copy one exact retained immutable revision:
+
+```sh
+tobari template show --name default --format json
+tobari template copy --from TEMPLATE_REVISION_REF --name review
+```
+
+Copy creates a fresh Template identity and generation 1. It copies no Context,
+Policy Memory, Workspace, home, credentials, attachment, applied state,
+default selection, or lineage.
+
+## Select the installation default
+
+```sh
+tobari template list --format json
+tobari template default set --id TEMPLATE_REF
+```
+
+Default selection affects only bare root entry and bare `status`. It never
+retargets an existing Context or Workspace.
+
+## Bind this Project and enter
+
+From the Project root:
+
+```sh
+tobari context create --template TEMPLATE_REF
+tobari context enter --id CONTEXT_REF
+```
+
+For ordinary default work, bare `tobari` creates or reuses the default
+Template/Context pair and enters its Workspace. For nondefault work, obtain the
+Context reference from `context list` or `context show` and pass it unchanged
+to `context enter`.
+
+```sh
+tobari context list --format json
+tobari context show --id CONTEXT_REF --format json
+tobari context enter --id CONTEXT_REF -- codex exec ...
+```
+
+## Configure one exact Template
+
+```sh
+tobari config shell --id TEMPLATE_REF --variable PS1 --source inherit
+tobari config git --id TEMPLATE_REF --source inherit
+tobari config bootstrap aws --id TEMPLATE_REF --profile example
+tobari template runtime set --id TEMPLATE_REF --runtime RUNTIME_REVISION_REF
+```
+
+These actions publish a complete immutable Template revision. Runtime and
+session defaults apply only at their documented later entry/session boundary;
+bootstrap applies only to a newly created Workspace home.
+
+## Observe and delete
+
+Bare status is the zero-mutation CWD home:
+
+```sh
+tobari status --format json
+```
+
+Nondefault resources use exact references:
+
+```sh
+tobari workspace status --id WORKSPACE_REF --format json
+tobari workspace delete --id WORKSPACE_REF --confirm=delete
+tobari context delete --id CONTEXT_REF --confirm=delete
+tobari template delete --id TEMPLATE_REF --confirm=delete
+```
+
+Workspace deletion removes its home and native credentials but preserves
+Context Policy Memory. Context deletion requires no Workspace, attachment, or
+research credential. Template deletion requires that it is neither the default
+nor referenced by a Context.

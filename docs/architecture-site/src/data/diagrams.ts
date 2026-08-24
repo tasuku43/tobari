@@ -132,22 +132,22 @@ export const diagrams: Record<string, DiagramDefinition> = {
       edge("workspace", "upstream", "no direct route", "denied", "blocked"),
     ],
   },
-  "workspace-manifest-workspace-cluster": {
-    title: "Workspace Manifest and shared cluster",
+  "workspace-template-context-workspace-cluster": {
+    title: "Workspace Template and shared cluster",
     description:
-      "Host-owned Manifest state selects one durable Workspace while the shared cluster enforces the complete projection.",
+      "A host-owned Context binds one Project to a Workspace Template while the shared cluster enforces the complete projection.",
     nodes: [
       node(
         "manifest",
-        "Workspace Manifest",
-        "Selects Runtime, policy, source access, and stable authority.",
+        "Workspace Template",
+        "Selects Runtime, baseline policy, source access, and stable authority.",
         "trusted",
         "store",
       ),
       node(
         "workspace",
         "Workspace",
-        "Retains one permanent Manifest binding and its own home.",
+        "Retains one permanent Context binding and its own home.",
         "persistent",
         "store",
       ),
@@ -160,13 +160,13 @@ export const diagrams: Record<string, DiagramDefinition> = {
       node(
         "cluster",
         "Shared cluster",
-        "Gateway and OPA enforce all loaded Manifest policy.",
+        "Gateway and OPA enforce all active Context policy.",
         "control",
       ),
       node(
         "projection",
         "Aggregate projection",
-        "Content-addressed policy built from every Manifest.",
+        "Content-addressed policy built from every Context.",
         "trusted",
         "store",
       ),
@@ -191,7 +191,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
     nodes: [
       node(
         "manifest",
-        "Manifest binding",
+        "Context binding",
         "Stable for the lifetime of the Workspace.",
         "trusted",
         "store",
@@ -307,14 +307,14 @@ export const diagrams: Record<string, DiagramDefinition> = {
     ],
   },
   "project-principal": {
-    title: "Project principal",
+    title: "Context/Workspace principal",
     description:
       "Gateway derives authority from the kernel-observed source endpoint and host registry, never from request text.",
     nodes: [
       node(
         "request",
         "Request headers",
-        "Untrusted text cannot select project authority.",
+        "Untrusted text cannot select Context or Workspace authority.",
         "untrusted",
       ),
       node(
@@ -333,7 +333,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
       node(
         "principal",
         "Workspace principal",
-        "Exact Manifest ID and Workspace ID pair.",
+        "Exact Context ID and Workspace ID pair.",
         "control",
       ),
       node("opa", "OPA input", "Receives the derived principal.", "control"),
@@ -475,12 +475,12 @@ export const diagrams: Record<string, DiagramDefinition> = {
   "state-retention": {
     title: "State retention",
     description:
-      "Manifest, Workspace, home, runtime, and shared policy state have separate owners and lifetimes.",
+      "Workspace Template, Context, Policy Memory, Workspace, home, runtime, and shared policy state have separate owners and lifetimes.",
     nodes: [
       node(
         "manifest",
-        "Manifest configuration",
-        "Host-owned desired Runtime and policy source.",
+        "Workspace Template configuration",
+        "Host-owned reusable Runtime, defaults, and baseline policy.",
         "trusted",
         "store",
       ),

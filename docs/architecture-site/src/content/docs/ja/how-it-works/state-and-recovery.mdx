@@ -5,9 +5,9 @@ description: 永続データごとに、管理主体、寿命、削除操作、�
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-Tobari は、プロジェクト、Workspace、Workspace Manifest、Runtime、クラスター、
+Tobari は、プロジェクト、Workspace、Workspace Template、Runtime、クラスター、
 インストール環境の状態を所有範囲ごとに分けます。ライフサイクル操作が削除するのは
-宣言した範囲だけです。そのため `exit`、`delete`、クラスターの停止、Runtime の再作成では、
+宣言した範囲だけです。そのため `exit`、`workspace delete`、クラスターの停止、Runtime の再作成では、
 それぞれ残るものが異なります。
 
 永続記録から安全に再構築できる実行時状態がある一方で、欠損や不整合を推測せず
@@ -21,35 +21,35 @@ Tobari は、プロジェクト、Workspace、Workspace Manifest、Runtime、ク
 
 以下のパスは、特に記載がない限り、実際に使われる XDG の設定／状態ルートからの相対パスです。
 
-| 状態                               | 管理主体と意味                                                                                   | 寿命                                                                           |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
-| プロジェクトルート                 | immutable Workspace Manifest の `source_access` に従って mount する user-selected live host file | Tobari のライフサイクル操作では削除しない                                      |
-| `roots/<hash>.json`                | 正規化済みプロジェクトルートと Workspace Manifest ID の組に対するルート索引                      | 論理 Workspace と一緒に作成・削除                                              |
-| `instances/<id>/state.json`        | 安定した Workspace ID、Manifest との結び付き、要求／調整済み Runtime、診断用 Docker ID           | 論理 Workspace と一緒に作成・削除。Docker の観測より優先                       |
-| `instances/<id>/home`              | Workspace ごとの書き込み可能なホーム領域と、agent CLI が所有するログイン状態                     | `exit` や Runtime の再作成後も残り、Workspace の削除で消える                   |
-| Workspace Manifest                 | host-owned の stable ID、agent/runtime/policy/shell の desired declaration                       | Workspace やクラスターの実行環境を操作しても残る                               |
-| Runtime `source/` と不変リビジョン | インストール全体で再利用するビルドソースと成功履歴                                               | Workspace と Manifest のライフサイクルを越えて残り、build だけでは展開されない |
-| Manifest のポリシー原本            | exact-host domains と Advanced モードの Rego                                                     | クラスターの実行環境より長く残り、検証済みの有効化か明示編集だけで変わる       |
-| 統合ポリシー生成物                 | OPA に読み取り専用でマウントする全 Manifest 用ルーター、データ、モジュールの写し                 | 原本から不可分に公開し、クラスター稼働中だけ有効                               |
-| 現在有効なポリシーバンドル         | owner label 付きの Docker 管理ボリュームにある完全な OPA bundle                                  | `cluster down --purge` だけが削除し、原本から再構築する                        |
-| プリンシパル台帳                   | host-issued の Workspace 送信元、Gateway endpoint、network、Manifest／project の結び付き         | Workspace network に合わせて調整し、Gateway に read-only で mount              |
-| host-owned lifecycle state         | Runtime と policy が使うホスト設定、信頼情報、検査結果                                           | `cluster down` と `--purge` の後も残り、安全でなければ停止                     |
-| Gateway CA state                   | Workspace 側の HTTPS 検査に使う install-local CA                                                 | 通常の `cluster down` 後も残り、共有 CA volume は `--purge` で削除             |
+| 状態                                                         | 管理主体と意味                                                                                   | 寿命                                                                                     |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| プロジェクトルート                                           | immutable Workspace Template の `source_access` に従って mount する user-selected live host file | Tobari のライフサイクル操作では削除しない                                                |
+| `workspace-authority/authority.json`                         | schema-1 Template/Context/Policy Memory と schema-3 Workspace の atomic authority envelope       | Context は Workspace 削除後も残り、各 exact resource action が狭い削除範囲を所有する     |
+| `workspace-authority-runtime/workspaces/<workspace-id>/home` | Workspace ごとの書き込み可能 home と agent CLI 所有の login state                                | `exit` や Runtime 再作成後も残り、exact Workspace delete で消える                        |
+| Workspace Template revision                                  | stable ID、不変 Boundary、baseline policy、exact Runtime binding、typed defaults                 | Context、Workspace、cluster runtime より長く残り、exact Template delete でだけ消える     |
+| Runtime `source/` と不変リビジョン                           | インストール全体で再利用するビルドソースと成功履歴                                               | Workspace と Workspace Template のライフサイクルを越えて残り、build だけでは展開されない |
+| Workspace Template のポリシー原本                            | 再利用可能な baseline policy と Advanced Rego                                                    | complete immutable Template revision の発行でだけ変わる                                  |
+| Context Policy Memory                                        | 一つの Project/Template Context が所有する完全な remembered-decision revision                    | Workspace replacement 後も残り、Context と一緒にだけ消える                               |
+| 統合ポリシー生成物                                           | OPA に読み取り専用でマウントする全 Context 用ルーター、データ、モジュールの写し                  | 原本から不可分に公開し、クラスター稼働中だけ有効                                         |
+| 現在有効なポリシーバンドル                                   | owner label 付きの Docker 管理ボリュームにある完全な OPA bundle                                  | `cluster down --purge` だけが削除し、原本から再構築する                                  |
+| プリンシパル台帳                                             | host-issued の Workspace 送信元、Gateway endpoint、network、Context／Workspace の結び付き        | Workspace network に合わせて調整し、Gateway に read-only で mount                        |
+| host-owned lifecycle state                                   | Runtime と policy が使うホスト設定、信頼情報、検査結果                                           | `cluster down` と `--purge` の後も残り、安全でなければ停止                               |
+| Gateway CA state                                             | Workspace 側の HTTPS 検査に使う install-local CA                                                 | 通常の `cluster down` 後も残り、共有 CA volume は `--purge` で削除                       |
 
-クラスター状態には、共有資源名、読み込み済み Manifest 数、内容アドレス方式で作った
-統合データの版、生成物のパスも記録します。現在選択中の Manifest は通信制御の権限ではなく、
-Workspace home のログイン状態も Manifest に含めません。
+クラスター状態には、共有資源名、読み込み済み Workspace Template 数、内容アドレス方式で作った
+統合データの版、生成物のパスも記録します。現在選択中の Workspace Template は通信制御の権限ではなく、
+Workspace home のログイン状態も Workspace Template に含めません。
 
 ## 操作ごとに保持するもの
 
-| 操作または出来事          | Workspace home／identity                                        | Manifest／policy                 | shared service／CA                            | project files |
-| ------------------------- | --------------------------------------------------------------- | -------------------------------- | --------------------------------------------- | ------------- |
-| `exit`                    | 保持                                                            | 保持                             | 稼働を続け、CA も保持                         | 保持          |
-| `delete`                  | 対象 Workspace の home、Runtime 記録、container、network を削除 | Manifest と policy source は保持 | 変更なし                                      | 保持          |
-| `cluster down`            | Workspace が残る間は拒否                                        | 保持                             | service と一時 network を削除、CA は保持      | 保持          |
-| `cluster down --purge`    | 保持                                                            | 保持                             | service、共有 CA、active policy bundle を削除 | 保持          |
-| Runtime の再作成          | identity と home は保持。container は次の entry で調整          | policy は保持                    | 変更なし                                      | 保持          |
-| container／network の消失 | logical state と home は保持                                    | 保持                             | 必要に応じて Gateway を再接続                 | 保持          |
+| 操作または出来事          | Workspace home／identity                                        | Workspace Template／policy                 | shared service／CA                            | project files |
+| ------------------------- | --------------------------------------------------------------- | ------------------------------------------ | --------------------------------------------- | ------------- |
+| `exit`                    | 保持                                                            | 保持                                       | 稼働を続け、CA も保持                         | 保持          |
+| `workspace delete`        | 対象 Workspace の home、Runtime 記録、container、network を削除 | Workspace Template と policy source は保持 | 変更なし                                      | 保持          |
+| `cluster down`            | Workspace が残る間は拒否                                        | 保持                                       | service と一時 network を削除、CA は保持      | 保持          |
+| `cluster down --purge`    | 保持                                                            | 保持                                       | service、共有 CA、active policy bundle を削除 | 保持          |
+| Runtime の再作成          | identity と home は保持。container は次の entry で調整          | policy は保持                              | 変更なし                                      | 保持          |
+| container／network の消失 | logical state と home は保持                                    | 保持                                       | 必要に応じて Gateway を再接続                 | 保持          |
 
 ## 正本に従って復旧する
 
@@ -59,15 +59,17 @@ Workspace home のログイン状態も Manifest に含めません。
 記録から作り直せます。次に Workspace へ入るときに再作成して Gateway をつなぎ直し、
 プリンシパル台帳を更新したうえで、既存のプロジェクトルートと home を mount します。
 
-### 永続状態が不完全
+### 永続 authority が不完全または矛盾している
 
-ルート索引があるのに instance 記録がない場合、Tobari は `incomplete` を報告します。
-失われた ID、Manifest との結び付き、home の関係を推測しません。明示的に作り直す前に、
-完全一致する `delete` で残った記録を片付けます。
+最終 authority は root index と instance record の組ではなく、一つの atomic
+envelope です。envelope が不正、Context/Workspace binding が矛盾、または mutation
+outcome が unknown なら fail closed します。Docker resource から replacement identity
+を推測したり mutation を部分 replay したりせず、次の exact action より先に `status`
+または fault が宣言した read path で保持済み事実を分類します。
 
 ### ポリシーの有効化に失敗
 
-ポリシー変更では、排他制御、Manifest 単位の事前検査、全 Manifest を統合した状態での完全な
+ポリシー変更では、排他制御、Workspace Template 単位の事前検査、全 Context を統合した状態での完全な
 テスト、内容アドレス方式での公開、OPA が正常になるまでの待機を行います。入力が不正な場合や
 有効化に失敗した場合、候補の一部だけを mount しません。原本を元に戻し、直前まで正常だった
 統合データと状態を保持します。
@@ -79,14 +81,14 @@ Workspace home のログイン状態も Manifest に含めません。
 
 ## 具体的な復旧シナリオ
 
-ホスト再起動後、Workspace container と専用 network はありませんが、ルート索引、instance state、
-home は残っています。
+ホスト再起動後、Workspace container と専用 network はありませんが、authority envelope
+には Context と Workspace が残り、Workspace home も保持されています。
 
-1. `tobari` が永続的な project root と Manifest の記録を解決する
-2. Manifest が要求する Runtime image を検証する
+1. `tobari` が canonical root、installation default Template、exact Context を解決する
+2. Context の current Template revision と exact Runtime binding を検証する
 3. 内部 network と container を再作成する
-4. Gateway を接続し、Workspace の guard と principal 登録を記録に合わせる
-5. 同じ project root、Manifest ID、home を持つ logical Workspace へ入る
+4. Gateway を接続し、Workspace guard と exact Context/Workspace principal 登録を記録に合わせる
+5. 同じ Context ID、Workspace ID、home を持つ logical Workspace へ入る
 
 これは状態の調整であり、新しい Workspace の作成ではありません。
 
@@ -131,9 +133,9 @@ identity、policy、Workspace state が曖昧なら安全側に停止します�
   <summary>
     <code>delete</code> は、<code>exit</code> が保持する何を削除しますか？
   </summary>
-  完全一致する Workspace の root index、instance
-  state、home、container、network、principal 台帳です。 project files と
-  Manifest の state は削除しません。
+  完全一致する Workspace authority record、home、container、network、principal
+  台帳です。project files、Context、Policy Memory、Workspace Template
+  は削除しません。
 </details>
 
 <details>
@@ -141,7 +143,8 @@ identity、policy、Workspace state が曖昧なら安全側に停止します�
     <code>cluster down --purge</code> は何を追加で削除しますか？
   </summary>
   共有 Gateway CA volume と active policy bundle を追加で削除します。Workspace
-  home、Manifest、 policy source、host-owned lifecycle state は保持します。
+  home、Workspace Template、 policy source、host-owned lifecycle state
+  は保持します。
 </details>
 
 <details>
@@ -153,7 +156,8 @@ identity、policy、Workspace state が曖昧なら安全側に停止します�
 
 <details>
   <summary>
-    container が消えても instance 記録が残っている場合、どうなりますか？
+    container が消えても有効な Workspace authority
+    が残っている場合、どうなりますか？
   </summary>
   Workspace は論理的には存在します。次の入室時に互換性のある container
   を作り、記録と状態を合わせます。

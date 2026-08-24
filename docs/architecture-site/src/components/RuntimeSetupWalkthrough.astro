@@ -12,8 +12,8 @@ const flow = [
     to: t("Runtime source", "Runtime ソース"),
     title: t("Create one reusable Runtime", "再利用できる Runtime を作る"),
     detail: t(
-      "runtime create creates an owner-only complete build context. It does not build or change a Workspace Manifest.",
-      "runtime create は所有者専用の完全なビルドコンテキストを作ります。ビルドも Workspace Manifest の変更もしません。",
+      "runtime create creates an owner-only complete build context. It does not build or change a Workspace Template.",
+      "runtime create は所有者専用の完全なビルドコンテキストを作ります。ビルドも Workspace Template の変更もしません。",
     ),
     kind: "control",
   },
@@ -48,23 +48,23 @@ const flow = [
       "互換リビジョンだけを追加する",
     ),
     detail: t(
-      "A successful build appends immutable history. Failed and unchanged builds leave history and every Workspace Manifest unchanged.",
-      "成功したビルドだけが不変履歴を追加します。失敗または同一内容なら履歴も全 Workspace Manifest も変わりません。",
+      "A successful build appends immutable history. Failed and unchanged builds leave history and every Workspace Template unchanged.",
+      "成功したビルドだけが不変履歴を追加します。失敗または同一内容なら履歴も全 Workspace Template も変わりません。",
     ),
     kind: "allowed",
   },
   {
     from: t("Runtime history", "Runtime 履歴"),
-    to: t("Workspace Manifest binding", "Workspace Manifest の参照"),
+    to: t("Workspace Template binding", "Workspace Template の参照"),
     title: t("Select one exact revision", "正確な一つのリビジョンを選ぶ"),
     detail: t(
-      "manifest runtime set explicitly pins standard or name@ordinal. Builds never roll Workspace Manifests forward.",
-      "manifest runtime set で standard または name@ordinal を明示的に固定します。ビルドで Workspace Manifest は自動更新されません。",
+      "template runtime set explicitly pins standard or name@ordinal. Builds never roll Workspace Templates forward.",
+      "template runtime set で standard または name@ordinal を明示的に固定します。ビルドで Workspace Template は自動更新されません。",
     ),
     kind: "allowed",
   },
   {
-    from: t("Workspace Manifest binding", "Workspace Manifest の参照"),
+    from: t("Workspace Template binding", "Workspace Template の参照"),
     to: "Workspace",
     title: t("Reconcile on the next entry", "次の入室時に反映する"),
     detail: t(
@@ -81,8 +81,8 @@ const steps = [
     location: t("Trusted host", "信頼するホスト"),
     command: `tobari runtime create --name coding\ntobari runtime show --name coding`,
     expected: t(
-      "The report gives the stable Runtime ID and owner-only source path. Creation changes no Workspace Manifest.",
-      "安定した Runtime ID と所有者専用ソースパスが表示されます。作成では Workspace Manifest は変わりません。",
+      "The report gives the stable Runtime ID and owner-only source path. Creation changes no Workspace Template.",
+      "安定した Runtime ID と所有者専用ソースパスが表示されます。作成では Workspace Template は変わりません。",
     ),
     note: t(
       "Runtime names are installation-wide. Use runtime list before choosing another unique name.",
@@ -115,12 +115,12 @@ const steps = [
     ),
     location: t("Trusted host", "信頼するホスト"),
     command: t(
-      `tobari runtime build --name coding\ntobari runtime history --name coding`,
-      `tobari runtime build --name coding\ntobari runtime history --name coding`,
+      `tobari runtime build --id RUNTIME_REF\ntobari runtime history --name coding`,
+      `tobari runtime build --id RUNTIME_REF\ntobari runtime history --name coding`,
     ),
     expected: t(
-      "A compatible build appends coding@1. The build uses an immutable full-tree snapshot and changes no Workspace Manifest.",
-      "互換ビルドが coding@1 を追加します。不変なツリー全体のスナップショットを使い、Workspace Manifest は変えません。",
+      "A compatible build appends coding@1. The build uses an immutable full-tree snapshot and changes no Workspace Template.",
+      "互換ビルドが coding@1 を追加します。不変なツリー全体のスナップショットを使い、Workspace Template は変えません。",
     ),
     note: t(
       "A failed or unchanged build appends no ordinal. Review every base image and download used by the host build.",
@@ -129,18 +129,18 @@ const steps = [
   },
   {
     title: t(
-      "Bind the ready revision to a Workspace Manifest",
-      "準備済みリビジョンを Workspace Manifest に固定する",
+      "Bind the ready revision to a Workspace Template",
+      "準備済みリビジョンを Workspace Template に固定する",
     ),
     location: t("Trusted host", "信頼するホスト"),
-    command: `tobari manifest runtime set --runtime coding@1\ntobari manifest show`,
+    command: `tobari template runtime set --id TEMPLATE_REF --runtime RUNTIME_REVISION_REF\ntobari template show`,
     expected: t(
-      "The selected Workspace Manifest reports coding@1. The same revision may be selected by another Manifest.",
-      "選択した Workspace Manifest に coding@1 が表示されます。同じリビジョンを別 Manifest でも選べます。",
+      "The selected Workspace Template reports coding@1. The same revision may be selected by another Workspace Template.",
+      "選択した Workspace Template に coding@1 が表示されます。同じリビジョンを別の Workspace Template でも選べます。",
     ),
     note: t(
-      "Building coding@2 later does not upgrade this Manifest. Select a different ordinal explicitly for upgrade or rollback.",
-      "後で coding@2 をビルドしてもこの Manifest は更新されません。更新やロールバックでは別 ordinal を明示的に選びます。",
+      "Building coding@2 later does not upgrade this Workspace Template. Select a different ordinal explicitly for upgrade or rollback.",
+      "後で coding@2 をビルドしてもこの Workspace Template は更新されません。更新やロールバックでは別 ordinal を明示的に選びます。",
     ),
   },
   {
@@ -218,8 +218,8 @@ const limits = t(
     <p>
       {
         t(
-          "The standard Runtime is intentionally minimal. Quickstart uses its curl command directly so you can verify denial, review, allow, and retry without choosing an agent. For real work, build one reusable Runtime and explicitly select its ready revision for the Workspace Manifests that need it.",
-          "標準 Runtime は意図的に最小限です。クイックスタートでは curl を使い、エージェントを選ばずに拒否、レビュー、許可、再実行を確認します。実作業では再利用できる Runtime をビルドし、必要な Workspace Manifest へ準備済みリビジョンを明示的に選択します。",
+          "The standard Runtime is intentionally minimal. Quickstart uses its curl command directly so you can verify denial, review, allow, and retry without choosing an agent. For real work, build one reusable Runtime and explicitly select its ready revision for the Workspace Templates that need it.",
+          "標準 Runtime は意図的に最小限です。クイックスタートでは curl を使い、エージェントを選ばずに拒否、レビュー、許可、再実行を確認します。実作業では再利用できる Runtime をビルドし、必要な Workspace Template へ準備済みリビジョンを明示的に選択します。",
         )
       }
     </p>
@@ -251,8 +251,8 @@ const limits = t(
     <p class="runtime-section-intro">
       {
         t(
-          "Runtime source and immutable history are installation-wide. Build never changes a Workspace Manifest; explicit selection pins one ready revision, and Workspaces observe it on their next entry.",
-          "Runtime ソースと不変履歴はインストール全体に属します。ビルドは Workspace Manifest を変えず、明示的な選択で準備済みリビジョンを固定し、Workspace は次の入室時に反映します。",
+          "Runtime source and immutable history are installation-wide. Build never changes a Workspace Template; explicit selection pins one ready revision, and Workspaces observe it on their next entry.",
+          "Runtime ソースと不変履歴はインストール全体に属します。ビルドは Workspace Template を変えず、明示的な選択で準備済みリビジョンを固定し、Workspace は次の入室時に反映します。",
         )
       }
     </p>
@@ -290,8 +290,8 @@ const limits = t(
       >{" "}
       {
         t(
-          "no revision is appended and every Workspace Manifest binding stays unchanged. Inspect the build output and runtime show.",
-          "リビジョンは追加されず、すべての Workspace Manifest 参照が変わりません。ビルド出力と runtime show を確認してください。",
+          "no revision is appended and every Workspace Template binding stays unchanged. Inspect the build output and runtime show.",
+          "リビジョンは追加されず、すべての Workspace Template 参照が変わりません。ビルド出力と runtime show を確認してください。",
         )
       }
     </p>
@@ -452,8 +452,8 @@ const limits = t(
         <a href={evidenceHref("internal/cli/runtime_catalog.go")}
           >{
             t(
-              "Runtime catalog and Workspace Manifest selection command contracts",
-              "Runtime Catalog と Workspace Manifest 選択のコマンド契約",
+              "Runtime catalog and Workspace Template selection command contracts",
+              "Runtime Catalog と Workspace Template 選択のコマンド契約",
             )
           }</a
         >

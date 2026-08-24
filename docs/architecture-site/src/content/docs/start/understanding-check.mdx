@@ -16,7 +16,11 @@ A developer says: “Tobari is just a convenient `docker run` command.” What i
 <details>
 <summary>Answer</summary>
 
-The runtime container is only one recoverable implementation detail. Tobari also maintains a logical Workspace Manifest-bound Workspace, a host-issued project principal, a dedicated internal network, Gateway enforcement, OPA policy, denial review and atomic activation, and persistent Workspace home/state. See [System overview](../../how-it-works/system-overview/).
+The runtime container is only one recoverable implementation detail. Tobari
+also maintains a Template-bound Context, that Context's replaceable Workspace,
+a host-issued Context/Workspace principal, a dedicated internal network,
+Gateway enforcement, OPA policy, denial review and atomic activation, and
+persistent Workspace home/state. See [System overview](../../how-it-works/system-overview/).
 
 </details>
 
@@ -69,7 +73,7 @@ After transparent interception, TLS connection A runs between the Workspace clie
 
 ## 6. Same effect, different body
 
-Two requests have the same Workspace Manifest, project, scheme, host, port, method, and path, but different JSON bodies. Do they require different learned rules?
+Two requests have the same Context, Workspace, scheme, host, port, method, and path, but different JSON bodies. Do they require different learned rules?
 
 <details>
 <summary>Answer</summary>
@@ -80,23 +84,23 @@ No. Request body is not a policy identity dimension and does not split candidate
 
 ## 7. Leaving versus deleting
 
-The agent types `exit`, then the user runs `tobari delete`. What is the difference?
+The agent types `exit`, then the user runs `tobari workspace delete --id WORKSPACE_REF --confirm=delete`. What is the difference?
 
 <details>
 <summary>Answer</summary>
 
-`exit` ends the attached shell while preserving the logical Workspace, home, Workspace Manifest binding, runtime resources, and policy. `delete` removes the nearest detached Workspace and its owned home/container/network/principal/state, while preserving project files and Workspace Manifest-owned state. See [Workspace lifecycle](../../how-it-works/workspace-lifecycle/).
+`exit` ends the attached shell while preserving the Workspace, home, Context binding, runtime resources, and policy. `workspace delete` removes one exact detached Workspace and its owned home/container/network/principal/state, while preserving project files, Context, Policy Memory, and Workspace Template. See [Workspace lifecycle](../../how-it-works/workspace-lifecycle/).
 
 </details>
 
-## 8. Switching Workspace Manifests
+## 8. Switching Workspace Templates
 
-Workspace A was created from Manifest `default`. The user runs `tobari manifest default set --name review`. Does A change to the `review` Manifest?
+Workspace A belongs to a Context bound to the current default Workspace Template. The user runs `tobari template default set --id TEMPLATE_REF`. Does A move to the newly selected Template?
 
 <details>
 <summary>Answer</summary>
 
-No. `manifest default set` changes only the omission default. Existing Workspaces remain permanently bound to their stable Workspace Manifest ID. The same root under `review` can select or create a separate Workspace. See [Workspace Manifests](../../guides/workspace-manifests/).
+No. `template default set` changes only the omission default. Existing Contexts retain their Workspace Template ID and existing Workspaces retain their Context ID. The same root may explicitly create a Context for another Template. See [Workspace Templates and Contexts](../../guides/workspace-templates-and-contexts/).
 
 </details>
 
@@ -107,7 +111,9 @@ Workspace B sends the same host, method, and path that Workspace A was allowed t
 <details>
 <summary>Answer</summary>
 
-No. Learned rules also bind the stable Workspace Manifest and host-issued project principal. B needs its own matching rule unless it is literally the same Workspace Manifest/project authority. See [Project identity](../../how-it-works/project-identity/).
+No. Learned rules are owned by the stable Context and retain the observed
+Workspace identity. B needs its own matching rule unless it is literally the
+same Context/Workspace authority. See [Project identity](../../how-it-works/project-identity/).
 
 </details>
 
@@ -183,9 +189,9 @@ An agent deletes a file inside the selected project root. Is this a Tobari bound
 <details>
 <summary>Answer</summary>
 
-Not necessarily. Immutable Workspace Manifest `source_access` selects `read-only` or
+Not necessarily. Immutable Workspace Template `source_access` selects `read-only` or
 `read-write`, with CLI omission defaulting to `read-write`. Even read-only does
-not stop host or another Workspace Manifest from changing the live source. See [Guarantees and limitations](../../security/guarantees-and-limitations/).
+not stop host or another Workspace Template from changing the live source. See [Guarantees and limitations](../../security/guarantees-and-limitations/).
 
 </details>
 

@@ -505,7 +505,7 @@ func contextReportSchemaVersion(runtimeCatalogSource []byte) (int, error) {
 	return requiredInt(
 		runtimeCatalogSource,
 		`JSONEnvelope:\s*"(?:workspace_manifest|context)",[^\r\n]*JSONSchemaVersion:\s*([0-9]+)`,
-		"public Workspace Manifest report schema",
+		"public Workspace Template report schema",
 	)
 }
 
@@ -543,7 +543,7 @@ func generateVersions(root, sourceRef string, catalog catalogDocument) (componen
 	if err != nil {
 		return componentVersionDocument{}, err
 	}
-	contextSchema, err := requiredInt(contextSource, `(?:Manifest|Context)SchemaVersion\s*=\s*([0-9]+)`, "Workspace Manifest schema")
+	contextSchema, err := requiredInt(contextSource, `(?:Manifest|Context)SchemaVersion\s*=\s*([0-9]+)`, "Workspace Template schema")
 	if err != nil {
 		return componentVersionDocument{}, err
 	}
@@ -645,8 +645,8 @@ func generateVersions(root, sourceRef string, catalog catalogDocument) (componen
 		},
 		Schemas: []schemaVersion{
 			{Contract: "Agent help", Version: helpSchemaVersion(catalog), Authority: "internal/cli/help.go"},
-			{Contract: "Workspace Manifest", Version: contextSchema, Authority: "internal/domain/tobari/context.go"},
-			{Contract: "Public Workspace Manifest report", Version: contextReportSchema, Authority: "internal/cli/runtime_catalog.go"},
+			{Contract: "Workspace Template", Version: contextSchema, Authority: "internal/domain/tobari/context.go"},
+			{Contract: "Public Workspace Template report", Version: contextReportSchema, Authority: "internal/cli/runtime_catalog.go"},
 			{Contract: "Root index and Workspace instance", Version: projectSchema, Authority: "internal/domain/tobari/project.go"},
 			{Contract: "Project principal registry", Version: principalSchema, Authority: "internal/infra/dockerruntime/principal_registry.go"},
 			{Contract: "Gateway image API", Version: gatewayImageAPI, Authority: "gateway/Dockerfile"},

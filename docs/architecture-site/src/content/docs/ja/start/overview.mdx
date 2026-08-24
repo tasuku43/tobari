@@ -5,7 +5,7 @@ description: Tobari が隔離する範囲、外部通信を制御する経路、
 
 import SystemMap from "../../../../components/SystemMap.astro";
 
-Tobari は、コーディングエージェントをプロジェクト専用の Workspace で実行し、未許可の HTTP/HTTPS 通信を Gateway で拒否します。拒否された通信は信頼するホストでレビューし、Workspace Manifest、プロジェクト、宛先、ポート、メソッド、パスが一致するルールとして許可または拒否します。許可後も、元のリクエストは再送されません。
+Tobari は、コーディングエージェントをプロジェクト専用の Workspace で実行し、未許可の HTTP/HTTPS 通信を Gateway で拒否します。拒否された通信は信頼するホストでレビューし、Workspace Template、プロジェクト、宛先、ポート、メソッド、パスが一致するルールとして許可または拒否します。許可後も、元のリクエストは再送されません。
 
 Tobari は、Docker コンテナの起動を簡略化するだけのツールではありません。作業対象のディレクトリ、プロジェクト専用ネットワーク、共有の Gateway・OPA を組み合わせ、ファイルへのアクセスと外部通信の権限を別々に管理します。このページでは、standard の4つの構成要素と、Tobari が保護しない範囲を最初に整理します。読み終えたら[インストール](../install/)へ進めます。
 
@@ -19,7 +19,7 @@ Tobari は、Docker コンテナの起動を簡略化するだけのツールで
 
 1. **Workspace** 内のプロセスが通常の HTTP/HTTPS リクエストを送ります。クライアント側のプロキシ設定を使わず、上限付きの合成 DNS 応答と閉じた出力経路が TCP をそのプロジェクトの Gateway へ届けます。
 2. **Gateway** がリクエストを受け、カーネルが観測した Workspace の送信元エンドポイントと、ホスト管理の登録簿から通信主体（プリンシパル）を特定します。
-3. **OPA** は、Workspace Manifest、プロジェクト、スキーム、宛先、ポート、メソッド、パスを使って通信を判断します。リクエスト本文は、ポリシーの判断項目には含まれません。
+3. **OPA** は、Workspace Template、プロジェクト、スキーム、宛先、ポート、メソッド、パスを使って通信を判断します。リクエスト本文は、ポリシーの判断項目には含まれません。
 4. 許可後、**Workspace** ではなく **Gateway** が外部の**接続先**へ別の接続を開きます。native authentication は元の request に保持されますが、OPA と audit には入りません。
 
 判断を返すのは OPA です。Gateway はその判断に従って、リクエストを拒否するか、接続先への通信を開始します。
@@ -34,7 +34,7 @@ curl -X PUT https://example.com/quickstart
 
 この通信条件に一致するルールがなければ、Gateway は学習可能な `403` を返します。件数と内容を制限した、秘密情報を含まないレビュー情報を保持し、信頼するホストで実行するコマンドをエージェントへ示します。自動承認はありません。利用者は Workspace から出て `tobari review permissions` を実行し、通信条件を確認して許可または拒否を確定します。再試行は、確定後に新しいリクエストとして行います。
 
-このルールは「エージェントが example.com を自由に使ってよい」という意味ではありません。レビューした Workspace Manifest、プロジェクトのプリンシパル、HTTPS の接続先とポート、HTTP メソッド、パスに結び付きます。
+このルールは「エージェントが example.com を自由に使ってよい」という意味ではありません。レビューした Workspace Template、プロジェクトのプリンシパル、HTTPS の接続先とポート、HTTP メソッド、パスに結び付きます。
 
 <span id="boundary-protects"></span>
 
@@ -68,13 +68,13 @@ Tobari は次を保証しません。
 
 ## 現在の実装状態
 
-**実装済み:** reusable Workspace Manifest-bound Workspace、project internal network、Gateway/OPA mediation、
-immutable source access、Workspace Manifest-owned policy、完全一致 denial review、guided/advanced policy、
-Workspace Manifest runtime recipe、Claude Code と Codex の tool-native authentication です。
+**実装済み:** reusable Workspace Template-bound Workspace、project internal network、Gateway/OPA mediation、
+immutable source access、Workspace Template-owned policy、完全一致 denial review、guided/advanced policy、
+Workspace Template runtime recipe、Claude Code と Codex の tool-native authentication です。
 
 release surface の CLI release が公開・lock する service image は Gateway だけです。repository development は content-addressed local image を使います。この release site は release contract だけを説明します。[コンポーネントのバージョン](../../reference/component-versions/)では成果物の契約を確認でき、[サプライチェーン](../../security/supply-chain/)ではソースとランタイムの識別情報を別々に確認する理由を説明しています。
 
-マニフェストで任意に選べる署名・更新処理、任意の OAuth ヘルパー、外部サービス操作に対するポリシー、Git 認証情報ヘルパー、外部サービスまたは Workspace Manifest ごとの複数アカウント、追加の未レビュー組み込みプランは対応外です。
+マニフェストで任意に選べる署名・更新処理、任意の OAuth ヘルパー、外部サービス操作に対するポリシー、Git 認証情報ヘルパー、外部サービスまたは Workspace Template ごとの複数アカウント、追加の未レビュー組み込みプランは対応外です。
 
 ## 根拠となるソース
 
@@ -88,7 +88,7 @@ release surface の CLI release が公開・lock する service image は Gatewa
 
 ## まとめ
 
-Tobari は、作業対象のディレクトリへの読み書きを認める一方、ホスト環境と外部通信への権限を別に制御します。Workspace が自分自身へ権限を追加することはできません。ホストが Workspace Manifest とプロジェクトを特定し、OPA が通信を判断し、Gateway がその判断を強制します。native credential は Workspace に残り、許可された request でだけ転送されます。
+Tobari は、作業対象のディレクトリへの読み書きを認める一方、ホスト環境と外部通信への権限を別に制御します。Workspace が自分自身へ権限を追加することはできません。ホストが Workspace Template とプロジェクトを特定し、OPA が通信を判断し、Gateway がその判断を強制します。native credential は Workspace に残り、許可された request でだけ転送されます。
 
 ## 理解を確認する
 
@@ -109,7 +109,7 @@ Tobari は、作業対象のディレクトリへの読み書きを認める一�
 <details>
 <summary>Tobari は作業対象のディレクトリをエージェントから保護しますか？</summary>
 
-Workspace Manifest の immutable creation-time Boundary が `read-only` または `read-write` を選び、
+Workspace Template の immutable creation-time Boundary が `read-only` または `read-write` を選び、
 CLI omission default は `read-write` です。read-only は selected live bind だけに適用し、
 Workspace home/tmpfs や host source の別 writer には適用しません。
 

@@ -4,7 +4,7 @@ description: What Tobari records for policy learning and diagnosis, what it excl
 ---
 
 Tobari retains bounded, secret-free decision metadata so an HTTP effect can be
-explained and reviewed. The registry-derived Workspace Manifest/project identity is
+explained and reviewed. The registry-derived Context/Workspace identity is
 trusted principal metadata and is retained; request bodies, resolved secrets, and
 authentication/cookie or other configured sensitive-header values are excluded. Ordinary URL paths, query values,
 and unclassified headers are not automatically non-sensitive, so “secret-free”
@@ -23,7 +23,10 @@ Authentication/cookie and other recognized sensitive-header values are removed o
 
 ## What retained denial evidence contains
 
-Learnable denials use a bounded schema-1 JSON audit record with Workspace Manifest/project identity, host, port, method, path, decision/reason, request ID, timestamp, duration, and secret-free classification metadata. Policy discovery reads bounded Docker logs and groups candidates by the exact rule dimensions.
+Learnable denials use a bounded schema-1 JSON audit record with
+Context/Workspace identity, host, port, method, path, decision/reason, request
+ID, timestamp, duration, and secret-free classification metadata. Policy
+discovery reads bounded Docker logs and groups candidates by the exact rule dimensions.
 
 The body does not split candidates. Query and safe headers can appear in OPA input but do not become current learned exact-rule identity. Review references are SHA-256-derived opaque values; users act on the unchanged reference rather than list order or decoded provider notation.
 

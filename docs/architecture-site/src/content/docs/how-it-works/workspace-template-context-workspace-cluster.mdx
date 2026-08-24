@@ -1,0 +1,51 @@
+---
+title: Workspace Template, Context, Workspace, and cluster
+description: Understand reusable desired setup, Project memory, applied instances, and shared enforcement.
+---
+
+Tobari separates four product lifetimes:
+
+| Concept            | Owner and lifetime                                    | Authority                             |
+| ------------------ | ----------------------------------------------------- | ------------------------------------- |
+| Workspace Template | reusable installation setup                           | TemplateID + semantic revision digest |
+| Context            | one canonical ProjectRoot + TemplateID binding        | ContextID                             |
+| Policy Memory      | remembered decisions for one Context                  | ContextID + semantic digest           |
+| Workspace          | replaceable applied instance and home for one Context | WorkspaceID + ContextID               |
+
+A Template revision is desired setup. A Context resolves the current revision
+of its bound Template and owns learned policy. A Workspace records the last
+successful AppliedEntry. Docker observation is evidence, not any of these
+authorities.
+
+## Independent activation
+
+- Template mutation publishes desired state only.
+- `cluster up` activates one complete projection for every Context, with
+  separate Template-policy and Policy-Memory receipts.
+- bare root or `context enter --id CONTEXT_REF` reconciles one Workspace.
+- status, list, show, doctor, and completion never reconcile.
+
+The installation default Template is used only by bare root and bare
+`status`. It does not rebind a Context. Nondefault work uses an opaque Context
+reference from discovery:
+
+```sh
+tobari context list --format json
+tobari context enter --id CONTEXT_REF
+```
+
+Exactly one Context may exist for one canonical ProjectRoot/TemplateID pair.
+The same root may have several Contexts only when they bind different
+Templates. Each has independent Policy Memory and Workspace identity.
+
+## Failure and retry
+
+Desired, active, applied, and observed facts remain separate after failure.
+Attached pending adoption blocks before Docker and asks the user to end the
+active session. Unknown mutation outcome routes to read-only classification and
+never grants replay. Missing Runtime material routes to `review runtimes`,
+which owns the exact restore reference.
+
+The shared cluster is infrastructure, not a fifth durable product authority.
+It runs Gateway and OPA for the complete Context projection and preserves the
+last known-good aggregate when candidate activation fails.

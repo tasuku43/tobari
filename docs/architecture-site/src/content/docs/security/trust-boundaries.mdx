@@ -8,7 +8,7 @@ import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 Host-owned lifecycle state, registries, policy, Gateway, and OPA form the
 trusted enforcement side of Tobari. Workspace processes
 and upstream services remain untrusted, and values they supply cannot turn a
-self-declared project or Workspace Manifest label into authority.
+self-declared project or Workspace Template label into authority.
 
 Project authority, policy authority, primary credentials, and request payloads
 cross different boundaries. Read [Guarantees and
@@ -27,18 +27,18 @@ boundaries enforce.
 
 ## Boundary 1: selected files
 
-The trusted host selects a canonical project root. Immutable Workspace Manifest
+The trusted host selects a canonical project root. Immutable Workspace Template
 `source_access` chooses a `read-only` or `read-write` live bind; CLI omission
 defaults to `read-write`. A read-only bind still observes changes by the host or
-another Workspace Manifest. Other host paths and Docker control are excluded, while each
+another Workspace Template. Other host paths and Docker control are excluded, while each
 Workspace receives its own writable persistent home.
 
-The root selection boundary is not a file-integrity sandbox for the selected tree. If `/work/team` and `/work/team/service` are intentionally used by different Workspaces or Workspace Manifests, the overlapping host files remain shared even though network, home, identity, and policy bindings differ.
+The root selection boundary is not a file-integrity sandbox for the selected tree. If `/work/team` and `/work/team/service` are intentionally used by different Workspaces or Workspace Templates, the overlapping host files remain shared even though network, home, identity, and policy bindings differ.
 
 ## Boundary 2: project authority
 
 The host creates a dedicated project network and writes one schema-1 principal
-binding containing stable Workspace Manifest ID, project ID, canonical root, network,
+binding containing stable Context ID, Workspace ID, canonical root, network,
 Workspace source endpoint, and Gateway endpoint. Gateway selects it from
 `flow.client_conn.peername[0]`, the kernel-observed peer address.
 
@@ -110,12 +110,12 @@ For the implementation and tests behind these boundaries, see [Implementation an
 <div class="question-list">
   <details>
     <summary>
-      Why can a forged Workspace Manifest header not borrow another policy?
+      Why can a forged Workspace Template header not borrow another policy?
     </summary>
     <div class="prose-block">
-      Gateway chooses Workspace Manifest/project from the host-created Workspace
-      source- endpoint binding. The header cannot change that endpoint or
-      registry entry.
+      Gateway chooses Context/Workspace from the host-created Workspace source-
+      endpoint binding. The header cannot change that endpoint or registry
+      entry.
     </div>
   </details>
   <details>

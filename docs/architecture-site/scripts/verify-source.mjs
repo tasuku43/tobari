@@ -25,28 +25,31 @@ const evidenceLinks = new Map();
 const universalQuestionOpening =
   /^##\s+(?:(?:The question this (?:page|guide) answers)|(?:What question does this page answer\?)|(?:この(?:ページ|ガイド)で答える問い))\s*$/m;
 const retiredManifestRoutes =
-  /\/(?:ja\/)?(?:guides\/contexts|how-it-works\/workspace-context-cluster)\/?/;
+  /\/(?:ja\/)?(?:guides\/workspace-manifests|how-it-works\/workspace-manifest-workspace-cluster)\/?/;
 
 const v1Sources = {
   manifests: await readFile(
-    join(root, "src/content/docs/guides/workspace-manifests.mdx"),
+    join(root, "src/content/docs/guides/workspace-templates-and-contexts.mdx"),
     "utf8",
   ),
   manifestsJa: await readFile(
-    join(root, "src/content/docs/ja/guides/workspace-manifests.mdx"),
+    join(
+      root,
+      "src/content/docs/ja/guides/workspace-templates-and-contexts.mdx",
+    ),
     "utf8",
   ),
   manifestModel: await readFile(
     join(
       root,
-      "src/content/docs/how-it-works/workspace-manifest-workspace-cluster.mdx",
+      "src/content/docs/how-it-works/workspace-template-context-workspace-cluster.mdx",
     ),
     "utf8",
   ),
   manifestModelJa: await readFile(
     join(
       root,
-      "src/content/docs/ja/how-it-works/workspace-manifest-workspace-cluster.mdx",
+      "src/content/docs/ja/how-it-works/workspace-template-context-workspace-cluster.mdx",
     ),
     "utf8",
   ),
@@ -69,19 +72,18 @@ const v1Sources = {
 };
 
 for (const required of [
-  "--source-access read-only",
-  "read-write",
-  "workspace_manifest_id",
-  "manifest_generation",
-  "manifest default set",
-  "--manifest",
+  "template list",
+  "template default set --id TEMPLATE_REF",
+  "context enter --id CONTEXT_REF",
+  "workspace delete --id WORKSPACE_REF",
+  "Policy Memory",
 ]) {
   if (
     !v1Sources.manifests.includes(required) ||
     !v1Sources.manifestsJa.includes(required)
   ) {
     errors.push(
-      `Workspace Manifest capability documentation is missing ${required} in one locale`,
+      `Workspace Template capability documentation is missing ${required} in one locale`,
     );
   }
 }
@@ -100,12 +102,14 @@ for (const required of [
   }
 }
 for (const [label, source] of [
-  ["English Workspace Manifest guide", v1Sources.manifests],
-  ["Japanese Workspace Manifest guide", v1Sources.manifestsJa],
-  ["English Workspace Manifest model", v1Sources.manifestModel],
-  ["Japanese Workspace Manifest model", v1Sources.manifestModelJa],
+  ["English Workspace Template guide", v1Sources.manifests],
+  ["Japanese Workspace Template guide", v1Sources.manifestsJa],
+  ["English Workspace Template model", v1Sources.manifestModel],
+  ["Japanese Workspace Template model", v1Sources.manifestModelJa],
 ]) {
-  const retiredTerm = source.match(/\bContexts?\b|\bwork modes?\b/i);
+  const retiredTerm = source.match(
+    /\bWorkspace Manifests?\b|--manifest\b|\bworkspace_manifest_id\b|\bmanifest (?:list|show|create|delete|default|runtime)\b/i,
+  );
   if (retiredTerm) {
     errors.push(`${label} retains retired public term: ${retiredTerm[0]}`);
   }
@@ -155,7 +159,7 @@ for (const file of files) {
   const source = await readFile(file, "utf8");
 
   if (retiredManifestRoutes.test(source)) {
-    errors.push(`${label} retains a retired Workspace Manifest public route`);
+    errors.push(`${label} retains a retired Workspace Template public route`);
   }
 
   if (

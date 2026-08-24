@@ -13,27 +13,35 @@ description: Tobari の実行、ネットワーク、ポリシー、認証、状
 
 ### Workspace
 
-正規化したプロジェクトルートと安定した Workspace Manifest ID で選ばれる永続的な論理リソースです。ホーム、Manifest への結び付き、実行時リソースを持ちます。セッション終了は Workspace の削除ではありません。
+Context が所有する、置き換え可能な隔離インスタンスです。安定した Workspace ID、専用 home、最後に成功した AppliedEntry、実行時リソースを持ちます。セッション終了は Workspace の削除ではなく、Workspace の削除後も Context と Policy Memory は残ります。
 
 ### プロジェクトルート
 
-現在の作業ディレクトリから選ばれるホストディレクトリです。Manifest の `source_access` に従って Workspace へマウントされます。Workspace 内のプロセスによるファイル変更を Tobari はスナップショットやオーバーレイで保護しません。
+Context が所有する正規化済みホストディレクトリです。結び付いた Workspace Template の不変 `source_access` に従って Workspace へマウントされます。Workspace 内のプロセスによるファイル変更を Tobari はスナップショットやオーバーレイで保護しません。
 
-### Workspace Manifest
+### Workspace Template
 
-ホストが管理する安定した UUIDv7 ID の実行設定です。agent プロファイル、ランタイム、ポリシー方式とソース、許可済みシェル設定を選びます。Workspace は一つの Manifest に恒久的に結び付きます。
+インストールが管理する、再利用可能な実行設定です。安定した ID と完全な不変 revision を持ち、source/network Boundary、baseline policy、exact Runtime binding、entry/session/creation default を所有します。Project binding と remembered decision は所有しません。
 
-### current Workspace Manifest
+### Context
 
-Manifest を省略した新しい選択で使う既定の Workspace Manifest です。現在値を変更しても、既存 Workspace が恒久的に保持する Manifest ID は変わりません。current marker は選択の便宜であり、既存 Workspace や HTTP request の authority ではありません。
+一つの正規 Project root と一つの Workspace Template ID を結ぶ、永続かつ不変の binding です。Policy Memory を所有し、Workspace の置換や削除後も残ります。公開 name/default selector はなく、非既定の操作は discovery が返す exact `context` reference を使います。
+
+### Policy Memory
+
+一つの Context が所有する remembered decision の完全な不変 revision です。Workspace の置換後も残り、Template copy では複製されず、Template の固定 Boundary を広げません。
+
+### current Workspace Template
+
+bare root entry と bare `status` が使うインストール既定の Workspace Template です。変更しても既存 Context や Workspace は結び直されず、request authority にもなりません。
 
 ### クラスター
 
-共有 Gateway、OPA、ネットワーク、CA ボリューム、ポリシー投影の集合です。Manifest はポリシーの範囲を決め、クラスターは読み込んだ全 Manifest に対して強制します。
+共有 Gateway、OPA、ネットワーク、CA ボリューム、ポリシー投影の集合です。各 Context は結び付いた Template baseline と Policy Memory を提供し、クラスターは有効な完全集合を強制します。
 
 ### Workspace home
 
-Workspace が所有する独立した書き込み可能ホームです。agent CLI はここに自分のログイン状態を保存します。セッション終了やコンテナ再作成後も残り、Workspace の `delete` で削除されます。
+Workspace が所有する独立した書き込み可能ホームです。agent CLI はここに自分のログイン状態を保存します。セッション終了やコンテナ再作成後も残り、Workspace の `workspace delete` で削除されます。
 
 ### ランタイムイメージ
 
@@ -41,7 +49,7 @@ Workspace が所有する独立した書き込み可能ホームです。agent C
 
 ### 作業コンテナ
 
-Runtime image から一時的に実体化した Docker resource です。消失または置換されても、論理 Workspace、Manifest binding、root index、instance state、Workspace home は残ります。container の存在だけから論理 Workspace を発明しません。
+Runtime image から一時的に実体化した Docker resource です。消失または置換されても、論理 Workspace、Context binding、authority envelope、Workspace home は残ります。container の存在だけから論理 Workspace を発明しません。
 
 ### attached session
 
@@ -63,7 +71,7 @@ Open Policy Agent です。本文を含まない正規化済み HTTP 判断入�
 
 ### HTTP effect
 
-Workspace Manifest ID、Workspace ID、ホスト、ポート、HTTP メソッド、パスと、限定された非秘密プロトコル情報からなる認可単位です。本文はポリシー識別情報ではありません。
+Workspace Template ID、Workspace ID、ホスト、ポート、HTTP メソッド、パスと、限定された非秘密プロトコル情報からなる認可単位です。本文はポリシー識別情報ではありません。
 
 ### TLS connection A
 
@@ -87,17 +95,21 @@ Gateway から upstream までの、独立して検証される HTTPS connection
 
 一つの Workspace に対する安定した host-issued opaque ID です。project root そのものではなく、Workspace request header から authority として受理しません。内部の永続化と enforcement protocol では同じ値を schema-V1 `project_id` として保持します。
 
-### Workspace Manifest ID
+### Workspace Template ID
 
-一つの Workspace Manifest に対する安定した host-issued UUIDv7 identity です。変更可能な表示名や current Workspace Manifest marker とは別物です。Workspace は作成時に選ばれた exact Manifest ID を恒久的に保持します。
+一つの Workspace Template に対する安定した host-issued identity です。変更可能な表示名や current Workspace Template marker とは別物です。
+
+### Context ID
+
+一つの Project root と Workspace Template の binding を表す安定した host-issued identity です。Policy Memory を所有し、Workspace Template ID と Workspace ID のどちらとも異なります。
 
 ### Workspace principal
 
-専用ネットワーク上のカーネル観測エンドポイントから Gateway が導出する、Manifest ID と Workspace ID の信頼できる組です。ポリシーの範囲を決め、リクエストヘッダーでは置き換えられません。
+専用ネットワーク上のカーネル観測エンドポイントから Gateway が導出する、Context ID と Workspace ID の信頼できる組です。ポリシーの範囲を決め、リクエストヘッダーでは置き換えられません。
 
 ### principal registry
 
-正確な Workspace source endpoint、Gateway endpoint、専用 network を Manifest/Workspace identity に結び付ける host-owned schema-1 mapping です。Gateway はこの directory だけを read-only で受け取ります。caller が与える `X-Tobari-*` text は registry authority を置き換えません。
+正確な Workspace source endpoint、Gateway endpoint、専用 network を Context/Workspace identity に結び付ける host-owned mapping です。Gateway はこの directory だけを read-only で受け取ります。凍結した private compatibility field は旧 wire label を保持する場合がありますが、公開 alias ではありません。caller が与える `X-Tobari-*` text は registry authority を置き換えません。
 
 ### 専用 Workspace ネットワーク
 
@@ -111,7 +123,7 @@ allow rule が一致しないときの既定の policy result です。ほかの
 
 ### learned allow
 
-一つの Workspace Manifest、Workspace、host、port、method、path effect に対して明示的に有効化された exact rule です。信頼するホストでレビューし、完全な policy validation と atomic activation が成功した場合だけ authority になります。
+一つの Workspace Template、Workspace、host、port、method、path effect に対して明示的に有効化された exact rule です。信頼するホストでレビューし、完全な policy validation と atomic activation が成功した場合だけ authority になります。
 
 ### learned deny
 
@@ -127,7 +139,7 @@ allow rule が一致しないときの既定の policy result です。ほかの
 
 ### policy activation
 
-policy state を lock し、対象 Manifest source と全 Manifest の完全な projection を検証し、atomic publish と OPA reconcile を行う host process です。失敗時は known-good projection を保持または復元します。
+policy state を lock し、各 Context の Workspace Template baseline と Policy Memory、および全 Context の完全な projection を検証し、atomic publish と OPA reconcile を行う host process です。失敗時は known-good projection を保持または復元します。
 
 ### opaque reference
 
@@ -153,21 +165,21 @@ agent CLI が所有するファイルや環境値です。Tobari はホストの
 
 ### Workspace 識別情報
 
-policy evaluation に使う host-derived Workspace/Manifest authority です。agent CLI の login state とは独立しており、request header や credential file の内容では変更できません。principal registry と kernel-observed endpoint の exact join から導出します。
+policy evaluation に使う host-derived Context/Workspace authority です。agent CLI の login state とは独立しており、request header や credential file の内容では変更できません。principal registry と kernel-observed endpoint の exact join から導出します。
 
 ## 状態と公開契約
 
-### root index
+### authority envelope
 
-一つの canonical project root と stable Manifest ID を一つの Workspace ID に結び付ける durable record です。nearest-root selection は Manifest を先に filter してから選び、同じ path の別 Manifest を混同しません。
+installation の schema-1 Template、Context、Policy Memory、schema-3 Workspace、optional default Template selection を含む owner-only atomic file です。bare `status` は作成や修復をせずにこの authority を読みます。Docker state は observation であり authority ではありません。
 
-### Workspace instance state
+### AppliedEntry
 
-一つの Workspace に対する durable logical record です。恒久的な Manifest binding、次回 entry の desired state、last successful AppliedEntry、failure/adoption state、read-only runtime observation input を保持します。
+一つの exact Context、Template entry slice、Runtime revision に対する Workspace の last-successful receipt です。cluster、execution material、container、attachment が現在 ready であることまでは意味しません。
 
 ### aggregate policy projection
 
-全 Manifest から組み立てた完全なポリシー投影です。候補全体の検証とアトミックな有効化が成功するまで権限になりません。
+全 Context の Template baseline と Policy Memory から組み立てた完全なポリシー投影です。候補全体の検証とアトミックな有効化が成功するまで権限になりません。
 
 ### Catalog
 
@@ -191,15 +203,15 @@ policy evaluation に使う host-derived Workspace/Manifest authority です。a
 
 ## 共通の区別
 
-| 混同しない語                       | 違い                                                             |
-| ---------------------------------- | ---------------------------------------------------------------- |
-| Workspace と作業コンテナ           | Workspace は永続する論理状態、コンテナは交換可能な実行時リソース |
-| Manifest とクラスター              | Manifest は一つの設定とポリシー範囲、クラスターは共有の強制基盤  |
-| 認証と認可                         | agent CLI がログイン済みでも OPA は HTTP effect を拒否できる     |
-| CA の信頼とポリシー許可            | CA は検査の前提、許可は一つの正規化された効果を通す判断          |
-| Workspace 識別情報とツールログイン | 前者はホスト由来、後者は agent CLI が Workspace home に所有      |
-| `exit` と `delete`                 | 前者はセッション終了、後者は論理 Workspace とホームの削除        |
-| タグとダイジェスト                 | タグは移動可能、ダイジェストは不変 OCI コンテンツの識別          |
+| 混同しない語                       | 違い                                                                           |
+| ---------------------------------- | ------------------------------------------------------------------------------ |
+| Workspace と作業コンテナ           | Workspace は永続する論理状態、コンテナは交換可能な実行時リソース               |
+| Context とクラスター               | Context は Project 固有の binding と Policy Memory、クラスターは共有の強制基盤 |
+| 認証と認可                         | agent CLI がログイン済みでも OPA は HTTP effect を拒否できる                   |
+| CA の信頼とポリシー許可            | CA は検査の前提、許可は一つの正規化された効果を通す判断                        |
+| Workspace 識別情報とツールログイン | 前者はホスト由来、後者は agent CLI が Workspace home に所有                    |
+| `exit` と `workspace delete`       | 前者はセッション終了、後者は論理 Workspace とホームの削除                      |
+| タグとダイジェスト                 | タグは移動可能、ダイジェストは不変 OCI コンテンツの識別                        |
 
 ## 障害と制限
 
@@ -249,7 +261,7 @@ policy evaluation に使う host-derived Workspace/Manifest authority です。a
   <a
     href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/context.go`}
   >
-    Workspace Manifest
+    Workspace Template
   </a>
 
 ## まとめ
@@ -266,9 +278,9 @@ Tobari は、永続する実行識別情報、ホスト設定、共有の強制�
 </details>
 
 <details>
-  <summary>現在の Manifest を変更すると既存 Workspace も移動しますか？</summary>
+  <summary>既定の Workspace Template を変更すると既存 Context や Workspace も移動しますか？</summary>
 
-いいえ。既存 Workspace の Manifest ID への結び付きは恒久的です。現在の Manifest は選択を省略した新しい呼び出しの既定値にすぎません。
+いいえ。既存 Context の Workspace Template ID binding と Workspace の Context ID binding は変わりません。既定値は bare root entry と bare `status` の選択にだけ使います。
 
 </details>
 

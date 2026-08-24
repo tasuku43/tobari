@@ -506,7 +506,7 @@ func runtimeReadSpec(path, summary, outcome, _ string, handler commandHandler) C
 func runtimeCreateSpec() CommandSpec {
 	minimum := int64(1)
 	return CommandSpec{Path: "runtime create", Summary: "Create a reusable Runtime by copying current editable source once", Args: "[--copy-source-from <runtime-name>] --name <name> [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct,
-		Agent: AgentContract{CapabilityID: "runtime.lifecycle", Outcome: "Create one standalone managed Runtime source tree from the built-in standard starter or another managed Runtime's current editable source; its root and future children must have no group/other permissions; do not build, retain inheritance, or change a Workspace Manifest",
+		Agent: AgentContract{CapabilityID: "runtime.lifecycle", Outcome: "Create one standalone managed Runtime source tree from the built-in standard starter or another managed Runtime's current editable source; its root and future children must have no group/other permissions; do not build, retain inheritance, or change a Workspace Template",
 			Inputs: []CommandInput{
 				{Name: "--copy-source-from", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Copy current editable source once from standard or an existing managed Runtime; the new Runtime receives a fresh ID and empty history.", AllowedValues: []string{}, DefaultValue: stringPointer(tobari.StandardRuntimeName), Completion: InputCompletionRuntimeName},
 				{Name: "--name", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Unique local Runtime name.", AllowedValues: []string{}}, formatInput()},
@@ -581,7 +581,7 @@ func runtimeBuildSpec() CommandSpec {
 		Args: "--id <runtime-ref> [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "runtime.lifecycle",
-			Outcome:      "Snapshot a managed source with no group/other permissions and at most 1,024 files, 256 directories, 32 MiB per file, and 64 MiB total; build and validate it; append one immutable revision without changing any Workspace Manifest",
+			Outcome:      "Snapshot a managed source with no group/other permissions and at most 1,024 files, 256 directories, 32 MiB per file, and 64 MiB total; build and validate it; append one immutable revision without changing any Workspace Template",
 			Inputs: []CommandInput{{Name: "--id", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
 				Description: "Opaque Runtime reference emitted by runtime list, show, history, create, or review runtimes; it is consumed unchanged.", AllowedValues: []string{}, ReferenceKind: tobari.RuntimeReferenceKind}, formatInput()},
 			Output: runtimeReportOutput(),
@@ -627,7 +627,7 @@ func runtimeRestoreSpec() CommandSpec {
 		Args: "--id <revision-ref> [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "runtime.lifecycle",
-			Outcome:      "Rebuild one exact managed Runtime revision from its retained immutable source and publish it only when the rebuilt content digest matches, without appending history or changing any Workspace Manifest or Workspace",
+			Outcome:      "Rebuild one exact managed Runtime revision from its retained immutable source and publish it only when the rebuilt content digest matches, without appending history or changing any Workspace Template, Context, or Workspace",
 			Inputs: []CommandInput{{Name: "--id", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
 				Description: "Opaque managed Runtime revision reference emitted by runtime list, show, history, build, or review runtimes; it is consumed unchanged.", AllowedValues: []string{}, ReferenceKind: tobari.RuntimeRevisionReferenceKind}, formatInput()},
 			Output: runtimeRestoreOutput(),
@@ -664,7 +664,7 @@ func runtimeDeleteSpec() CommandSpec {
 		Args: "--id <runtime-ref> --confirm=delete [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "runtime.lifecycle",
-			Outcome:      "Delete one exact unused managed Runtime as a whole, including editable source, immutable snapshots, revision history, and exact owned image tags, while preserving every Workspace Manifest, Workspace, ID, home, applied receipt, Project root, credential, and shared resource",
+			Outcome:      "Delete one exact unused managed Runtime as a whole, including editable source, immutable snapshots, revision history, and exact owned image tags, while preserving every Workspace Template, Context, Workspace, ID, home, applied receipt, Project root, credential, and shared resource",
 			Inputs: []CommandInput{
 				{Name: "--id", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Opaque managed Runtime reference emitted by Runtime discovery and consumed unchanged.", AllowedValues: []string{}, ReferenceKind: tobari.RuntimeReferenceKind},
 				{Name: "--confirm", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Confirm irreversible whole-Runtime source, snapshot, history, and owned-tag deletion without cascading to Workspace authority.", AllowedValues: []string{"delete"}},
@@ -673,7 +673,7 @@ func runtimeDeleteSpec() CommandSpec {
 			Output: runtimeDeleteOutput(),
 			Prerequisites: []string{
 				"The target is one managed Runtime; built-in standard is never a deletion target.",
-				"Current and retained Workspace Manifest revisions and every Workspace applied, pending, and observed Runtime binding are completely observed and do not protect the target.",
+				"Current and retained Workspace Template revisions, every Context desired binding, and every Workspace applied, pending, and observed Runtime binding are completely observed and do not protect the target.",
 				"No Workspace or external container uses target material, migration and ownership evidence is verified, and exact source, snapshot, journal, and Docker observations remain complete.",
 			},
 			Errors: mutationCommandErrors("runtime delete", "review runtimes",
@@ -709,7 +709,7 @@ func runtimePruneDryRunSpec() CommandSpec {
 			Inputs:       []CommandInput{formatInput()},
 			Output:       runtimePrunePlanOutput(),
 			Prerequisites: []string{
-				"The owner-only Runtime catalog, build/retirement journals, Workspace Manifest current and retained revisions, Workspace applied/pending/observed state, and immutable source snapshots are complete and valid.",
+				"The owner-only Runtime catalog, build/retirement journals, Workspace Template current and retained revisions, Context desired bindings, Workspace applied/pending/observed state, and immutable source snapshots are complete and valid.",
 				"Bounded Docker image and exact candidate-container observation can finish; no state directory, lock, journal, timestamp, or Docker resource is created or changed.",
 			},
 			Errors: readCommandErrors("runtime prune dry-run", true,
@@ -729,10 +729,10 @@ func runtimePruneApplySpec() CommandSpec {
 		Args: "--plan <runtime-prune-plan-ref> --confirm=prune [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "runtime.lifecycle",
-			Outcome:      "Apply one unchanged reviewed Runtime prune plan by removing only exact Tobari-owned unused image tags while preserving Runtime source, immutable snapshots, revision history, Workspace Manifests, Workspaces, homes, IDs, and shared content",
+			Outcome:      "Apply one unchanged reviewed Runtime prune plan by removing only exact Tobari-owned unused image tags while preserving Runtime source, immutable snapshots, revision history, Workspace Templates, Contexts, Workspaces, homes, IDs, and shared content",
 			Inputs: []CommandInput{
 				{Name: "--plan", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Opaque Runtime prune plan reference emitted by runtime prune dry-run and consumed unchanged.", AllowedValues: []string{}, ReferenceKind: tobari.RuntimePrunePlanReferenceKind},
-				{Name: "--confirm", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Confirm exact unused image-tag retirement without deleting source, snapshots, history, Workspace Manifests, or Workspaces.", AllowedValues: []string{"prune"}},
+				{Name: "--confirm", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Confirm exact unused image-tag retirement without deleting source, snapshots, history, Workspace Templates, Contexts, or Workspaces.", AllowedValues: []string{"prune"}},
 				formatInput(),
 			},
 			Output: runtimePruneResultOutput(),

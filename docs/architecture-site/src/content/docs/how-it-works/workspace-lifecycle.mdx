@@ -6,16 +6,17 @@ description: Understand entry, exit, deletion, runtime reconciliation, and clust
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
 A Workspace outlives the shell attached to it. `exit` ends only that exec
-session; the logical Workspace, home, runtime records, and Workspace Manifest binding
-remain available for the next entry. `delete` removes one logical Workspace
-and its owned state. Cluster teardown is separate and is allowed only after all
+session; the logical Workspace, home, runtime records, and permanent Context
+binding remain available for the next entry. `workspace delete` removes one
+replaceable Workspace and its owned state while preserving the Context and its
+Policy Memory. Cluster teardown is separate and is allowed only after all
 Workspaces have been deleted.
 
 Container or network loss does not automatically mean that the logical
 Workspace is gone: entry reconciles replaceable runtime state against durable
-records. `delete --force` has a narrower recovery purpose, and `cluster down
+records. `workspace delete --id WORKSPACE_REF --confirm=delete --force` has a narrower recovery purpose, and `cluster down
 --purge` is neither Workspace deletion nor removal of a Workspace-owned login. See [Workspace,
-Workspace Manifest, cluster, and runtime](/how-it-works/workspace-manifest-workspace-cluster/) for the
+Workspace Template, cluster, and runtime](/how-it-works/workspace-template-context-workspace-cluster/) for the
 identities used in this lifecycle.
 
 <ConceptDiagram name="workspace-lifecycle" />
@@ -24,9 +25,10 @@ identities used in this lifecycle.
 
 ### Absent → attached
 
-Running `tobari` from the selected directory chooses an existing Workspace or
-explicitly creates one for the canonical root and Workspace Manifest. Creation durably
-records identity and home, reconciles the dedicated network and container,
+Running `tobari` from the selected directory resolves the installation default
+Template and the exact Context for the canonical root, then chooses or creates
+that Context's Workspace. Creation durably records the Workspace identity and
+home in the final authority model, reconciles the dedicated network and container,
 installs the fail-closed Gateway/Workspace network guards, registers exact
 Workspace and Gateway endpoints, waits for readiness, and starts an
 interactive `docker exec` shell.
@@ -39,17 +41,17 @@ review for one exact Workspace-loopback development service. Run
 host terminal. Allow once returns exact
 `http://127.0.0.1:<random-port>` access for HTTP/1.1 and WebSocket Upgrade. The
 attachment—not the helper or reviewer—owns the listener and streams. Exit
-closes them; approval does not become Workspace Manifest policy or a remembered decision.
+closes them; approval does not become Workspace Template policy or a remembered decision.
 
 ### Attached → detached but existing
 
 Shell `exit`, an exact agent command finishing, or a nonzero child exit ends only the exec process. Tobari preserves:
 
-- the root index and instance record;
-- the permanent Workspace Manifest binding and project ID;
+- the atomic authority envelope and exact Workspace record;
+- the permanent Workspace-to-Context binding and Workspace ID;
 - the per-Workspace home and tool-owned login state;
 - the runtime container and dedicated network;
-- learned policy scoped to that Workspace Manifest/project; and
+- Policy Memory owned by the surviving Context; and
 - Workspace-owned agent login state in the persistent home.
 
 It does not preserve pending service requests, host service listeners, or
@@ -59,15 +61,22 @@ There is no persisted “paused” state. Detached means no observed attached ex
 
 ### Detached → attached again
 
-The next `tobari` entry resolves the same logical record and reconciles runtime drift before entering. It may recreate the container or network, update the desired Workspace Manifest image, reissue current project-bound Workspace identity projections, and repair principal registration without changing identity or home.
+The next `tobari` entry resolves the same Context and Workspace and reconciles
+runtime drift before entering. It may recreate the container or network, apply
+the Context's current Template entry slice, reissue Context/Workspace identity
+projections, and repair principal registration without changing Workspace ID,
+Context binding, or home.
 
 ### Detached → absent
 
-`delete` first confirms that no exec session is attached. It verifies exact owner, role, and project labels before removing only that Workspace's container and network. It then removes its root index, instance state, home, and project-auth projection/registry entry. Project files in the mounted root are never removed.
+`workspace delete` first confirms that no exec session is attached. It verifies
+the exact opaque Workspace reference and owner labels before removing only that
+Workspace's authority record, container, network, home, and principal-registry
+entry. Its Context, Policy Memory, Template, and mounted project files remain.
 
 ### Attached → absent with `--force`
 
-Normal deletion rejects an attached Workspace. `delete --force` overrides only that attached-session guard. It does not relax Docker ownership/identity checks, broaden the target, or authorize deleting project files.
+Normal deletion rejects an attached Workspace. `workspace delete --id WORKSPACE_REF --confirm=delete --force` overrides only that attached-session guard. It does not relax Docker ownership/identity checks, broaden the target, or authorize deleting project files.
 
 ## Runtime loss and drift
 
@@ -75,9 +84,11 @@ Logical state, not Docker inspection, determines existence.
 
 - **Container lost:** next entry creates a compatible replacement and remounts the existing root/home.
 - **Network lost:** next entry recreates the internal network, reconnects Gateway, reapplies both guards, and writes the new endpoint binding before readiness.
-- **Workspace Manifest runtime rebuilt:** next entry compares desired runtime identity and recreates only the project container when needed.
+- **Workspace Template Runtime changed:** next entry compares the current exact Runtime binding and recreates only the work container when needed.
 - **Resource/security contract changed:** the desired-spec hash changes and triggers reconciliation.
-- **Root index exists but instance state is missing:** this is `incomplete`, not an invitation to guess. Entry fails; exact deletion cleans it up.
+- **Authority is invalid or contradictory:** entry fails closed and reports the
+  Catalog-declared read-only classifier; it does not infer a Workspace from
+  Docker resources or manufacture an exact delete reference.
 
 Durable journals cover interrupted creation and deletion so a partial file set is not silently treated as a second Workspace.
 
@@ -89,8 +100,8 @@ After that:
 
 | Operation              | Removes                                                                               | Preserves                                                                                        |
 | ---------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `cluster down`         | Shared Gateway, OPA containers and transient shared networks                          | Workspace Manifests, policy sources, Workspace-owned homes, host-owned state, Gateway CA volumes |
-| `cluster down --purge` | The same shared runtime resources, shared CA volumes, and active policy-bundle volume | Workspace Manifests, policy sources, Workspace-owned homes, host-owned lifecycle state           |
+| `cluster down`         | Shared Gateway, OPA containers and transient shared networks                          | Workspace Templates, policy sources, Workspace-owned homes, host-owned state, Gateway CA volumes |
+| `cluster down --purge` | The same shared runtime resources, shared CA volumes, and active policy-bundle volume | Workspace Templates, policy sources, Workspace-owned homes, host-owned lifecycle state           |
 
 Purge means a later cluster start establishes new shared CA state. It does not
 delete Workspace-owned homes or project files. Provider login and logout remain
@@ -104,15 +115,15 @@ You enter `/work/service`, run a tool-native login, and then type `exit`.
 2. The project files and logical records remain.
 3. A later entry resumes the same Workspace and home.
 4. If the container was manually removed meanwhile, Tobari recreates it and remounts that home.
-5. If you instead run `delete` while detached, the Workspace home is deleted. The project root remains.
+5. If you instead run `workspace delete` while detached, the Workspace home is deleted. The project root remains.
 
 ## Failure behavior
 
-- An attached exec makes ordinary `delete` fail before removal.
+- An attached exec makes ordinary `workspace delete` fail before removal.
 - Wrong/missing ownership labels prevent resource deletion.
 - Runtime incompatibility fails before project resource mutation.
 - Container/network loss never silently deletes logical state.
-- `cluster down` fails while any instance record remains.
+- `cluster down` fails while any Workspace authority remains.
 - Interrupted mutation recovery can require the exact lifecycle command; it does not invent completion.
 - A successful mutation followed by cancellation is reported through the mutation-complete boundary so it is not presented as safely replayable.
 
@@ -127,13 +138,13 @@ You enter `/work/service`, run a tool-native login, and then type `exit`.
 - [Lifecycle and command outcome contract](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/docs/01_product_contract.md)
 - [Lifecycle state model and reconciliation](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/docs/02_architecture.md)
 - [Workspace runtime implementation](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/internal/infra/dockerruntime/project_runtime.go)
-- [Root indexes, instance state, and journals](https://github.com/tasuku43/tobari/tree/35675505cf33ab3944196e26fc62cdb063dfd1cd/internal/infra/dockerruntime)
+- [Final authority, Workspace runtime state, and journals](https://github.com/tasuku43/tobari/tree/35675505cf33ab3944196e26fc62cdb063dfd1cd/internal/infra/dockerruntime)
 - [Application lifecycle tests](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/internal/app/tobaricmd/service_test.go)
 - [Container/network loss and teardown integration](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/scripts/test-integration.sh)
 
 ## Summary
 
-An attached session, a logical Workspace, its Docker runtime, the shared cluster, and Workspace-owned login state have different lifetimes. Use `exit` to leave, `delete` to remove the Workspace, and `cluster down` to stop shared services after deletion.
+An attached session, a logical Workspace, its Docker runtime, the shared cluster, and Workspace-owned login state have different lifetimes. Use `exit` to leave, `workspace delete` to remove the Workspace, and `cluster down` to stop shared services after deletion.
 
 ## Check your understanding
 
@@ -148,7 +159,10 @@ You should now be able to predict what survives each lifecycle operation.
 </details>
 
 <details>
-  <summary>What extra authority does `delete --force` grant?</summary>
+  <summary>
+    What extra authority does `workspace delete --id WORKSPACE_REF
+    --confirm=delete --force` grant?
+  </summary>
   Only permission to override the attached-session guard. Exact target and
   ownership checks still apply, and project files remain untouched.
 </details>
@@ -164,11 +178,11 @@ You should now be able to predict what survives each lifecycle operation.
 
 <details>
   <summary>
-    What happens if the runtime container disappears but the instance record
-    remains?
+    What happens if the runtime container disappears but valid Workspace
+    authority remains?
   </summary>
   The Workspace still exists logically. The next entry reconciles a replacement
   container.
 </details>
 
-Return to [Workspace, Workspace Manifest, cluster, and runtime](/how-it-works/workspace-manifest-workspace-cluster/) if ownership scopes are unclear. Next, follow one message in [Request journey](/how-it-works/request-journey/).
+Return to [Workspace, Workspace Template, cluster, and runtime](/how-it-works/workspace-template-context-workspace-cluster/) if ownership scopes are unclear. Next, follow one message in [Request journey](/how-it-works/request-journey/).

@@ -15,7 +15,7 @@ From the trusted host and intended project directory:
 tobari doctor
 tobari cluster status
 tobari status
-tobari list
+tobari workspace list
 ```
 
 These commands observe; they do not start services, create/delete runtime resources, activate policy, or repair agent CLI login state. Login remains the provider CLI's own operation inside the Workspace.
@@ -31,15 +31,19 @@ Check in this order:
 3. `tobari status`: distinguish absent logical state from `missing`, `degraded`, `unreachable`, or `incomplete` runtime diagnostics.
 4. Confirm the root command has an interactive terminal and is not already running inside a Workspace.
 
-`missing` container or `degraded` network can be reconciled by the next valid root entry while preserving logical state/home. `incomplete` means the index and instance record disagree; entry refuses to invent identity. Use the exact cleanup path `tobari delete`, then create deliberately.
+`missing` container or `degraded` network can be reconciled by the next valid
+root entry while preserving logical state and home. Invalid or contradictory
+authority is different: entry refuses to invent identity or an action reference.
+Follow the fault's one read-only `Next`; use `workspace delete` only after
+`workspace list` or `status` has produced the exact Workspace reference.
 
-For `workspace_selection_stale`, rerun `tobari` and choose from the refreshed candidates. For `image_not_found` or `incompatible_image`, inspect the bound Workspace Manifest and fix/build the runtime before another entry.
+For `workspace_selection_stale`, rerun `tobari` and choose from the refreshed candidates. For `image_not_found` or `incompatible_image`, inspect the bound Workspace Template and fix/build the runtime before another entry.
 
 ## A request returns HTTP 403
 
 First identify the response code:
 
-- `policy_denied`: leave the Workspace and run `tobari review permissions`. Inspect and stage exact choices for one Workspace Manifest, Apply the reviewed set once, then retry deliberately.
+- `policy_denied`: leave the Workspace and run `tobari review permissions`. Inspect and stage exact choices for the owning Context, apply the reviewed set once, then retry deliberately.
 - A provider `401`/`403`: treat it as an upstream response. Leave the Workspace only if the provider CLI requires it, then use that CLI's documented login flow. Tobari never turns an upstream authentication response into a broader allow rule.
 - A baseline or learned exact deny: it is terminal policy, not a pending candidate. Inspect `tobari policy rules`; reset only if changing that decision is intentional.
 
@@ -77,12 +81,14 @@ exit
 tobari
 ```
 
-If it still fails, inspect the exact Workspace Manifest selection and cluster readiness. Do not copy login files between Workspaces; project and Workspace Manifest checks are intentional.
+If it still fails, inspect the exact Context, Workspace Template selection, and
+cluster readiness. Do not copy login files between Workspaces; Context and
+Workspace checks are intentional.
 
 ## Runtime image is missing or incompatible
 
 ```sh
-tobari manifest show
+tobari template show
 ```
 
 For a managed Runtime:
@@ -90,11 +96,11 @@ For a managed Runtime:
 ```sh
 tobari runtime list
 tobari runtime show --name frontend
-tobari runtime build --name frontend
-tobari manifest runtime set --runtime frontend@1
+tobari runtime build --id RUNTIME_REF
+tobari template runtime set --id TEMPLATE_REF --runtime RUNTIME_REVISION_REF
 ```
 
-A failed build appends no revision and changes no Workspace Manifest. A failed selection
+A failed build appends no revision and changes no Workspace Template. A failed selection
 keeps the previous exact binding. Existing logical Workspace state and home
 remain. Correct compatibility instead of changing host mounts, user,
 entrypoint, lifetime command, or network controls.
@@ -109,18 +115,21 @@ tobari cluster status
 tobari cluster logs --component opa --tail 100
 ```
 
-Exact allow/deny/reset validates the changed Workspace Manifest and the complete all-Workspace Manifest aggregate before activation. A failure should retain known-good policy. Rediscover opaque references after any concurrent change; do not reuse display order or stale IDs.
+Exact allow/deny/reset validates the changed Context Policy Memory and the
+complete all-Context aggregate before activation. A failure retains known-good
+policy. Rediscover opaque references after any concurrent change; do not reuse
+display order or stale IDs.
 
 For host-authored Advanced policy, correct the Rego and tests on the trusted host, then rerun `tobari doctor` and explicit `tobari cluster up`.
 
 ## I cannot delete a Workspace or stop the cluster
 
-- `project_session_attached`: exit the session, then run `tobari delete`. Use `tobari delete --force` only when terminating that exact attached session is intentional.
-- `project_not_found`: run the command from the intended project root/ancestor and selected Workspace Manifest.
-- `cluster_not_empty`: `tobari list` every Workspace, return to the appropriate root/Workspace Manifest, and delete each before `cluster down`.
+- `project_session_attached`: exit the session, then run `tobari workspace delete --id WORKSPACE_REF --confirm=delete`. Use `tobari workspace delete --id WORKSPACE_REF --confirm=delete --force` only when terminating that exact attached session is intentional.
+- `project_not_found`: run the command from the intended project root/ancestor and selected Workspace Template.
+- `cluster_not_empty`: `tobari workspace list` every Workspace, return to the appropriate root/Workspace Template, and delete each before `cluster down`.
 - Interrupted state: inspect `status` and `doctor`; use the declared exact cleanup or reconcile command rather than manually deleting labels/files.
 
-`delete` never removes project files. `cluster down --purge` removes shared runtime and CA volumes but preserves Workspace home, Manifest policy, and host-owned lifecycle state; agent CLI logout remains a provider operation.
+`workspace delete` never removes project files. `cluster down --purge` removes shared runtime and CA volumes but preserves Workspace home, Template policy and Context Policy Memory, and host-owned lifecycle state; agent CLI logout remains a provider operation.
 
 ## Colima or Lima cannot see a mount
 
@@ -141,8 +150,8 @@ Reconcile through the matching read path first:
 
 - agent login: the provider CLI's own login flow;
 - policy: `tobari policy rules` and `tobari cluster status`;
-- Workspace Manifest/Runtime: `tobari manifest show`;
-- Workspace: `tobari status` and `tobari list`.
+- Workspace Template/Runtime: `tobari template show`;
+- Workspace: `tobari status` and `tobari workspace list`.
 
 ## Guarantees and limits
 

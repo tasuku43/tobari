@@ -13,7 +13,7 @@ The CLI runs on the trusted host, while the selected Docker daemon may run in a 
 
 Tobari needs the daemon to see:
 
-- the selected canonical project root for its Workspace Manifest-selected live bind;
+- the selected canonical project root for its Workspace Template-selected live bind;
 - `${XDG_CONFIG_HOME:-$HOME/.config}/tobari` for host-owned policy and generated projections used by services;
 - `${XDG_STATE_HOME:-$HOME/.local/state}/tobari` for runtime materialization, principal registry, Workspace state, and host-owned lifecycle state; and
 - any explicit custom image/build source that Docker itself must access.
@@ -71,7 +71,7 @@ Do not use repeated root entry as a repair mechanism. The root `tobari` command 
 - Correct VM sharing while the affected Workspace is detached.
 - Rerun `tobari doctor`; warnings alone do not mutate anything.
 - Use `tobari cluster up` to reconcile services after paths are visible.
-- If a partially created logical Workspace remains, inspect `tobari status`. Runtime `missing` or `degraded` can be reconciled on the next valid entry; `incomplete` is cleanup-only and should be removed with `tobari delete`.
+- If a partially created logical Workspace remains, inspect `tobari status`. Runtime `missing` or `degraded` can be reconciled on the next valid entry; `incomplete` is cleanup-only and should be removed with `tobari workspace delete --id WORKSPACE_REF --confirm=delete`.
 - Do not delete Workspace state, host-owned states, or CA state to solve a bind error.
 - Do not add host networking, privileged mode, Docker socket mounts, or broad host-home Workspace mounts.
 

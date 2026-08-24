@@ -1,16 +1,16 @@
 ---
 title: Runtime customization
-description: Build reusable immutable Runtime revisions and explicitly pin Workspace Manifests without changing Workspace identity or persistent home.
+description: Build reusable immutable Runtime revisions and explicitly pin Workspace Templates without changing Workspace identity or persistent home.
 ---
 
 If you have only completed Quickstart, begin with [Prepare a custom runtime](../../start/runtime-setup/). That page covers the shortest path from the minimal base runtime to a verified coding-agent command inside a real Workspace.
 
-This page covers Runtime ownership, immutable revision history, explicit Workspace Manifest
+This page covers Runtime ownership, immutable revision history, explicit Workspace Template
 selection, drift reconciliation, and failure recovery. Runtime source is
-installation-wide and reusable; a Workspace Manifest stores only one exact ready revision
+installation-wide and reusable; a Workspace Template stores only one exact ready revision
 binding.
 
-Before starting, identify the current Workspace Manifest; see [Workspace Manifests](../workspace-manifests/). A custom runtime image provides the working environment, but it does not gain authority over mounts, networking, or Workspace lifetime.
+Before starting, identify the current Workspace Template; see [Workspace Templates](../workspace-templates-and-contexts/). A custom runtime image provides the working environment, but it does not gain authority over mounts, networking, or Workspace lifetime.
 
 ## 1. Create and inspect a Runtime
 
@@ -32,7 +32,7 @@ and configuration there as ordinary files. Links and special files are not
 accepted. The complete boundary is 1,024 regular files, 256 directories, 32
 MiB per file, and 64 MiB total. Every file must have no group/other permission
 bits; use `0600` for data or `0700` when a copied script or binary needs owner
-execute. Editing source changes no Workspace Manifest and creates no revision.
+execute. Editing source changes no Workspace Template and creates no revision.
 
 Edit the recipe on the trusted host. A minimal customization keeps the template's base and user transitions intact, for example adding a package between its existing `USER root` and `USER tobari` lines:
 
@@ -47,7 +47,7 @@ Do not put real credentials in the Dockerfile, build context, image layers, or e
 ## 3. Build and validate an immutable revision
 
 ```sh
-tobari runtime build --name frontend --format json
+tobari runtime build --id RUNTIME_REF --format json
 tobari runtime history --name frontend
 ```
 
@@ -60,23 +60,23 @@ This is one deliberate host Docker-build boundary. Tobari:
 5. records the confirmed image digest; and
 6. atomically appends the successful revision to Runtime history.
 
-Failed and unchanged builds append no revision, and every Workspace Manifest remains
+Failed and unchanged builds append no revision, and every Workspace Template remains
 unchanged. Docker/BuildKit may retain cache or an unselected candidate image;
 Tobari does not misreport those as ready history.
 
-## 4. Explicitly pin a Workspace Manifest
+## 4. Explicitly pin a Workspace Template
 
 ```sh
-tobari manifest runtime set --manifest review --runtime frontend@1
-tobari manifest show --name review
+tobari template runtime set --id TEMPLATE_REF --runtime RUNTIME_REVISION_REF
+tobari template show --name review
 ```
 
-The same revision may be pinned by several Workspace Manifests. A later build does not
+The same revision may be pinned by several Workspace Templates. A later build does not
 upgrade them. Select another ordinal explicitly for upgrade or rollback.
 
 ## 5. Re-enter an existing Workspace
 
-From a project bound to this Workspace Manifest:
+From a project bound to this Workspace Template:
 
 ```sh
 tobari
@@ -84,7 +84,10 @@ tree --version
 exit
 ```
 
-Entry compares the desired image and complete runtime spec with the existing container. If they changed, Tobari recreates only that container. It preserves the logical Workspace ID, canonical root, Workspace Manifest binding, persistent home, learned policy, and project files.
+Entry compares the desired image and complete runtime spec with the existing
+container. If they changed, Tobari recreates only that container. It preserves
+the Workspace ID, permanent Context binding, persistent home, Context Policy
+Memory, Workspace Template, and project files.
 
 The image's `CMD` does not define Workspace lifetime. Tobari supplies its fixed lifetime command and opens each shell or agent command through a child exec session. Container loss is recoverable; the logical Workspace is not the container.
 
@@ -98,7 +101,7 @@ The image cannot grant itself:
 - Docker socket access;
 - host networking or a direct external route;
 - added Linux capabilities;
-- a different project principal; or
+- a different Context/Workspace principal; or
 - a longer logical lifetime by changing `CMD`.
 
 Those controls are owned by the host lifecycle implementation, not image metadata.
@@ -110,17 +113,17 @@ Those controls are owned by the host lifecycle implementation, not image metadat
 - `runtime_source_invalid`: correct the relative path and actual size, count,
   entry kind, or owner-only mode named by the error. Source copied as `0755`
   must lose all group/other bits (normally becoming `0700`).
-- `runtime_build_failed`: correct the source and inspect `tobari runtime show`; history and Workspace Manifests remain unchanged.
+- `runtime_build_failed`: correct the source and inspect `tobari runtime show`; history and Workspace Templates remain unchanged.
 - `runtime_revision_not_ready`: choose a successful ordinal from `tobari runtime history`.
 - `image_not_found`: make the declared base or selected image available, then retry the explicit build/reconcile step.
 - `incompatible_image`: restore the required user, labels/API, entrypoint, lifetime capability, and architecture.
-- An uncertain selection outcome: inspect `tobari manifest show` before selecting again.
-- Existing Workspace entry failure: prior logical state and home remain; fix the Workspace Manifest image and re-enter.
+- An uncertain selection outcome: inspect `tobari template show` before selecting again.
+- Existing Workspace entry failure: prior logical state and home remain; fix the Workspace Template image and re-enter.
 
 ## Guarantees and limits
 
 History is content-aware and append-only, and failed validation cannot silently
-replace a Workspace Manifest binding. Compatibility validation cannot make arbitrary
+replace a Workspace Template binding. Compatibility validation cannot make arbitrary
 software inside the image trustworthy. Anything running in the Workspace can
 still modify the selected project and use already allowed network effects.
 
@@ -128,14 +131,14 @@ still modify the selected project and use already allowed network effects.
 
 - [Runtime customization contract](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/docs/01_product_contract.md)
 - [Runtime Catalog specifications](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/internal/cli/runtime_catalog.go)
-- [Workspace Manifest runtime implementation](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/internal/infra/dockerruntime/context_runtime.go)
+- [Workspace Template runtime implementation](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/internal/infra/dockerruntime/context_runtime.go)
 - [Container drift reconciliation tests](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/internal/infra/dockerruntime/project_runtime_test.go)
 - [Base runtime contract checker](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/tools/runtimecheck/main.go)
 
 ## Summary
 
 Runtime source is mutable preparation, successful revisions are immutable,
-Workspace Manifest selection is explicit, and Workspace entry is the reconciliation
+Workspace Template selection is explicit, and Workspace entry is the reconciliation
 point. Runtime images provide tools; host lifecycle code owns authority and lifetime.
 
 ## Check your understanding
@@ -143,7 +146,7 @@ point. Runtime images provide tools; host lifecycle code owns authority and life
 <details>
 <summary>Does editing or building Runtime source update Workspaces?</summary>
 
-No. Build creates history only. A Workspace Manifest must explicitly select the ready
+No. Build creates history only. A Workspace Template must explicitly select the ready
 revision, and its Workspaces observe that binding on their next entry.
 
 </details>

@@ -5,7 +5,7 @@ description: プロジェクトのファイル、プロジェクト識別、ポ�
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-Tobari が信頼するのは、ホスト側のライフサイクル状態、プリンシパル登録簿、ポリシー、Gateway、OPA です。Workspace 内のプロセスと外部サービスは信頼しません。Workspace や外部サービスが送った値を、そのまま Workspace Manifest やプロジェクトの権限として扱うこともありません。
+Tobari が信頼するのは、ホスト側のライフサイクル状態、プリンシパル登録簿、ポリシー、Gateway、OPA です。Workspace 内のプロセスと外部サービスは信頼しません。Workspace や外部サービスが送った値を、そのまま Workspace Template やプロジェクトの権限として扱うこともありません。
 
 作業対象のファイル、プロジェクトの権限、ポリシー変更の権限、認証情報の本体、リクエストデータは、それぞれ別の境界を通ります。各境界が成立させる保証は、先に[保証と制限](../guarantees-and-limitations/)で確認してください。
 
@@ -21,17 +21,17 @@ Tobari が信頼するのは、ホスト側のライフサイクル状態、プ�
 
 ## 境界 1：作業対象のファイル
 
-trusted host user が canonical project root を選びます。immutable Workspace Manifest `source_access` が
+trusted host user が canonical project root を選びます。immutable Workspace Template `source_access` が
 `read-only` または `read-write` の live bind を選び、CLI omission default は `read-write` です。
-read-only bind でも host や別 Workspace Manifest の変更を観測します。Workspace home は writable です。
+read-only bind でも host や別 Workspace Template の変更を観測します。Workspace home は writable です。
 
-作業対象外のホストパスは通常のマウント対象に含めず、Docker の制御機能も Workspace へ渡しません。各 Workspace には、インスタンス状態用のディレクトリから別々の永続ホームを割り当てます。
+作業対象外のホストパスは通常のマウント対象に含めず、Docker の制御機能も Workspace へ渡しません。各 Workspace には、stable Workspace ID から導出する別々の owner-only 永続 home を割り当てます。
 
-この境界は、作業対象のディレクトリを Workspace 自身から保護するものではありません。たとえば異なる Workspace または Workspace Manifest が `/work/team` と `/work/team/service` を使うと、ネットワーク、ホーム、識別情報、ポリシーの結び付きが異なっていても、重複するホスト上のファイルは共有されます。
+この境界は、作業対象のディレクトリを Workspace 自身から保護するものではありません。たとえば異なる Workspace または Workspace Template が `/work/team` と `/work/team/service` を使うと、ネットワーク、ホーム、識別情報、ポリシーの結び付きが異なっていても、重複するホスト上のファイルは共有されます。
 
 ## 境界 2：プロジェクトの権限
 
-ホストはプロジェクト専用のネットワークを作り、安定した Workspace Manifest ID、プロジェクト ID、基準となるルート、ネットワーク、Workspace の送信元エンドポイント、Gateway のエンドポイントをスキーマ 1 の登録簿で対応付けます。このように、どの Workspace Manifest とプロジェクトの権限を使うかをホスト側の事実から示す識別情報を、プリンシパル（principal）と呼びます。
+host は Workspace 専用 network を作り、stable Context ID、Workspace ID、canonical root、network、Workspace source endpoint、Gateway endpoint を schema 1 registry で対応付けます。このように、どの Context/Workspace authority を使うかを host-side fact から示す identity を principal と呼びます。
 
 Gateway は、カーネルが観測した接続元アドレスである `flow.client_conn.peername[0]` を使い、ホストが管理する登録簿からプリンシパルを選びます。
 
@@ -39,7 +39,7 @@ Workspace は `X-Project-ID: something-else` のようなヘッダーを送れ�
 
 ## 境界 3：ポリシーを変更する権限
 
-OPA は、Workspace Manifest、プロジェクト、スキーム、宛先、ポート、メソッド、パスなど、本文を除いた正規化済みの情報で HTTP 通信を判断します。Gateway が接続を所有し、その結果を通信経路へ強制します。
+OPA は、Workspace Template、プロジェクト、スキーム、宛先、ポート、メソッド、パスなど、本文を除いた正規化済みの情報で HTTP 通信を判断します。Gateway が接続を所有し、その結果を通信経路へ強制します。
 
 Workspace へ返す拒否レスポンスは、ホスト側で実行するレビューコマンドを示すだけです。権限変更に使う不透明な参照値や、ポリシーを書き換える機能は Workspace へ渡しません。
 
@@ -100,12 +100,12 @@ deny では認証情報は接続先へ届きません。
 <div class="question-list">
   <details>
     <summary>
-      偽装した Workspace Manifest
+      偽装した Workspace Template
       ヘッダーで、別のポリシーを利用できないのはなぜですか？
     </summary>
     <div class="prose-block">
       Gateway は、ホストが作成した Workspace 送信元エンドポイントの対応付けから
-      Workspace Manifest
+      Workspace Template
       とプロジェクトを選びます。リクエストヘッダーは、そのエンドポイントや登録簿を変更できません。
     </div>
   </details>

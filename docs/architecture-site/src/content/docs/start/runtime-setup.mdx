@@ -10,7 +10,7 @@ For the first setup, keep Tobari's defaults and learn only this path:
 1. create a reusable Runtime source tree;
 2. add the coding agent and project tools;
 3. build and validate the image; and
-4. select its ready revision for a Workspace Manifest; and
+4. select its ready revision for a Workspace Template; and
 5. enter a real project and verify the agent.
 
 You do not need to learn configuration switching yet.
@@ -26,7 +26,7 @@ tobari runtime create --name coding
 Tobari creates an owner-only `source/` directory and reports its path. It
 contains a starter Dockerfile and may also contain scripts, manifests, and
 configuration copied by that Dockerfile. Creation does not build an image or
-change any Workspace Manifest.
+change any Workspace Template.
 
 ## 2. Add the agent and project tools
 
@@ -55,24 +55,24 @@ Install only what the selected agent and project need. Pin versions where practi
 ## 3. Build and validate the runtime
 
 ```sh
-tobari runtime build --name coding
+tobari runtime build --id RUNTIME_REF
 ```
 
 Tobari snapshots the complete source tree, builds the snapshot, verifies the
 runtime interface, and appends an immutable successful revision. A failed or
-unchanged build changes no Workspace Manifest.
+unchanged build changes no Workspace Template.
 
 `runtime build` runs a Docker build on the host. Downloads performed by the Dockerfile do not pass through Workspace policy review, so review the base image and every download source used during the build.
 
-## 4. Select the revision for a Workspace Manifest
+## 4. Select the revision for a Workspace Template
 
 ```sh
 tobari runtime history --name coding
-tobari manifest runtime set --runtime coding@1
+tobari template runtime set --id TEMPLATE_REF --runtime RUNTIME_REVISION_REF
 ```
 
-Selection is explicit and the same revision can be reused by several Workspace Manifests.
-Building a later revision does not roll any Workspace Manifest forward.
+Selection is explicit and the same revision can be reused by several Workspace Templates.
+Building a later revision does not roll any Workspace Template forward.
 
 ## 5. Enter a real project and verify the agent
 
@@ -100,6 +100,6 @@ Continue to [Authenticate your tools](../authentication-setup/). Configure only 
 
 ## Later: separate configurations when you need them
 
-One default setup is enough to learn and use Tobari initially. Later, you may want different runtimes, authentication sets, or policy modes for different jobs. Tobari groups those settings into named **Workspace Manifests**.
+One default setup is enough to learn and use Tobari initially. Later, you may want different runtimes, authentication sets, or policy modes for different jobs. Tobari groups those settings into named **Workspace Templates**.
 
-Learn [Workspace Manifests and separate configurations](../../guides/workspace-manifests/) when that need appears. Workspace Manifest is not prerequisite knowledge for this first runtime build.
+Learn [Workspace Templates and separate configurations](../../guides/workspace-templates-and-contexts/) when that need appears. Workspace Template is not prerequisite knowledge for this first runtime build.

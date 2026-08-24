@@ -23,7 +23,7 @@ Tobari は認証情報を保管・解決する別サービスを持ちません�
 
 Docker Engine は実行環境のコンテナ、読み取り専用／読み書き可能なマウント、実行ユーザー、Linux capability（プロセス権限）の削減、読み取り専用のルートファイルシステム、資源制限、外部へ直接出られない内部ネットワーク、ラベル、ボリューム、プロセス実行を提供します。
 
-Docker Compose が管理するのは、共有 Gateway、OPA、共有ネットワーク、CA ボリュームだけです。Workspace ごとのコンテナとネットワークは、実行環境の接続実装が記録に合わせて調整します。完全一致するプロジェクトルートと Workspace Manifest の識別情報、ライフサイクルは、アプリケーション層で扱う必要があるためです。
+Docker Compose が管理するのは、共有 Gateway、OPA、共有ネットワーク、CA ボリュームだけです。Workspace ごとのコンテナとネットワークは、実行環境の接続実装が記録に合わせて調整します。完全一致するプロジェクトルートと Workspace Template の識別情報、ライフサイクルは、アプリケーション層で扱う必要があるためです。
 
 Docker は信頼する基盤です。「コンテナで動く」という事実だけでは、安全性の根拠になりません。重要なのは、正確なマウント、ネットワーク接続、不要なソケットを渡していないこと、ラベル、実行ユーザー、障害時のテストです。
 
@@ -35,7 +35,7 @@ mitmproxy は透過的な HTTP/TLS の検査、ストリーミング処理用の
 
 ### OPA と Rego
 
-OPA は共有のポリシー判断サービスです。Rego は Workspace Manifest policy ceiling、既定拒否、Workspace Manifest routing、
+OPA は共有のポリシー判断サービスです。Rego は Workspace Template policy ceiling、既定拒否、Workspace Template routing、
 学習済み完全一致 allow/deny、credential metadata constraint を表します。first public V1 の
 学習済み authority は完全一致のままです。
 
@@ -88,7 +88,7 @@ CI は正本から複数アーキテクチャ向け OCI イメージを cache-on
 - 実行環境またはサービスのイメージが見つからない、または互換性がない場合、安全でない作成より前に検証が失敗します。
 - ダイジェスト、ラベル、API、実行ユーザー、エントリーポイントが一致しなければ、安全側に停止します。
 - 正本と埋め込み用の写しに差があれば、リポジトリ検査で失敗します。
-- 不正な Rego または全 Workspace Manifest の集約は、有効化より前に失敗します。
+- 不正な Rego または全 Workspace Template の集約は、有効化より前に失敗します。
 - OPA または Gateway に障害が起きた場合、Gateway は通信を通さない応答を返します。
 - Docker またはホストの障害は、強制基盤を失わせます。Tobari は、その侵害下での保護を主張しません。
 - Workspace のホスト状態が壊れている場合、既存の権限を推測せず、安全側に停止します。

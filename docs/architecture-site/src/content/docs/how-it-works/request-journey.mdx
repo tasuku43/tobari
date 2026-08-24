@@ -8,7 +8,7 @@ import SystemMap from "../../../components/SystemMap.astro";
 
 An outbound request starts on the Workspace's dedicated network and reaches
 Gateway before it can reach any upstream. Gateway first establishes the
-host-issued project principal, removes credential values from decision data,
+host-issued Context/Workspace principal, removes credential values from decision data,
 and sends one normalized input to OPA.
 
 A deny or invalid decision stops locally. Only an allow lets Gateway resolve
@@ -45,18 +45,19 @@ and original port. [HTTPS and TLS](/how-it-works/https-and-tls/) explains the TL
 
 At this point, request bytes are untrusted. A project-looking header is not a principal.
 
-### 2. Establish Workspace Manifest and project identity
+### 2. Establish Workspace Template and project identity
 
 Gateway reads the kernel-observed Workspace source endpoint and looks it up in
 the host-owned schema-1 principal registry. The result supplies stable
-`workspace_manifest_id` and `project_id`. Missing, unknown, stale, unsafe, or ambiguous
+the frozen private-wire `workspace_template_id` and `project_id` fields carrying
+validated Context ID and Workspace ID values. Missing, unknown, stale, unsafe, or ambiguous
 bindings stop here, before OPA.
 
 ### 3. Build one normalized, body-free decision
 
 Gateway posts schema 1 input to one fixed OPA endpoint. It includes:
 
-- registry-derived cluster, Workspace Manifest ID, and project ID;
+- registry-derived cluster, Context ID, and Workspace ID;
 - normalized scheme, lowercase host without a trailing dot, and port;
 - uppercase method;
 - raw path and decoded path segments;
@@ -64,7 +65,7 @@ Gateway posts schema 1 input to one fixed OPA endpoint. It includes:
 - redacted non-secret headers plus non-secret authorization metadata.
 
 It excludes request and response bodies, authentication and cookie values, and other
-known/configured sensitive-header values. The registry-derived Workspace Manifest and
+known/configured sensitive-header values. The registry-derived Workspace Template and
 project identity are trusted principal metadata and are intentionally included. The
 ordinary query is part of OPA input, so do not treat OPA input as a generic secret
 scrubber for arbitrary data placed in a URL.
@@ -95,7 +96,10 @@ There is no automatic application request retry. Redirects become new requests a
 
 ### 6. Record the outcome
 
-Denials are logged immediately. An allowed request is logged after response or connection error. Audit schema 1 contains bounded Workspace Manifest/project identity, authority, method, redacted path, decision, reason, status, and timing. It does not contain query, authentication/cookie header values, body, or credential values.
+Denials are logged immediately. An allowed request is logged after response or
+connection error. Audit schema 1 contains bounded Context/Workspace identity,
+authority, method, redacted path, decision, reason, status, and timing. It does
+not contain query, authentication/cookie header values, body, or credential values.
 
 ## Concrete example: two different bodies
 
@@ -109,7 +113,7 @@ Content-Type: application/json
 {"state":"ready"}
 ```
 
-and later sends the same Workspace Manifest/project/host/port/method/path with `{"state":"deleted"}`.
+and later sends the same Context/Workspace/host/port/method/path with `{"state":"deleted"}`.
 
 The bodies may have very different application meaning, but Tobari's exact policy identity is the same. The body does not create a second review candidate or a narrower rule. If that route is allowed, either body can be sent. The reviewer must evaluate the route-level capability, not infer payload inspection.
 
@@ -161,7 +165,7 @@ You should now be able to narrate an allowed and a denied request without swappi
     identity?
   </summary>
   OPA input includes the multi-valued query. Current exact candidate/rule
-  identity does not include it; identity is Workspace Manifest, project, host,
+  identity does not include it; identity is Workspace Template, project, host,
   port, method, and path.
 </details>
 

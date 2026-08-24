@@ -71,7 +71,7 @@ tobari
 - 対象の Workspace が停止中の間に VM の共有設定を直します。
 - `tobari doctor` を再実行します。警告が表示されても変更操作は行われません。
 - パスが見えるようになった後、`tobari cluster up` でサービスを調整します。
-- 作成途中の論理 Workspace が残る場合は `tobari status` を確認します。ランタイムの `missing` または `degraded` は、次の有効な入室で調整できます。`incomplete` は削除による後始末だけが許される状態なので、`tobari delete` で削除します。
+- 作成途中の論理 Workspace が残る場合は `tobari status` を確認します。ランタイムの `missing` または `degraded` は、次の有効な入室で調整できます。`incomplete` は削除による後始末だけが許される状態なので、`tobari workspace delete --id WORKSPACE_REF --confirm=delete` で削除します。
 - 結び付けエラーを解決するために Workspace の状態、host-owned lifecycle state、CA 状態を削除しないでください。
 - ホストネットワーク、特権モード、Docker ソケットのマウント、ホストホームを広く公開する Workspace マウントを追加しないでください。
 

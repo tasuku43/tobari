@@ -399,7 +399,7 @@ func renderRuntimeReport(path string, result tobari.RuntimeReport, format succes
 		writeContextCardValue(&output, color, "Build", "unchanged · no revision created", styleMuted)
 	}
 	if result.Built {
-		writeContextCardValue(&output, color, "Build", "revision created · no Workspace Manifest changed", styleAccent)
+		writeContextCardValue(&output, color, "Build", "revision created · no Workspace Template changed", styleAccent)
 	}
 	if path == "runtime build" {
 		if len(manifest.Revisions) != 0 {
@@ -439,7 +439,7 @@ func renderRuntimeRestore(path string, result tobari.RuntimeRestoreResult, forma
 	}
 	writeContextCardValue(&output, color, "State", state, styleAccent)
 	writeContextCardValue(&output, color, "History", "unchanged", styleText)
-	writeContextCardValue(&output, color, "Workspace Manifests", "unchanged", styleText)
+	writeContextCardValue(&output, color, "Workspace Templates and Contexts", "unchanged", styleText)
 	writeContextCardValue(&output, color, "Workspaces", "unchanged", styleText)
 	return []byte(output.String()), nil
 }
@@ -523,7 +523,7 @@ func runtimeRestoreOutput() CommandOutput {
 			{Name: "digest_match", Type: OutputFieldTypeBoolean, Description: "Whether exact restored content matches immutable recorded authority."},
 			{Name: "artifact_disposition", Type: OutputFieldTypeString, Description: "Whether no staging artifact was created or the owned staging artifact was removed.", Enum: []string{"not_created", "removed"}},
 			{Name: "revision_appended", Type: OutputFieldTypeBoolean, Description: "Always false; restore never appends history."},
-			{Name: "manifest_changed", Type: OutputFieldTypeBoolean, Description: "Always false; restore never changes Runtime or Workspace Manifest authority."},
+			{Name: "manifest_changed", Type: OutputFieldTypeBoolean, Description: "Legacy-named field retained by the unchanged Runtime schema; always false because restore changes no Workspace Template, Context, or Workspace authority."},
 			{Name: "workspace_changed", Type: OutputFieldTypeBoolean, Description: "Always false; restore never changes a Workspace."},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable, JSONEnvelope: "runtime_restore", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1}

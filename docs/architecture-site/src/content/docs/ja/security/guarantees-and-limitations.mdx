@@ -21,7 +21,7 @@ Tobari は、Workspace の権限を一つのプロジェクト、ホスト発行
 
 ## 保証 2：Workspace は別プロジェクトの権限を自分へ付与できない
 
-**保証。** リクエストのバイト列から、より強い Manifest または project principal を選ぶことはできません。
+**保証。** リクエストのバイト列から、より強い Workspace Template または project principal を選ぶことはできません。
 
 **前提。** host lifecycle が Workspace ごとの一意な network binding を作成し、principal registry の整合性が保たれていること。
 
@@ -29,7 +29,7 @@ Tobari は、Workspace の権限を一つのプロジェクト、ホスト発行
 
 **障害時。** 未知、不正、重複、古い binding は `project_principal_unavailable` となり、OPA と upstream より前に止まります。
 
-**対象外。** 二つの Manifest が同じ、または重なる host root を意図的に mount できます。network、home、policy principal は別でも、重なった範囲の file change は共有されます。
+**対象外。** 二つの Workspace Template が同じ、または重なる host root を意図的に mount できます。network、home、policy principal は別でも、重なった範囲の file change は共有されます。
 
 ## 保証 3：ポリシー判断の失敗は外部通信にならない
 
@@ -41,7 +41,7 @@ Tobari は、Workspace の権限を一つのプロジェクト、ホスト発行
 
 **障害時。** deny は `policy_denied`、timeout、接続失敗、non-200、oversize、不正または不完全な decision は `policy_unavailable` です。どちらも upstream connection を作りません。
 
-**対象外。** 現在の exact learned rule は Manifest、Workspace、host、port、method、raw path を区別します。body、query、safe header、reason、provider は区別しないため、異なる body が同じ exact effect rule を利用できます。
+**対象外。** 現在の exact learned rule は Workspace Template、Workspace、host、port、method、raw path を区別します。body、query、safe header、reason、provider は区別しないため、異なる body が同じ exact effect rule を利用できます。
 
 **ログイン情報の境界。** agent CLI が Workspace home に保管するログイン情報の値は、OPA の判断入力と監査記録に入りません。
 
@@ -57,7 +57,7 @@ Tobari は、Workspace の権限を一つのプロジェクト、ホスト発行
 
 **前提。** 信頼する host user が現在の opaque candidate reference を選び、policy source と revision が競合していないこと。
 
-**仕組み。** Tobari は候補を再検出し、private source、完全な all-Manifest projection、revision を検証します。一つの owner-only source を atomic write し、revisioned complete bundle を公開して、実行中 OPA が exact revision を報告するまで待ちます。authority reduction では最初に deny-all transition revision を入れます。
+**仕組み。** Tobari は候補を再検出し、private source、完全な all-Context projection、revision を検証します。一つの owner-only source を atomic write し、revisioned complete bundle を公開して、実行中 OPA が exact revision を報告するまで待ちます。authority reduction では最初に deny-all transition revision を入れます。
 
 **障害時。** validation、stale reference、race、write、aggregate、OPA activation の失敗では以前の valid policy を保持または復元します。以前の HTTP request は再送しません。
 

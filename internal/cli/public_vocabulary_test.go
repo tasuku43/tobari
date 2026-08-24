@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -26,6 +27,13 @@ var retiredWorkspaceResourceLanguage = []*regexp.Regexp{
 
 var tobariProductQualifierLanguage = regexp.MustCompile(`(?i)\btobari(?:-owned| (?:implementation|design|executable|installation|release|version|runtime|build|binary|cli|repository|command|catalog|code|ca|control|services?|image|state))\b`)
 
+var retiredManifestPublicLanguage = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)\bworkspace manifests?\b`),
+	regexp.MustCompile(`(?i)(?:^|[\s\x60"'])manifest (?:list|show|create|copy|delete|default|runtime)\b`),
+	regexp.MustCompile(`(?i)--manifest\b`),
+	regexp.MustCompile(`(?i)\b(?:workspace_manifest_id|manifest_id|manifest_generation|WorkspaceManifestID)\b`),
+}
+
 func TestPublicVocabularyKeepsTobariAsProductAndWorkspaceAsResource(t *testing.T) {
 	t.Parallel()
 	repositoryRoot := filepath.Clean(filepath.Join("..", ".."))
@@ -36,6 +44,7 @@ func TestPublicVocabularyKeepsTobariAsProductAndWorkspaceAsResource(t *testing.T
 			t.Fatal(err)
 		}
 		assertNoRetiredWorkspaceResourceLanguage(t, relative, string(data))
+		assertNoRetiredManifestPublicLanguage(t, relative, string(data))
 	}
 	docsRoot := filepath.Join(repositoryRoot, "docs")
 	if err := filepath.WalkDir(docsRoot, func(path string, entry fs.DirEntry, walkErr error) error {
@@ -50,6 +59,8 @@ func TestPublicVocabularyKeepsTobariAsProductAndWorkspaceAsResource(t *testing.T
 			for _, excluded := range []string{
 				filepath.Join("docs", "decisions"),
 				filepath.Join("docs", "work"),
+				filepath.Join("docs", "architecture-site", "node_modules"),
+				filepath.Join("docs", "architecture-site", "dist"),
 				filepath.Join("docs", "architecture-site", "src", "generated"),
 				filepath.Join("docs", "architecture-site", "src", "content", "docs", "generated"),
 			} {
@@ -59,7 +70,12 @@ func TestPublicVocabularyKeepsTobariAsProductAndWorkspaceAsResource(t *testing.T
 			}
 			return nil
 		}
-		if extension := filepath.Ext(entry.Name()); extension != ".md" && extension != ".mdx" {
+		if relative == filepath.Join("docs", "architecture-site", "scripts", "verify-source.mjs") {
+			return nil
+		}
+		switch filepath.Ext(entry.Name()) {
+		case ".md", ".mdx", ".astro", ".ts", ".mjs", ".json":
+		default:
 			return nil
 		}
 		data, err := os.ReadFile(path)
@@ -67,9 +83,17 @@ func TestPublicVocabularyKeepsTobariAsProductAndWorkspaceAsResource(t *testing.T
 			return err
 		}
 		assertNoRetiredWorkspaceResourceLanguage(t, filepath.ToSlash(relative), string(data))
+		assertNoRetiredManifestPublicLanguage(t, filepath.ToSlash(relative), string(data))
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+	for _, command := range DefaultCatalog().PublicCommands() {
+		encoded, err := json.Marshal(command)
+		if err != nil {
+			t.Fatalf("marshal public Catalog command %s: %v", command.Path, err)
+		}
+		assertNoRetiredManifestPublicLanguage(t, "Catalog "+command.Path, string(encoded))
 	}
 	for _, relative := range []string{"internal/cli", "internal/app/tobaricmd"} {
 		root := filepath.Join(repositoryRoot, filepath.FromSlash(relative))
@@ -98,6 +122,24 @@ func TestPublicVocabularyKeepsTobariAsProductAndWorkspaceAsResource(t *testing.T
 				assertNoRetiredWorkspaceResourceLanguage(t, filepath.Join(relative, entry.Name()), value)
 				return true
 			})
+		}
+	}
+}
+
+func TestPublicVocabularyRejectsRetiredManifestCommandsAndSchema(t *testing.T) {
+	t.Parallel()
+	for _, text := range []string{
+		"Workspace Manifest",
+		"manifest list",
+		"tobari --manifest review",
+		`{"workspace_manifest_id":"legacy"}`,
+	} {
+		matched := false
+		for _, pattern := range retiredManifestPublicLanguage {
+			matched = matched || pattern.MatchString(text)
+		}
+		if !matched {
+			t.Errorf("retired Manifest public language was not rejected: %q", text)
 		}
 	}
 }
@@ -133,6 +175,15 @@ func assertNoRetiredWorkspaceResourceLanguage(t *testing.T, path, text string) {
 	for _, pattern := range retiredWorkspaceResourceLanguage {
 		if match := pattern.FindString(text); match != "" {
 			t.Errorf("%s uses retired duplicate Workspace resource language %q", path, match)
+		}
+	}
+}
+
+func assertNoRetiredManifestPublicLanguage(t *testing.T, path, text string) {
+	t.Helper()
+	for _, pattern := range retiredManifestPublicLanguage {
+		if location := pattern.FindStringIndex(text); location != nil {
+			t.Errorf("%s retains retired Manifest public language %q", path, text[location[0]:location[1]])
 		}
 	}
 }

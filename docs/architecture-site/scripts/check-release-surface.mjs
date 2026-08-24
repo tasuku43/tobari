@@ -82,7 +82,7 @@ const forbidden = [
   {
     label: "conflicting principal and credential projection",
     pattern:
-      /(?:Workspace\s+identitys|Workspace\s+identity\s+values|configured\s+credential\s+headers|認証情報を含まない[^\n]{0,100}(?:Workspace Manifest|プロジェクト)[^\n]{0,80}識別情報)/i,
+      /(?:Workspace\s+identitys|Workspace\s+identity\s+values|configured\s+credential\s+headers|認証情報を含まない[^\n]{0,100}(?:Workspace Template|プロジェクト)[^\n]{0,80}識別情報)/i,
   },
   {
     label: "research Japanese credential authority",

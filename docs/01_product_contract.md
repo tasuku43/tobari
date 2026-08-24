@@ -149,7 +149,7 @@ Persisted-query-only and nonempty-extension requests remain unsupported and
 fail locally with distinct diagnostics. Policy review derives `not_expected`
 for query and `possible` for mutation as evidence; exact operation/root
 identity remains the authority.
-For a Workspace Manifest with a validated EKS bootstrap, the exact Kubernetes API origin
+For a Workspace Template with a validated EKS bootstrap, the exact Kubernetes API origin
 is also a trusted protocol authority. Gateway derives the API verb and one
 canonical resource or non-resource coordinate from method, path, `watch`, and
 `dryRun`; object bodies remain opaque. Core resources and CRDs use the same
@@ -201,9 +201,10 @@ is added explicitly.
 - **Tobari:** the product, executable, and ownership adjective. Tobari prepares,
   enforces, and manages Workspaces and installation-local shared services.
 - **Project:** the selected canonical host source directory and its contents.
-- **Workspace:** one reusable isolated resource selected by a canonical project
-  root plus stable Workspace Manifest ID. Its work container is recoverable runtime detail;
-  the stable Workspace ID is diagnostic rather than a routine action input.
+- **Workspace:** one replaceable isolated instance and home owned by one
+  Context. Its work container is recoverable runtime detail; the stable
+  Workspace ID and permanent Context binding are authority rather than routine
+  selection inputs.
 - **cluster:** the one installation-local Gateway, one OPA, aggregate policy,
   principal registry, and CA lifecycle. The research surface
   adds one locked Auth Broker and provider projection.
@@ -217,28 +218,28 @@ is added explicitly.
   Workspace ID, Attachment Epoch, target port, and exact HTTP effect. It is
   Workspace-wide for that attachment and is not a learned policy rule.
 - **Auth Broker:** the research non-root credential-resolution daemon. It owns
-  encrypted Workspace Manifest vault access, has no TCP listener, starts locked, and
+  encrypted Context vault access, has no TCP listener, starts locked, and
   exposes separate control and Gateway-only runtime Unix sockets.
 - **project root:** the canonical host directory selected from the current working
-  directory and mounted directly with the bound Workspace Manifest's immutable
+  directory and mounted directly with the bound Workspace Template's immutable
   `read-only` or `read-write` source access. A root below the host home
   is mounted at the same relative path below `/var/lib/tobari`; a root outside
   the host home uses the mirrored `/workspace` path.
 - **Workspace home:** a per-Workspace persistent owner-only XDG state directory
   mounted as the work user's home.
 - **Tobari image:** the minimal built-in runtime or one locally available
-  compatible OCI environment image selected by the Workspace's bound Workspace Manifest for Workspace
-  creation and later runtime-container reconciliation. Its tools and bootstrap
+  compatible OCI environment image selected by the Workspace's Context-bound
+  Template revision for creation and later runtime-container reconciliation. Its tools and bootstrap
   are part of the environment; its image `CMD` is not the Workspace lifetime
   command.
 - **Workspace ID:** a generated stable internal identity used for state, exact
   resource labels, and host-issued Workspace-principal bindings. It is diagnostic
   output, not a routine user action input.
 - **Workspace principal:** a host-issued binding from one stable Workspace ID and
-  stable Workspace Manifest ID to the exact owned Workspace source endpoint and Gateway
+  stable Context ID to the exact owned Workspace source endpoint and Gateway
   endpoint on that Workspace's dedicated network. The internal schema-V1
   protocol retains the field name `project_id`; that compatibility name carries
-  the Workspace ID and never identifies the project root. Caller headers, Workspace Manifest names,
+  the Workspace ID and never identifies the project root. Caller headers, Template names,
   SNI, request authority, and profile names are not principals.
 - **tool-owned authentication state:** files written by a tool or agent below
   one Workspace's persistent home during its own login or configuration flow. It
@@ -254,11 +255,11 @@ is added explicitly.
   surface additionally covers AWS/`aws`. Their names
   grant neither provider identity nor network authority.
 - **research brokered credential:** one typed static or reviewed renewable record owned
-  by a stable Workspace Manifest and provider, acquired through protected non-terminal
+  by a stable Context and provider, acquired through protected non-terminal
   stdin or one purpose-limited reviewed host driver and stored in the
-  encrypted Workspace Manifest vault.
+  encrypted Context vault.
 - **research Workspace credential handle:** a versioned random opaque value bound to one
-  Workspace Manifest, project, provider, credential revision, and exact HTTP binding. It
+  Context, Workspace, provider, credential revision, and exact HTTP binding. It
   is not the real credential, but it is a scoped bearer capability that should
   not be published or logged. It is not authority without the trusted
   principal, exact binding, and OPA allow. Broker metadata never inherits a
@@ -271,55 +272,58 @@ is added explicitly.
   and Chatwork; the research surface adds AWS without making it runtime configurable.
   Owner data declares no executable shell, helper choice, refresh, signing,
   arbitrary route, HTTP method/path policy, or provider operation semantics.
-- **Workspace Manifest:** one stable host-owned desired Workspace definition
+- **Workspace Template:** one stable host-owned desired Workspace definition
   with a stable opaque ID and human name. Every semantic mutation publishes one
-  complete immutable revision. `WorkspaceManifestID + semantic digest` is
+  complete immutable revision. `WorkspaceTemplateID + semantic digest` is
   authority; generation is correlation only. Its Boundary records direct
   source access, normalized policy and terminal ceilings, policy mode, and
   native-readiness participation. The same revision contains one exact Runtime
   binding and narrow Workspace defaults grouped by cluster, entry, child
-  session, and creation activation boundaries. Research Broker state is
-  separate and is never a desired/applied Manifest field.
-- **default Workspace Manifest:** only the installation selector used when an
-  invocation omits `--manifest`; it is not current applied state or shared
-  enforcement authority.
-- **synthetic default:** the display-only `default` selection returned by an
-  omitted-Workspace Manifest read before any Workspace Manifest is persisted. It has no stable ID or
-  store authority and cannot bind a mutation; explicitly naming an absent
-  `default` Workspace Manifest returns not found.
+  session, and creation activation boundaries. Context, Policy Memory,
+  Workspace, authentication, and applied state are separate authorities.
+- **Context:** one durable immutable binding between a canonical Project root
+  and one Workspace Template. ContextID is authority; a Context owns Policy
+  Memory and has no second name, default, or mutable selector.
+- **Policy Memory:** one Context-owned complete immutable history of remembered
+  authorization decisions. It survives Workspace replacement and is not copied
+  with a Template.
+- **default Workspace Template:** only the installation selector used by bare
+  root entry and bare `status`; it is not Context, applied, or shared-cluster
+  authority.
+- **recommended draft:** the display-only first-use proposal shown before any
+  Template or Context exists. It has no ID, revision, selector, or store
+  authority and cannot bind a mutation.
 - **Runtime:** one installation-wide reusable environment definition. A managed
   Runtime owns an editable bounded Docker build-context tree and immutable
   successful semantic revisions; the built-in standard Runtime has one
   compiled revision. Runtime source and snapshots are never Workspace mounts.
-- **Workspace Manifest Runtime binding:** one exact stable Runtime ID and semantic revision
-  selected by a Workspace Manifest. Its human `name@ordinal` form is review syntax, while
-  the persisted ID and SHA-256 revision are authority. Only `manifest runtime
-  set` replaces the binding; bound Workspaces adopt it on next entry without
-  changing Workspace Manifest identity or persistent home.
+- **Workspace Template Runtime binding:** one exact stable Runtime ID and semantic revision
+  selected by a Workspace Template. Its human `name@ordinal` form is review syntax, while
+  the persisted ID and SHA-256 revision are authority. Only `template runtime
+  set` replaces the binding; a Context resolves its bound Template's current
+  revision and its Workspace adopts that entry slice on next entry without
+  changing Context or Workspace identity or persistent home.
 - **agent profile:** read-only non-secret shared agent configuration referenced
-  by a Workspace Manifest. It is not tool-owned login state.
-- **narrow projection:** one fixed Workspace Manifest-owned allowlist of validated
+  by a Workspace Template. It is not tool-owned login state.
+- **narrow projection:** one fixed Workspace Template-owned allowlist of validated
   non-secret scalar fallbacks. The source file, path, directives, executable
   settings, credentials, and undeclared keys never enter the Workspace.
 
-Public CLI schema V2 names Workspace/Manifest lifecycle identity explicitly: lifecycle and policy
-results use `workspace_id`, project-directory facts use `project_root`, a
-persistent home uses `workspace_home`, Workspace collections use `workspaces`,
-and shared status uses `workspace_count`. Internal persistence, Docker labels,
-Gateway/OPA input, audits, and Broker protocols retain their schema-V1
-`project_id`, `root`, `instance_id`, and label keys because those exact
-host-owned contracts already bind the same Workspace identity without exposing
-a second public resource. Tobari is not yet public, so ADR 0027 defines these
-corrected CLI names as the initial V1; no legacy aliases or compatibility
-reader are introduced.
+Public contracts use `workspace_template_id`, `context_id`, and `workspace_id`
+for their distinct authorities. Template, Context, Policy Memory, and family
+command results start at schema 1; Workspace state and bare status use schema
+3. Frozen private Gateway/OPA/Broker/Host Loopback wire tokens remain governed
+by their own versions and do not become public/domain aliases. There is no
+public compatibility reader or predecessor vocabulary alias.
 
-Stable Workspace and Workspace Manifest IDs are not trusted when supplied by a work
+Stable Workspace and Context IDs are not trusted when supplied by a work
 container. The host-owned principal registry derives both from the exact
 kernel-observed Workspace source endpoint within its verified dedicated
 network binding. The registry also retains the exact Gateway endpoint and
-rejects duplicate or stale endpoints. Workspace Manifest policy is selected inside the
-single OPA from that trusted principal. Learned permissions are Workspace Manifest- and
-project-bound. Principal identity never selects or injects tool credentials.
+rejects duplicate or stale endpoints. Template policy and Context Policy
+Memory are selected inside the single OPA from that trusted principal. Learned
+permissions are Context-owned and retain observed Workspace identity. Principal identity never selects
+or injects tool credentials.
 Standard Gateway passes one Workspace-owned credential only after the ordinary
 HTTP decision; research Broker resolution additionally requires its exact
 provider, revision, target, and header binding.
@@ -381,13 +385,13 @@ The public commands are:
 | `runtime list [--format text\|json]` | discover | read | List the exhaustive installation-wide Runtime catalog, stable Runtime references, and each ready head revision |
 | `runtime show --name NAME [--format text\|json]` | discover | read | Inspect one Runtime's stable reference, managed source path, and complete successful revisions |
 | `runtime history --name NAME [--format text\|json]` | discover | read | Show one Runtime's stable reference and ordered immutable successful revision history |
-| `runtime create [--copy-source-from RUNTIME] --name NAME [--format text\|json]` | act, fixed target | create | Create one standalone owner-only managed Docker build-context source from the standard starter or another managed Runtime's current editable source, with a fresh Runtime ID, empty history, no lineage, and no Manifest or Workspace change |
+| `runtime create [--copy-source-from RUNTIME] --name NAME [--format text\|json]` | act, fixed target | create | Create one standalone owner-only managed Docker build-context source from the standard starter or another managed Runtime's current editable source, with a fresh Runtime ID, empty history, no lineage, and no Template, Context, or Workspace change |
 | `review runtimes [--format text\|json]` | discover plus TTY reference-bound action | read, or one confirmed write | List the exhaustive Runtime catalog; trusted interactive text offers only managed Runtime actions and uses one confirmation for a selected build or exact interrupted build, restore, or whole-delete recovery, prioritizing the enclosing delete journal, while redirected and JSON output remain read-only |
-| `runtime build --id RUNTIME_REF [--format text\|json]` | act, reference bound | write | Re-resolve one stable managed Runtime ID under the lifecycle and store locks, then snapshot, build, validate, and append one immutable semantic revision without changing any Workspace Manifest |
-| `runtime restore --id RUNTIME_REVISION_REF [--format text\|json]` | act, reference bound | write | Rebuild one exact missing or pruned managed revision from its retained immutable source, publish only an exact digest match, and preserve Runtime history, Workspace Manifests, and Workspaces; an already-available exact revision performs no durable write |
-| `runtime delete --id RUNTIME_REF --confirm=delete [--format text\|json]` | act, reference bound | write | Delete one exact unused managed Runtime as a whole—editable source, immutable snapshots, revision history, and exact owned image tags—only after complete protection and use observation, while preserving Workspace Manifests, Workspaces, IDs, homes, applied receipts, Project roots, credentials, and shared resources |
+| `runtime build --id RUNTIME_REF [--format text\|json]` | act, reference bound | write | Re-resolve one stable managed Runtime ID under the lifecycle and store locks, then snapshot, build, validate, and append one immutable semantic revision without changing any Workspace Template |
+| `runtime restore --id RUNTIME_REVISION_REF [--format text\|json]` | act, reference bound | write | Rebuild one exact missing or pruned managed revision from its retained immutable source, publish only an exact digest match, and preserve Runtime history, Workspace Templates, and Workspaces; an already-available exact revision performs no durable write |
+| `runtime delete --id RUNTIME_REF --confirm=delete [--format text\|json]` | act, reference bound | write | Delete one exact unused managed Runtime as a whole—editable source, immutable snapshots, revision history, and exact owned image tags—only after complete protection and use observation, while preserving Workspace Templates, Workspaces, IDs, homes, applied receipts, Project roots, credentials, and shared resources |
 | `runtime prune dry-run [--format text\|json]` | discover | read | Produce one exact opaque prune-plan reference from a complete coherent installation observation, listing every eligible unused owned image tag, protection, blocker, preserved source/snapshot byte count, and bounded Docker observation without creating state or changing Docker |
-| `runtime prune apply --plan RUNTIME_PRUNE_PLAN_REF --confirm=prune [--format text\|json]` | act, reference bound | write | Revalidate and apply one unchanged reviewed plan, removing only exact Tobari-owned unused image tags while preserving Runtime source, immutable snapshots, revision history, Workspace Manifests, Workspaces, homes, IDs, and shared image content |
+| `runtime prune apply --plan RUNTIME_PRUNE_PLAN_REF --confirm=prune [--format text\|json]` | act, reference bound | write | Revalidate and apply one unchanged reviewed plan, removing only exact Tobari-owned unused image tags while preserving Runtime source, immutable snapshots, revision history, Workspace Templates, Workspaces, homes, IDs, and shared image content |
 | `tobari [-- <command>...]` | act | create | Atomically initialize a fresh default Template and Context when required, then reconcile and enter their exact Workspace |
 | `status [--format text|json]` | discover | read | Return one CWD-first schema-3 home snapshot for the nearest Project root and installation-default Template, with independent desired/active/applied/observed facts, one Next, and ordered Attention |
 
@@ -421,8 +425,8 @@ inspection; it may open the host browser, stages decisions without authority,
 and delegates one confirmed reviewed set to the canonical fixed-target Apply.
 The release-surface development binary and release archives omit this command.
 
-The CWD lifecycle commands `tobari`, `status`, and `delete` have no Template or
-Context selector. Bare `status` resolves the nearest canonical ProjectRoot
+The CWD entry/read commands `tobari` and `status` have no Template or Context
+selector. Bare `status` resolves the nearest canonical ProjectRoot
 from CWD before applying the installation default Template; same-root Contexts
 for other Templates remain siblings and never redirect selection. Nondefault
 work uses an opaque Context or Workspace reference obtained from its owning
@@ -518,10 +522,11 @@ review runs through `tobari review permissions` in a separate host terminal.
   initialize policy, start/reconcile or unlock the shared cluster, create or
   replace the root key, or mutate provider, vault, credential, handle, or
   project-auth state.
-- Each `(canonical root, stable Workspace Manifest ID)` identifies at most one Workspace.
-  Repeated or concurrent creation for that pair is rejected as already
-  existing; the same root may have independent Workspaces in different
-  Workspace Manifests. An explicit Workspace Manifest never changes the default Workspace Manifest.
+- Each `(canonical root, stable Workspace Template ID)` identifies at most one
+  Context, and each Context owns at most one replaceable Workspace. Repeated or
+  concurrent entry converges on that Workspace; the same root may have
+  independent Contexts for different Templates. Explicit Context actions never
+  change the default Workspace Template.
 - Project-root selection rejects the filesystem root, the user's home and its
   ancestors, and any path overlapping XDG Tobari configuration, state, or
   shared-profile management directories, Docker sockets, or Docker management
@@ -530,19 +535,19 @@ review runs through `tobari review permissions` in a separate host terminal.
 - An explicit create choice uses the canonical current directory as root.
   Project moves and copies are not inferred or recorded in the project tree.
 - The selected root is the only project directory mounted from the host and
-  uses the bound Workspace Manifest's immutable `read-only` or `read-write` access. When
+  uses the bound Workspace Template's immutable `read-only` or `read-write` access. When
   it is below the host home, the container target preserves the relative path
   below `HOME=/var/lib/tobari`; for example, a host root of
   `$HOME/path/to` enters at `/var/lib/tobari/path/to`. A root outside
   the host home retains `/workspace/<canonical-root-without-leading-slash>`;
   thus a root at `/work` and a host CWD of `/work/root` enter at
   `/workspace/work/root`. Read-only applies only to this direct live bind: it
-  is not a snapshot, host or same-root read-write Workspace Manifest changes remain
+  is not a snapshot, host or same-root read-write Workspace Template changes remain
   observable, no writable source alias exists, and Workspace home and tmpfs
   remain writable. Tobari never mounts the host home wholesale.
-- Same-root Workspaces in different Workspace Manifests and parent/child roots may run
+- Same-root Workspaces in different Workspace Templates and parent/child roots may run
   concurrently. Runtime, home, network, policy, and broker handles follow
-  their Workspace/Workspace Manifest boundaries, but overlapping host-file writes are visible
+  their Workspace/Workspace Template boundaries, but overlapping host-file writes are visible
   to every mount of those files. Tobari provides no overlay, checkout clone,
   root lock, session exclusion, warning gate, or filesystem integrity isolation
   for this user-selected sharing.
@@ -557,7 +562,7 @@ review runs through `tobari review permissions` in a separate host terminal.
   the Tobari entrypoint. That capability is currently `sleep infinity`, which
   is required by Tobari's fixed Workspace lifetime command. Ordinary `tobari`
   startup never pulls a configured image implicitly. `cluster up` may obtain
-  the official runtime base for an uncustomized Workspace Manifest; custom images still
+  the official runtime base for an uncustomized Workspace Template; custom images still
   fail closed if missing or incompatible before project runtime network or
   container mutation.
 - `cluster up` builds the pinned agent-ready base and Gateway locally when
@@ -571,7 +576,7 @@ review runs through `tobari review permissions` in a separate host terminal.
 - Standard authentication is owned by each agent CLI in the Workspace and the
   release-surface catalog contains no `auth` namespace. The following legacy driver
   contract is compiled only by `task build:dev`. Its authentication commands
-  accept an existing Workspace Manifest name and installed provider ID; the research
+  accept an existing Workspace Template name and installed provider ID; the research
   surface accepts GitHub, Datadog, OpenAI, Anthropic, Chatwork import, and AWS.
   AWS alone adds
   `--method identity-center|console`. The GitHub driver shows the
@@ -586,7 +591,7 @@ review runs through `tobari review permissions` in a separate host terminal.
   Tobari-owned presentation; `NO_COLOR` removes those styles without changing
   the instructions, while every other control remains visibly projected. The
   Anthropic driver starts a fresh project-free container from the selected
-  compatible Workspace Manifest image, runs exact Claude Code 2.1.220 native account login,
+  compatible Workspace Template image, runs exact Claude Code 2.1.220 native account login,
   validates the four required renewable-session values plus the non-secret
   subscription-type and rate-limit-tier labels from its Linux state, discards
   every other provider-owned optional field, canonicalizes a Tobari-owned
@@ -597,7 +602,7 @@ review runs through `tobari review permissions` in a separate host terminal.
   fails, and emits the paste-code prompt as soon as Claude requests input even
   though the upstream prompt has no newline. Before that prompt it states that
   authorization may take a moment after Enter; after successful child exit it
-  reports bounded Workspace Manifest-credential validation in progress. Claude's reviewed prompt owns its
+  reports bounded Context-credential validation in progress. Claude's reviewed prompt owns its
   non-echoing terminal input; Tobari emits no entered code and does not hide the
   next child status line by guessing that it is an echo. Tobari passes the
   original terminal input stream unchanged to Docker and Claude so their TTY
@@ -610,7 +615,7 @@ review runs through `tobari review permissions` in a separate host terminal.
   as presentation state and Tobari emits one owned cursor-show at completion;
   they never appear as escaped instructions. Setup, authorization, output, timeout, native
   credential capture, and login-container cleanup remain distinct secret-free
-  failures, and each preserves the previous Workspace Manifest credential. A capture
+  failures, and each preserves the previous Context credential. A capture
   failure includes exactly one fixed diagnostic stage covering export,
   archive, permissions, document, OAuth core, token, expiry, scope set,
   entitlement, or
@@ -634,9 +639,9 @@ review runs through `tobari review permissions` in a separate host terminal.
   configures no Git protocol or credential helper. Auth Broker contains no
   provider CLI executable. `auth import` accepts a non-empty credential of at most
   32 KiB from non-terminal stdin only; terminal stdin is rejected before any
-  byte is read. Non-terminal bytes are read only after public Workspace Manifest/provider
+  byte is read. Non-terminal bytes are read only after public Workspace Template/provider
   argument, intent, and mutation validation; infrastructure then validates the
-  selected existing Workspace Manifest, installed provider/acquisition mode, and broker
+  selected existing Workspace Template, installed provider/acquisition mode, and broker
   readiness before broker send. The credential is never a positional/flag
   value or Tobari environment input. Every successful auth mutation requires
   existing Workspaces to be re-entered before their environment or
@@ -657,31 +662,14 @@ review runs through `tobari review permissions` in a separate host terminal.
   permission bits; files may retain owner execute. `runtime build` streams the
   complete semantic tree into a private immutable snapshot while hashing the
   copied bytes and builds only from that snapshot.
-- `runtime build --id` is a direct reference-bound action. The separate
-  `review runtimes` discover command requires interactive stdin and stderr
-  before it can offer an action; redirected or JSON invocation returns the
-  exhaustive catalog and remains read-only. Interactive Build Review selects
-  only a managed Runtime and shows its source, current successful head or draft
-  state, and the fact that no Workspace Manifest changes before handing its
-  unchanged stable reference to `runtime build --id`. `manifest runtime set`
-  retains direct and omitted-input Review modes. Workspace Manifest Runtime
-  Review shows the exact persisted Workspace Manifest,
-  current binding, selectable `standard@1` or successful `NAME@ORDINAL`
-  revisions, and next-entry timing. Its unchanged editing state offers Runtime
-  selection, unlocked Workspace Manifest selection, or cancellation without presenting an
-  Apply action. Selecting a different Runtime enters a dedicated Review state
-  that renders the exact old-to-new binding and offers Apply, Back to the
-  Runtime list, or cancellation. When Workspace Manifest is omitted, editing starts from
-  the default Workspace Manifest and may select another persisted Workspace Manifest; an explicit
-  Workspace Manifest remains fixed. Final Build or Apply reaches the same application
-  mutation boundary once. Back, cancellation, unchanged selection, and read,
-  validation, or terminal failure perform zero mutation. Review prompts use
-  stderr and the confirmed complete report uses stdout.
-  Successful human text closes the prepare-first handoff without composing the
-  mutations: create reports the exact named build command, build reports the
-  exact ready `NAME@ORDINAL` selection command, and Workspace Manifest selection reports
-  the exact next Workspace entry command. For the default Workspace Manifest that entry is
-  the ordinary CWD-first `tobari`; a non-default Workspace Manifest remains explicit.
+- `runtime build --id <runtime-ref>` is a direct reference-bound action. The
+  separate `review runtimes` discover command returns the exhaustive catalog;
+  redirected and JSON invocation remain read-only. Interactive review hands
+  the unchanged Runtime or Runtime-revision reference to the exact build,
+  restore, or interrupted-lifecycle action only after confirmation.
+  `template runtime set --id <template-ref> --runtime
+  <runtime-revision-ref>` is the separate exact binding mutation. Runtime
+  preparation and Template selection never infer each other's target.
 - Successful managed Runtime list, show, history, build, and review results
   expose an opaque `runtime-revision` reference for each eligible immutable
   revision. Built-in `standard` never exposes that reference because it is not
@@ -689,7 +677,7 @@ review runs through `tobari review permissions` in a separate host terminal.
   reference unchanged, revalidates the complete lifecycle observation and
   retained source, and rebuilds with mutable base refresh disabled. Publication
   requires the rebuilt content digest to equal the recorded revision authority.
-  Restore never appends or rewrites history, changes a Workspace Manifest, or
+  Restore never appends or rewrites history, changes a Workspace Template, or
   changes a Workspace. An interrupted restore remains fail-closed and resumes
   through the same one-confirmation `review runtimes` recovery path.
 - Runtime schema 1 publishes revision identity as `source_digest`, never the
@@ -699,86 +687,46 @@ review runs through `tobari review permissions` in a separate host terminal.
   history exists and does not imply that head execution material is locally
   available. Docker image selectors, image digests, and private snapshot paths
   are absent from list, show, history, build, and redirected/JSON review output.
-- Direct `config shell` changes one allowlisted shell-presentation policy in
-  the explicit or default Workspace Manifest. Its terminal editor may stage several
-  distinct rows and commits the complete change set with one atomic write.
+- Direct `config shell --id <template-ref>` changes one allowlisted
+  shell-presentation policy in the exact referenced Workspace Template.
   `default` removes its override;
   `inherit` reads that exported variable from the host process launching each
   future `tobari` session; `literal` requires `--value` and preserves an
   explicit empty value. `--value` is invalid for the other sources. The fixed
   inventory is `PS1`, `TERM`, `COLORTERM`, and `NO_COLOR`; it excludes
   `PATH`, `HOME`, `BASH_ENV`, `ENV`, `PROMPT_COMMAND`, credential variables,
-  and arbitrary names. A new V1 Workspace Manifest selects `PS1=inherit`. When the
+  and arbitrary names. A new V1 Workspace Template selects `PS1=inherit`. When the
   launcher has no exported `PS1`, the built-in `\h:\w\$ `
   prompt remains.
   Running sessions are unchanged, and no host startup file is sourced or
   mounted. Literal values are ordinary owner-only configuration and must not
   contain secrets.
-- `config git` changes one atomic `user.name`/`user.email` fallback in the
-  explicit or default Workspace Manifest. `default` removes Tobari's fallback; `inherit`
+- `config git --id <template-ref>` changes one atomic
+  `user.name`/`user.email` fallback in the exact referenced Workspace Template.
+  `default` removes Tobari's fallback; `inherit`
   resolves only a complete pair from host-global Git configuration for each
   stable Workspace root during reconciliation; `literal` requires both
-  non-empty `--name` and `--email`. New Workspace Manifests use `default`,
+  non-empty `--name` and `--email`. New Workspace Templates use `default`,
   and an absent or incomplete inherited pair adds no fallback. The projected
   system-scope value is lower precedence than Workspace global and
   repository/worktree configuration. No Git file/path/include directive,
   credential helper, token, HTTP header, SSH command, signing setting, hook,
   alias, URL rewrite, filter, proxy, or arbitrary key is projected.
-- For both `config` commands, omitting the entire setting group in text mode
-  uses terminal stdin and stderr to show the selected Workspace Manifest, complete current
-  state, pending changes, and Apply/Cancel controls on one screen. Shell stages
-  multiple rows; Git stages one atomic identity source. Text mode requires both the
-  success and error formats to be text. Supplying any setting input selects
-  direct mode and requires a complete valid group; partial input never prompts.
-  Redirected or JSON invocations require direct mode. An explicit empty
-  Workspace Manifest is invalid rather than equivalent to omission. After reading current
-  state, the wizard binds Apply to that returned Workspace Manifest name, so another
-  process changing the default selector during review cannot retarget
-  the write. Cancellation and every wizard validation or terminal failure
-  perform zero mutation.
-  Prompts use stderr and the confirmed complete Workspace Manifest report uses stdout.
-- `manifest create` has one staged human flow and one complete direct mode. On
-  interactive text success/error streams, supplied values prefill their
-  corresponding stages and those stages are skipped on the initial pass;
-  omitted stages remain reviewed. When persisted Workspace Manifests exist and `--copy-from`
-  is omitted, a dedicated Copy source step precedes Name, initially selects the
-  default Workspace Manifest, and also offers Tobari recommended settings. Copy initializes the
-  Boundary, exact Runtime binding, shell/Git defaults, and future-Workspace
-  bootstrap into one standalone draft; it copies no Workspace, authentication,
-  remembered permission, Attachment, applied/failure/observed state, default
-  selection, or lineage. Changing the source after editing requires an explicit whole-draft reset. With no persisted
-  Workspace Manifest, the chooser is skipped. The ordinary six-stage path is name, filesystem, network, Runtime, Workspace
-  bootstrap, and Review & Create. `--name sre3` therefore starts at Filesystem
-  with `sre3` already bound rather than creating immediately.
-  Network first renders reviewed routine Claude Code/Codex traffic, every
-  standard and extension-method effective decision, and the private/unsafe
-  destination ceiling. Customization alone exposes default, inherited, and
-  override sources plus inherit/reset controls. Runtime always presents
-  `standard@1` and every ready managed revision after Network, even when
-  standard is the only choice. Workspace bootstrap always follows Runtime and
-  defaults to not configured. Entering that step performs no host read; only
-  an explicit Configure from host choice discovers compatible AWS IAM Identity
-  Center and optional Amazon EKS settings. Review mirrors the chosen
-  filesystem, network, Runtime, and future-Workspace bootstrap boundary; it can
-  scroll and edit one section without replaying later steps. On a raw-capable terminal,
-  all stages share one alternate-screen session; Back preserves staged values.
-  A terminal without the reviewed raw-mode support uses the bounded line-mode
-  equivalent. Explicit Create performs one
-  mutation and cancellation from any step performs none. Redirected or JSON
-  creation never prompts and, without `--copy-from`, requires explicit `--name`, `--runtime`, `--mode`,
-  `--source-access`, and `--native-readiness`; Workspace bootstrap is an
-  optional explicit addition whose omission means not configured. An exact
-  `--copy-from NAME --name NAME` is complete because omitted work-mode values come
-  from the reviewed exact immutable source revision; supplied values replace the corresponding
-  draft values. Partial
-  machine input fails before mutation instead of applying hidden defaults.
-  Method Deny removes Workspace Manifest-policy positive baseline entries for that method
-  from the new immutable snapshot rather than leaving an invalid or misleading
-  unreachable grant. Final review also identifies the exact ready Runtime
-  selected in the manifest. Redirected or JSON incomplete creation fails
-  before mutation. Standalone success points to the root entry while preserving
-  the created Workspace Manifest explicitly when it is not current; root entry owns the
-  remaining human setup sequence.
+- Both `config` commands require an exact opaque Template reference and one
+  complete valid setting group. Partial input fails before mutation. The action
+  revalidates the referenced Template under the lifecycle lock, so mutable name
+  or default-selection changes cannot retarget the write.
+- `template create --name NAME` creates one fresh Template from the reviewed
+  built-in standard body. `template copy --from <template-revision-ref> --name
+  NAME` is the distinct one-time copy initializer. Copy revalidates the exact
+  retained revision and copies no Context, Policy Memory, Workspace, home,
+  authentication, attachment, applied/failure/observed state, default
+  selection, or lineage. Neither action reconciles Docker or the cluster.
+- Bare root owns the only recommended first-use review. Its draft has no
+  authority. Start crosses Template publication, default selection, Context
+  creation, cluster activation, Workspace reconciliation, and child handoff as
+  distinct canonical checkpoints. A later failure retains every earlier
+  confirmed result and emits one causal Next action.
 - `runtime build` is the explicit exception to the no-implicit-pull rule. It
   runs a host Docker build using only the immutable snapshot of the selected
   installation Runtime source tree as build context; Docker may obtain a
@@ -791,8 +739,8 @@ review runs through `tobari review permissions` in a separate host terminal.
   Docker command to obtain the upstream failure.
   Tobari validates the resulting image against the same runtime contract,
   records its immutable local image digest, and appends that successful
-  immutable revision without selecting it in any Workspace Manifest. Existing Workspace Manifest
-  bindings remain in force until a separate `manifest runtime set` succeeds.
+  immutable revision without selecting it in any Workspace Template. Existing Workspace Template
+  bindings remain in force until a separate `template runtime set` succeeds.
 - The built-in `tobari/runtime` image is the base work runtime: it preserves the
   lifecycle contract and its common-tool baseline includes Git, HTTP, JSON,
   Python, SSH, GitHub CLI, AWS CLI, Claude Code 2.1.220, and Codex 0.147.0.
@@ -803,7 +751,7 @@ review runs through `tobari review permissions` in a separate host terminal.
   exact site inventory, stable CLI manifest, token revoke, and GraphQL `query`
   / `me` current-user lookup; `pup_ready` supplies only
   pup 1.10.7 default-US1 DCR, token, browser, and callback readiness. Neither
-  bundle installs its client. A selected custom Workspace Manifest runtime must provide
+  bundle installs its client. A selected custom Workspace Template runtime must provide
   the exact compatible client before its login can run. The released CLI
   carries the pinned combined-base recipe and builds it locally when absent.
   The base workflow validates Linux amd64 and arm64 with cache-only output;
@@ -813,7 +761,7 @@ review runs through `tobari review permissions` in a separate host terminal.
   `gh_ready`, custom-runtime `twg_ready`, and custom-runtime `pup_ready`
   bundles are projected by the
   installed binary into exact native-authentication effects for every existing
-  and future agent-ready Workspace Manifest;
+  and future agent-ready Workspace Template;
   GitHub CLI additionally receives only GraphQL `query` root `viewer`, and TWG
   CLI receives only exact site inventory, stable CLI manifest, token revoke,
   and GraphQL `query` root `me`, at their declared exact API endpoints;
@@ -824,25 +772,22 @@ review runs through `tobari review permissions` in a separate host terminal.
   effects, host interactions, and core control-plane effects. The Claude and
   Codex artifact locks belong to the combined base and create no second image
   or authority boundary.
-- Project metadata does not select or alter the runtime image. Workspaces use
-  their permanently bound Workspace Manifest image when created and again when their runtime container
-  is reconciled by root entry; all selected images still pass the same
-  compatibility checks before Docker mutation. If an existing Workspace's
-  bound Workspace Manifest image changes, the next matching-Workspace Manifest `tobari` entry preserves the
-  Workspace home and root record, recreates only the work container when the
+- Workspace observation does not select or alter the Runtime. A Context
+  resolves its bound Workspace Template's exact revision; its Workspace uses
+  that revision when created and again during entry reconciliation. All
+  selected images still pass the same compatibility checks before Docker
+  mutation. If the bound Template's Runtime changes, the next Context entry
+  preserves the Workspace home and authority record, recreates only the work container when the
   runtime spec changed, and records the new image only after reconciliation
   succeeds.
 - Shared cluster mutations use one command-bound `tool_local` target and are
-  never performed by the root `tobari` operation.
-- CWD-local lifecycle operations use one command-bound `tool_local` current
-  directory target plus the explicit or default Workspace Manifest selector; they do not
-  accept an ID or root selector. Workspace Manifest selection is resolved to a stable ID
-  before CWD/Workspace or Docker observation and never guesses a different
-  same-root Workspace. A force-delete preview binds the subsequent mutation to
-  the stable Workspace Manifest ID it displayed and fails closed if that authority changes.
-- `delete` removes that nearest Workspace Manifest-bound target without `--force` when no session is
-  attached. An attached session returns `project_session_attached` and leaves
-  state untouched; `--force` is the explicit override.
+  owned by canonical `cluster up`; bare root may invoke that same application
+  boundary as one separately reported checkpoint before Workspace entry.
+- Bare root and bare `status` accept no Template, Context, Workspace, or root
+  selector. They combine the installation default Template with canonical CWD
+  and never guess from same-root siblings. Nondefault entry and every deletion
+  consume opaque references from `context list/show` or
+  `workspace list/status`.
 
 ## Output and exit contract
 
@@ -885,42 +830,29 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Service browser-open request | `open` | 1 |
 <!-- public-cli-json-schemas:end -->
 
-Workspace status JSON always reports the selected Workspace Manifest ID/name, logical
-existence, runtime diagnostic, attachment observation, and exact Workspace Manifest-bound
-next argv. Routine human status leads with the Workspace result, root, Workspace Manifest,
-exact Runtime selection plus health, session state, any required action, and
-the exact next command; healthy IDs, home paths, revisions, and bootstrap state
-remain in JSON rather than the default human view. Workspace Manifest reports include a
-complete four-item shell-environment
-inventory, complete Git identity policy, and authentication mode
-`native_workspace`. Native agent credentials are created and persisted by the
-agent CLI inside the Workspace home and never appear in CLI output.
-Human `manifest list` text renders one result-first card per Manifest definition: name and
-default marker, effective source/routine/other/private Access, exact Runtime
-selection, and an action marker only when required. The synthetic default says
-that recommended defaults are not saved. Human `manifest show` text defaults to
-an outcome-first lifecycle summary: fixed Boundary and effective request
-posture; the exact Runtime binding adopted on next entry; Workspace defaults
-split between later entries/sessions and new Workspace homes only; separate
-Workspace-tool login ownership; an exact detailed-inspection command; and the
-Workspace Manifest-preserving next action. `--details` renders the same single typed result
-with complete values under those lifecycle headings plus Workspace Manifest identity and
-stores/revisions. Human new-Workspace setup names AWS and Kubernetes EKS rather
-than presenting bootstrap as current Workspace state. It performs no second read. Schema-2 JSON
-is already complete, is byte-identical with or without `--details`, and remains
-the automation contract.
-Successful text `manifest create` uses that same Workspace Manifest-summary row structure
-for the confirmed typed result. Its heading states creation, its explicit
-cluster row preserves whether reconciliation is required, its details command
-opens the newly created Workspace Manifest by name when needed, and its root continuation
-selects that same Workspace Manifest when it is not the default. It does not infer
-authentication state that the create task did not observe. Schema-2 JSON
-remains unchanged.
+Bare `status` is the CWD-first schema-3 home. It reports the selected
+default Template, exact Context, independent desired/active Policy Memory and
+Workspace AppliedEntry facts, Runtime and cluster observation, bounded
+permission and Service summaries, one structured primary Next, and ordered
+Attention. It performs zero mutation and returns no aggregate overall state.
+
+`template list` returns the exhaustive Template collection and opaque Template
+references. `template show` returns one exact current immutable revision and
+its revision reference. Context and Workspace discovery return their own
+distinct references. Human output leads with ordinary names and Current/Next;
+JSON retains exact IDs, digests, nulls, empty collections, false, and bounded
+unknowns. Presentation never reconstructs an action target from a name,
+generation, image, container, label, order, or timestamp.
+
+Template, Context, Workspace, Runtime, Policy, and Service results use the
+schemas declared in the command table above. Native authentication validity is
+not inferred: release output says `not_observed` and never exposes research
+Broker or provider state.
 Unconfigured cluster resources are `null`; unavailable
 observations use declared finite values and never an empty-string sentinel.
 The infrastructure/doctor label `linux_xdg_file` is not a public
-auth or cluster JSON enum. Their items associate Workspace Manifest name,
-stable Workspace Manifest ID, Workspace ID, safe project root, HTTP effect, observation data
+auth or cluster JSON enum. Their items associate Context, bound Workspace
+Template, Workspace ID, safe project root, HTTP effect, observation data
 where applicable, and one opaque mutation reference. Agent help uses the V1
 catalog schema, including recursive field declarations, typed completion
 sources, and executable success/error invocation forms in scoped help.
@@ -961,23 +893,14 @@ empty for an embedded resolver and contain exactly `task build` and
 The Workspace selector is a human stderr interaction; it produces no JSON or
 stdout selection protocol. A successful choice prints an English summary before
 the child session, and cancellation or stale selection prints no success
-summary. The interactive child owns stdout. When it returns, the host command
-writes this lifecycle guidance to stderr:
-
-```text
-Workspace session closed.
-Workspace remains available.
-
-Resume: tobari
-Remove: tobari delete
-If another session is attached: tobari delete --force
-  ```
-
-`exit` therefore detaches the session without deleting the Workspace. The
-Workspace remains existing until the host runs `tobari delete`, which is the
-normal lifecycle-ending operation when no session is attached. If another
-session is attached, ordinary delete fails with a warning and `--force` is the
-explicit override. There is no public `stop` or `pause` state. The choice is
+summary. The interactive child owns all streams. After it exits, Tobari may
+emit one clearly host-owned bounded cleanup diagnostic; cleanup failure never
+replaces the child's exact exit status. `exit` therefore detaches the session
+without deleting the Workspace. The Workspace remains existing until the host
+discovers its exact reference with `workspace list` and runs `workspace delete
+--id WORKSPACE_REF --confirm=delete`. If another session is attached, ordinary
+deletion fails and `--force` overrides only that guard. There is no public
+`stop` or `pause` state. The choice is
 revalidated under the lifecycle lock before logical or Docker mutation, so a
 changed candidate set fails closed and asks the user to run `tobari` again.
 When a learnable network request is denied, the Gateway's 403 response carries
@@ -986,12 +909,12 @@ session close may summarize the pending queue on host stderr. These are
 advisory only; the interactive `review permissions` queue is the human entry point.
 It stages unchanged opaque review-item references only from typed detail screens and uses
 one final `policy apply-reviewed` fixed-target action to revalidate and activate
-one Workspace Manifest's set. Apply or discard is required before switching Workspace Manifest so the
+one Workspace Template's set. Apply or discard is required before switching Workspace Template so the
 source change remains one atomic domain-generation replacement. `policy rules` is the
 current learned-decision inventory; its TTY reset flow delegates one explicit
 opaque reference to `policy reset`. Redirected and machine-readable review and
 inventory remain read-only. The Permission Inbox groups candidates by their
-validated stable Workspace Manifest and Workspace identities, renders the Workspace Manifest/project-root scope
+validated stable Workspace Template and Workspace identities, renders the Context-root scope
 once per group, and leads each selectable row with the exact HTTP effect or
 typed `{id}` template and its evidence count. A compact selected-effect preview exposes the latest retained
 observation and denial reason before detail inspection. Matching display names,
@@ -1025,10 +948,10 @@ workspace and surface identities, and otherwise falls back to BEL. The
 initial snapshot, refresh failures, stale-only changes, and previously seen ID
 reappearance do not notify; one successful refresh coalesces every new ID into
 at most one cue. Tobari configures no OS, tmux, SSH, or terminal passthrough,
-and no Workspace Manifest, host, path, reason, or other denial evidence enters the control
+and no Workspace Template, host, path, reason, or other denial evidence enters the control
 payload. A failed cue leaves watch active. Confirmed
 output carries the active OPA
-revision plus each ordered Workspace Manifest/project/effect/stored-rule decision and
+revision plus each ordered Context/effect/stored-rule decision and
 directs the caller to retry in the current running Workspace. The public
 read-only JSON review schema remains version 1 and does not expose this
 internal TTY Apply receipt.
@@ -1153,10 +1076,9 @@ bare root/status resolution. Template and Context mutations do not start Docker
 or reconcile cluster, active policy, Workspace AppliedEntry, or observation;
 those boundaries remain explicit.
 
-Project runtime diagnostics may report `incomplete` when a durable root index
-survives without its instance state. This preserves logical existence for safe
-cleanup, prevents runtime recreation, and directs the user to delete the exact
-current-directory Workspace before creating it again.
+Partial, mixed, unsafe, or contradictory final authority fails closed before
+Docker mutation. Tobari does not invent a Context or Workspace, and it does not
+suggest a deletion unless discovery produced the exact typed reference.
 
 The lifecycle state model has two dimensions:
 
@@ -1170,7 +1092,8 @@ Detached session + Workspace exists
 Attached session + Workspace exists
   -> exit
 Detached session + Workspace exists
-  -> tobari delete (from the host)
+  -> workspace list
+  -> workspace delete --id WORKSPACE_REF --confirm=delete
 Workspace absent
 ```
 
@@ -1196,13 +1119,13 @@ and its files remain outside deletion.
 | 13 | Declared contract violation |
 | other from root entry | Exact Bash or direct-command child process exit status when Docker started the interactive work process |
 
-Commands use complete delivery. `list` is exhaustive for local logical state at
-one observation point. `status` is a CWD-local scalar observation; cluster
+Commands use complete delivery. `workspace list` is exhaustive for local
+Workspace state at one observation point. `status` is a CWD-local scalar observation; cluster
 status is exhaustive for the shared cluster scope. Logs are
 a bounded recent window of 1 through 10,000 lines per selected component.
 Denials are a fully delivered typed projection from the requested bounded
 Gateway-line window. A denial-shaped record that cannot satisfy the strict
-Workspace Manifest/project-bound typed contract is isolated rather than failing the whole
+Context-bound typed contract is isolated rather than failing the whole
 window, and `unparsed_lines` reports how many such records were skipped without
 reflecting their untrusted contents. An empty `items` collection means no valid
 denial occurred in that window, not exhaustive history; a nonzero unparsed
@@ -1212,7 +1135,7 @@ Policy candidates, review, and tail are bounded by the same retained
 Gateway-line window and omit effects already covered by learned allow rules,
 baseline deny rules, or exact learned deny rules. Baseline and exact denies
 remain available as audit evidence but never become pending queue items.
-Within that window, candidates aggregate by exact Workspace Manifest identity, project
+Within that window, candidates aggregate by exact Workspace Template identity, project
 principal, host, port, method, normalized path, and optional GraphQL operation
 type/root field or AWS wire protocol/service/operation. Reason, status, request ID, timestamp, and broker-handle
 evidence do not create a second permission identity. The
@@ -1223,8 +1146,8 @@ Deny remains the resolved history and is never updated by discovery. After an
 explicit reset, retained matching evidence may produce the same stable pending
 candidate ID again.
 For interactive review only, typed domain logic also considers current exact
-Allows as evidence. Two distinct compatible HTTP paths with the same Workspace Manifest,
-project, scheme, host, port, method, and segment count may produce one inert
+Allows as evidence. Two distinct compatible HTTP paths with the same Context,
+Workspace, scheme, host, port, method, and segment count may produce one inert
 single-segment `{id}` proposal when exactly one safe raw segment differs and at
 least one source is still pending. Repeated identical observations do not meet
 that threshold. Ambiguous, shallow, percent-encoded, empty/dot-segment,
@@ -1235,210 +1158,68 @@ evidence before any mutation.
 ## Configuration contract
 
 Configuration is resolved from
-`${XDG_CONFIG_HOME:-$HOME/.config}/tobari` on both macOS and Linux:
+`${XDG_CONFIG_HOME:-$HOME/.config}/tobari` on macOS and Linux. Ordinary reads
+are non-creating. Final Template/Context/Workspace authority is one owner-only
+atomic envelope; it is not a directory of user-authored YAML and is never
+selected from Project metadata.
 
-A declared read observes these paths without creating them. On a fresh
-installation, omitted Workspace Manifest selection may return `synthetic_default` with
-JSON `null` for Workspace Manifest ID and stores; it does not create
-`contexts/default.json` or a manifest. Persisted state must use the exact
-Domain Model V1 contract. Missing,
-malformed, or unsupported-version state fails closed instead of becoming
-synthetic state.
+One complete validated collection contains:
 
-- `contexts/<name>/context.json`: host-owned schema-2 Workspace Manifest with a
-  stable UUIDv7 Workspace Manifest ID, the named agent profile, exact Runtime ID and
-  revision plus its compatible execution-image material, guided/advanced policy mode, required immutable
-  `source_access`, required normalized `policy_revision`, explicit
-  `native_readiness`, allowlisted shell-environment
-  overrides, an optional non-default Git identity policy, and the complete
-  immutable desired revision identities;
-- `contexts/<name>/revisions/<generation>-<semantic-digest>.json`: retained
-  immutable desired receipts. The path distinguishes history only; authority
-  remains WorkspaceManifestID plus semantic digest. Exact same-ID/body replay
-  is idempotent, while another ID/body or a partial artifact fails closed;
-- `runtimes/<name>/source/`: owner-only editable managed Runtime build context;
-- `runtimes/<name>/revisions/<digest>/source/`: immutable successful source
-  snapshot built for that semantic revision;
-- `runtimes/<name>/runtime.json`: stable Runtime identity and ordered successful
-  revision inventory; drafts and failed builds are not history;
-- `contexts/<name>/policy/context.json`: owner-only normalized schema-v1
-  non-executable snapshot whose SHA-256 digest equals the manifest policy
-  revision; Workspace Manifest policy changes never rewrite an existing snapshot. Enabled native readiness
-  grants the reviewed Claude Code 2.1.220 and Codex 0.147.0 native model,
-  account, bootstrap, first-party capability-discovery, bounded evaluation,
-  and telemetry effects plus the pinned GitHub CLI 2.96.0 exact device-login
-  bootstrap and GraphQL `query` / `viewer` current-user effects, plus TWG CLI
-  1.2.5 exact device-code/token/revoke, site inventory, stable CLI manifest,
-  and GraphQL `query` / `me` current-user effects,
-  plus pup 1.10.7 exact US1 DCR registration and token exchange/refresh when
-  supplied by a custom runtime, to
-  every process in the Workspace Manifest, subject to the Workspace Manifest policy's terminal destination
-  ceiling and method decisions. Those native readiness effects are not stored
-  in new snapshots. Compile-time `claude_ready`, `codex_ready`, `gh_ready`, and
-  `twg_ready`, and `pup_ready` names are review provenance; aggregate generation strips their
-  complete historical snapshot forms and projects the installed binary's
-  current set. The five families, their pinned client version, current
-  readiness contract revision, and append-only historical contracts are
-  declared in one dedicated compile-time catalog. If the active
-  aggregate revision differs from the revision desired by that catalog and
-  the current Workspace Manifest sources, status reports an invalid policy projection and
-  root entry requires explicit `cluster up`. Strict schema V1 carries optional
-  GraphQL protocol/operation/root identity on a `baseline_grants` item and keeps
-  the existing explicit `mcp_baseline_grants` collection; every semantic grant
-  requires its matching declared exact endpoint. HTTP-only normalized snapshots
-  omit those optional GraphQL keys and retain their bytes. MCP initialization
-  and enumeration are baseline methods at one exact endpoint; `tools/call`
-  requires exact tool-name review. Dynamic evaluation uses one safe identifier
-  segment without persisting its value. It is Workspace Manifest authority, not executable
-  identity; exact Deny remains terminal, while payload arguments, downloads,
-  file transfer, acquisition, self-update, and unmatched effects receive no
-  baseline grant;
-  schema V1 requires `method_policy.default` and sorted unique exact
-  `method_policy.overrides`, each using `allow`, `exact_review`, or `deny`.
-  Workspace Manifest creation can choose Deny, Exact Review, or Allow as the complete
-  default and add exact method overrides. Exact Deny wins over method Allow.
-  GET is not described as safe or read-only. The fixed agent-ready baseline is
-  trusted-binary data, not a selectable profile. Workspace Manifest-owned snapshots are strict
-  owner-only non-executable data with no wildcard, IP/private destination,
-  secret, shell, Rego, include, inheritance, remote fetch, refresh, or signing;
-- `contexts/<name>/policy/domains/<canonical-host>/allow.json`: strict
-  schema-v1 authority, per-domain method, exact GraphQL endpoint, and
-  learned-Allow source for one canonical lower-case
-  host;
-- `contexts/<name>/policy/domains/<canonical-host>/deny.json`: strict
-  schema-v1 baseline-Deny and learned exact-Deny source for the same host;
-  every directory, embedded host, authority, endpoint, binding, and rule host
-  must match exactly. Guided Workspace Manifests own no Rego files, while Advanced
-  Workspace Manifests additionally own `tobari.rego` and `tobari_test.rego`. Workspace Manifest
-  policy has no `data.json`; the generated immutable OPA projection may use
-  that filename. Wildcards, IP literals, non-canonical hosts, unknown fields,
-  duplicate keys or rule IDs, incomplete pairs, symlinks, unsafe permissions,
-  and extra files fail closed;
-- `auth/providers/*.json`: research-only owner provider manifests, ignored
-  by release-surface builds;
-- `contexts/default.json`: owner-only exact default Workspace Manifest
-  selection; missing means `default` and the marker has no enforcement authority;
-- `principal-registry/principals.json`: owner-only host-issued schema-v1
-  Workspace Manifest/project-to-owned-Workspace-and-Gateway endpoint bindings, maintained by lifecycle reconciliation
-  and directory-mounted read-only into Gateway so atomic host updates remain
-  visible without exposing credential files;
-- `host-loopback/routes.json` and `host-loopback/grants.json`: owner-only
-  transient schema-v2 attachment authority. The records use only exact
-  `host.tobari.internal`, fresh hostname-bound opaque IDs, and the frozen
-  compatibility key spellings that carry Workspace Manifest/Workspace
-  identity. They are separate from public capability schema V1, Manifest
-  desired/applied state, learned policy, permission-ingestion state, and
-  service exposure;
+- Workspace Templates with stable `WorkspaceTemplateID`, immutable current and
+  retained revision bodies, and semantic digests;
+- one optional `DefaultTemplateSelection`;
+- Contexts with stable `ContextID`, canonical ProjectRoot, immutable Template
+  binding, current Policy Memory, and independently active receipts;
+- Workspaces with stable `WorkspaceID`, Context binding, create-once defaults,
+  last-successful AppliedEntry, and one bounded latest failure/unknown outcome.
 
-Tool authentication state is not cluster configuration. In standard it belongs
-below the selected instance's persistent home, is created by the tool's own
-login, and follows the ordinary post-policy passthrough route.
-The attached host process may transiently validate one exact Claude Code, Codex,
-GitHub CLI, AWS CLI, custom-runtime TWG, or custom-runtime pup authorization URL and open
-it. Codex, GitHub web-application, AWS SSO, and pup callback variants may relay one
-opaque host-loopback callback to that same selected Workspace; Claude's remote
-callback, GitHub's device target, and TWG's device target create no listener.
-AWS SSO is limited to the pinned CLI's exact commercial-region authorization-code
-shape, default `sso:account:access` scope, bounded DCR/state/PKCE fields, and
-dynamic non-privileged `127.0.0.1/oauth/callback` port. Its documented
-`--use-device-code` option remains the cross-device recovery.
-Pup is limited to the exact US1 authorization route, seven mandatory query
-fields, at most one UUID-shaped `dd_oid` organization hint, a bounded DCR
-client ID, the sorted pup 1.10.7 default-scope ceiling, and exact
-`127.0.0.1:{8000,8080,8888,9000}/oauth/callback`. Claude Code 2.1.220 must use its fixed client, redirect, PKCE shape,
-and complete reviewed scope set. For exact default `gh auth login`, the canonical
-runtime's pinned compatibility wrapper selects the reviewed GitHub.com HTTPS
-device workflow and inherits the attachment-scoped `GH_BROWSER` opener.
-The client displays its code and waits for native Enter; only then does it invoke
-that opener. After success the wrapper delegates fixed
-Git credential setup to the same pinned client. Other GitHub CLI argv remains
-native. TWG likewise invokes the shared opener after its native browser
-confirmation. The dedicated schema-v1 request is not URL authority; the host
-independently validates the target and Workspace. The bridge stores no callback, code, credential, or
-durable authentication state and creates no cluster service. The
-attached shell retains the real Docker terminal boundary without an observation path.
-Research Broker state is separate installation state:
-the normalized schema-v1 provider projection is generated below
-`auth/projection/providers.json`; schema-1-envelope/schema-1-payload Workspace Manifest
-vaults are below
-`auth/contexts/<context-id>/vault.enc`; the Linux root key is the owner-only
-`auth/keys/root.key`; runtime sockets are below `auth/runtime`; and schema-v1
-Workspace authentication file registries are below `auth/projects`. On macOS,
-the root key is instead stored in Keychain under service
-`io.tobari.auth-root.v1` and account `tobari`.
-The complete canonical schema/path/backend table is in
-[Authentication handling](07_authentication.md#research-canonical-schemas-paths-and-backend-identifiers).
+Template revision bodies contain the immutable source/network Boundary,
+baseline policy, exact Runtime revision binding, session defaults, and
+creation defaults. Context Policy Memory is separate. Native credentials stay
+inside one Workspace home. Research credentials are Context-owned and remain
+outside Template desired/applied state.
 
-Runtime state is stored under `${XDG_STATE_HOME:-$HOME/.local/state}/tobari`:
-`roots/<hash>.json` indexes `(canonical root, stable Workspace Manifest ID)` and
-`instances/<id>/state.json` schema 1 contains one logical instance, its
-permanent Workspace Manifest binding, and diagnostic runtime identifiers.
-`instances/<id>/home` is the independent writable home for tool-owned state;
-homes are never shared merely because Workspace Manifests or roots match.
-Shared read-only agent profiles referenced by Workspace Manifests are under
-`${XDG_DATA_HOME:-$HOME/.local/share}/tobari/profiles`.
-Persisted cluster state schema 1 contains the content-addressed aggregate policy revision,
-loaded Workspace Manifest count, aggregate projection paths, and Docker resource names or
-identifiers, never one active Workspace Manifest authority or credential contents. The
-loader accepts only exact V1 state. The owner-only projection contains the
-Workspace Manifest-aware Gateway routing document. The per-Workspace home may contain native
-tool credentials by design. Standard has no provider projection or declared
-credential binding.
-Project and cluster mutation journals are durable recovery markers. An
-interrupted cluster marker, aggregate revision mismatch, or failed projection
-activation makes entry and policy operations fail closed until the exact shared
-cluster operation completes.
-Environment variables select XDG locations and documented test/runtime
-overrides. Workspace Manifest narrow projections are the user-facing exception: at shell
-on Workspace entry Tobari reads only the selected subset of `PS1`, `TERM`, `COLORTERM`, and
-`NO_COLOR`; at Workspace reconciliation Git inheritance makes at most two
-bounded fixed-key host-global reads for `user.name` and `user.email`. Neither
-path enumerates its source, and neither copies host credential values or source
-configuration into the runtime.
+A genuinely fresh read returns absent authority with no synthetic persisted
+resource. Root may present one recommended draft, but only canonical Template
+create, default-selection, and Context-create mutations establish authority.
+Malformed, unsupported, unsafe, predecessor-only, partial, or changing state
+fails closed before mutation; the final binary does not decode or adopt the
+predecessor serialization.
 
-Image selection comes only from the exact Runtime revision binding stored by
-the selected Workspace Manifest. A new Workspace Manifest binds `standard@1`; project metadata never
-overrides that authority. `runtime build` derives a managed image selector from
-the Runtime name and semantic source digest, validates it, and appends a
-revision without changing a Workspace Manifest. Only `manifest runtime set` replaces a
-Workspace Manifest binding. The stored project image is updated after successful
-runtime-container reconciliation on the next root entry, preserving the
-Workspace home; failed image validation or Docker reconciliation preserves the
-previous logical state and container.
+Managed Runtime source and immutable snapshots remain installation-owned
+separate resources. Runtime build changes no Template. Template Runtime binding
+changes only through `template runtime set`; the next explicit Workspace entry
+reconciles the entry slice while preserving the Workspace home.
 
-When a managed source Dockerfile starts from the exact resolver-selected
-official base, the explicit build verifies or builds that pinned base. An
-explicit local or custom base is not given an implicit registry-pull request.
+OPA receives one complete validated projection per Context: the current
+Template-policy slice and the independent current Policy Memory. The shared
+projection is content-addressed and atomically activated by `cluster up`.
+Exact permission mutations serialize with the same projection owner and retain
+the prior known-good aggregate on failure. Status, list, show, doctor, and
+completion never publish or repair it.
 
-OPA reads one cluster-owned revisioned aggregate bundle with `--watch`. The
-projection has one fixed `tobari.http/decision` router, Workspace Manifest-ID data
-namespaces, one shared guided evaluator, and isolated Advanced package names.
-Guided Workspace Manifests own policy data but no executable Rego source; projection uses
-the current Tobari-owned shared evaluator and tests. Advanced Workspace Manifest source
-and Gateway runtime input both use exact schema 1 before testing and activation.
-Exact policy mutations lock aggregate generation, test the changed Workspace Manifest
-source privately, generate and test the complete all-Manifest candidate, publish
-it by building a revision-named archive and atomically renaming it inside one
-exact owner-labeled Docker-managed volume, and retain the prior known-good
-aggregate if activation fails. Success requires the stable running
-OPA to report the exact expected revision. Authority-reducing or mixed changes
-first activate a complete deny-all transition revision. Host-authored edits remain an
-advanced, explicit workflow.
+Host shell and Git projection is a closed, non-secret set. Shell accepts only
+`PS1`, `TERM`, `COLORTERM`, and `NO_COLOR`; Git accepts only an atomic
+`user.name`/`user.email` fallback. Typed AWS/EKS bootstrap stores only the
+reviewed secret-free creation recipe for future Workspace homes. No host
+credential, token cache, executable helper, startup file, arbitrary environment
+name, arbitrary Git key, or generic kubeconfig crosses these boundaries.
 
+Internal private Gateway/OPA/Broker/Host Loopback wire formats retain only
+their explicitly versioned compatibility tokens. Those tokens do not become
+public Template, Context, or Workspace schema aliases.
 ## Side effects
 
 Catalog-declared reads create no Tobari-owned XDG files or Docker resources,
 including on first use and under concurrent observation. They may remove only
 a pre-existing, validated mutation journal while completing its bounded
 recovery under an already existing or recovery-required lock; they never
-create state merely to observe it. Workspace Manifest, policy, credential, auth, project,
+create state merely to observe it. Workspace Template, policy, credential, auth, project,
 and lock initialization belongs to declared create/write outcomes.
 
 `runtime create` creates an owner-only installation Runtime source tree without
-changing a Workspace Manifest. On interactive text streams, omitted `--copy-from` lists source
-Bases only when at least one managed Runtime exists, with `standard` selected
-first; explicit Base, redirected, and JSON calls never prompt, and omission on
-those streams retains the standard starter behavior. Managed Base validation,
+changing a Template, Context, or Workspace. Optional `--copy-source-from`
+selects `standard` or one managed current editable source. Source validation,
 drift, cancellation, or target collision publishes no partial Runtime.
 `runtime build` snapshots that complete bounded tree,
 executes the explicit host Docker build, validates the generated image, and
@@ -1453,47 +1234,45 @@ host path. The snapshot streams through a fixed buffer; the total ceiling is
 not retained as one whole-source heap allocation.
 Docker build failure exits nonzero, ends text presentation with a short summary
 of the failed stage, source path, recovery command, and retained Runtime
-history, and leaves every Workspace Manifest binding unchanged. BuildKit may retain
+history, and leaves every Workspace Template binding unchanged. BuildKit may retain
 engine-owned cache layers, and a post-build validation failure may retain the
 unselected candidate image; Tobari states this instead of deleting either one.
-No build promotes into a Workspace Manifest. `manifest runtime set` is the only selection
+No build promotes into a Workspace Template. `template runtime set` is the only selection
 mutation and revalidates one ready `standard` or `name@ordinal` revision before
-atomically replacing the Workspace Manifest binding. Existing Workspaces are not mutated
+atomically replacing the Workspace Template binding. Existing Workspaces are not mutated
 by either operation; their next root entry reconciles the work container to the
 newly selected image while preserving the Workspace home.
 The official immutable base is pulled only for an explicit build whose recipe
 starts from the exact resolver-selected release digest; custom and local bases
 retain their local/cache-first behavior.
 
-`manifest default set` validates the target Workspace Manifest and atomically
+`template default set` validates the target Workspace Template and atomically
 changes only the default selector. It never starts Docker, changes the aggregate, or
-modifies an existing Workspace's Workspace Manifest, runtime, home, policy, or principal.
-Creating a Workspace Manifest also never starts Docker; when shared state exists, the
-result directs the user to explicit `cluster up` so the all-Manifest projection
+modifies an existing Workspace's Workspace Template, runtime, home, policy, or principal.
+Creating a Workspace Template also never starts Docker; when shared state exists, the
+result directs the user to explicit `cluster up` so the all-Context projection
 can be validated and activated.
 
-`manifest delete` validates one exact name under the installation lifecycle
-lock. It rejects `default`, the default selector, and any stable Workspace Manifest identity
-still referenced by a logical Workspace. A confirmed delete removes the exact
-owner-only Workspace Manifest directory and Workspace Manifest-ID authentication state, preserves
-project roots and shared runtime images, and reports `requires_reconcile` when
-shared state exists. V1 has no force mode and never chooses a replacement
-default Workspace Manifest implicitly.
+`template delete --id <template-ref> --confirm=delete` validates one exact
+opaque reference under the installation lifecycle lock. It rejects the default
+selection and every Template referenced by a Context. A confirmed delete
+removes only that Template's identity and revision state, preserves Projects,
+Contexts, Workspaces, Policy Memory, Runtimes, and shared resources, and never
+chooses a replacement default implicitly.
 
-`config shell` and `config git` atomically update only the selected Workspace Manifest
-manifest after typed input, intent, target, and impact validation. The terminal
-editor performs no write before Apply, and one Shell Apply writes its entire
-validated distinct-variable batch or nothing. Git inheritance performs no Git read during the
+`config shell` and `config git` atomically publish one complete revision of the
+exact referenced Template after typed input, intent, target, and impact
+validation. Git inheritance performs no Git read during the
 configuration mutation; the next matching root reconciliation runs at most two
 fixed, one-attempt, finite-time host Git queries, validates a complete pair,
 and atomically refreshes one private per-Workspace fallback before Docker
 mutation. Failure preserves the prior file and returns no raw Git diagnostic or
 identity. The file's exact directory is mounted read-only as system scope and
-includes the image system config before the Workspace Manifest fallback, preserving
+includes the image system config before the Workspace Template fallback, preserving
 normal Workspace-global and repository/worktree precedence.
 
 `config bootstrap aws` atomically updates a separate secret-free recipe in the
-selected Workspace Manifest. It reads only host `~/.aws/config`, accepts one strict IAM
+selected Workspace Template. It reads only host `~/.aws/config`, accepts one strict IAM
 Identity Center profile/session subset, and reports only adapter, profile,
 generation, revision, and changed-field metadata. Configure and refresh affect
 future Workspace creation only; remove stops future projection. No variant
@@ -1502,7 +1281,7 @@ login, changes network policy, or rewrites an existing Workspace home. A new
 Workspace receives one canonical private `.aws/config` and records its applied
 semantic revision before logical publication.
 
-The argument-free Workspace Manifest wizard reuses this resolver through a read-only
+The argument-free Workspace Template wizard reuses this resolver through a read-only
 candidate boundary. It reads fixed `~/.aws/config` only after explicit
 Workspace-bootstrap editing, parses the file once, and resolves every profile
 with its referenced `sso-session`. Available candidates expose only the
@@ -1516,7 +1295,7 @@ to review with zero mutation; unrelated profile changes do not block.
 that AWS recipe. It reads only fixed host `~/.kube/config`, selects one explicit
 context and its exact cluster/user references, and accepts only an inline CA,
 commercial EKS HTTPS origin, and the reviewed `aws eks get-token` contract with
-`AWS_PROFILE` equal to the Workspace Manifest AWS profile. It rejects credentials, proxy or
+`AWS_PROFILE` equal to the Workspace Template AWS profile. It rejects credentials, proxy or
 insecure TLS options, file references, arbitrary exec fields, role arguments,
 unknown fields, alternate paths, and unsafe files. Projection emits canonical
 private `.kube/config` JSON in the fresh Workspace home. Removing EKS preserves
@@ -1524,14 +1303,14 @@ AWS; AWS cannot be removed or changed to another profile until its dependent EKS
 configure, refresh, or create operation calls AWS or Kubernetes or grants a
 network effect.
 
-After an AWS candidate is selected, the Workspace Manifest wizard discovers only
+After an AWS candidate is selected, the Workspace Template wizard discovers only
 kubeconfig contexts compatible with that exact AWS profile and semantic
 revision. `Do not configure Amazon EKS` is the first explicit choice;
 incompatible contexts remain visible but unselectable. Discovery performs no
 network or subprocess call and reads no credential or cache state.
 
 `cluster up` obtains and preflights the immutable Gateway image and official
-runtime bases required by all Workspace Manifests, generates and validates the complete
+runtime bases required by all Workspace Templates, generates and validates the complete
 aggregate policy/routing projection, then creates shared labeled networks,
 configuration material, exactly one Gateway, exactly one OPA, and CA volumes
 as needed. It reconnects Gateway to the shared
@@ -1541,16 +1320,16 @@ root command only verifies the shared cluster is
 configured and ready, reads the indexed Workspace candidates, and waits for an
 explicit choice when the canonical current directory is below an ancestor.
 After the choice is revalidated under the lifecycle lock, it creates or reuses
-the selected Workspace Manifest-bound logical record, resolves the bound Workspace Manifest's narrow
+the selected Workspace Template-bound logical record, resolves the bound Workspace Template's narrow
 Git identity fallback for that stable root, resolves and validates its bound
-Workspace Manifest image before project runtime mutation, reconciles its labeled container and internal
+Workspace Template image before project runtime mutation, reconciles its labeled container and internal
 network, binds its XDG home, joins Gateway to that network, waits for the
 project healthcheck and enters the resulting terminal session. Docker create
 appends Tobari's fixed `sleep infinity` lifetime command after the image; the
 image `CMD` is not used to own Workspace lifetime. Bash and direct commands
 run through child exec sessions. A direct command is passed as exact argv after
 Docker's `--`, without a shell, and never becomes PID 1. Each child exec late-binds only the
-bound Workspace Manifest's declared shell-environment inheritance and applies its fixed
+bound Workspace Template's declared shell-environment inheritance and applies its fixed
 fallbacks without changing container identity; ANSI color sequences in `PS1`
 remain interpreted by the attached terminal. A child command's nonzero exit is
 returned without stopping the reusable Workspace. A changed image identity,
@@ -1566,16 +1345,16 @@ Docker mutation was needed. Drift still closes authority before repair and
 remains fail closed if interrupted; cancellation never retries entry or the
 child request.
 Returning from that child session, including a normal shell `exit`, performs no
-Workspace deletion: it only returns the child exit status and emits the host
-stderr guidance described above. A failed attachment cleanup is additional
-bounded stderr evidence and never replaces that child status. `delete` is the separate lifecycle-ending
-operation. It removes only that exact label-owned container, network, root
-index, instance state, and home after confirming that no session is attached;
-`--force` overrides that one guard.
+Workspace deletion: it returns the exact child exit status. A failed attachment
+cleanup is one additional bounded host-owned stderr diagnostic and never
+replaces that child status. `workspace delete --id WORKSPACE_REF
+--confirm=delete` is the separate lifecycle-ending operation and removes only
+that exact label-owned container, network, Workspace record, and home after
+confirming that no session is attached; `--force` overrides that one guard.
 `cluster down` rejects while any
 Workspace remains
 and removes only exact shared resources; its `--purge` also removes shared CA
-and active policy-bundle volumes. Both forms preserve every encrypted Workspace Manifest vault and the installation
+and active policy-bundle volumes. Both forms preserve every encrypted Context vault and the installation
 root key; cluster cleanup is not credential logout or revocation. No command
 removes a mounted root or files inside it. Each project
 work container is created with fixed CPU, memory, PID-count, and container-log
@@ -1593,7 +1372,7 @@ cannot expose a mixed valid generation. They never write Rego source, broker
 vaults, or tool-owned home files.
 OPA marks a denial learnable only when its version, cluster, scheme, fixed
 request port, project-principal boundary, trusted GraphQL endpoint and parsed
-coordinate when applicable, and the Workspace Manifest policy ceiling already satisfies the
+coordinate when applicable, and the Workspace Template policy ceiling already satisfies the
 orthogonal boundary.
 Candidate
 discovery excludes other denials, preventing a successful no-op approval.
@@ -1604,7 +1383,7 @@ credential-catalog target and mutation impact before acquisition or vault I/O.
 Login selects only the active profile's closed provider union through an
 interactive trusted-host terminal. It includes GitHub, Datadog, OpenAI,
 Anthropic, Chatwork import, and AWS. Anthropic alone
-executes in a fresh selected-Workspace Manifest-image container; each driver owns
+executes in a fresh selected-Context Template-image container; each driver owns
 fixed argv, canonical executable identity, private state, bounded browser/PTY
 behavior, strict typed capture, and checked cleanup. PATH resolution inspects
 at most 256 distinct absolute candidates in order, never executes a rejected
@@ -1612,25 +1391,25 @@ temporary/project/home-local shadow, and selects only the first candidate whose
 canonical executable satisfies the existing trusted-root and mode checks. It
 prints only bounded,
 control-safe guidance and commits the captured record only into the encrypted
-Workspace Manifest vault. A host-login availability failure retains its stable fault
+Context vault. A host-login availability failure retains its stable fault
 code and names one fixed secret-free diagnostic stage; it never publishes the
 selected local path, digest, raw process error, or captured output. Drivers
 read no ambient provider home and write no project or Workspace CLI
 configuration; Auth Broker contains no provider CLI. Import
 rejects terminal stdin before reading and reads bounded non-terminal input only
 after public argument/intent/mutation validation; infrastructure validates the
-selected Workspace Manifest, installed provider/acquisition mode, and broker readiness
-before broker send. Login/import atomically replace one typed
-Workspace Manifest/provider grant and revoke every prior handle. Gateway performs
+selected Context, installed provider/acquisition mode, and broker readiness
+before broker send. Login/import atomically replace one typed Context/provider
+grant and revoke every prior handle. Gateway performs
 non-secret introspection before OPA and applies exactly one same-revision
 static resolution, Datadog/OpenAI/Anthropic token result, or bounded AWS SigV4 result only
 after allow. Gateway makes one upstream attempt. Managed profiles and arbitrary
 manifest-selected dynamic execution do not exist. Logout atomically removes
 the record and its handles without contacting the provider.
-One credential is Workspace Manifest/provider-owned, every permanently bound project is
-eligible for a distinct handle only on its next matching Workspace entry, and
+One credential is Context/provider-owned, and its Workspace is eligible for a
+distinct handle only on its next matching entry;
 no mutation rewrites a running session. Confirmed results are secret-free and
-distinguish `changed` from no-op logout. They list an exact Workspace Manifest-bound
+distinguish `changed` from no-op logout. They list an exact Context-bound
 working directory and argv only for a Workspace whose current projection is
 authoritatively missing or stale; current, unavailable, unresolved,
 zero-Workspace, and no-change results do not invent a re-entry action. Logout
@@ -1650,7 +1429,7 @@ old-state interpretation, migration fallback, or general compatibility shim.
 
 Before the first public release, a genuinely fresh installation is one where
 the final owner store is absent and a bounded fixed-path presence guard proves
-that no predecessor Manifest, Workspace, Policy, Broker, principal, or private
+that no predecessor desired-definition, Workspace, Policy, Broker, principal, or private
 session authority is present. That state is exact empty final authority and may
 create its first Template and Context. A complete final store is the only
 ordinary authority source. Predecessor bytes never contribute identity,
@@ -1689,7 +1468,7 @@ it does not forward raw TCP, non-HTTP TLS, UDP, QUIC, recursive DNS, Git SSH, or
 certificate-pinned traffic. A client that cannot use the Tobari CA or expose an
 unambiguous HTTP authority fails closed.
 The research Broker slice supports GitHub, Datadog, OpenAI, Anthropic,
-Chatwork, and AWS and retains one credential per Workspace Manifest/provider. Owner
+Chatwork, and AWS and retains one credential per Context/provider. Owner
 manifests may express another single static primary secret only through the
 exact HTTPS/header replacement contract and protected stdin import. V1 has no
 managed adapter, multiple provider accounts, provider-specific policy

@@ -106,7 +106,7 @@ const translations: Record<
       },
       {
         title: "プリンシパルを確立する",
-        sent: "principal registry 内の host-owned Manifest ID と Workspace ID",
+        sent: "principal registry 内の host-owned Context ID と Workspace ID",
         withheld: "Workspace が送った identity header",
         owner: "Gateway（通信の執行）",
         failure: "送信元 endpoint が未知または曖昧なら fail closed です。",

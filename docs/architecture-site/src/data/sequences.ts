@@ -88,7 +88,7 @@ const allowedRequestSteps = (): SequenceStep[] => [
     title: "Principal is established",
     from: "Workspace source endpoint",
     to: "Gateway",
-    sent: "Host-owned Manifest ID and Workspace ID from the principal registry",
+    sent: "Host-owned Context ID and Workspace ID from the principal registry",
     withheld: "Workspace-supplied identity headers",
     owner: "Gateway",
     failure: "An unknown or ambiguous source endpoint fails closed.",

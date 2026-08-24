@@ -5,9 +5,9 @@ description: Map each durable artifact to its owner, lifetime, removal command, 
 
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
-Tobari keeps project, Workspace, Workspace Manifest, cluster, and installation
+Tobari keeps project, Workspace, Workspace Template, cluster, and installation
 state in separate ownership scopes. Lifecycle actions remove only the scope
-they declare: `exit`, `delete`, cluster teardown, and runtime rebuild therefore
+they declare: `exit`, `workspace delete`, cluster teardown, and runtime rebuild therefore
 preserve different artifacts.
 
 Some runtime state is safe to reconstruct from durable records; other missing
@@ -21,34 +21,34 @@ tool login state. The tables below apply the [Workspace lifecycle](/how-it-works
 
 Paths below are relative to the effective XDG configuration/state roots unless noted.
 
-| State                                     | Owner and meaning                                                                                                    | Lifetime                                                                                       |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Project root                              | User-selected live host files mounted according to immutable Workspace Manifest `source_access`                      | Never deleted by Tobari lifecycle commands                                                     |
-| `roots/<hash>.json`                       | Root index for one exact `(canonical root, Workspace Manifest ID)`                                                   | Created/deleted with the logical Workspace                                                     |
-| `instances/<id>/state.json`               | Schema 1 stable identity, permanent Workspace Manifest binding, desired/reconciled runtime and diagnostic Docker IDs | Created/deleted with the logical Workspace; authoritative over Docker inspection               |
-| `instances/<id>/home`                     | Per-Workspace writable home and tool-native login state                                                              | Survives exit/runtime recreation; removed by Workspace delete                                  |
-| Workspace Manifest manifest               | Host-owned stable ID, agent profile, exact Runtime revision binding, policy mode, and narrow shell settings          | Survives every Workspace and cluster runtime operation                                         |
-| Runtime `source/` and immutable revisions | Reusable installation-wide build source and successful history                                                       | Survive Workspace Manifest and Workspace lifecycle; builds never roll out implicitly           |
-| Workspace Manifest policy sources         | Exact-host `domains/<host>/{allow,deny}.json`, plus Advanced Rego, owned by one Workspace Manifest                   | Survive cluster runtime; change only through validated activation or explicit advanced editing |
-| Aggregate policy projection               | Content-addressed all-Workspace Manifest router/data/module snapshot mounted read-only into OPA                      | Rebuilt and atomically published; transient cluster authority derived from sources             |
-| Active policy bundle                      | Revisioned complete OPA bundle in an owner-labeled Docker-managed volume                                             | Hot-loaded by OPA; removed only by `cluster down --purge`, then rebuilt from policy sources    |
-| Principal registry                        | Host-issued schema-1 Workspace source + Gateway endpoint + network → Workspace Manifest/project binding              | Reconciled with existing Workspace networks; mounted read-only into Gateway                    |
-| Workspace-owned agent state               | Per-Workspace tool configuration and login state in the persistent home                                              | Survives exit/runtime recreation; removed by Workspace delete                                  |
-| Installation state                        | Host configuration and trust material used by the runtime and policy                                                 | Survives cluster down/purge; unsafe or missing state fails closed                              |
-| Gateway CA state                          | Installation CA used for Workspace-side HTTPS interception                                                           | Survives ordinary cluster down; shared CA volumes are removed by `--purge`                     |
+| State                                                        | Owner and meaning                                                                                             | Lifetime                                                                                    |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Project root                                                 | User-selected live host files mounted according to immutable Workspace Template `source_access`               | Never deleted by Tobari lifecycle commands                                                  |
+| `workspace-authority/authority.json`                         | Atomic schema-1 Template/Context/Policy-Memory and schema-3 Workspace authority envelope                      | Context survives Workspace deletion; each exact resource action owns its narrower removal   |
+| `workspace-authority-runtime/workspaces/<workspace-id>/home` | Per-Workspace writable home and tool-native login state                                                       | Survives exit/runtime recreation; removed by exact Workspace delete                         |
+| Workspace Template revision                                  | Host-owned stable ID, immutable Boundary, baseline policy, exact Runtime revision binding, and typed defaults | Survives Context, Workspace, and cluster runtime operations until exact Template deletion   |
+| Runtime `source/` and immutable revisions                    | Reusable installation-wide build source and successful history                                                | Survive Workspace Template and Workspace lifecycle; builds never roll out implicitly        |
+| Workspace Template policy source                             | Reusable baseline policy plus Advanced Rego, owned by one Workspace Template                                  | Survives cluster runtime; changes only through a complete immutable Template revision       |
+| Context Policy Memory                                        | Complete immutable remembered-decision revision owned by one Project/Template Context                         | Survives Workspace replacement; removed only with the Context                               |
+| Aggregate policy projection                                  | Content-addressed all-Context router/data/module snapshot mounted read-only into OPA                          | Rebuilt and atomically published; transient cluster authority derived from sources          |
+| Active policy bundle                                         | Revisioned complete OPA bundle in an owner-labeled Docker-managed volume                                      | Hot-loaded by OPA; removed only by `cluster down --purge`, then rebuilt from policy sources |
+| Principal registry                                           | Host-issued schema-1 Workspace source + Gateway endpoint + network → Context/Workspace binding                | Reconciled with existing Workspace networks; mounted read-only into Gateway                 |
+| Workspace-owned agent state                                  | Per-Workspace tool configuration and login state in the persistent home                                       | Survives exit/runtime recreation; removed by Workspace delete                               |
+| Installation state                                           | Host configuration and trust material used by the runtime and policy                                          | Survives cluster down/purge; unsafe or missing state fails closed                           |
+| Gateway CA state                                             | Installation CA used for Workspace-side HTTPS interception                                                    | Survives ordinary cluster down; shared CA volumes are removed by `--purge`                  |
 
-Cluster state also records shared resource names, loaded Workspace Manifest count, content-addressed aggregate revision, and projection paths. It never turns the current Workspace Manifest into enforcement authority and never contains a primary credential.
+Cluster state also records shared resource names, loaded Workspace Template count, content-addressed aggregate revision, and projection paths. It never turns the current Workspace Template into enforcement authority and never contains a primary credential.
 
 ## What each operation preserves
 
-| Operation/event                    | Workspace identity and home                                     | Workspace Manifest/policy | Workspace state and host-owned state                | Shared services/CA                                    | Project files |
-| ---------------------------------- | --------------------------------------------------------------- | ------------------------- | --------------------------------------------------- | ----------------------------------------------------- | ------------- |
-| `exit`                             | Preserved                                                       | Preserved                 | Preserved                                           | Running; CA preserved                                 | Preserved     |
-| `delete`                           | Removed for the exact Workspace, including home/runtime records | Preserved                 | Workspace Manifest and installation state preserved | Shared services unchanged                             | Preserved     |
-| `cluster down`                     | Command is refused until all Workspaces are deleted             | Preserved                 | Preserved                                           | Services/transient networks removed; CA preserved     | Preserved     |
-| `cluster down --purge`             | Same prerequisite                                               | Preserved                 | Preserved                                           | Services, shared CA, and active policy bundle removed | Preserved     |
-| Workspace Manifest runtime rebuild | Identity/home remain; bound container reconciles next entry     | Policy preserved          | Preserved                                           | Shared services unchanged                             | Preserved     |
-| Container/network loss             | Logical state/home remain; resources reconcile next entry       | Preserved                 | Preserved                                           | Gateway attachment/principal is repaired as needed    | Preserved     |
+| Operation/event                    | Workspace identity and home                                     | Workspace Template/policy                      | Workspace state and host-owned state | Shared services/CA                                    | Project files |
+| ---------------------------------- | --------------------------------------------------------------- | ---------------------------------------------- | ------------------------------------ | ----------------------------------------------------- | ------------- |
+| `exit`                             | Preserved                                                       | Template, Context, and Policy Memory preserved | Preserved                            | Running; CA preserved                                 | Preserved     |
+| `workspace delete`                 | Removed for the exact Workspace, including home/runtime records | Template, Context, and Policy Memory preserved | Installation state preserved         | Shared services unchanged                             | Preserved     |
+| `cluster down`                     | Command is refused until all Workspaces are deleted             | Preserved                                      | Preserved                            | Services/transient networks removed; CA preserved     | Preserved     |
+| `cluster down --purge`             | Same prerequisite                                               | Preserved                                      | Preserved                            | Services, shared CA, and active policy bundle removed | Preserved     |
+| Workspace Template runtime rebuild | Identity/home remain; bound container reconciles next entry     | Policy preserved                               | Preserved                            | Shared services unchanged                             | Preserved     |
+| Container/network loss             | Logical state/home remain; resources reconcile next entry       | Preserved                                      | Preserved                            | Gateway attachment/principal is repaired as needed    | Preserved     |
 
 ## Recovery follows the source of truth
 
@@ -56,13 +56,18 @@ Cluster state also records shared resource names, loaded Workspace Manifest coun
 
 If the durable Workspace record is valid but its container or network is missing, runtime resources are derived state. The next entry can recreate them, reconnect Gateway, update the principal registry, and mount the existing root/home.
 
-### Durable state is incomplete
+### Durable authority is incomplete or contradictory
 
-If a root index exists but the instance record is missing, Tobari reports `incomplete`. It will not invent the lost stable identity, Workspace Manifest binding, or home relationship. Exact `delete` is the cleanup route before explicit recreation.
+The final authority is one atomically published envelope, not a root-index and
+instance-record pair. An invalid envelope, a mismatched Context/Workspace
+binding, or an unknown mutation outcome fails closed. Tobari does not infer a
+replacement identity from Docker resources or partially replay a mutation;
+`status` or the fault's Catalog-declared read path must classify the retained
+facts before any exact action is selected.
 
 ### Policy activation fails
 
-Policy mutation uses a lock, private Workspace Manifest preflight, complete all-Workspace Manifest aggregate test, content-addressed publication, and OPA health wait. Invalid input or activation failure restores source and retains the previous known-good aggregate/state rather than mounting a partial candidate.
+Policy mutation uses a lock, private Workspace Template preflight, complete all-Context aggregate test, content-addressed publication, and OPA health wait. Invalid input or activation failure restores source and retains the previous known-good aggregate/state rather than mounting a partial candidate.
 
 ### host-owned state or Workspace state integrity fails
 
@@ -72,14 +77,16 @@ are checked before use; failure is reported and remains closed.
 
 ## Concrete recovery scenario
 
-After a host restart, the Workspace's container and dedicated network are gone, but its root index, instance state, and home remain.
+After a host restart, the Workspace's container and dedicated network are gone,
+but the authority envelope still contains its Context and Workspace, and the
+Workspace home remains.
 
-1. `tobari` resolves the durable root/Workspace Manifest record.
-2. It validates the bound Workspace Manifest runtime image.
+1. `tobari` resolves the canonical root, installation default Template, and exact Context.
+2. It validates the Context's current Template revision and exact Runtime binding.
 3. It recreates the internal network and container.
-4. It connects Gateway, reapplies the Gateway/Workspace guards, and records the new exact endpoint principal.
+4. It connects Gateway, reapplies the Gateway/Workspace guards, and records the new exact Context/Workspace principal.
 5. It reconciles the current host-owned principal registration.
-6. It enters the same logical Workspace with the same project ID and home.
+6. It enters the same logical Workspace with the same Context ID, Workspace ID, and home.
 
 This is reconciliation, not a new Workspace.
 
@@ -87,14 +94,14 @@ This is reconciliation, not a new Workspace.
 
 - Ownership, mode, symlink, schema, or identity mismatch fails before unsafe reuse.
 - Missing image or incompatible runtime API fails before project runtime mutation.
-- Missing host-owned lifecycle state never silently creates another authority.
+- Missing or contradictory host-owned authority never silently creates another identity.
 - Failed policy generation retains prior known-good authority.
 - Attached deletion fails unless `--force` explicitly overrides that one guard.
 - Cluster teardown fails while any logical Workspace remains.
 
 ## Guarantees and limitations
 
-**Guaranteed:** lifecycle commands have narrow owner scopes; project files are never removed; derived Docker state can be reconciled from valid logical state; Workspace and host-owned state survive cluster purge; partial policy projections do not activate.
+**Guaranteed:** lifecycle commands have narrow owner scopes; project files are never removed; derived Docker state can be reconciled from valid logical state; Template, Context, Policy Memory, Workspace home, and host-owned state survive cluster purge; partial policy projections do not activate.
 
 **Not guaranteed:** recovery from lost project files, deleted Workspace home, lost installation state, corrupted host storage, compromised trusted host, remote credential revocation, or automatically inferred project moves.
 
@@ -115,10 +122,10 @@ Durable identity and user data are not inferred from container presence. Each st
 You should now be able to predict state retention without equating “container gone” with “Workspace gone.”
 
 <details>
-  <summary>What does `delete` remove that `exit` preserves?</summary>
-  The exact Workspace's root index, instance state, home, container, network,
-  principal/project-auth registry entries. Neither operation deletes project
-  files or Workspace Manifest state.
+  <summary>What does `workspace delete` remove that `exit` preserves?</summary>
+  The exact Workspace authority record, home, container, network, and its
+  principal-registry entry. Neither operation deletes project files, the
+  Context, its Policy Memory, or Workspace Template state.
 </details>
 
 <details>
@@ -137,11 +144,11 @@ You should now be able to predict state retention without equating “container 
 
 <details>
   <summary>
-    Why can a lost container be repaired but a root index without instance state
-    is not guessed?
+    Why can a lost container be repaired but contradictory authority is not
+    guessed?
   </summary>
-  The container is derived from valid logical state. Missing instance state
-  loses authoritative identity/binding information, so reconstruction would
+  The container is derived from a validated Context/Workspace record. Missing or
+  contradictory identity and binding information would make reconstruction
   invent authority.
 </details>
 

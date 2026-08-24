@@ -94,7 +94,7 @@ Use this order:
 
 `retry_after` describes an observed rate window. It does not prove that a
 create or write did not complete. Conversely, a non-retryable fault can still
-name a read-only reconciliation action such as `status`, `manifest show`, or
+name a read-only reconciliation action such as `status`, `template show`, or
 `doctor`.
 
 Mutation results cross a completion boundary after a confirmed side effect.
@@ -108,12 +108,12 @@ reconciliation.
 Not every network failure is a CLI fault envelope. A Workspace observes an
 HTTP response or a failed connection from Gateway:
 
-| Observation                                                    | Meaning                                                                                                                                   | Upstream contacted?                                                        |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| Learnable HTTP `403` denial                                    | The normalized Workspace Manifest/project/host/port/method/path did not match an allow rule. Review on the host, then retry deliberately. | No.                                                                        |
-| Non-learnable HTTP `403` denial                                | The request is outside a learnable boundary or its identity is invalid. It cannot become a candidate.                                     | No.                                                                        |
-| Policy service unavailable or invalid decision (`503`)         | Gateway could not obtain one valid OPA decision.                                                                                          | No.                                                                        |
-| Upstream DNS, TLS, connection, or response failure after allow | Authorization succeeded, but the separate upstream operation failed.                                                                      | A connection may have been attempted; Gateway does not replay the request. |
+| Observation                                                    | Meaning                                                                                                                          | Upstream contacted?                                                        |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Learnable HTTP `403` denial                                    | The normalized Context/Workspace/host/port/method/path did not match an allow rule. Review on the host, then retry deliberately. | No.                                                                        |
+| Non-learnable HTTP `403` denial                                | The request is outside a learnable boundary or its identity is invalid. It cannot become a candidate.                            | No.                                                                        |
+| Policy service unavailable or invalid decision (`503`)         | Gateway could not obtain one valid OPA decision.                                                                                 | No.                                                                        |
+| Upstream DNS, TLS, connection, or response failure after allow | Authorization succeeded, but the separate upstream operation failed.                                                             | A connection may have been attempted; Gateway does not replay the request. |
 
 A policy denial can become a candidate only from retained, secret-free
 evidence. The Gateway response contains host-side navigation guidance, not a

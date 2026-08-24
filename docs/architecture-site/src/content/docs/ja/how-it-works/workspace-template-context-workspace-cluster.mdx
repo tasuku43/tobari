@@ -1,0 +1,49 @@
+---
+title: Workspace Template、Context、Workspace、cluster
+description: 再利用するdesired setup、Projectの記憶、applied instance、共有enforcementを区別します。
+---
+
+Tobariは4つのlifetimeを分離します。
+
+| Concept            | ownerとlifetime                             | authority                             |
+| ------------------ | ------------------------------------------- | ------------------------------------- |
+| Workspace Template | インストール内で再利用するsetup             | TemplateID + semantic revision digest |
+| Context            | canonical ProjectRoot + TemplateIDのbinding | ContextID                             |
+| Policy Memory      | 1 Contextの記憶した判断                     | ContextID + semantic digest           |
+| Workspace          | 1 Contextの置換可能なinstanceとhome         | WorkspaceID + ContextID               |
+
+Template revisionはdesired setupです。Contextはbound Templateのcurrent revisionを
+解決し、learned policyを所有します。Workspaceは最後に成功したAppliedEntryを
+記録します。Docker observationはevidenceであり、これらのauthorityではありません。
+
+## 独立したactivation
+
+- Template mutationはdesired stateだけを発行します。
+- `cluster up`は各ContextのTemplate-policyとPolicy-Memory receiptを分けた
+  完全なprojectionをactivateします。
+- bare rootまたは`context enter --id CONTEXT_REF`だけがWorkspaceをreconcileします。
+- status、list、show、doctor、completionはreconcileしません。
+
+installation default Templateを使うのはbare rootとbare `status`だけです。
+Contextをrebindしません。非defaultの作業はdiscoveryが返したopaque Context
+referenceを使います。
+
+```sh
+tobari context list --format json
+tobari context enter --id CONTEXT_REF
+```
+
+1 canonical ProjectRoot/TemplateID pairにはContextを1つだけ作れます。同じrootで
+異なるTemplateにbindingしたContextは複数持てます。それぞれのPolicy Memoryと
+Workspace identityは独立します。
+
+## failureとretry
+
+failure後もdesired、active、applied、observed factsを分離します。attached中の
+pending adoptionはDockerの前にblockし、active session終了を案内します。unknown
+mutation outcomeはread-only classifierへ進み、replay権限を与えません。Runtime
+materialがない場合はexact restore referenceを所有する`review runtimes`へ進みます。
+
+shared clusterは5つ目のdurable product authorityではありません。GatewayとOPAを
+完全なContext projectionに対して実行し、candidate activation失敗時は最後の
+known-good aggregateを保持します。

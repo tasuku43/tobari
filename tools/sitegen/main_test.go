@@ -298,8 +298,8 @@ func TestGenerateVersionsDerivesCommittedAuthorities(t *testing.T) {
 		)
 	}
 	for contract, want := range map[string]int{
-		"Workspace Manifest":               wantContextSchema,
-		"Public Workspace Manifest report": wantContextReportSchema,
+		"Workspace Template":               wantContextSchema,
+		"Public Workspace Template report": wantContextReportSchema,
 	} {
 		if got := schemaForTest(t, document, contract).Version; got != want {
 			t.Errorf("%s schema = %d, want HEAD authority %d", contract, got, want)

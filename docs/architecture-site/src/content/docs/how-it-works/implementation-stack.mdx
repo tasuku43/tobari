@@ -31,7 +31,7 @@ networks, labels, volumes, and process execution.
 
 Docker Compose owns only the shared Gateway and OPA services, shared networks,
 and CA volumes. Per-Workspace containers and networks are reconciled by the
-runtime adapter because their exact root/Manifest identity and lifecycle are
+runtime adapter because their exact root/Workspace Template identity and lifecycle are
 application concerns. Docker is trusted infrastructure; “runs in a container”
 is not itself a security argument.
 
@@ -45,7 +45,7 @@ policy interpretation or Workspace state storage.
 
 ### OPA and Rego
 
-OPA is the shared policy decision service. Rego expresses Workspace Manifest
+OPA is the shared policy decision service. Rego expresses Workspace Template
 policy ceilings, default deny, exact learned allow/deny rules, and request
 metadata constraints. OPA receives no request body or credential value and has
 no egress interface.

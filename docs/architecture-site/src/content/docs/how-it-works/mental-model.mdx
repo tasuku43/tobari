@@ -29,7 +29,7 @@ Workspace's home, host credentials, Docker control, or a direct public route.
 
 ### 2. Gateway: the enforcement point
 
-Gateway receives transparently routed HTTP traffic, derives the Workspace Manifest and
+Gateway receives transparently routed HTTP traffic, derives the Workspace Template and
 project principal from host-owned registration, removes secret request values
 from decision and audit data, asks OPA once, and enforces the answer. On deny,
 it performs no destination DNS lookup or connection. On allow, it forwards the

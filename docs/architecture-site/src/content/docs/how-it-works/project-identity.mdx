@@ -1,16 +1,16 @@
 ---
-title: Project identity without self-reporting
-description: Understand how a Workspace source endpoint and host-owned registry establish the Workspace Manifest/project principal.
+title: Workspace identity without self-reporting
+description: Understand how a Workspace source endpoint and host-owned registry establish the Context/Workspace principal.
 ---
 
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
-Before Gateway prepares credentials or asks OPA, it identifies the request's
-Workspace Manifest and project. It selects that principal from the kernel-observed
+Before Gateway asks OPA, it identifies the request's Context and Workspace. It
+selects that principal from the kernel-observed
 Workspace source endpoint and an owner-controlled registry populated by the
 trusted host.
 
-Caller-supplied project or Workspace Manifest IDs are never authorization inputs. Changing
+Caller-supplied Context, Workspace, or Template IDs are never authorization inputs. Changing
 a header therefore cannot claim another Workspace's learned rules, and the same
 host, method, and path from a different Workspace still needs authority scoped
 to its own principal. This mechanism builds on the dedicated networks in the
@@ -23,15 +23,16 @@ intercepted flows described in [HTTPS and two TLS connections](/how-it-works/htt
 
 For each logical Workspace, host-side lifecycle code:
 
-1. validates the stable UUIDv7 project ID and permanent Workspace Manifest ID;
+1. validates the stable Context ID, Workspace ID, and permanent Workspace-to-Context binding;
 2. creates or verifies the exact owner-labeled dedicated internal network;
 3. connects Gateway to that network;
 4. inspects the Workspace and Gateway IP addresses on that exact network;
 5. validates that both endpoints are distinct, canonical, and unique; and
 6. atomically writes a schema 1 binding to the owner-only principal registry.
 
-Each binding contains project ID, Workspace Manifest ID, Workspace Manifest name, canonical root,
-network name, Workspace source IP, and Gateway endpoint IP. Project, network,
+Each binding contains Context ID, Workspace ID, Context presentation, canonical
+root, network name, Workspace source IP, and Gateway endpoint IP. Context,
+Workspace, network,
 and address entries must be unique; unsafe loopback, link-local, multicast, or
 unspecified addresses are rejected.
 
@@ -50,11 +51,15 @@ This detail matters. The value is not:
 - the client source IP claimed in a header;
 - `TOBARI_ID` or `TOBARI_CONTEXT_ID` from the Workspace environment;
 - `x-tobari-session` or another request field;
-- a Workspace Manifest display name;
+- a Workspace Template display name;
 - a credential provider name; or
 - a URL parameter.
 
-After lookup, Gateway places the registry-derived `workspace_manifest_id` and `project_id` in schema 1 OPA input. The fixed OPA router selects policy by Workspace Manifest ID; learned rules also require the project ID.
+After lookup, Gateway places the validated Context ID and Workspace ID into the
+frozen private schema-1 fields `workspace_template_id` and `project_id`. These
+wire names are not public aliases. The fixed OPA router selects the Context's
+active Template baseline and Policy Memory; learned rules retain the observed
+Workspace ID.
 
 ## Concrete forgery attempt
 
@@ -62,16 +67,19 @@ Workspace B copies these request headers from Workspace A:
 
 ```http
 X-Tobari-Session: project-a
-X-Tobari-Workspace Manifest: review
+X-Tobari-Workspace Template: review
 Authorization: Bearer example
 ```
 
 The connection still has Workspace B's kernel-observed source endpoint.
-Gateway selects B's Workspace Manifest/project binding and strips or redacts
+Gateway selects B's Context/Workspace binding and strips or redacts
 control/credential values as required. A rule learned for A does not match B
 even if host, port, method, and path are identical.
 
-If the request contains a copied Workspace identity from A, the result is stricter still: Gateway checks the derived B principal against the host-owned Workspace Manifest, project, target, and source-header binding before OPA. The mismatch is rejected before policy evaluation.
+If the request contains a copied Workspace identity from A, the result is
+stricter still: Gateway checks the derived B principal against the host-owned
+Context, Workspace, target, and source-header binding before OPA. The mismatch
+is rejected before policy evaluation.
 
 ## Why network identity is used
 
@@ -87,22 +95,25 @@ This is a Docker implementation of a more general contract: the runtime supplies
 - Registry missing, unreadable, too large, wrong version, malformed, unsafe, duplicate, or ambiguous: Gateway returns `403 project_principal_unavailable`.
 - Incoming Workspace source endpoint not registered: the same 403 occurs before OPA or upstream I/O.
 - Network recreation changes either endpoint: lifecycle must reapply the network guard and reconcile the registry before the Workspace becomes ready.
-- Unknown Workspace Manifest ID at OPA: the aggregate router denies and never falls back to the default Manifest.
-- User changes Workspace Manifest display name/default: stable stored IDs, not names, remain enforcement identity.
+- Unknown Context ID at OPA: the aggregate router denies and never falls back to the default Template.
+- User changes Template display name/default: stable Context and Workspace IDs, not names, remain enforcement identity.
 
 The Gateway binding parser validates the exact per-binding shape and required values. The site does not claim a stronger duplicate-key rejection property for Python's general JSON parser.
 
 ## Guarantees and limitations
 
-**Guaranteed under supported lifecycle/topology:** caller-supplied identity is not authority; project and Workspace Manifest are established together before OPA; learned rules and Workspace identities cannot cross project principals; stale network bindings fail closed.
+**Guaranteed under supported lifecycle/topology:** caller-supplied identity is
+not authority; Context and Workspace are established together before OPA;
+learned rules cannot cross Context/Workspace principals; stale network bindings
+fail closed.
 
 **Not guaranteed:** resistance after host, Docker, Gateway, or registry compromise; tenant isolation for overlapping selected roots; a general cryptographic remote-workload identity; identity derived from arbitrary manually created containers outside Tobari lifecycle.
 
 ## Source evidence
 
-- [Principal and Workspace Manifest security contract](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/docs/03_security_model.md)
+- [Principal and Workspace Template security contract](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/docs/03_security_model.md)
 - [Host-network authority decision](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/docs/decisions/0011-bind-project-authority-to-host-network.md)
-- [Shared Workspace Manifest routing decision](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/docs/decisions/0018-route-context-bound-tobari-through-shared-enforcement.md)
+- [Shared Workspace Template routing decision](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/docs/decisions/0018-route-context-bound-tobari-through-shared-enforcement.md)
 - [Principal registry writer and reconciliation](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/internal/infra/dockerruntime/principal_registry.go)
 - [Gateway registry parser and interface lookup](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/gateway/addon/tobari_gateway.py)
 - [Registry negative tests](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/internal/infra/dockerruntime/principal_registry_test.go)
@@ -111,7 +122,7 @@ The Gateway binding parser validates the exact per-binding shape and required va
 ## Summary
 
 The host binds one exact Workspace source endpoint, Gateway endpoint, and
-dedicated network to stable Workspace Manifest/project IDs. Gateway observes the source
+dedicated network to stable Context/Workspace IDs. Gateway observes the source
 endpoint on every request. Headers and names can describe a caller, but they
 cannot grant another principal's authority.
 
@@ -121,7 +132,7 @@ You should now be able to explain why shared Gateway/OPA services do not mean sh
 
 <details>
   <summary>
-    A process writes another project ID into a header. Which ID reaches OPA as
+    A process writes another Workspace ID into a header. Which ID reaches OPA as
     principal?
   </summary>
   The ID selected by Gateway's kernel-observed Workspace source endpoint and the
@@ -133,7 +144,8 @@ You should now be able to explain why shared Gateway/OPA services do not mean sh
     Workspace A and B use the same host, port, method, and path. Does A's
     learned rule authorize B?
   </summary>
-  No. Exact learned rules also bind stable Workspace Manifest and project IDs.
+  No. Exact learned rules remain owned by one Context and retain the observed
+  Workspace ID.
 </details>
 
 <details>

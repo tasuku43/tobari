@@ -29,7 +29,7 @@ aws sso login --profile your-profile
 Claude Code and Codex are part of the locally built agent-ready base. Their
 native state is written below that Workspace's persistent home. It survives
 `exit` and container recreation, is not shared with another Workspace, and is
-removed by `tobari delete`.
+removed by `tobari workspace delete --id WORKSPACE_REF --confirm=delete`.
 
 Tobari never copies the host home, host CLI login state, Keychain, SSH agent,
 or credential environment into the Workspace.
@@ -39,7 +39,7 @@ or credential environment into the Workspace.
 Every process in one Workspace can read that Workspace's native credential.
 Gateway does not infer which executable created or uses it. For an HTTP request:
 
-1. Gateway derives the host-owned Workspace Manifest/project principal.
+1. Gateway derives the host-owned Context/Workspace principal.
 2. It removes authentication and cookies from OPA input and audit evidence.
 3. OPA decides the ordinary exact scheme, host, port, method, and path effect.
 4. On deny, the credential and request do not reach upstream.
@@ -47,7 +47,7 @@ Gateway does not infer which executable created or uses it. For an HTTP request:
 
 The fixed agent-ready compatibility baseline includes a finite set of exact
 Claude/Codex login, account, model, and core effects. Tobari composes it into
-the Workspace Manifest policy when native readiness is enabled. It is Workspace Manifest-wide HTTP
+the Workspace Template policy when native readiness is enabled. It is Workspace Template-wide HTTP
 authority—not executable identity. Plugins, connectors, MCP, downloads, and
 unmatched routes remain denied or reviewable.
 
@@ -78,7 +78,7 @@ unavailable, retry with `aws sso login --use-device-code --profile your-profile`
 
 ## Login can still be denied
 
-If an effect is outside the Workspace Manifest policy, use the normal permission loop from a
+If an effect is outside the Workspace Template policy, use the normal permission loop from a
 separate trusted-host terminal:
 
 ```sh

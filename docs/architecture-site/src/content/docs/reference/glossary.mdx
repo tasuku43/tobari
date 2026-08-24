@@ -22,37 +22,48 @@ and manages Workspaces and the installation-local Gateway and OPA services.
 
 ### Workspace
 
-One reusable isolated resource selected by a canonical project root plus stable
-Workspace Manifest ID. A Workspace includes its stable logical record, selected project root,
-Workspace Manifest binding, independent home, and reconciled runtime resources. “Leaving
-the Workspace” ends a session; it does not delete the logical Workspace.
+One replaceable isolated instance owned by a Context. A Workspace has a stable
+Workspace ID, an independent home, a last-successful applied-entry receipt, and
+reconciled runtime resources. Leaving ends only the attached child session;
+deleting the Workspace preserves its Context and Policy Memory.
 
 ### project root
 
-The canonical host directory selected from the current working directory and
-mounted according to immutable Workspace Manifest `source_access` (CLI default
-`read-write`). Tobari deliberately delegates the
+The canonical host directory owned by a Context and mounted according to its
+bound Workspace Template's immutable `source_access`. Tobari deliberately delegates the
 ability to read and modify this root to Workspace processes. It does not snapshot, overlay, or protect
 files inside it from Workspace processes.
 
-### Workspace Manifest
+### Workspace Template
 
-One host-owned logical execution setup with a stable opaque UUIDv7 ID. It
-selects an agent profile, runtime image, policy mode and source, and allowlisted
-shell settings. A Workspace is permanently bound to one Workspace Manifest;
-agent tools keep their own login material in the Workspace home.
+One installation-owned reusable setup with a stable opaque ID and complete
+immutable revisions. It owns the source/network Boundary, baseline policy,
+exact Runtime binding, and entry/session/creation defaults. It owns neither a
+Project binding nor remembered decisions.
 
-### current Workspace Manifest
+### Context
 
-The default Workspace Manifest used when an invocation omits an explicit Workspace Manifest selector.
-Changing it affects later default selection. It does not rewrite an existing
-Workspace's permanent Workspace Manifest binding and is not request authority.
+One durable immutable binding between a canonical Project root and one
+Workspace Template ID. A Context owns Policy Memory and survives replacement
+or deletion of its Workspace. It has no public name or default selector; exact
+nondefault actions consume a `context` reference from discovery.
+
+### Policy Memory
+
+The complete immutable remembered-decision revision owned by one Context. It
+survives Workspace replacement, is never copied with a Template, and does not
+widen the bound Template's fixed Boundary.
+
+### current Workspace Template
+
+The installation default used by bare root entry and bare `status`. Changing it
+does not rebind any Context or Workspace and is not request authority.
 
 ### cluster
 
 The installation-local shared Gateway, OPA, shared networks, CA volumes, and
-aggregate policy projections. A Workspace Manifest scopes policy; the cluster
-runs enforcement for all loaded Workspace Manifests.
+aggregate policy projections. Each Context contributes its bound Template
+baseline and Policy Memory; the cluster enforces the complete active set.
 
 ### runtime image
 
@@ -78,7 +89,7 @@ Workspace lifecycle state.
 The independent writable home owned by one Workspace. Agent tools store their
 own login state here; Tobari does not project, resolve, or manage a second
 credential authority. It survives session exit and work-container recreation,
-and is removed by Workspace `delete`.
+and is removed by Workspace `workspace delete`.
 
 ## Request enforcement
 
@@ -106,7 +117,7 @@ Workspace-side TLS connection has terminated at Gateway.
 ### HTTP effect
 
 The normalized authorization unit:
-Workspace Manifest ID, Workspace ID, host, port, HTTP method, and path, plus bounded
+Context ID, Workspace ID, host, port, HTTP method, and path, plus bounded
 non-secret protocol metadata. Request body content is not an identity dimension
 and does not split policy candidates. The internal schema field for Workspace
 identity remains `project_id`.
@@ -145,14 +156,20 @@ and is not accepted from a Workspace header as authority. Internal persistence
 and enforcement protocols retain the schema-V1 field `project_id` for this
 same value.
 
-### Workspace Manifest ID
+### Workspace Template ID
 
-The stable host-issued UUIDv7 identity of a Workspace Manifest. It remains distinct from
-the mutable display name and from the current Workspace Manifest marker.
+The stable host-issued UUIDv7 identity of a Workspace Template. It remains distinct from
+the mutable display name and from the current Workspace Template marker.
+
+### Context ID
+
+The stable host-issued identity of one Project-root/Workspace-Template binding.
+It owns Policy Memory and is distinct from both Workspace Template ID and
+Workspace ID.
 
 ### Workspace principal
 
-The trusted pairing of stable Workspace Manifest ID and Workspace ID derived by
+The trusted pairing of stable Context ID and Workspace ID derived by
 Gateway from the exact kernel-observed Workspace source endpoint on a dedicated
 network. It scopes policy. Internal implementation and protocol names retain
 `project principal` where required by their schema-V1 contract.
@@ -160,8 +177,10 @@ network. It scopes policy. Internal implementation and protocol names retain
 ### principal registry
 
 The host-owned schema-1 mapping from exact Workspace source endpoint, Gateway
-endpoint, and dedicated network to Workspace Manifest/Workspace identity. Gateway receives
-only this directory read-only.
+endpoint, and dedicated network to Workspace Template/Workspace identity. Gateway receives
+only this directory read-only. Frozen private compatibility fields may retain
+older wire labels; they carry the validated Context and Workspace identities
+and are not public aliases.
 Caller-supplied `X-Tobari-*` text cannot replace the mapping.
 
 ### dedicated Workspace network
@@ -181,7 +200,7 @@ deny entry.
 ### learned allow
 
 An explicitly activated exact rule for one
-Workspace Manifest/Workspace/host/port/method/path effect. It is created only by a trusted
+Context/Workspace/host/port/method/path effect. It is created only by a trusted
 host action after full policy validation and atomic activation.
 
 ### learned deny
@@ -208,8 +227,8 @@ allow, deny, or no action. Gateway's denial response only points to this flow.
 
 ### policy activation
 
-The host process that locks policy state, validates the target Workspace Manifest source,
-tests the complete all-Workspace Manifest projection, publishes it atomically, reconciles
+The host process that locks policy state, validates each Context's bound
+Workspace Template baseline and Policy Memory, tests the complete all-Context projection, publishes it atomically, reconciles
 OPA, and retains or restores the known-good projection on failure.
 
 ### reset
@@ -239,26 +258,29 @@ allow. Processes in the same Workspace can read the tool's state by design.
 
 ### Workspace identity
 
-The host-derived Workspace and project authority used for policy evaluation.
+The host-derived Context and Workspace authority used for policy evaluation.
 It is independent of an agent CLI's login state and cannot be changed by a
 request header.
 
 ## State and public contracts
 
-### root index
+### authority envelope
 
-A durable schema-1 record mapping one canonical root and stable Workspace Manifest ID to
-one Workspace ID. Nearest-root selection filters by Workspace Manifest before selecting.
+The owner-only atomic file containing the installation's schema-1 Templates,
+Contexts, and Policy Memory plus schema-3 Workspaces and optional default
+Template selection. Bare `status` reads this authority without creating or
+repairing it; Docker state is observation, not authority.
 
-### Workspace instance state
+### AppliedEntry
 
-The durable schema-1 logical record for one Workspace, including its permanent
-Workspace Manifest binding and diagnostic runtime identifiers.
+The last-successful Workspace receipt for one exact Context, Template entry
+slice, and Runtime revision. It does not imply that the cluster, execution
+material, container, or attachment is currently ready.
 
 ### aggregate policy projection
 
-The content-addressed complete projection assembled from all Workspace Manifests and
-mounted read-only into OPA. One Workspace Manifest's change becomes authority only after
+The content-addressed complete projection assembled from all Workspace Templates and
+mounted read-only into OPA. One Workspace Template's change becomes authority only after
 the whole candidate validates and activates.
 
 ### Catalog
@@ -293,14 +315,14 @@ a second editable implementation.
 | Do not collapse                            | The difference                                                                                                                  |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
 | Workspace and work container               | The Workspace is durable logical state; the container is replaceable runtime.                                                   |
-| Workspace Manifest and cluster             | Workspace Manifest scopes one setup and its authority; the cluster runs shared enforcement for every loaded Workspace Manifest. |
+| Workspace Template and cluster             | Workspace Template scopes one setup and its authority; the cluster runs shared enforcement for every loaded Workspace Template. |
 | authentication and authorization           | A credential can exist while OPA still denies the HTTP effect.                                                                  |
 | CA trust and policy allow                  | CA trust enables inspection; allow authorizes one normalized effect.                                                            |
 | Workspace identity and tool login          | Host-derived identity is separate from agent-owned login state.                                                                 |
-| `exit` and `delete`                        | Exit ends a child session; delete removes the logical Workspace and home.                                                       |
+| `exit` and `workspace delete`              | Exit ends a child session; delete removes the logical Workspace and home.                                                       |
 | `cluster down --purge` and provider logout | Purge removes shared runtime and CA volumes; provider logout remains a provider-CLI operation.                                  |
 | tag and digest                             | A tag can move; a digest identifies immutable OCI content.                                                                      |
-| manifest schema and report schema          | Stored Workspace Manifest manifest and public Workspace Manifest report are distinct schema-1 contracts.                        |
+| stored authority and report schema         | The stored Workspace Template record and public Template report are distinct schema-1 contracts.                                |
 
 ## Failure and limits
 
@@ -357,7 +379,7 @@ authority.
   <a
     href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/context.go`}
   >
-    Workspace Manifest
+    Workspace Template
   </a>
   , and
   <a
@@ -374,24 +396,25 @@ authorization. Use the exact term for the exact boundary.
 
 ## Check your understanding
 
-You should now be able to explain Tobari without using “container,” “Workspace Manifest,”
+You should now be able to explain Tobari without using “container,” “Workspace Template,”
 and “Workspace” as synonyms.
 
 <details>
   <summary>A process has a valid Workspace identity. Is it authenticated and authorized?</summary>
 
 It has a credential capability candidate, not complete authority. Authentication must
-match Workspace Manifest, project, provider, revision, and HTTP binding; OPA must
+match Workspace Template, project, provider, revision, and HTTP binding; OPA must
 separately allow the ordinary HTTP effect before the declared resolve, refresh,
 or signing action.
 
 </details>
 
 <details>
-  <summary>The current Workspace Manifest changes. Does an existing Workspace move to it?</summary>
+  <summary>The installation default Workspace Template changes. Does an existing Context or Workspace move to it?</summary>
 
-No. The Workspace's Workspace Manifest ID binding is permanent. The current Workspace Manifest is
-only the default for an invocation that omits a selector.
+No. A Context's Workspace Template ID binding and a Workspace's Context ID
+binding are permanent. The installation default is used only by bare root entry
+and bare `status`.
 
 </details>
 

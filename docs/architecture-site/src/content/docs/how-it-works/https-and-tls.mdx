@@ -37,7 +37,7 @@ The client therefore establishes **TLS connection A** with Gateway. Gateway term
 
 ### 3. Gateway authorizes the decrypted HTTP request
 
-Gateway derives Workspace Manifest/project identity, requires transparent SNI, HTTP
+Gateway derives Context/Workspace identity, requires transparent SNI, HTTP
 authority, and original port to be consistent, removes or redacts credential
 material, and sends one body-free normalized input to OPA. The request body is
 not a policy identity dimension. CA trust does not skip this decision.
@@ -69,11 +69,11 @@ If the same client pins the upstream certificate or public key, the certificate 
 
 These are separate questions:
 
-| Question                                                            | Mechanism                                         | Meaning                                                     |
-| ------------------------------------------------------------------- | ------------------------------------------------- | ----------------------------------------------------------- |
-| Can the client establish an intercepted HTTPS session with Gateway? | Runtime trusts the Tobari CA                      | Gateway can receive the decrypted request                   |
-| May this ordinary HTTP effect reach upstream?                       | OPA decision, enforced by Gateway                 | Workspace Manifest/project/host/port/method/path is allowed |
-| May a Workspace-owned credential value be forwarded?                | Prior OPA allow and the declared request boundary | One request may receive the original header value           |
+| Question                                                            | Mechanism                                         | Meaning                                            |
+| ------------------------------------------------------------------- | ------------------------------------------------- | -------------------------------------------------- |
+| Can the client establish an intercepted HTTPS session with Gateway? | Runtime trusts the Tobari CA                      | Gateway can receive the decrypted request          |
+| May this ordinary HTTP effect reach upstream?                       | OPA decision, enforced by Gateway                 | Context/Workspace/host/port/method/path is allowed |
+| May a Workspace-owned credential value be forwarded?                | Prior OPA allow and the declared request boundary | One request may receive the original header value  |
 
 A working CA solves only the first row.
 
@@ -133,4 +133,4 @@ You should now be able to draw both TLS connections and place the policy decisio
   complete. Tobari does not bypass the pin.
 </details>
 
-If the ordering is unclear, revisit [Request journey](/how-it-works/request-journey/). Next, see where the trusted Workspace Manifest/project identity comes from in [Project identity](/how-it-works/project-identity/).
+If the ordering is unclear, revisit [Request journey](/how-it-works/request-journey/). Next, see where the trusted Context/Workspace identity comes from in [Project identity](/how-it-works/project-identity/).

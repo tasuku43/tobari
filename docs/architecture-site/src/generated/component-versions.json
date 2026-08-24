@@ -48,12 +48,12 @@
       "authority": "internal/cli/help.go"
     },
     {
-      "contract": "Workspace Manifest",
+      "contract": "Workspace Template",
       "version": 2,
       "authority": "internal/domain/tobari/context.go"
     },
     {
-      "contract": "Public Workspace Manifest report",
+      "contract": "Public Workspace Template report",
       "version": 2,
       "authority": "internal/cli/runtime_catalog.go"
     },

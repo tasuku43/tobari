@@ -6,15 +6,16 @@ description: セッションと論理状態を混同せず、入室、終了、�
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
 Workspace の寿命は、接続中のシェルより長く続きます。`exit` が終了するのは実行
-セッションだけです。論理 Workspace、ホーム、ランタイムの記録、Workspace Manifest との結び付きは
-次回の入室のために残ります。`delete` は一つの論理 Workspace と、その所有する状態を
-削除します。クラスターの停止は別の操作で、すべての Workspace を削除した後にだけ実行できます。
+セッションだけです。論理 Workspace、ホーム、ランタイムの記録、永続する Context binding は
+次回の入室のために残ります。`workspace delete` は置換可能な一つの Workspace とその所有 state
+だけを削除し、Context と Policy Memory を保持します。クラスターの停止は別の操作で、すべての
+Workspace を削除した後にだけ実行できます。
 
 コンテナやネットワークを失っても、論理 Workspace まで自動的に失われるわけでは
 ありません。入室時に、交換可能なランタイム状態を永続記録と照合して修復します。
-`delete --force` の目的はより限定されており、`cluster down --purge` は Workspace の削除でも
+`workspace delete --id WORKSPACE_REF --confirm=delete --force` の目的はより限定されており、`cluster down --purge` は Workspace の削除でも
 外部サービスのログアウトでもありません。このライフサイクルで使う識別情報は
-[Workspace、Workspace Manifest、クラスター](../workspace-manifest-workspace-cluster/)で説明しています。
+[Workspace、Workspace Template、クラスター](../workspace-template-context-workspace-cluster/)で説明しています。
 
 <ConceptDiagram name="workspace-lifecycle" />
 
@@ -22,7 +23,7 @@ Workspace の寿命は、接続中のシェルより長く続きます。`exit` 
 
 ### 存在しない → 接続中
 
-選択したディレクトリから `tobari` を実行すると、正規化済みルートと Workspace Manifest に対応する既存 Workspace を選ぶか、明示的に作成します。作成時には識別情報とホームを永続記録へ保存し、専用ネットワークとコンテナを調整します。さらに Gateway と Workspace の閉じたネットワークガードを適用し、両方の正確なエンドポイントを登録し、利用可能になるまで待ってから、対話型の `docker exec` シェルを開始します。
+選択したディレクトリから `tobari` を実行すると、installation default Template と正規化済み root の exact Context を解決し、その Context の Workspace を選ぶか作成します。作成時には Workspace identity と home を最終 authority model へ保存し、専用 network と container を調整します。さらに Gateway と Workspace の閉じた network guard を適用し、exact Context/Workspace endpoint principal を登録し、利用可能になるまで待ってから、対話型の `docker exec` shell を開始します。
 
 接続中のシェルは一時的なプロセス状態であり、Workspace の寿命を決めるプロセスではありません。
 
@@ -30,26 +31,26 @@ Workspace の寿命は、接続中のシェルより長く続きます。`exit` 
 
 シェルの `exit`、完全一致するエージェントコマンドの終了、子プロセスの 0 以外での終了が止めるのは、実行中のプロセスだけです。Tobari は次を保持します。
 
-- ルート索引とインスタンス記録
-- 永続的な Workspace Manifest の結び付きとプロジェクト ID
+- atomic authority envelope と exact Workspace record
+- 永続的な Workspace-to-Context binding と Workspace ID
 - Workspace ごとのホームと、ツールが所有するログイン状態
 - ランタイムコンテナと専用ネットワーク
-- Workspace Manifest/project に限定された学習済みポリシー
-- Workspace Manifest が所有する policy と、このプロジェクトの現在の principal 登録
+- 生存する Context が所有する Policy Memory
+- Template baseline policy と、exact Context/Workspace principal 登録
 
 永続化された「一時停止」状態はありません。「切り離された」とは、接続中の実行セッションが観測されないという意味です。論理 Workspace は存在し続けます。
 
 ### 切り離された状態 → 再び接続中
 
-次に `tobari` で入室すると、同じ論理記録を特定し、接続する前にランタイムの構成ずれを調整します。識別情報とホームは変えません。必要に応じて、コンテナまたはネットワークの再作成、Workspace Manifest が要求するイメージへの更新、現在のプロジェクトに結び付く principal 登録の修復を行います。
+次に `tobari` で入室すると、同じ Context と Workspace を特定し、接続する前に runtime drift を調整します。Workspace ID、Context binding、home は変えません。必要に応じて container または network を再作成し、Context の current Template entry slice を適用し、Context/Workspace principal 登録を修復します。
 
 ### 切り離された状態 → 存在しない
 
-`delete` は、まず接続中の実行セッションがないことを確認します。所有者、役割、プロジェクトラベルが完全に一致することを検証してから、その Workspace のコンテナとネットワークだけを削除します。その後、ルート索引、インスタンス状態、ホーム、principal 登録簿の項目を削除します。マウントしたルート内のプロジェクトファイルは決して削除しません。
+`workspace delete` は、まず接続中の実行 session がないことを確認します。exact opaque Workspace reference と owner label を検証してから、その Workspace の authority record、container、network、home、principal registry entry だけを削除します。Context、Policy Memory、Template、mount 済み project files は削除しません。
 
 ### 接続中 → `--force` で存在しない
 
-通常の削除は、接続中の Workspace に対して実行できません。`delete --force` が解除するのは、接続中のセッションを守る検査だけです。Docker の所有権と識別情報の検査は緩めず、対象範囲も広げず、プロジェクトファイルの削除も許可しません。
+通常の削除は、接続中の Workspace に対して実行できません。`workspace delete --id WORKSPACE_REF --confirm=delete --force` が解除するのは、接続中のセッションを守る検査だけです。Docker の所有権と識別情報の検査は緩めず、対象範囲も広げず、プロジェクトファイルの削除も許可しません。
 
 ## ランタイムの消失と構成ずれ
 
@@ -57,22 +58,22 @@ Workspace の存在を決めるのは論理状態であり、Docker の検査結
 
 - **コンテナの消失:** 次の入室時に互換性のあるコンテナを作り、既存のプロジェクトルートとホームを再びマウントします。
 - **ネットワークの消失:** 次の入室時に内部ネットワークを作り直し、Gateway を接続します。両方のガードを再適用し、新しいエンドポイントの結び付きを書き込んでから、利用可能な状態にします。
-- **Workspace Manifest ランタイムの再ビルド:** 次の入室時に要求されるランタイムの識別情報と比較し、必要な場合だけプロジェクトコンテナを作り直します。
+- **Workspace Template ランタイムの再ビルド:** 次の入室時に要求されるランタイムの識別情報と比較し、必要な場合だけプロジェクトコンテナを作り直します。
 - **資源またはセキュリティ契約の変更:** 望ましい構成のハッシュが変化し、調整を行います。
-- **ルート索引はあるがインスタンス状態がない:** `incomplete` であり、内容を推測してよい状態ではありません。入室は失敗し、完全一致する対象を削除してクリーンアップします。
+- **authority が不正または矛盾:** entry は fail closed し、Catalog が宣言した read-only classifier を返します。Docker resource から Workspace や exact delete reference を推測しません。
 
 永続ジャーナルが中断された作成と削除を扱うため、一部だけ残ったファイル群が、暗黙に二つ目の Workspace として扱われることはありません。
 
 ## クラスターのライフサイクルは別に管理する
 
-論理 Workspace のインスタンスが一つでも残っている間、`cluster down` は拒否されます。先にすべての Workspace を削除してください。
+Workspace authority が一つでも残っている間、`cluster down` は拒否されます。先にすべての Workspace を削除してください。
 
 その後の違いは次のとおりです。
 
 | 操作                   | 削除するもの                                                                   | 保持するもの                                                                                |
 | ---------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| `cluster down`         | 共有 Gateway、OPA コンテナと一時的な共有ネットワーク                           | Workspace Manifest、ポリシーソース、Workspace home、host-owned state、Gateway CA ボリューム |
-| `cluster down --purge` | 同じ共有ランタイム資源、共有 CA ボリューム、有効なポリシーバンドルのボリューム | Workspace Manifest、ポリシーソース、Workspace home、host-owned state                        |
+| `cluster down`         | 共有 Gateway、OPA コンテナと一時的な共有ネットワーク                           | Workspace Template、ポリシーソース、Workspace home、host-owned state、Gateway CA ボリューム |
+| `cluster down --purge` | 同じ共有ランタイム資源、共有 CA ボリューム、有効なポリシーバンドルのボリューム | Workspace Template、ポリシーソース、Workspace home、host-owned state                        |
 
 `--purge` の実行後にクラスターを起動すると、新しい共有 CA 状態が作られます。この操作は Workspace home やプロジェクトファイルを削除しません。外部サービスのログインとログアウトは、そのサービスの CLI が管理します。
 
@@ -84,15 +85,15 @@ Workspace の存在を決めるのは論理状態であり、Docker の検査結
 2. プロジェクトファイルと論理記録は残ります。
 3. 後で入り直すと、同じ Workspace とホームを再利用します。
 4. 途中でコンテナが手動削除されていても、Tobari が再作成し、そのホームを再びマウントします。
-5. 切り離された状態で `delete` すると、Workspace のホームは削除されます。プロジェクトルートは残ります。
+5. 切り離された状態で `workspace delete` すると、Workspace のホームは削除されます。プロジェクトルートは残ります。
 
 ## 失敗時の動作
 
-- 接続中の実行セッションがあると、通常の `delete` は削除前に失敗します。
+- 接続中の実行セッションがあると、通常の `workspace delete` は削除前に失敗します。
 - 所有者ラベルが不正または欠落している場合は、資源を削除しません。
 - ランタイムに互換性がない場合は、プロジェクト資源を変更する前に失敗します。
 - コンテナやネットワークを失っても、論理状態を暗黙に削除しません。
-- インスタンス記録が残る間、`cluster down` は失敗します。
+- Workspace authority が残る間、`cluster down` は失敗します。
 - 中断した状態変更の復旧には、完全一致するライフサイクルコマンドが必要な場合があります。完了したとは推測しません。
 - 状態変更が成功した後のキャンセルは、状態変更の完了境界を通して報告します。安全に再実行できるような結果には見せません。
 
@@ -107,13 +108,13 @@ Workspace の存在を決めるのは論理状態であり、Docker の検査結
 - [ライフサイクルとコマンド結果の契約](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/docs/01_product_contract.md)
 - [ライフサイクル状態と調整処理のモデル](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/docs/02_architecture.md)
 - [Workspace ランタイムの実装](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/internal/infra/dockerruntime/project_runtime.go)
-- [ルート索引、インスタンス状態、処理記録](https://github.com/tasuku43/tobari/tree/35675505cf33ab3944196e26fc62cdb063dfd1cd/internal/infra/dockerruntime)
+- [最終 authority、Workspace runtime state、journal](https://github.com/tasuku43/tobari/tree/35675505cf33ab3944196e26fc62cdb063dfd1cd/internal/infra/dockerruntime)
 - [アプリケーションのライフサイクルテスト](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/internal/app/tobaricmd/service_test.go)
 - [コンテナやネットワークの消失と終了処理を確認する統合テスト](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/scripts/test-integration.sh)
 
 ## まとめ
 
-接続中のセッション、論理 Workspace、Docker ランタイム、共有クラスター、Workspace home は、それぞれ寿命が異なります。退出には `exit`、Workspace の削除には `delete`、削除後の共有サービス停止には `cluster down` を使います。
+接続中のセッション、論理 Workspace、Docker ランタイム、共有クラスター、Workspace home は、それぞれ寿命が異なります。退出には `exit`、Workspace の削除には `workspace delete`、削除後の共有サービス停止には `cluster down` を使います。
 
 ## 理解を確認する
 
@@ -130,7 +131,8 @@ Workspace の存在を決めるのは論理状態であり、Docker の検査結
 
 <details>
   <summary>
-    <code>delete --force</code> はどのような追加権限を与えますか？
+    <code>workspace delete --id WORKSPACE_REF --confirm=delete --force</code>{" "}
+    はどのような追加権限を与えますか？
   </summary>
   接続中のセッションを守る検査を解除する権限だけです。完全一致する対象と
   所有権の検査は引き続き適用され、プロジェクトファイルは変更されません。
@@ -147,11 +149,11 @@ Workspace の存在を決めるのは論理状態であり、Docker の検査結
 
 <details>
   <summary>
-    ランタイムコンテナが消えてもインスタンス記録
+    ランタイムコンテナが消えても有効な Workspace authority
     が残っている場合、どうなりますか？
   </summary>
   Workspace は論理的には存在します。次の入室時に代わりのコンテナを作り、
   状態を合わせます。
 </details>
 
-管理範囲が不明確なら[Workspace、Workspace Manifest、cluster](../workspace-manifest-workspace-cluster/)へ戻ってください。次は一つの通信を[リクエストの流れ](../request-journey/)で追います。
+管理範囲が不明確なら[Workspace、Workspace Template、cluster](../workspace-template-context-workspace-cluster/)へ戻ってください。次は一つの通信を[リクエストの流れ](../request-journey/)で追います。

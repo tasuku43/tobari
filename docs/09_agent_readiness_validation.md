@@ -11,11 +11,11 @@ transcripts as repository fixtures.
 | Discover capabilities | `help --format agent`, then one namespace or exact-command selector | Root remains a compact capability index; one scoped read supplies complete typed inputs, outputs, failures, and workflow |
 | Understand the current Project | `status [--format text\|json]` from the Project root or a descendant | One read selects the nearest existing Context ProjectRoot before the installation default Template, preserves desired/active/applied/observed axes without an overall status, returns one primary Next plus ordered Attention, and needs zero external joins or reconstruction; fresh no-default state performs zero Docker and owner calls |
 | Choose and retire a Workspace Template | `template list`, `template show`, `template copy`, `template default set`, `template delete` | Human list identifies the default; copy consumes one exact immutable revision reference and publishes a fresh generation-1 ID with no lineage or lower-lifetime copy; changing the default does not retarget Contexts or Workspaces, and deletion rejects default or Context-bound Templates |
-| Prepare a reusable Runtime source | `runtime list`, then `runtime create --copy-source-from NAME --name NAME` | Scoped help identifies `standard` or one managed current editable source; creation returns a fresh Runtime ID with empty history and no lineage, performs no build or Manifest/Workspace change, and needs zero revision decoding or source reconstruction |
-| Review, reclaim, and recover Runtime material | `review runtimes`; `runtime prune dry-run`, then `runtime prune apply --plan PLAN_REF --confirm=prune`; `runtime restore --id REVISION_REF`; `runtime delete --id RUNTIME_REF --confirm=delete` | One scoped help read plus one local discovery yields every exact opaque input; dry-run is zero-write and exhaustive, apply consumes the unchanged plan, restore reconstructs exact retained content, and whole deletion preserves Manifest, Workspace, Workspace home, project, and credential authority while protected, unknown, shared, or standard targets fail closed |
+| Prepare a reusable Runtime source | `runtime list`, then `runtime create --copy-source-from NAME --name NAME` | Scoped help identifies `standard` or one managed current editable source; creation returns a fresh Runtime ID with empty history and no lineage, performs no build or Template/Context/Workspace change, and needs zero revision decoding or source reconstruction |
+| Review, reclaim, and recover Runtime material | `review runtimes`; `runtime prune dry-run`, then `runtime prune apply --plan PLAN_REF --confirm=prune`; `runtime restore --id REVISION_REF`; `runtime delete --id RUNTIME_REF --confirm=delete` | One scoped help read plus one local discovery yields every exact opaque input; dry-run is zero-write and exhaustive, apply consumes the unchanged plan, restore reconstructs exact retained content, and whole deletion preserves Template, Context, Policy Memory, Workspace, home, Project, and credential authority while protected, unknown, shared, or standard targets fail closed |
 | Enter bounded work | `tobari` or `tobari -- COMMAND [ARG...]`; nondefault entry is `context enter --id CONTEXT_REF [-- COMMAND...]` | Empty authority receives one interactive no-authority Start/Customize/Cancel review, then root composes the canonical default Template/Context, cluster, Workspace entry, and handoff boundaries with five checkpoint-local stderr stages; direct entry preserves exact argv and child status, while every failed or interrupted boundary leaves one causal Catalog action or typed condition and no blind replay |
 | Understand authority lifetime | `context show --id CONTEXT_REF`, `policy rules`, and Host Loopback capability/review output | Routine guidance distinguishes Workspace Template policy, remembered Context decisions, and this-session Host Loopback access without requiring baseline, overlay, principal, epoch, or grant reconstruction; typed output retains exact destination kind and authority lifetime |
-| Grow exact permission | `review permissions`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Workspace Manifest/project/scheme/host/port/method/path authority |
+| Grow exact permission | `review permissions`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Context/scheme/host/port/method/path authority |
 | Resume after reviewed denial | In the attached Workspace run the exact `tobari-permission wait --id pwt_...` printed by one eligible ordinary HTTP/HTTPS denial; in a separate trusted-host terminal review and Apply; after `Allow`, deliberately retry the workload | Wait returns only `Allow`, `Deny`, or lease `Expired`; the helper has no proposal, decision, mutation, discovery, or retry authority; the fresh request receives an independent Gateway authorization |
 | Open one Workspace service | In the attached Workspace run `tobari-expose PORT`; in a separate host terminal run `tobari review services --watch`; later use helper/host status, open, and stop | One action key/token confirms the complete effect card; Allow returns a generated per-exposure `.localhost` root URL plus an independent opaque lifecycle reference; Open is separate, Stop consumes the reference unchanged, and Permission review remains unrelated staged Apply |
 | Inspect/reset decisions | `policy rules`, then `policy reset --id` | One current exact decision is removed through its unchanged opaque reference and returns to default deny |
@@ -61,15 +61,17 @@ Record the invocation count, source of every input, output field consumed by the
 next task, and routine-success external-processing count. Verify every emitted
 opaque ID passes unchanged to its consumer.
 
-For Workspace Manifest lifecycle classification, retrieve `help manifest --format agent`
+For Workspace Template lifecycle classification, retrieve `help template --format agent`
 once. Verify scoped help presents source access, complete method policy, policy
 mode, and native-readiness selection as creation-time Boundary inputs; presents
-`manifest runtime set` as the sole exact Runtime-binding replacement with
+`template runtime set` as the sole exact Runtime-binding replacement with
 next-entry adoption; presents shell/Git settings as later session defaults; and
 presents bootstrap as future-Workspace creation only. The journey must require
 no schema inference or source inspection. After each mutable operation, verify
-the stable Workspace Manifest ID and every bound Workspace identity/home remain unchanged.
-Also create one Workspace Manifest with `--copy-from` and verify the new stable ID differs, the
+the stable Workspace Template ID and every bound Workspace identity/home remain unchanged.
+Also run `template show` to obtain one exact revision reference, then create one
+Workspace Template with `template copy --from REVISION_REF --name NAME` and
+verify the new stable ID differs, the
 source remains unchanged, the reviewed Boundary/Runtime/defaults match, and
 neither typed output nor catalog reference flow claims ancestry or inheritance.
 
@@ -77,7 +79,7 @@ For Runtime source creation, retrieve `help runtime create --format agent`
 once, use `standard` or one exact managed name returned by `runtime list`, and
 create one new Runtime. Verify the target has a distinct stable ID, empty
 history, independent editable bytes/modes, no lineage/source field or reference flow, and
-that neither Docker nor any Workspace Manifest mutation ran. The known-path journey uses
+that neither Docker nor any Workspace Template mutation ran. The known-path journey uses
 one scoped-help read, one create invocation, and zero external processing.
 
 For Runtime lifecycle closure, retrieve `help runtime --format agent` once.
@@ -93,7 +95,8 @@ Exercise one protected current or retained Template revision edge, Workspace app
 pending, and observed edges, external/shared image use, an unavailable retained
 revision, and an unused zero-revision Runtime. Restore must publish only the
 recorded digest and leave history unchanged. Whole deletion must preserve every
-Manifest, Workspace ID, Workspace home, applied receipt, project root, credential, and
+Template, Context, Policy Memory, Workspace ID, Workspace home, applied receipt,
+project root, credential, and
 shared resource. Interrupt each mutation once and resume through the same
 reference or the single confirmed `review runtimes` path. Record zero external
 processing and no use of Docker tags, image IDs, container IDs, names,
@@ -182,8 +185,8 @@ and bounded extraction cleanup.
 
 ## Source-access matrix
 
-Create read-only and read-write Workspace Manifests for the same canonical root. The
-read-only Workspace Manifest must:
+Create read-only and read-write Workspace Templates for the same canonical root. The
+read-only Workspace Template must:
 
 - read source bytes successfully;
 - fail create, content change, delete, rename, chmod, and Git metadata writes;
@@ -192,17 +195,17 @@ read-only Workspace Manifest must:
 - include `source_access` in the runtime desired-state hash and Docker inspect
   reconciliation;
 - observe later host changes and changes made through the same-root read-write
-  Workspace Manifest.
+  Workspace Template.
 
 The last observation proves a live direct bind, not a snapshot or filesystem-
-integrity boundary. Neither Workspace Manifest is allowed to mutate the other's home,
+integrity boundary. Neither Workspace Template is allowed to mutate the other's home,
 network, or policy state. Native credentials follow the owning Workspace home.
 
-## Workspace Manifest policy matrix
+## Workspace Template policy matrix
 
-Inspect and bind the immutable Workspace Manifest policy snapshot and its complete method
+Inspect and bind the immutable Workspace Template policy snapshot and its complete method
 default/override set. The fixed agent-ready baseline is part of the trusted
-binary's default Workspace Manifest policy, not a selectable profile.
+binary's default Workspace Template policy, not a selectable profile.
 
 - `builtin/agent-ready`: the pinned Claude/Codex native matrix, GitHub CLI
   device-auth bootstrap, TWG CLI 1.2.5 auth/site/manifest lifecycle, and pup
@@ -214,17 +217,17 @@ binary's default Workspace Manifest policy, not a selectable profile.
   candidate, a different tool does not reuse it, and arguments/canaries never
   appear in OPA input, audit, denial, or stored policy. Downloads, acquisition,
   file transfer, self-update, unrelated paths, and third-party destinations
-  remain denied or reviewable. Prove grants apply by Workspace Manifest semantic identity,
+  remain denied or reviewable. Prove grants apply by Workspace Template semantic identity,
   not executable name.
-- A deny-only Workspace Manifest produces terminal denials for every method and leaves the
+- A deny-only Workspace Template produces terminal denials for every method and leaves the
   review queue empty.
-- An exact-review Workspace Manifest sends eligible effects to exact review without
+- An exact-review Workspace Template sends eligible effects to exact review without
   granting immediate authority.
-- A GET-only Workspace Manifest uses default Deny with an exact-review `GET` override;
+- A GET-only Workspace Template uses default Deny with an exact-review `GET` override;
   `HEAD` and every non-GET remain terminal denials. Do not describe GET as safe
   or read-only.
-- A method-Allow Workspace Manifest still remains bounded by the destination ceiling and
-  exact Deny; Method Allow is Workspace Manifest-wide, not process identity.
+- A method-Allow Workspace Template still remains bounded by the destination ceiling and
+  exact Deny; Method Allow is Workspace Template-wide, not process identity.
 
 The native-login subset must include exactly:
 
@@ -251,7 +254,7 @@ The compile-time review bundles are exactly `claude_ready`, `codex_ready`,
 `gh_ready`, `twg_ready`, and `pup_ready`, coupled to the five reviewed client
 versions. TWG and pup remain custom-runtime-only and the bundles are not
 installation claims.
-Prove new normalized Workspace Manifest snapshots contain no readiness rule, legacy
+Prove new normalized Workspace Template snapshots contain no readiness rule, legacy
 agent-ready snapshots retain their exact bytes, aggregate generation removes
 every historical bundle form and projects only the current binary set, and no
 runtime bundle or executable selector exists. Prove the dedicated family
@@ -260,12 +263,12 @@ append-only contract revisions, and exactly one current contract per
 family. Prove the aggregate revision includes its
 effective expansion, an older active revision is reported invalid, and root
 entry returns exact `cluster up` recovery before Workspace mutation.
-Create Workspace Manifests with enabled and disabled readiness while varying the complete
-Workspace Manifest method policy. Enabled readiness is independent of any profile name,
+Create Workspace Templates with enabled and disabled readiness while varying the complete
+Workspace Template method policy. Enabled readiness is independent of any profile name,
 but destination ceilings and method Deny filter it, and exact Deny remains
-terminal. Prove every method uses its explicit override or the Workspace Manifest default,
+terminal. Prove every method uses its explicit override or the Workspace Template default,
 including an extension-method canary. Disabled readiness supplies no overlay.
-An omitted readiness value resolves to the default Workspace Manifest without
+An omitted readiness value resolves to the default Workspace Template without
 rewriting the stored policy snapshot. For GitHub,
 neighboring methods, paths, query variants,
 GitHub API hosts, ordinary HTTP at `/graphql`, mutation, sibling or mixed roots,
@@ -301,15 +304,15 @@ telemetry, revoke, and neighboring OAuth effects receive no baseline grant.
 For each terminal denial, record zero permission candidates, external DNS
 lookups, and upstream attempts. Repeat with a learned
 exact allow, baseline grant, and Advanced Rego allow that would otherwise match;
-none may bypass the Workspace Manifest policy ceiling.
+none may bypass the Workspace Template policy ceiling.
 
-Workspace Manifest-policy tests use strict owner-only schema-V1 data. Reject unknown fields,
+Workspace Template-policy tests use strict owner-only schema-V1 data. Reject unknown fields,
 wildcards, IP/private destinations, secrets, shell, Rego, include, inheritance,
 remote fetch, refresh, signing, symlinks, unsafe modes, duplicate keys, and
-ambiguous rules. Workspace Manifest creation normalizes, validates, digests, and snapshots
-the Workspace Manifest policy. Editing policy source afterward must not change the existing
-Workspace Manifest report or active policy ceiling. Updating the trusted binary must update only
-the native-readiness overlay of existing enabled Workspace Manifests without rewriting
+ambiguous rules. Workspace Template creation normalizes, validates, digests, and snapshots
+the Workspace Template policy. Editing policy source afterward must not change the existing
+Workspace Template report or active policy ceiling. Updating the trusted binary must update only
+the native-readiness overlay of existing enabled Workspace Templates without rewriting
 their snapshot.
 
 For typed Workspace bootstrap, use only synthetic host homes. Prove the AWS
@@ -319,7 +322,7 @@ sessions, exposes typed available/unavailable candidates, and rejects unknown
 keys, helpers, duplicates,
 symlinks, unsafe modes, oversized input, credentials, and cache material. A new
 Workspace must receive exact owner-only canonical `.aws/config` bytes and an
-applied revision before publication. After a semantic Workspace Manifest refresh, prove
+applied revision before publication. After a semantic Workspace Template refresh, prove
 the existing file is byte-identical and reports `older`, while a newly created
 Workspace receives the new revision. For the dependent EKS adapter, prove one
 explicit context in fixed `~/.kube/config` resolves only an inline CA,
@@ -336,7 +339,7 @@ Create must revalidate the selected profile/session/EKS semantic bundle, return
 the draft to review on selected-source drift, and ignore unrelated profile
 changes. The ordinary no-bootstrap path performs no host configuration read.
 Workspace receives the new revision and reports `current`. A staged refresh
-whose source changes before Apply must make zero Workspace Manifest and Workspace writes.
+whose source changes before Apply must make zero Workspace Template and Workspace writes.
 
 The canonical contributor base must run `claude --version` as 2.1.220,
 `codex --version` as 0.147.0, and `gh --version` as 2.96.0 after replacing
@@ -366,7 +369,7 @@ Tobari reserves no `Ctrl+]` or other child-input shortcut. In that terminal:
    while a second
    compatible distinct HTTP path produces one typed `/path/{id}` proposal.
 2. Stage exact Allow and Deny directly from the list, clear or overwrite one,
-   and prove no mutation occurs. Inspect the Workspace Manifest/project/effect detail. Prove the proposal states that
+   and prove no mutation occurs. Inspect the Context/effect detail. Prove the proposal states that
    future single-segment values are included and offers Allow template, Allow
    observed exact, and Deny pending exact. Staging grants nothing.
 3. Refresh and prove decisions remain bound by typed review-item ID, never by label,
@@ -378,7 +381,7 @@ Tobari reserves no `Ctrl+]` or other child-input shortcut. In that terminal:
    to default deny and becomes reviewable again.
 
 Machine replay uses `policy candidates`, `policy allow --id`, `policy deny
---id`, and `policy reset --id`. The ordinary identity is exact Workspace Manifest,
+--id`, and `policy reset --id`. The ordinary identity is exact Workspace Template,
 project, scheme, host, port, method, and raw path; GraphQL adds operation type
 and root field. Query, headers, body, and repeated identical observation count do
 not widen authority. Prefix rules, compaction commands/references/state, and
@@ -420,7 +423,7 @@ and prove the OAuth client remains exact while scopes cannot exceed the reviewed
 ceiling.
 Prove the host listener exists only for that login, relays one opaque callback
 to the selected Workspace's same port, and closes on success, failure, or
-session exit. The exact allow is shared by every process in the Workspace Manifest; the
+session exit. The exact allow is shared by every process in the Workspace Template; the
 test must not infer authority from the `codex` executable name.
 
 For GitHub CLI 2.96.0, exercise the preferred GitHub.com HTTPS device-login path
@@ -506,9 +509,9 @@ fixtures, and secret canaries. It proves:
   login drivers, and explicit provider selection remains deterministic; the
   research matrix accepts its two methods;
 - fixed purpose-limited GitHub/AWS/pup/Codex/Claude argv, canonical executable
-  digest checks, selected-Workspace Manifest image binding for pup and Claude, private
+  digest checks, selected-Workspace Template image binding for pup and Claude, private
   homes/PTY where declared, bounded browser targets, and checked cleanup;
-- per-project handles bound to Workspace Manifest/provider/revision/target/header;
+- per-project handles bound to Workspace Template/provider/revision/target/header;
 - direct bearer/raw credentials and direct AWS signatures at declared bindings
   fail as `broker_auth_required` with zero fallback, Broker, OPA, DNS, or
   upstream calls, while one undeclared binding retains compatibility passthrough;
@@ -527,7 +530,7 @@ fixtures, and secret canaries. It proves:
 - rotation, logout, revocation, Workspace re-entry, and no invalid-handle
   passthrough fallback;
 - secret-free logs/output and canonical/embedded source equality;
-- absence of managed profiles/state, manifest-selected executable helpers,
+- absence of managed profiles/state, runtime-selected executable helpers,
   arbitrary provider routes, compatibility readers, and provider CLIs inside
   the Broker image.
 
@@ -544,13 +547,15 @@ and Broker runtime are absent from standard archives. The optional GitHub slice
 is:
 
 ```sh
-bin/tobari-research auth login --provider github --manifest default
-bin/tobari-research auth status --manifest default --format json
-# Re-enter the default Workspace Manifest's Workspace.
+bin/tobari-research context list --format json
+# Pass one returned opaque Context reference unchanged as CONTEXT_REF.
+bin/tobari-research auth login --context "$CONTEXT_REF" --provider github
+bin/tobari-research auth status --context "$CONTEXT_REF" --format json
+# Re-enter that exact Context's Workspace.
 case "${GH_TOKEN-}" in tobari-h1_*) ;; *) exit 1 ;; esac
 test "$(gh auth token --hostname github.com)" = "$GH_TOKEN"
 gh api user --jq .login >/dev/null
-bin/tobari-research auth logout github --manifest default --format json
+bin/tobari-research auth logout github --context "$CONTEXT_REF" --format json
 ```
 
 The equality assertion proves `gh auth token` returns the projected handle, not
@@ -561,10 +566,10 @@ response, or raw transcript.
 
 Using `task build:dev` (`bin/tobari-research`), replay the AWS Identity Center
 and console methods. With the release-surface binary, prove the `auth` namespace is
-absent. Then replay selected-Workspace Manifest-runtime
+absent. Then replay selected-Workspace Template-runtime
 Datadog pup flow and localhost stdin relay, the
 contract-checked host Codex native browser/loopback flow, the separately pinned Workspace Codex
-handle projection, isolated Workspace Manifest-runtime Claude Code 2.1.220 native login
+handle projection, isolated Workspace Template-runtime Claude Code 2.1.220 native login
 and handle-only credential-file projection, and Chatwork stdin
 import separately. Record only command/observed-version, pass/fail, and secret-free
 state/revision metadata; never store provider responses or credential state.
@@ -572,36 +577,18 @@ When the host Codex version has advanced, also verify its official source still
 matches the compiled refresh client identity and replay one near-expiry refresh
 without recording tokens, account identifiers, or raw transcripts.
 
-## Enumerated predecessor migration
+## Pre-release predecessor guard
 
-Using the synthetic predecessor fixture, run `tobari doctor --format json` and
-verify the failed Workspace Manifest row names exact recovery `migrate apply`; dependent
-rows must be blocked by Workspace Manifest. Then run:
-
-```sh
-tobari help migrate apply --format agent
-tobari migrate apply --format json
-tobari doctor --format json
-tobari migrate apply --format json
-```
-
-The first mutation must report the complete Workspace Manifest collection, a
-secret-free recovery ID, retained Workspace Manifest IDs and default selection, `standard` for the
-standard predecessor, and an exact `legacy-NAME@ORDINAL` binding for a custom
-Dockerfile predecessor, plus only the bounded
-`research_auth_disposition: reauthentication_required` when predecessor
-research state exists. The second invocation must report `changed: false` and
-no recovery ID. Compare standard Workspace-home/native-auth, learned-rule,
-Workspace state, and Runtime canaries byte-for-byte. Verify research filesystem
-authority is quarantined and old-reader handle resolution fails without reading
-macOS Keychain; on Linux verify root-key bytes move and restore with the set.
-Exercise every transaction phase to prove full predecessor resolution before
-the central state move and zero resolution afterwards, plus resume and exact
-rollback/fresh-state refusal. Replay unknown/mixed/partial/corrupt,
-duplicate-key, unsafe-mode, symlink, digest-drift, and Runtime-conflict
-fixtures and require zero final-state publication. Do not record a real
-Workspace home, credential, Keychain fact, quarantine path, or private Runtime
-source as evidence.
+Using synthetic fixed-path predecessor fixtures, run `tobari doctor --format
+json` and each ordinary final-authority read. Verify absent legacy plus absent
+final authority is a zero-write empty result, while any known, unknown, mixed,
+partial, corrupt, unsafe-mode, symlinked, or changing predecessor presence
+fails closed before lock, final-envelope, Docker, OPA, Gateway, principal,
+Workspace, or research Broker mutation. The recovery is reset or recreation of
+the unpublished development installation outside Tobari; no public migration,
+decoder, quarantine, rollback, or cleanup command exists. Tests must prove the
+guard never reads predecessor contents or records a real Workspace home,
+credential, Keychain fact, private path, or Runtime source.
 
 ## Publication checkpoint
 

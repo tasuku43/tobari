@@ -6,7 +6,7 @@ description: Workspace から Gateway、OPA、必要な認証処理、外部の�
 import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 import SystemMap from "../../../../components/SystemMap.astro";
 
-Workspace から送られた HTTP/HTTPS リクエストは、外部の接続先へ到達する前に Gateway へ入ります。Gateway はカーネルが観測した Workspace の送信元エンドポイントと、ホスト管理のスキーマ 1 登録簿から Workspace Manifest とプロジェクトを特定して、信頼済みの principal メタデータを作ります。リクエスト本文と agent CLI のログイン値は OPA へ送りません。
+Workspace から送られた HTTP/HTTPS リクエストは、外部の接続先へ到達する前に Gateway へ入ります。Gateway はカーネルが観測した Workspace の送信元エンドポイントと、ホスト管理のスキーマ 1 登録簿から Workspace Template とプロジェクトを特定して、信頼済みの principal メタデータを作ります。リクエスト本文と agent CLI のログイン値は OPA へ送りません。
 
 OPA が拒否した場合や判断結果が不正な場合、Gateway は接続先へ接続せず、ローカルで処理を終了します。DNS 名前解決、接続先への接続、本文の転送は、許可後に限って実行します。この順序により、ポリシーによる拒否、判断処理の障害、接続先の障害を区別できます。
 
@@ -32,15 +32,15 @@ Docker の上限付きリゾルバーが Gateway の合成 DNS へ転送し、�
 
 この時点では、リクエストの内容を信頼しません。プロジェクトを名乗るヘッダーも、信頼できるプリンシパルにはなりません。
 
-### 2. Workspace Manifest とプロジェクトを特定する
+### 2. Workspace Template とプロジェクトを特定する
 
-Gateway は、カーネルが観測した Workspace の送信元エンドポイントを読み取り、ホスト管理のスキーマ 1 プリンシパル登録簿で照合します。その結果から、安定した `workspace_manifest_id` と `project_id` を得ます。結び付きが欠落、未知、古い、安全でない、または曖昧な場合は、OPA へ問い合わせる前に停止します。
+Gateway は kernel-observed Workspace source endpoint を host-owned schema-1 principal registry で照合します。検証済み Context ID と Workspace ID は frozen private-wire field `workspace_template_id` と `project_id` に投影します。これらは public alias ではありません。binding が欠落、未知、古い、安全でない、または曖昧なら OPA より前に停止します。
 
 ### 3. 本文を含まない判断入力を作る
 
 Gateway はスキーマ 1 の入力を、固定の OPA エンドポイント一つへ POST します。内容は次のとおりです。
 
-- 登録簿から導出したクラスター、Workspace Manifest ID、プロジェクト ID
+- registry から導出した cluster、Context ID、Workspace ID
 - 正規化したスキーム、末尾のドットを除いた小文字のホスト、ポート
 - 大文字のメソッド
 - 生のパスと、デコード済みのパス区間
@@ -74,7 +74,7 @@ OPA が判断し、Gateway がその判断を通信経路へ強制します。
 
 ### 6. 結果を記録する
 
-拒否は即座にログへ記録します。許可したリクエストは、レスポンスまたは接続エラーの後に記録します。監査スキーマ 1 には、Workspace Manifest／プロジェクトの識別情報を含む principal メタデータ、接続先、メソッド、秘匿化したパス、判断、理由、状態、処理時間が含まれます。クエリー、認証・cookie ヘッダーの値、本文、ログイン値は含まれません。
+拒否は即座にログへ記録します。許可したリクエストは、レスポンスまたは接続エラーの後に記録します。監査スキーマ 1 には、Workspace Template／プロジェクトの識別情報を含む principal メタデータ、接続先、メソッド、秘匿化したパス、判断、理由、状態、処理時間が含まれます。クエリー、認証・cookie ヘッダーの値、本文、ログイン値は含まれません。
 
 ## 具体例：本文だけが異なる
 
@@ -88,7 +88,7 @@ Content-Type: application/json
 {"state":"ready"}
 ```
 
-後で、同じ Workspace Manifest、プロジェクト、ホスト、ポート、メソッド、パスに `{"state":"deleted"}` を送ります。
+後で、同じ Workspace Template、プロジェクト、ホスト、ポート、メソッド、パスに `{"state":"deleted"}` を送ります。
 
 アプリケーション上の意味は大きく異なりますが、Tobari では同じ完全一致のポリシー識別情報です。本文の違いから二つ目のレビュー候補や、より狭いルールは作りません。経路が許可されていれば、どちらの本文も送れます。レビューする人は送信内容の検査を前提にせず、その経路で可能になる操作全体を評価する必要があります。
 
@@ -125,7 +125,7 @@ denial/review 情報は secret-free です。
 
 ## まとめ
 
-Workspace Manifest/project は登録済みで kernel-observed な Workspace source endpoint から特定します。OPA は
+Context/Workspace は登録済みで kernel-observed な Workspace source endpoint から特定します。OPA は
 body-free normalized input を一度受け取って判断します。deny は Gateway 内で停止します。secret を
 扱う Authentication 操作、real destination DNS、upstream connection は allow 後だけです。body は
 allow 後に stream します。
@@ -141,7 +141,7 @@ Gateway と OPA の責任を逆にせず、許可されるリクエストと拒�
   </summary>
   OPA
   入力には複数値を保持したクエリーが含まれます。現在の完全一致候補とルールの識別情報にクエリーは含まれず、Workspace
-  Manifest、プロジェクト、ホスト、ポート、メソッド、パスで決まります。
+  Workspace Template、プロジェクト、ホスト、ポート、メソッド、パスで決まります。
 </details>
 
 <details>

@@ -210,7 +210,7 @@ func TestRuntimeDeleteHumanOutputStatesAuthorityLossAndPreservation(t *testing.T
 	if code := command.RunContext(context.Background(), []string{"runtime", "delete", "--id", fake.result.RuntimeRef, "--confirm=delete"}); code != ExitOK {
 		t.Fatalf("Runtime delete code = %d, stderr = %q", code, stderr.String())
 	}
-	for _, want := range []string{"Delete Runtime " + fake.result.Name, fake.result.RuntimeRef, "Editable source", "removed", "Immutable snapshots", "Revision history", "Reclaimed bytes", "unknown", "Workspace Manifests", "Workspaces", "applied receipts", "Project roots"} {
+	for _, want := range []string{"Delete Runtime " + fake.result.Name, fake.result.RuntimeRef, "Editable source", "removed", "Immutable snapshots", "Revision history", "Reclaimed bytes", "unknown", "Workspace Templates", "Contexts", "Workspaces", "applied receipts", "Project roots"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("human Runtime delete omitted %q: %q", want, stdout.String())
 		}

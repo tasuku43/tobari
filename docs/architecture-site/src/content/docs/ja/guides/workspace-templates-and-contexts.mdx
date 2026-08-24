@@ -1,0 +1,95 @@
+---
+title: Workspace Template と Context
+description: レビュー済みの設定を再利用し、ContextでProjectへ結び付け、置換可能なWorkspaceへ入ります。
+---
+
+**Workspace Template** はインストール内で再利用する設定です。
+**Context** はcanonical Project rootとTemplateを結び付け、そのProjectの
+Policy Memory（記憶した判断）を所有します。**Workspace** はContextに属する
+置換可能な実行環境と永続homeです。
+
+## Templateを発見する
+
+```sh
+tobari template list --format json
+tobari template show --name review --format json
+```
+
+名前は読み取り専用の発見表示です。変更操作には発見結果のopaque referenceを
+そのまま渡します。
+
+## 作成またはcopy
+
+```sh
+tobari template create --name review
+tobari template show --name default --format json
+tobari template copy --from TEMPLATE_REVISION_REF --name review
+```
+
+copyはfresh Template identityとgeneration 1を作ります。Context、Policy
+Memory、Workspace、home、credential、attachment、applied state、default
+selection、lineageはcopyしません。
+
+## インストールのdefaultを選ぶ
+
+```sh
+tobari template list --format json
+tobari template default set --id TEMPLATE_REF
+```
+
+default selectionが影響するのはbare root entryとbare `status`だけです。
+既存ContextやWorkspaceを付け替えません。
+
+## Projectへ結び付けて入る
+
+Project rootから実行します。
+
+```sh
+tobari context create --template TEMPLATE_REF
+tobari context enter --id CONTEXT_REF
+```
+
+通常のdefault作業ではbare `tobari`がdefault Template/Context pairを作成
+または再利用し、Workspaceへ入ります。非defaultでは`context list`または
+`context show`が返したContext referenceを変更せず`context enter`へ渡します。
+
+```sh
+tobari context list --format json
+tobari context show --id CONTEXT_REF --format json
+tobari context enter --id CONTEXT_REF -- codex exec ...
+```
+
+## exact Templateを設定する
+
+```sh
+tobari config shell --id TEMPLATE_REF --variable PS1 --source inherit
+tobari config git --id TEMPLATE_REF --source inherit
+tobari config bootstrap aws --id TEMPLATE_REF --profile example
+tobari template runtime set --id TEMPLATE_REF --runtime RUNTIME_REVISION_REF
+```
+
+これらは完全なimmutable Template revisionを発行します。Runtimeとsession
+defaultは後続のentry/session境界、bootstrapは新しいWorkspace homeにだけ
+適用されます。
+
+## 観察と削除
+
+bare `status`はmutationを行わないCWD homeです。
+
+```sh
+tobari status --format json
+```
+
+非default resourceはexact referenceを使います。
+
+```sh
+tobari workspace status --id WORKSPACE_REF --format json
+tobari workspace delete --id WORKSPACE_REF --confirm=delete
+tobari context delete --id CONTEXT_REF --confirm=delete
+tobari template delete --id TEMPLATE_REF --confirm=delete
+```
+
+Workspace削除はhomeとnative credentialを削除しますがContext Policy Memoryを
+保持します。Context削除にはWorkspace、attachment、research credentialが
+残っていないこと、Template削除にはdefault selectionでもContext参照先でも
+ないことが必要です。

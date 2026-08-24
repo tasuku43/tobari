@@ -116,7 +116,7 @@ func renderRuntimeDelete(path string, result tobari.RuntimeDeleteResult, format 
 	writeContextCardValue(&output, color, "Removed exact tags", fmt.Sprintf("%d", result.RemovedTagCount), styleText)
 	writeContextCardValue(&output, color, "Reclaimed bytes", "unknown", styleWarning)
 	writeContextCardValue(&output, color, "Receipt revision", fmt.Sprintf("%d", result.ReceiptRevision), styleText)
-	writeContextCardValue(&output, color, "Preserved", "Workspace Manifests · Workspaces · IDs · homes · applied receipts · Project roots · credentials · shared resources", styleAccent)
+	writeContextCardValue(&output, color, "Preserved", "Workspace Templates · Contexts · Workspaces · IDs · homes · applied receipts · Project roots · credentials · shared resources", styleAccent)
 	return []byte(output.String()), nil
 }
 
@@ -174,7 +174,7 @@ func runtimeDeleteOutput() CommandOutput {
 			{Name: "removed_tag_count", Type: OutputFieldTypeInteger, Description: "Total exact Tobari-owned tag removals."},
 			{Name: "reclaimed_bytes", Type: OutputFieldTypeInteger, Description: "Authoritative reclaimed bytes; always null in V1.", Nullable: true},
 			{Name: "receipt_revision", Type: OutputFieldTypeInteger, Description: "Durable idempotency receipt revision."},
-			{Name: "workspace_manifests_preserved", Type: OutputFieldTypeBoolean, Description: "Always true: no Workspace Manifest was deleted or rewritten."},
+			{Name: "workspace_manifests_preserved", Type: OutputFieldTypeBoolean, Description: "Legacy-named field retained by the unchanged Runtime schema; always true because no Workspace Template, Context, or Workspace was deleted or rewritten."},
 			{Name: "workspaces_preserved", Type: OutputFieldTypeBoolean, Description: "Always true: no Workspace was deleted or rewritten."},
 			{Name: "workspace_ids_preserved", Type: OutputFieldTypeBoolean, Description: "Always true: no workspace_id was deleted or rewritten."},
 			{Name: "workspace_homes_preserved", Type: OutputFieldTypeBoolean, Description: "Always true: no Workspace home was deleted or rewritten."},

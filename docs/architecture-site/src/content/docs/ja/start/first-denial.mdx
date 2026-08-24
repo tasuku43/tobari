@@ -14,7 +14,7 @@ import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 
 ## 拒否を時間順に追う
 
-1. Gateway は、カーネルが観測した Workspace の送信元エンドポイントと、ホストが管理するスキーマ 1 プリンシパル登録簿から Workspace Manifest とプロジェクトを特定します。
+1. Gateway は、カーネルが観測した Workspace の送信元エンドポイントと、ホストが管理するスキーマ 1 プリンシパル登録簿から Workspace Template とプロジェクトを特定します。
 2. リクエスト本文を含まない形に正規化したポリシー入力を作り、OPA へ一度問い合わせます。
 3. OPA は、一致する許可ルールがない通信を拒否します。
 4. Gateway は元のログイン値を転送せず、OPA の許可前に宛先の DNS 解決や接続先への接続を開始しません。
@@ -35,7 +35,7 @@ import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 tobari review permissions
 ```
 
-対話型ターミナルでは、保留中の通信を確認し、一つの Workspace Manifest に対する完全一致の判断を準備します。一式をレビューした後に一度だけ **Apply** を押してください。Apply 前にキャンセルすると何も変わりません。出力をリダイレクトした場合、レビューは読み取り専用です。
+対話型ターミナルでは、保留中の通信を確認し、一つの Workspace Template に対する完全一致の判断を準備します。一式をレビューした後に一度だけ **Apply** を押してください。Apply 前にキャンセルすると何も変わりません。出力をリダイレクトした場合、レビューは読み取り専用です。
 
 ```sh
 tobari review permissions --format json
@@ -55,8 +55,8 @@ tobari policy deny --id <pcy-id>
 
 学習済みルールは次に結び付きます。
 
-- 安定した Workspace Manifest ID
-- ホストが発行したプロジェクト ID
+- 安定した Workspace Template ID
+- ホストが発行した Context ID と Workspace ID
 - スキーム
 - 宛先ホストとポート
 - HTTP メソッド

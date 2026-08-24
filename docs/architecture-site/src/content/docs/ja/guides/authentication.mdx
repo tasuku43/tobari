@@ -28,7 +28,7 @@ aws sso login --profile your-profile
 
 Claude Code と Codex はローカルでビルドされる agent-ready base に含まれます。
 ネイティブ認証状態はその Workspace の永続 home に保存されます。`exit` や
-container 再作成後も残り、別の Workspace とは共有されず、`tobari delete` で
+container 再作成後も残り、別の Workspace とは共有されず、`tobari workspace delete --id WORKSPACE_REF --confirm=delete` で
 削除されます。
 
 Tobari は host home、host CLI のログイン状態、Keychain、SSH agent、認証用
@@ -39,15 +39,15 @@ Tobari は host home、host CLI のログイン状態、Keychain、SSH agent、�
 同じ Workspace 内の全プロセスは、その Workspace の認証情報を読めます。
 Gateway はどの実行ファイルが認証情報を作成・利用したかを推測しません。
 
-1. Gateway が host 所有の Workspace Manifest/project principal を導出します。
+1. Gateway が host 所有の Context/Workspace principal を導出します。
 2. 認証情報と cookie を OPA input と audit から除外します。
 3. OPA が scheme、host、port、method、path の正確な effect を判断します。
 4. deny では認証情報もリクエストも upstream に到達しません。
 5. allow 後だけ元の header を一度の upstream 試行へ渡します。
 
 固定の agent-ready compatibility baseline は Claude/Codex のログイン、アカウント、model、core の
-有限な exact effect を含みます。native readiness が enabled の Workspace Manifest に
-trusted binary が適用します。これは Workspace Manifest 全体の HTTP 権限であり、
+有限な exact effect を含みます。native readiness が enabled の Workspace Template に
+trusted binary が適用します。これは Workspace Template 全体の HTTP 権限であり、
 実行ファイルの identity ではありません。plugin、connector、MCP、download、
 未定義 route は引き続き deny または review 対象です。
 
@@ -79,7 +79,7 @@ Workspace へ bridge します。PKCE、token exchange、cache は引き続き A
 
 ## ログイン通信が deny された場合
 
-Workspace Manifest policy の外側にある effect は、別の trusted-host terminal から通常の permission loop で
+Workspace Template policy の外側にある effect は、別の trusted-host terminal から通常の permission loop で
 扱います。
 
 ```sh

@@ -111,7 +111,7 @@ export const diagramLayouts: Record<string, DiagramLayout> = {
       upstream: { x: 970, y: 310 },
     },
   },
-  "workspace-manifest-workspace-cluster": {
+  "workspace-template-context-workspace-cluster": {
     width: 1100,
     height: 650,
     mode: "relationship",

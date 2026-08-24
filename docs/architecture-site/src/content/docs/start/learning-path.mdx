@@ -13,7 +13,7 @@ Start with the default setup. First experience the policy loop, then make the ru
 2. **Make it useful:** add the coding agent and project toolchain, then authenticate them.
 3. **Understand the mechanism:** follow one HTTP/HTTPS request and the policy loop in detail.
 4. **Understand the boundary:** learn credential paths, guarantees, failure behavior, and recovery.
-5. **Split configurations when needed:** learn Workspace Manifests, alternate runtimes, and stricter policy only after the default workflow is familiar.
+5. **Split configurations when needed:** learn Workspace Templates, alternate runtimes, and stricter policy only after the default workflow is familiar.
 
 ## Recommended eleven-step route
 
@@ -65,13 +65,13 @@ This is where you expand from "I can use it" to "I can explain what it guarantee
 
 Read [Workspace lifecycle](../../how-it-works/workspace-lifecycle/), [State and recovery](../../how-it-works/state-and-recovery/), and [Troubleshooting](../../guides/troubleshooting/). Distinguish shell exit, work-container replacement, Workspace deletion, service failure, and cluster cleanup.
 
-### 10. Learn Workspace Manifests only when you need separate configurations
+### 10. Learn Workspace Templates only when you need separate configurations
 
 If one default setup is enough, you can postpone this step.
 
-Read [Workspace Manifests and separate configurations](../../guides/workspace-manifests/) when you need different runtimes, authentication sets, or policy modes for different jobs. Then use [Workspace, Workspace Manifest, cluster](../../how-it-works/workspace-manifest-workspace-cluster/), [Runtime customization details](../../guides/runtime-customization/), and [Advanced policy](../../guides/advanced-policy/) for the exact behavior.
+Read [Workspace Templates and separate configurations](../../guides/workspace-templates-and-contexts/) when you need different runtimes, authentication sets, or policy modes for different jobs. Then use [Workspace, Workspace Template, cluster](../../how-it-works/workspace-template-context-workspace-cluster/), [Runtime customization details](../../guides/runtime-customization/), and [Advanced policy](../../guides/advanced-policy/) for the exact behavior.
 
-Workspace Manifest is introduced here deliberately. It solves a real need once you have more than one configuration; it is not prerequisite knowledge for the first successful run.
+Workspace Template is introduced here deliberately. It solves a real need once you have more than one configuration; it is not prerequisite knowledge for the first successful run.
 
 ### 11. Check your understanding
 

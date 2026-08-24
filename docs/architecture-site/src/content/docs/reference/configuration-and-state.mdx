@@ -8,10 +8,10 @@ shared read-only projections, Docker resources, and selected project files to
 their owners and lifetimes. A runtime container is not the source of truth for
 a Workspace.
 
-Use the operation table to determine what survives `exit`, `delete`, `cluster
+Use the operation table to determine what survives `exit`, `workspace delete`, `cluster
 down`, `cluster down --purge`, credential replacement, and runtime rebuild. For
-the ownership model behind these paths, read [Workspace, Workspace Manifest, and
-cluster](/how-it-works/workspace-manifest-workspace-cluster/) first.
+the ownership model behind these paths, read [Workspace, Workspace Template, and
+cluster](/how-it-works/workspace-template-context-workspace-cluster/) first.
 
 ## The three host roots
 
@@ -27,40 +27,39 @@ These are protected host paths. Tobari rejects a project root that overlaps
 them. Files described as owner-only are also checked for unsafe symlinks,
 unexpected file type, ownership, or permissive modes before use.
 
-## Host-owned configuration
+## Host-owned authority
 
-| Path below the configuration root                            | Contract and meaning                                                                                                                                                                                       |
-| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `contexts/default.json`                                      | **Stored default-selector schema 2.** It retains the exact default `workspace_manifest_id`; it is omission behavior, not request authority.                                                                |
-| `contexts/<name>/context.json`                               | **Stored Workspace Manifest schema 2.** It holds stable identity, desired revision/generation, Boundary facts, exact Runtime binding, shell/Git session defaults, and future-Workspace bootstrap defaults. |
-| `contexts/<name>/revisions/<generation>-<digest>.json`       | Immutable retained Manifest receipt. The path distinguishes A→B→A history; authority remains WorkspaceManifestID plus semantic digest, never generation alone.                                             |
-| `runtimes/<name>/runtime.json`                               | Stable Runtime ID, unique name, source path, and append-only successful revision history.                                                                                                                  |
-| `runtimes/<name>/source/`                                    | Owner-only mutable complete Docker build source created by `runtime create`. Editing it changes no revision or Workspace Manifest.                                                                         |
-| `runtimes/<name>/revisions/<digest>/`                        | Immutable source snapshot used as the exact Docker build context for one successful semantic revision.                                                                                                     |
-| `contexts/<name>/policy/domains/<canonical-host>/allow.json` | Strict schema-1 authority, per-host methods, GraphQL endpoints, credential host bindings, and learned Allows for one canonical lower-case host.                                                            |
-| `contexts/<name>/policy/domains/<canonical-host>/deny.json`  | Strict schema-1 baseline and learned exact Denies for the same host. Every embedded host must match the directory.                                                                                         |
-| `contexts/<name>/policy/tobari.rego` and `tobari_test.rego`  | Present for Advanced policy. Guided policy uses the reviewed embedded evaluator.                                                                                                                           |
-| `principal-registry/principals.json`                         | Host-issued principal registry schema 1 with exact Workspace/Gateway endpoints, mounted read-only into Gateway by directory.                                                                               |
+The final pre-release model stores one owner-only, atomically published
+authority envelope at
+`${XDG_STATE_HOME:-$HOME/.local/state}/tobari/workspace-authority/authority.json`.
+It contains schema-1 Workspace Templates, Contexts and Policy Memory,
+schema-3 Workspaces, retained Template receipts, and the optional default
+Template selection. A Template's content authority is exact Template ID plus
+semantic digest; Policy Memory authority is exact Context ID plus its semantic
+digest. Generation is correlation only.
 
-Do not confuse the stored Manifest with public output. `manifest show` and
-other Manifest-result commands emit **public Workspace Manifest report schema
-2**. That report is a task-owned, secret-free projection whose version changes
-independently from the persisted document.
+The old configuration-root `contexts/`, root-index, and instance-state layouts
+are unsupported private predecessor state. A presence-only guard rejects them
+before final publication; ordinary readers never decode, adopt, migrate, or
+delete their bytes. Public `template`, `context`, and `workspace` reports are
+task-owned secret-free schema-1 projections; bare `status` is schema 3.
+
+Managed Runtime source and retained snapshots remain in the installation
+Runtime catalog. Editing source changes no immutable Runtime revision or
+Workspace Template. `runtime build --id RUNTIME_REF` is the only build boundary.
 
 ## Durable runtime state
 
-| Path below the state root         | Contract and lifetime                                                                                                                                                        |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `roots/<hash>.json`               | Root index schema 2. The hash binds canonical project root and stable Workspace Manifest ID to one Workspace ID.                                                             |
-| `instances/<id>/state.json`       | Workspace instance schema 2: permanent Manifest binding, desired next entry, last successful AppliedEntry, failure/adoption state, and read-only runtime observation inputs. |
-| `instances/<id>/home`             | Independent writable Workspace home for agent-native login and tool configuration. It survives exit and container recreation; `delete` removes it.                           |
-| `state.json`                      | Shared cluster state schema 1. It records aggregate revision and shared resource identity, never credential contents or one active Workspace Manifest authority.             |
-| `cluster-projections/<revision>/` | Content-addressed, complete policy projection. OPA receives its policy directory read-only.                                                                                  |
-| `runtime/`                        | Host-owned Gateway runtime directory. Runtime sockets are recreated with services; they are not durable credentials.                                                         |
-| `runtime/<asset-revision>/`       | Materialized embedded Compose, Gateway, OPA, and runtime assets.                                                                                                             |
-| journal files                     | Durable markers used to reconcile interrupted multi-step project, cluster, or policy-domain source mutations.                                                                |
+| Path below the state root                   | Contract and lifetime                                                                                                                                                            |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workspace-authority/authority.json`        | Complete atomic Template/Context/Policy-Memory/Workspace authority envelope.                                                                                                     |
+| Workspace home owned by the Workspace owner | Independent writable home for native login and tool configuration; it survives exit and recreation, and exact `workspace delete --id WORKSPACE_REF --confirm=delete` removes it. |
+| `state.json`                                | Shared cluster state and active aggregate receipts; never credential contents or desired authority.                                                                              |
+| `workspace-authority-policy/`               | Content-addressed complete policy projections and bounded activation receipt/journal state.                                                                                      |
+| `runtime/`                                  | Host-owned Gateway runtime directory; sockets are recreated with services and are not durable credentials.                                                                       |
+| `runtime/<asset-revision>/`                 | Materialized embedded Compose, Gateway, OPA, and runtime assets.                                                                                                                 |
 
-Workspace Manifest policy source consists only of the domain tree (plus Advanced Rego).
+Workspace Template policy source consists only of the domain tree (plus Advanced Rego).
 Tobari composes the domain files into an internal `data.json` only inside a generated immutable
 `cluster-projections/<revision>/` directory. Wildcards, IP literals,
 non-canonical hosts, host mismatches, unknown or duplicate fields, incomplete
@@ -80,40 +79,41 @@ service nor a Workspace mount.
 
 ## State outside Tobari's host roots
 
-The selected live project root is mounted according to immutable Workspace Manifest
+The selected live project root is mounted according to immutable Workspace Template
 `source_access`; CLI omission defaults to `read-write`. It belongs to the user,
 not to Workspace lifecycle. No Tobari delete or cluster command removes it.
 
 Docker holds runtime containers, networks, shared services, and Gateway CA
 volumes. Docker inspection is evidence about current runtime resources; it does
-not decide whether a logical Workspace exists. Root index and instance state do.
+not decide whether a logical Workspace exists. The validated final authority
+envelope does.
 
 ## What remains after each operation?
 
-| Operation                                | What changes                                                                                   | What remains                                                                                                                   |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Shell `exit` or child-command completion | Only the attached exec session ends.                                                           | Logical Workspace, work container, dedicated network, home, root index, project files, policy, and credentials.                |
-| `delete`                                 | Removes the exact detached Workspace container, network, root index, instance state, and home. | Project-root files, Workspace Manifest configuration/policy, cluster, Workspace state, host-owned state, and other Workspaces. |
-| `delete --force`                         | Performs the same deletion while overriding only the “attached exec exists” guard.             | It does not broaden the target or delete project-root files.                                                                   |
-| Container or project-network loss        | The next root entry reconciles the missing owned runtime resource.                             | Logical Workspace identity, Workspace Manifest binding, root index, instance state, home, and project files.                   |
-| `cluster down`                           | Requires no logical Workspace; removes shared containers and transient shared resources.       | Workspace Manifests, policies, Workspace homes, host-owned state, and Gateway CA volumes.                                      |
-| `cluster down --purge`                   | Also removes only the shared Gateway/public CA volumes.                                        | Workspace Manifests, policies, Workspace homes, and host-owned state.                                                          |
-| `runtime build --name NAME`              | Snapshots, builds, validates, and appends one immutable Runtime revision.                      | Every Workspace Manifest binding and Workspace remains unchanged; failed and unchanged builds append no revision.              |
-| `manifest runtime set --runtime NAME@N`  | Atomically replaces one Workspace Manifest's exact ready Runtime binding.                      | Existing Workspace identity, home, and current container until the next entry reconciles it.                                   |
+| Operation                                                               | What changes                                                                                   | What remains                                                                                                      |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Shell `exit` or child-command completion                                | Only the attached exec session ends.                                                           | Workspace, work container, dedicated network, home, Context, Policy Memory, project files, and credentials.       |
+| `workspace delete`                                                      | Removes the exact detached Workspace authority, container, network, home, and runtime records. | Project-root files, Context, Policy Memory, Workspace Template, cluster, host-owned state, and other Workspaces.  |
+| `workspace delete --id WORKSPACE_REF --confirm=delete --force`          | Performs the same deletion while overriding only the “attached exec exists” guard.             | It does not broaden the target or delete project-root files.                                                      |
+| Container or project-network loss                                       | The next root entry reconciles the missing owned runtime resource.                             | Workspace identity, Context binding, authority envelope, home, and project files.                                 |
+| `cluster down`                                                          | Requires no logical Workspace; removes shared containers and transient shared resources.       | Workspace Templates, policies, Workspace homes, host-owned state, and Gateway CA volumes.                         |
+| `cluster down --purge`                                                  | Also removes only the shared Gateway/public CA volumes.                                        | Workspace Templates, policies, Workspace homes, and host-owned state.                                             |
+| `runtime build --id RUNTIME_REF`                                        | Snapshots, builds, validates, and appends one immutable Runtime revision.                      | Every Workspace Template binding and Workspace remains unchanged; failed and unchanged builds append no revision. |
+| `template runtime set --id TEMPLATE_REF --runtime RUNTIME_REVISION_REF` | Atomically replaces one exact Workspace Template Runtime binding.                              | Existing Workspace identity, home, and current container until the next entry reconciles it.                      |
 
 The default official runtime is a local image built from the CLI's pinned
 embedded recipe when absent. A release-derived local tag identifies the recipe
 revision; it is not an immutable digest. A successful managed Runtime build
 records the inspected local image digest in installation-wide Runtime history;
-Workspace Manifests retain only their exact revision binding.
+Workspace Templates retain only their exact revision binding.
 
 ## Failure and recovery
 
 Tobari fails closed on ambiguous state:
 
-- A surviving root index without instance state is reported as `incomplete`.
-  Entry does not guess a replacement record; exact deletion is the cleanup
-  path.
+- An invalid authority envelope, contradictory Context/Workspace binding, or
+  unknown mutation outcome fails closed. Entry does not infer a replacement
+  record or delete reference from Docker state.
 - An interrupted project, cluster, or policy-domain source journal is
   reconciled under its lock before selection or mutation. Policy recovery
   accepts a staged domain generation only when its immutable aggregate
@@ -168,7 +168,7 @@ CLI remains their owner.
   <a
     href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/context_store.go`}
   >
-    Workspace Manifest store
+    Workspace Template store
   </a>
 - Authentication paths and schemas:
   <a
@@ -192,7 +192,7 @@ CLI remains their owner.
   <a
     href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/context_store_test.go`}
   >
-    Workspace Manifest persistence
+    Workspace Template persistence
   </a>
 
 ## Summary
@@ -215,7 +215,7 @@ volumes. Workspace home and host-owned lifecycle state remain.
 </details>
 
 <details>
-  <summary>Are the schema-1 Workspace Manifest manifest and schema-1 Workspace Manifest report the same contract?</summary>
+  <summary>Are the stored schema-1 Workspace Template record and the schema-1 public Template report the same contract?</summary>
 
 No. One is persisted host configuration; the other is the public, task-owned,
 secret-free CLI projection. Sharing V1 does not make them interchangeable.

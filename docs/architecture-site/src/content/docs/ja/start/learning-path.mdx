@@ -1,6 +1,6 @@
 ---
 title: 学習ガイド
-description: ポリシーの体験、実用ランタイム、認証、内部構造の順に学び、Workspace Manifest は設定を分ける必要が出てから導入します。
+description: ポリシーの体験、実用ランタイム、認証、内部構造の順に学び、Workspace Template は設定を分ける必要が出てから導入します。
 ---
 
 最初から Tobari のすべての概念を理解する必要はありません。まずは、新しく覚えることを最小限にしたまま、一連の作業を最後まで通せることを目標にします。
@@ -13,7 +13,7 @@ description: ポリシーの体験、実用ランタイム、認証、内部構�
 2. **実作業できる状態にする:** コーディングエージェントと開発ツールを追加し、必要な認証を設定する。
 3. **仕組みを理解する:** 一つの HTTP/HTTPS リクエストとポリシーレビューの処理順序を追う。
 4. **境界を理解する:** 認証情報の経路、保証、障害時の動作、復旧を確認する。
-5. **必要になったら設定を分ける:** 初期設定の流れに慣れてから、Workspace Manifest、別ランタイム、より厳格なポリシーへ進む。
+5. **必要になったら設定を分ける:** 初期設定の流れに慣れてから、Workspace Template、別ランタイム、より厳格なポリシーへ進む。
 
 ## 推奨する 11 ステップ
 
@@ -61,13 +61,13 @@ description: ポリシーの体験、実用ランタイム、認証、内部構�
 
 [Workspace のライフサイクル](../../how-it-works/workspace-lifecycle/)、[状態と復旧](../../how-it-works/state-and-recovery/)、[トラブルシューティング](../../guides/troubleshooting/)を読みます。シェル終了、作業コンテナの置き換え、Workspace の削除、サービス障害、クラスターの削除を区別します。
 
-### 10. 設定を分ける必要が出たら Workspace Manifest を学ぶ
+### 10. 設定を分ける必要が出たら Workspace Template を学ぶ
 
 初期設定一つで足りるなら、このステップは後回しにできます。
 
-用途ごとにランタイム、認証設定、ポリシーモードを分けたくなった段階で、[設定を分ける（Workspace Manifest）](../../guides/workspace-manifests/)を読みます。その後、[Workspace、Workspace Manifest、クラスター](../../how-it-works/workspace-manifest-workspace-cluster/)、[ランタイムの詳細設定](../../guides/runtime-customization/)、[高度なポリシー](../../guides/advanced-policy/)へ進みます。
+用途ごとにランタイム、認証設定、ポリシーモードを分けたくなった段階で、[設定を分ける（Workspace Template）](../../guides/workspace-templates-and-contexts/)を読みます。その後、[Workspace、Workspace Template、クラスター](../../how-it-works/workspace-template-context-workspace-cluster/)、[ランタイムの詳細設定](../../guides/runtime-customization/)、[高度なポリシー](../../guides/advanced-policy/)へ進みます。
 
-Workspace Manifest をここで初めて導入するのは意図的です。複数の設定を使い分ける必要が出たときに価値が分かる概念であり、最初の実行を成功させるための前提知識ではありません。
+Workspace Template をここで初めて導入するのは意図的です。複数の設定を使い分ける必要が出たときに価値が分かる概念であり、最初の実行を成功させるための前提知識ではありません。
 
 ### 11. 理解度を確認する
 

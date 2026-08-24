@@ -33,18 +33,18 @@ route, not another route. With Gateway unavailable, HTTP traffic fails.
 
 ## Claim 2: a Workspace cannot grant itself another project’s authority
 
-**Claim.** Request bytes cannot select a more privileged Workspace Manifest or project principal.
+**Claim.** Request bytes cannot select a more privileged Context or Workspace principal.
 
 **Preconditions.** The host lifecycle created a unique Workspace network binding and the principal registry remains intact.
 
 **Enforcement point.** Gateway looks up the kernel-observed Workspace source
 endpoint in the host-owned schema-1 principal registry and puts that
-Workspace Manifest/project identity into OPA input. Self-declared headers are ignored for
+Context/Workspace identity into OPA input. Self-declared headers are ignored for
 authority.
 
 **Failure behavior.** Unknown, malformed, duplicated, or stale bindings return `project_principal_unavailable` before OPA and upstream.
 
-**Limitation.** Two Workspace Manifests can intentionally mount the same or overlapping host roots. Their network, home, and policy principals differ, but file changes in the overlap are shared host effects.
+**Limitation.** Two Workspace Templates can intentionally mount the same or overlapping host roots. Their network, home, and policy principals differ, but file changes in the overlap are shared host effects.
 
 ## Claim 3: authorization failure does not become egress
 
@@ -56,7 +56,10 @@ authority.
 
 **Failure behavior.** Deny returns `policy_denied`; timeout, connection failure, non-200, oversize, malformed, or incomplete decision returns `policy_unavailable`. Neither opens upstream.
 
-**Limitation.** Current exact learned rules distinguish Workspace Manifest, project, host, port, method, and raw path. They do not distinguish body, query, safe headers, reason, or provider. Different bodies can use the same exact effect rule.
+**Limitation.** Current exact learned rules distinguish Context, observed
+Workspace, host, port, method, and raw path. They do not distinguish body,
+query, safe headers, reason, or provider. Different bodies can use the same
+exact effect rule.
 
 ## Claim 4: unsafe policy changes do not partially activate
 
@@ -64,7 +67,7 @@ authority.
 
 **Preconditions.** The host user acts on a current opaque candidate reference; the policy sources and revisions have not raced.
 
-**Enforcement point.** Tobari rediscovers each candidate, validates private source and complete aggregate, checks revisions, writes one Workspace Manifest's owner-only source atomically, publishes a revisioned complete bundle, and waits for the running OPA to report the exact revision. Authority reduction first installs a deny-all transition revision. Rollback restores known state on failure.
+**Enforcement point.** Tobari rediscovers each candidate, validates private source and complete aggregate, checks revisions, writes one Workspace Template's owner-only source atomically, publishes a revisioned complete bundle, and waits for the running OPA to report the exact revision. Authority reduction first installs a deny-all transition revision. Rollback restores known state on failure.
 
 **Failure behavior.** Validation, stale-reference, race, write, aggregate, or OPA activation failure leaves or restores the previous valid policy. The old HTTP request is never replayed.
 

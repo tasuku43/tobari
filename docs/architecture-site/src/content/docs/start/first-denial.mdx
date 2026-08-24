@@ -14,7 +14,7 @@ This page follows the denial through host review and deliberate retry. Complete 
 
 ## The denial, in time order
 
-1. Gateway derives the Workspace Manifest/project principal from the kernel-observed Workspace source endpoint and the host-owned schema-1 principal registry.
+1. Gateway derives the Context/Workspace principal from the kernel-observed Workspace source endpoint and the host-owned schema-1 principal registry.
 2. It constructs a normalized, body-free policy input and asks OPA once.
 3. OPA returns deny for an effect not covered by an allow rule.
 4. Gateway does not resolve a native secret, perform DNS for the destination, or create an upstream connection.
@@ -35,7 +35,7 @@ On the trusted host:
 tobari review permissions
 ```
 
-The TTY flow lets you inspect pending effects, stage exact choices for one Workspace Manifest, and press **Apply** once after reviewing the set. Canceling before Apply changes nothing. A redirected review is read-only:
+The TTY flow lets you inspect pending effects, stage exact choices for one Workspace Template, and press **Apply** once after reviewing the set. Canceling before Apply changes nothing. A redirected review is read-only:
 
 ```sh
 tobari review permissions --format json
@@ -55,8 +55,8 @@ Display order, a host label, or a hand-built identifier is not authority. The ac
 
 A learned rule binds:
 
-- stable Workspace Manifest ID;
-- host-issued project ID;
+- stable Workspace Template ID;
+- host-issued Context ID and Workspace ID;
 - scheme;
 - destination host and port;
 - HTTP method; and

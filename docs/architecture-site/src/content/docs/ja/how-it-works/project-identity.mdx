@@ -1,13 +1,13 @@
 ---
-title: プロジェクトの識別
-description: Gateway が、Workspace の送信元エンドポイントとホスト管理の登録簿から Workspace Manifest とプロジェクトを特定する仕組みを説明します。
+title: Workspace の識別
+description: Gateway が、Workspace の送信元 endpoint と host-owned registry から Context/Workspace principal を特定する仕組みを説明します。
 ---
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-Gateway は、認証情報を準備したり OPA へ問い合わせたりする前に、リクエストの Workspace Manifest とプロジェクトを特定します。呼び出し元が送ったヘッダーではなく、信頼するホストが作成した登録簿と、カーネルが観測した Workspace の送信元エンドポイントを使います。このようにホスト側の事実から確立する通信主体を、プリンシパル（principal）と呼びます。
+Gateway は OPA へ問い合わせる前に、request の Context と Workspace を特定します。caller が送った header ではなく、trusted host が作成した registry と kernel-observed Workspace source endpoint を使います。このように host-side fact から確立する通信主体を principal と呼びます。
 
-呼び出し元が申告したプロジェクト ID や Workspace Manifest ID は、通信許可の根拠になりません。そのため、ヘッダーを書き換えても別の Workspace に許可されたルールは利用できません。同じホスト、メソッド、パスへの通信でも、その Workspace のプリンシパルに結び付いた権限が必要です。この仕組みは[システム全体像](../system-overview/)の専用ネットワークを使い、[HTTPS と TLS](../https-and-tls/)で検査する通信にも同じように適用されます。
+caller が申告した Context ID、Workspace ID、Template ID は通信許可の根拠になりません。そのため header を書き換えても別 Workspace に許可された rule は利用できません。同じ host、method、path でも、その Context/Workspace principal に結び付いた authority が必要です。この仕組みは[システム全体像](../system-overview/)の専用 network を使い、[HTTPS と TLS](../https-and-tls/)で検査する通信にも同じように適用されます。
 
 <ConceptDiagram name="project-principal" />
 
@@ -15,14 +15,14 @@ Gateway は、認証情報を準備したり OPA へ問い合わせたりする�
 
 論理 Workspace ごとに、ホスト側のライフサイクル処理が次を行います。
 
-1. 安定した UUIDv7 プロジェクト ID と永続的な Workspace Manifest ID を検証する
+1. stable Context ID、Workspace ID、permanent Workspace-to-Context binding を検証する
 2. 所有者ラベルが完全一致する専用内部ネットワークを作成または検証する
 3. Gateway をそのネットワークへ接続する
 4. そのネットワーク上の Workspace と Gateway の IP アドレスを取得する
 5. 両方のエンドポイントが別々で、正規化済みかつ一意であることを検証する
 6. スキーマ 1 の結び付き情報を、所有者だけが読めるプリンシパル登録簿へ、途中状態を見せずに書き込む
 
-結び付き情報には、プロジェクト ID、Workspace Manifest ID、Workspace Manifest の名前、正規化済みルート、ネットワーク名、Workspace の送信元 IP、Gateway のエンドポイント IP が含まれます。プロジェクト、ネットワーク、両方のアドレスは、それぞれ一意である必要があります。ループバック、リンクローカル、マルチキャスト、未指定アドレスなど、プリンシパルとして安全に使えないアドレスは拒否します。
+binding には Context ID、Workspace ID、Context presentation、canonical root、network name、Workspace source IP、Gateway endpoint IP が含まれます。Context、Workspace、network、両 endpoint は exact かつ一意である必要があります。loopback、link-local、multicast、unspecified address など principal として安全に使えない address は拒否します。
 
 登録簿は Gateway へ読み取り専用でマウントされます。Workspace には、登録簿への書き込み権限も、結び付き情報を作成できる Docker の制御機能も渡しません。
 
@@ -35,11 +35,11 @@ Gateway は `flow.client_conn.peername[0]`、つまりプロジェクトネッ�
 - ヘッダーで申告されたクライアントの送信元 IP
 - Workspace 環境の `TOBARI_ID` または `TOBARI_CONTEXT_ID`
 - `x-tobari-session` または別のリクエスト項目
-- Workspace Manifest の表示名
+- Workspace Template の表示名
 - 認証情報のプロファイルまたは外部サービス名
 - URL パラメーター
 
-照合後、Gateway は登録簿から得た `workspace_manifest_id` と `project_id` をスキーマ 1 の OPA 入力へ入れます。固定された OPA の振り分け処理は Workspace Manifest ID でポリシーを選び、学習済みルールはプロジェクト ID も要求します。
+照合後、Gateway は検証済み Context ID と Workspace ID を、frozen private schema-1 field `workspace_template_id` と `project_id` へ入れます。これらの wire name は public alias ではありません。固定 OPA router は Context の active Template baseline と Policy Memory を選び、learned rule は observed Workspace ID を保持します。
 
 ## 偽装を試みる具体例
 
@@ -47,13 +47,13 @@ Workspace B が Workspace A から次のリクエストヘッダーをコピー�
 
 ```http
 X-Tobari-Session: project-a
-X-Tobari-Workspace Manifest: review
+X-Tobari-Workspace Template: review
 Authorization: Bearer example
 ```
 
-接続には変わらず、カーネルが観測した Workspace B の送信元エンドポイントが付きます。Gateway は B の Workspace Manifest とプロジェクトの結び付きを選び、必要に応じて制御用の値や認証情報を削除または伏せます。ホスト、ポート、メソッド、パスが同じでも、A のために学習したルールは B に一致しません。
+connection には変わらず kernel-observed Workspace B source endpoint が付きます。Gateway は B の Context/Workspace binding を選び、必要に応じて control value や credential を除去または redaction します。host、port、method、path が同じでも、A のために学習した rule は B に一致しません。
 
-リクエストに A からコピーした Workspace 識別子が含まれる場合は、さらに厳格です。Gateway は、導出した B のプリンシパルと、ホストが管理する Workspace Manifest、プロジェクト、接続先、送信元ヘッダーの結び付きを OPA より前に確認します。一致しない場合は拒否されます。
+request に A から copy した Workspace identity が含まれる場合はさらに厳格です。Gateway は導出した B principal と host-owned Context、Workspace、target、source-header binding を OPA より前に確認します。一致しない場合は拒否されます。
 
 ## ネットワーク上の識別情報を使う理由
 
@@ -66,22 +66,22 @@ Workspace のプロセスは、自身のリクエスト、環境、ファイル�
 - 登録簿が欠落、読み取り不能、上限超過、バージョン不一致、不正、安全でない、重複、または曖昧な場合、Gateway は `403 project_principal_unavailable` を返します。
 - 受信した Workspace の送信元エンドポイントが未登録なら、OPA または接続先への入出力より前に同じ 403 を返します。
 - ネットワークの再作成でいずれかのエンドポイントが変わった場合は、Workspace を利用可能にする前に、ライフサイクル処理がネットワークガードを再適用し、登録簿を調整する必要があります。
-- OPA にとって Workspace Manifest ID が未知なら、集約ポリシーの振り分け処理は拒否し、現在選択中または既定の Workspace Manifest へ切り替えません。
-- 利用者が Workspace Manifest の表示名や既定値を変えても、強制に使う識別情報は、名前ではなく保存済みの安定した ID のままです。
+- OPA にとって Context ID が未知なら aggregate router は拒否し、default Template へ fallback しません。
+- 利用者が Template display name や default を変えても、enforcement identity は stable Context/Workspace ID のままです。
 
 Gateway の登録簿解析処理は、各レコードの形式と必須値が完全に一致することを検証します。このサイトは、Python の汎用 JSON 解析処理について、重複キーを必ず拒否するという、さらに強い性質までは主張しません。
 
 ## 保証と制限
 
-**サポート対象のライフサイクルと構成で保証すること:** 呼び出し元が申告した識別情報に権限はありません。プロジェクトと Workspace Manifest は、OPA より前に一緒に確立されます。学習済みルールと Authentication 識別子は、プロジェクトのプリンシパルを越えられません。古いネットワーク結び付きは拒否されます。
+**サポート対象のライフサイクルと構成で保証すること:** 呼び出し元が申告した識別情報に権限はありません。プロジェクトと Workspace Template は、OPA より前に一緒に確立されます。学習済みルールと Authentication 識別子は、プロジェクトのプリンシパルを越えられません。古いネットワーク結び付きは拒否されます。
 
 **保証しないこと:** ホスト、Docker、Gateway、登録簿が侵害された後の耐性。重なる作業対象ルート間の分離。リモートの通信主体を暗号学的に識別する一般的な仕組み。Tobari のライフサイクル外で手作業により作られた任意のコンテナからの識別情報導出。
 
 ## 根拠となるソース
 
-- [プリンシパルと Workspace Manifest のセキュリティ契約](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/docs/03_security_model.md)
+- [プリンシパルと Workspace Template のセキュリティ契約](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/docs/03_security_model.md)
 - [ホスト所有のネットワークへ権限を結び付ける設計判断](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/docs/decisions/0011-bind-project-authority-to-host-network.md)
-- [Workspace Manifest を共有の強制経路へ結び付ける設計判断](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/docs/decisions/0018-route-context-bound-tobari-through-shared-enforcement.md)
+- [Workspace Template を共有の強制経路へ結び付ける設計判断](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/docs/decisions/0018-route-context-bound-tobari-through-shared-enforcement.md)
 - [プリンシパル登録簿の書き込みと調整処理](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/internal/infra/dockerruntime/principal_registry.go)
 - [Gateway による登録簿の解析とインターフェース検索](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/gateway/addon/tobari_gateway.py)
 - [不正な登録簿を拒否するテスト](https://github.com/tasuku43/tobari/blob/35675505cf33ab3944196e26fc62cdb063dfd1cd/internal/infra/dockerruntime/principal_registry_test.go)
@@ -89,7 +89,7 @@ Gateway の登録簿解析処理は、各レコードの形式と必須値が完
 
 ## まとめ
 
-ホストは、Workspace の送信元エンドポイント、Gateway のエンドポイント、専用ネットワークを、安定した Workspace Manifest ID とプロジェクト ID へ結び付けます。Gateway はリクエストごとに送信元エンドポイントを観測します。ヘッダーと名前で呼び出し元を説明することはできますが、別のプリンシパルが持つ権限は得られません。
+host は Workspace source endpoint、Gateway endpoint、dedicated network を stable Context ID と Workspace ID へ結び付けます。Gateway は request ごとに source endpoint を観測します。header と name で caller を説明することはできますが、別 principal の authority は得られません。
 
 ## 理解を確認する
 
@@ -97,7 +97,7 @@ Gateway と OPA を共有しても、学習済みの許可まで共有されな�
 
 <details>
   <summary>
-    プロセスが別のプロジェクト ID をヘッダーに書いた場合、どの ID
+    process が別の Workspace ID を header に書いた場合、どの ID
     がプリンシパルとして OPA へ届きますか？
   </summary>
   Gateway がカーネルから得た Workspace
@@ -110,8 +110,8 @@ Gateway と OPA を共有しても、学習済みの許可まで共有されな�
     Workspace A と B が同じホスト、ポート、メソッド、パスを使うとき、A
     が学習したルールは B の通信を許可しますか？
   </summary>
-  いいえ。完全一致の学習済みルールは、安定した Workspace Manifest ID
-  とプロジェクト ID にも結び付きます。
+  いいえ。完全一致の学習済みルールは、安定した Workspace Template ID は一つの
+  Context が所有し、observed Workspace ID も保持します。
 </details>
 
 <details>

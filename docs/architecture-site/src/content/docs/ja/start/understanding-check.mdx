@@ -16,7 +16,7 @@ description: Tobari のライフサイクル、通信経路、ポリシー、認
 <details>
 <summary>回答</summary>
 
-ランタイムコンテナは、失われても復元できる実装要素の一つにすぎません。Tobari はほかにも、Workspace Manifest に結び付いた論理 Workspace、ホストが発行するプロジェクト principal、専用の内部ネットワーク、Gateway による通信経路の強制、OPA ポリシー、拒否内容のレビューと一括有効化、永続ホームと状態を管理します。[システム全体像](../../how-it-works/system-overview/)を参照してください。
+ランタイムコンテナは、失われても復元できる実装要素の一つにすぎません。Tobari はほかにも、Workspace Template に結び付いた論理 Workspace、ホストが発行するプロジェクト principal、専用の内部ネットワーク、Gateway による通信経路の強制、OPA ポリシー、拒否内容のレビューと一括有効化、永続ホームと状態を管理します。[システム全体像](../../how-it-works/system-overview/)を参照してください。
 
 </details>
 
@@ -66,7 +66,7 @@ HTTPS クライアントが Tobari 経由で `api.example.com` へ接続しま�
 
 ## 6. 同じ通信条件、異なる本文
 
-二つのリクエストで Workspace Manifest、プロジェクト、スキーム、ホスト、ポート、メソッド、パスが同じですが、JSON 本文が異なります。別々の学習済みルールが必要ですか？
+二つのリクエストで Workspace Template、プロジェクト、スキーム、ホスト、ポート、メソッド、パスが同じですが、JSON 本文が異なります。別々の学習済みルールが必要ですか？
 
 <details>
 <summary>回答</summary>
@@ -77,23 +77,23 @@ HTTPS クライアントが Tobari 経由で `api.example.com` へ接続しま�
 
 ## 7. 退出と削除
 
-エージェントが `exit` し、その後、利用者が `tobari delete` を実行しました。違いは何ですか？
+エージェントが `exit` し、その後、利用者が `tobari workspace delete --id WORKSPACE_REF --confirm=delete` を実行しました。違いは何ですか？
 
 <details>
 <summary>回答</summary>
 
-`exit` は接続中のシェルだけを終了し、論理 Workspace、ホーム、Workspace Manifest との結び付き、ランタイムリソース、ポリシーを残します。`delete` は現在地に最も近い切断済み Workspace と、その Workspace が所有するホーム、コンテナ、ネットワーク、プリンシパル、状態を削除します。プロジェクトファイルと Workspace Manifest が所有する状態は残ります。[Workspace のライフサイクル](../../how-it-works/workspace-lifecycle/)を参照してください。
+`exit` は接続中のシェルだけを終了し、論理 Workspace、ホーム、Workspace Template との結び付き、ランタイムリソース、ポリシーを残します。`workspace delete` は現在地に最も近い切断済み Workspace と、その Workspace が所有するホーム、コンテナ、ネットワーク、プリンシパル、状態を削除します。プロジェクトファイルと Workspace Template が所有する状態は残ります。[Workspace のライフサイクル](../../how-it-works/workspace-lifecycle/)を参照してください。
 
 </details>
 
-## 8. Workspace Manifest の切り替え
+## 8. Workspace Template の切り替え
 
-Workspace A は Manifest `default` から作られています。利用者が `tobari manifest default set --name review` を実行すると、A は `review` Manifest に変わりますか？
+Workspace A は現在の default Workspace Template に結び付いた Context に属しています。利用者が `tobari template default set --id TEMPLATE_REF` を実行すると、A は新しい既定 Template へ移動しますか？
 
 <details>
 <summary>回答</summary>
 
-いいえ。`manifest default set` は Manifest を省略したコマンドで使う既定値だけを変えます。既存 Workspace は安定した Workspace Manifest ID に結び付いたままです。同じルートで `review` の別 Workspace を選択または作成できます。[Workspace Manifest](../../guides/workspace-manifests/)を参照してください。
+いいえ。`template default set` は bare root entry と bare `status` が使う既定値だけを変えます。既存 Context の Workspace Template ID binding と Workspace の Context ID binding は変わりません。同じルートで別 Template の Context を明示的に作成できます。[Workspace Template と Context](../../guides/workspace-templates-and-contexts/)を参照してください。
 
 </details>
 
@@ -104,7 +104,7 @@ Workspace B が、Workspace A に許可されたものと同じホスト、メ�
 <details>
 <summary>回答</summary>
 
-いいえ。学習済みルールは安定した Workspace Manifest と、ホストが発行したプロジェクトプリンシパルにも結び付きます。B が同じ Workspace Manifest とプロジェクトの権限を持たない限り、別の一致するルールが必要です。[プロジェクトの識別](../../how-it-works/project-identity/)を参照してください。
+いいえ。学習済みルールは安定した Workspace Template と、ホストが発行したプロジェクトプリンシパルにも結び付きます。B が同じ Workspace Template とプロジェクトの権限を持たない限り、別の一致するルールが必要です。[プロジェクトの識別](../../how-it-works/project-identity/)を参照してください。
 
 </details>
 
@@ -170,8 +170,8 @@ agent CLI はログイン済みですが、OPA が HTTP 通信を拒否しまし
 <details>
 <summary>回答</summary>
 
-必ずしもそうではありません。immutable Workspace Manifest `source_access` が `read-only` または
-`read-write` を選び、CLI omission default は `read-write` です。read-only でも host や別 Workspace Manifest
+必ずしもそうではありません。immutable Workspace Template `source_access` が `read-only` または
+`read-write` を選び、CLI omission default は `read-write` です。read-only でも host や別 Workspace Template
 による live source 変更は観測します。[保証と制限](../../security/guarantees-and-limitations/)を参照してください。
 
 </details>

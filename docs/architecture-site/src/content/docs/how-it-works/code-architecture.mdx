@@ -23,20 +23,20 @@ This contributor-oriented page builds on the [implementation stack](/how-it-work
 
 ## Domain: pure vocabulary and invariants
 
-`internal/domain/` defines stable concepts such as Workspace identity, Workspace Manifest, policy candidates/rules, operations, effects, mutation impact, references, faults, and result schemas. Agent CLI login state is not a Tobari domain resource.
+`internal/domain/` defines stable concepts such as Workspace identity, Workspace Template, policy candidates/rules, operations, effects, mutation impact, references, faults, and result schemas. Agent CLI login state is not a Tobari domain resource.
 
 Domain performs no filesystem, process, Docker, network, terminal, or credential I/O. This makes the security/product claims executable as constructors and validators rather than comments attached to side effects.
 
 Examples include:
 
-- one Workspace per canonical root/Workspace Manifest pair;
+- one Workspace per canonical root/Workspace Template pair;
 - exact candidate identity and opaque reference shape;
 - declared operation effect and mutation contract; and
 - absent versus explicit values in structured results.
 
 ## Application: interpret one user task
 
-`internal/app/` owns use cases such as Workspace lifecycle, policy review/action, Workspace Manifest configuration, and doctor. Each package defines the smallest port its task needs.
+`internal/app/` owns use cases such as Workspace lifecycle, policy review/action, Workspace Template configuration, and doctor. Each package defines the smallest port its task needs.
 
 Application code depends on domain vocabulary, not a Docker client or filesystem implementation. A policy action asks a port to read evidence and activate validated policy; it does not construct `docker compose` argv. Agent CLI login remains outside Tobari's application use cases.
 
@@ -76,7 +76,7 @@ Consider `policy allow --id pcy_…`:
 2. **CLI parser** validates the exact public invocation and passes a typed input.
 3. **Application use case** re-discovers current evidence and ensures the reference is current and uniquely identifies one candidate.
 4. **Domain** defines candidate identity, exact learned-rule invariants, and mutation result/fault vocabulary.
-5. **Infrastructure** locks source state, preflights Workspace Manifest and aggregate policy, writes atomically, publishes a complete watched bundle, confirms the exact running OPA revision, and rolls back on failure.
+5. **Infrastructure** locks source state, preflights Workspace Template and aggregate policy, writes atomically, publishes a complete watched bundle, confirms the exact running OPA revision, and rolls back on failure.
 6. **CLI renderer** presents the structured result without inferring new semantics.
 
 No layer alone owns the complete outcome, but responsibility does not move outward against the dependency rule.
@@ -90,7 +90,7 @@ Gateway is a Python runtime component rather than a Go package, but it follows a
 - the Go binary materializes exact embedded runtime bytes; and
 - checks reject drift rather than allowing two independently edited implementations.
 
-OPA policy and Compose/runtime assets are likewise embedded implementation contracts. Generated aggregate policy is derived from Workspace Manifest sources and the Tobari-owned evaluator; it is not a second handwritten router.
+OPA policy and Compose/runtime assets are likewise embedded implementation contracts. Generated aggregate policy is derived from Workspace Template sources and the Tobari-owned evaluator; it is not a second handwritten router.
 
 ## Why architecture constraints are tested
 

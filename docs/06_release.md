@@ -36,7 +36,7 @@ The schema-1 build identity has exactly two independent fields:
 (`embedded` or `development`). The former is compile-time command/topology
 authority; the latter identifies the component resolver. There is no
 `capability_profile`, `standard|experimental` alias, dual reader, or runtime
-selector; those retired field names and aliases are not accepted. Runtime input, Workspace Manifest revisions, Workspace state,
+selector; those retired field names and aliases are not accepted. Runtime input, Workspace Template revisions, Workspace state,
 argv/env/config, or a copied/renamed executable cannot widen the tuple.
 
 One complete five-archive CLI matrix is accompanied by three

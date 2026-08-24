@@ -63,7 +63,7 @@ func completionCommandSpecs() []CommandSpec {
 					},
 					Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
 				},
-				Prerequisites: []string{"Dynamic candidates require readable owner-local Workspace Manifest and Runtime manifests; no Docker daemon or network is used."},
+				Prerequisites: []string{"Dynamic candidates require readable owner-local Workspace Template and Runtime catalogs; no Docker daemon or network is used."},
 				Errors: readCommandErrors("completion candidates", true,
 					declaredCommandError(fault.KindInternal, "completion_template_read_failed", false, "template list", "Inspect the final Workspace Template catalog."),
 					declaredCommandError(fault.KindInternal, "completion_runtime_read_failed", false, "runtime list", "Inspect the local Runtime catalog."),

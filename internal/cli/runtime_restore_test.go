@@ -222,7 +222,7 @@ func TestRuntimeRestoreHumanOutputDistinguishesNoOpWithoutInventingMutation(t *t
 	if fake.restoreCalls != 1 {
 		t.Fatalf("restore calls = %d", fake.restoreCalls)
 	}
-	for _, want := range []string{result.Name, result.RevisionRef, "already available", "no durable state changed", "History", "unchanged", "Workspace Manifests", "Workspaces"} {
+	for _, want := range []string{result.Name, result.RevisionRef, "already available", "no durable state changed", "History", "unchanged", "Workspace Templates", "Contexts", "Workspaces"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("human restore omitted %q: %q", want, stdout.String())
 		}

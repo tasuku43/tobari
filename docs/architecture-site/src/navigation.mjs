@@ -37,9 +37,9 @@ export const navigationGroups = [
     item("Mental model", "基本モデル", "/how-it-works/mental-model/"),
     item("System overview", "システム全体像", "/how-it-works/system-overview/"),
     item(
-      "Workspace, Workspace Manifest, cluster",
-      "Workspace、Workspace Manifest、クラスター",
-      "/how-it-works/workspace-manifest-workspace-cluster/",
+      "Workspace, Workspace Template, cluster",
+      "Workspace、Workspace Template、クラスター",
+      "/how-it-works/workspace-template-context-workspace-cluster/",
     ),
     item(
       "Workspace lifecycle",
@@ -99,9 +99,9 @@ export const navigationGroups = [
   ]),
   group("Guides", "ガイド", [
     item(
-      "Workspace Manifests and separate configurations",
-      "設定を分ける（Workspace Manifest）",
-      "/guides/workspace-manifests/",
+      "Workspace Templates and separate configurations",
+      "設定を分ける（Workspace Template）",
+      "/guides/workspace-templates-and-contexts/",
     ),
     item(
       "Runtime customization details",

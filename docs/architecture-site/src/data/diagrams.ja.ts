@@ -9,9 +9,9 @@ const titles: Record<string, [string, string]> = {
     "対応する Docker ネットワークの構成",
     "Workspace には専用の内部ネットワークが一つあり、ポリシーは制御ネットワークに留まり、Gateway だけが接続先へ到達します。",
   ],
-  "workspace-manifest-workspace-cluster": [
-    "Workspace Manifest と共有クラスター",
-    "ホスト管理の Manifest が一つの永続 Workspace を選び、共有クラスターが完全な投影を強制します。",
+  "workspace-template-context-workspace-cluster": [
+    "Workspace Template と共有クラスター",
+    "ホスト管理の Context が Project と Workspace Template を結び、共有クラスターが完全な投影を強制します。",
   ],
   "workspace-lifecycle": [
     "Workspace のライフサイクル",
@@ -22,7 +22,7 @@ const titles: Record<string, [string, string]> = {
     "Gateway は Workspace 側 TLS を終端し、復号した HTTP リクエストを認可して、allow 後だけ別の検証済み upstream TLS 接続を作ります。",
   ],
   "project-principal": [
-    "プロジェクトプリンシパル",
+    "Context/Workspace プリンシパル",
     "Gateway はリクエスト本文ではなく、カーネルが観測した送信元 endpoint とホスト登録簿から authority を導出します。",
   ],
   "policy-loop": [
@@ -39,7 +39,7 @@ const titles: Record<string, [string, string]> = {
   ],
   "state-retention": [
     "状態の保持",
-    "Manifest、Workspace、home、runtime、共有 policy state には別々の owner と寿命があります。",
+    "Workspace Template、Context、Policy Memory、Workspace、home、runtime、共有 policy state には別々の owner と寿命があります。",
   ],
   "code-layers": [
     "コードのレイヤー",
@@ -59,11 +59,11 @@ const labels: Record<string, string> = {
   Upstream: "接続先",
   "HTTPS destination": "HTTPS の接続先",
   "Dedicated network": "専用ネットワーク",
-  "Workspace Manifest": "Workspace Manifest",
+  "Workspace Template": "Workspace Template",
   "Runtime resources": "ランタイムリソース",
   "Shared cluster": "共有クラスター",
   "Aggregate projection": "集約ポリシー投影",
-  "Manifest binding": "Manifest の結び付き",
+  "Context binding": "Context の結び付き",
   "Workspace state": "Workspace 状態",
   "Workspace home": "Workspace home",
   "Work container": "作業コンテナ",
@@ -83,7 +83,7 @@ const labels: Record<string, string> = {
   "Agent CLI": "agent CLI",
   "Workspace process": "Workspace のプロセス",
   "Trusted host state": "信頼するホスト状態",
-  "Manifest configuration": "Manifest 設定",
+  "Workspace Template configuration": "Workspace Template 設定",
   "Shared cluster state": "共有クラスター状態",
   CLI: "CLI",
   Application: "Application",
@@ -122,18 +122,18 @@ const details: Record<string, string> = {
     "Workspace network にも egress route にも接続しません。",
   "Reached by Gateway only after allow.":
     "allow 後に Gateway からだけ到達します。",
-  "Selects Runtime, policy, source access, and stable authority.":
-    "Runtime、policy、source access、安定した authority を選びます。",
-  "Retains one permanent Manifest binding and its own home.":
-    "一つの恒久 Manifest binding と専用 home を保持します。",
+  "Selects Runtime, baseline policy, source access, and stable authority.":
+    "Runtime、baseline policy、source access、安定した authority を選びます。",
+  "Retains one permanent Context binding and its own home.":
+    "一つの恒久 Context binding と専用 home を保持します。",
   "Replaceable container and dedicated network.":
     "置き換え可能な container と専用 network です。",
   "Replaceable container and network.":
     "置き換え可能な container と network です。",
-  "Gateway and OPA enforce all loaded Manifest policy.":
-    "Gateway と OPA が読み込んだ全 Manifest policy を強制します。",
-  "Content-addressed policy built from every Manifest.":
-    "全 Manifest から構築した内容アドレス方式の policy です。",
+  "Gateway and OPA enforce all active Context policy.":
+    "Gateway と OPA が有効な全 Context policy を強制します。",
+  "Content-addressed policy built from every Context.":
+    "全 Context から構築した内容アドレス方式の policy です。",
   "Stable for the lifetime of the Workspace.":
     "Workspace の寿命を通じて安定しています。",
   "Owns the logical identity and last applied entry.":
@@ -143,14 +143,16 @@ const details: Record<string, string> = {
   "Replaceable runtime realization.": "置き換え可能な runtime の実体です。",
   "Ends on exit without deleting logical state.":
     "exit で終了し、論理 state は削除しません。",
-  "Untrusted text cannot select project authority.":
-    "信頼しない text は project authority を選べません。",
+  "Untrusted text cannot select Context or Workspace authority.":
+    "信頼しない text は Context または Workspace authority を選べません。",
   "Kernel-observed Workspace source address.":
     "カーネルが観測した Workspace source address です。",
   "Host-owned exact endpoint-to-identity mapping.":
     "ホスト所有の exact endpoint-to-identity mapping です。",
-  "Exact Manifest ID and Workspace ID pair.":
-    "exact Manifest ID と Workspace ID の組です。",
+  "Host-owned reusable Runtime, defaults, and baseline policy.":
+    "ホスト所有の再利用可能な Runtime、defaults、baseline policy です。",
+  "Exact Context ID and Workspace ID pair.":
+    "exact Context ID と Workspace ID の組です。",
   "Receives the derived principal.": "導出済み principal を受け取ります。",
   "No upstream connection.": "upstream connection を作りません。",
   "Secret-free retained effect.": "秘密情報を含まない retained effect です。",
