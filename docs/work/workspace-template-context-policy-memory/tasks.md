@@ -124,7 +124,24 @@ implementation is authorized by creating it.
 - [ ] Add a Catalog-construction test proving the proposed final Catalog
       validates and its exact derived producer/consumer sets contain no
       RoleUtility reference input or output.
-- [ ] Implement Template revision and Context/Policy Memory invariants.
+- [x] Implement dormant pure Template revision/history with one complete typed
+      static body, body-derived Boundary/slice/overall digests, exact copy and
+      entry derivation, immutable Boundary, Context uniqueness, Policy Memory
+      revision, Workspace binding/AppliedEntry, independent activation-receipt,
+      and kind-specific opaque-reference invariants without connecting an
+      ordinary reader or writer.
+- [x] Preserve the closed Advanced executable-source boundary as exactly one
+      bounded `tobari.rego`/`tobari_test.rego` pair; reject missing, renamed,
+      duplicate, extra, incomplete, or oversized sources and migrate only the
+      exact pair.
+- [x] Implement the pure exact-predecessor migration input/plan/output and
+      rollback-eligibility model with preserved Template/Workspace bytes, fresh
+      journaled Context IDs, exact predecessor-body transformation, retained
+      revision/policy/default/candidate mapping, research quarantine disposition,
+      and no I/O.
+- [x] Require bounded exact-owned Docker evidence before retaining a predecessor
+      AppliedEntry; map missing, mismatched, and unknown material to explicit
+      unverified state.
 - [ ] Implement separate application use cases and smallest owned ports.
 - [ ] Implement owner-only stores, atomic migration/rollback, principal/policy
       projection, and reconciliation adapters.
@@ -136,7 +153,10 @@ implementation is authorized by creating it.
 
 ## Verify
 
-- [ ] Focused tests pass. Evidence:
+- [x] Pure domain focused tests pass. Evidence: `go test
+      ./internal/domain/tobari`, `go test -race ./internal/domain/tobari`,
+      `go test ./internal/domain/...`, and `task check:fast` with the pinned
+      Go 1.26.6/Node 24.18.0 toolchains.
 - [ ] `task check` passes. Evidence:
 - [ ] `task security` passes. Evidence:
 - [ ] `task public:check` passes. Evidence:

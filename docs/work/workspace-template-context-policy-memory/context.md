@@ -1,7 +1,8 @@
 # Work Context: WP11 — Separate Workspace Template, Context, and Policy Memory
 
-This file separates current verified behavior from the proposed design. The
-proposal is not implemented and is not yet a public contract.
+This file separates current verified behavior from the accepted target. Pure
+domain and migration-planning types may exist during implementation, but the
+target is not yet an ordinary reader/writer or public contract.
 
 ## Current behavior
 
@@ -230,6 +231,41 @@ changing one noun in isolation.
 
 No effectful runtime reproduction was needed. This packet is based on current
 contract and source inspection plus the product-owner lifecycle decisions above.
+
+## Implementation observations
+
+- The first pure Template revision draft stored only independently activated
+  digests and Runtime identity. That could prove receipts but could not supply
+  the source/network Boundary, baseline policy, session/creation defaults, or
+  exact Runtime binding to routine copy, entry, and cluster operations after
+  the predecessor store is retired. Any implementation would have needed a
+  forbidden predecessor read or untyped parallel authority.
+- The corrected revision owns one complete typed immutable body. Validation
+  recomputes Boundary, policy, entry, session, creation, and overall semantic
+  digests from it. Migration carries and transforms exact predecessor bodies;
+  focused clone/mutation canaries and a normal copy/entry derivation fixture
+  prove final operations do not depend on predecessor bytes or inferred values.
+- An intermediate complete-body draft represented Advanced policy as an
+  arbitrary sorted relative `.rego` collection. That widened the existing
+  executable-source boundary and could dead-end at the exact-file aggregate
+  reader. The corrected body has a named, bounded `tobari.rego` plus
+  `tobari_test.rego` pair. Its filesystem conversion rejects missing, renamed,
+  duplicate, and extra sources; migration accepts only the same exact pair.
+- The first pure migration draft retained an exact predecessor AppliedEntry
+  when its stored Template and Runtime fields matched, but it had no bounded
+  owned-Docker evidence. A normal stopped-cluster migration after Docker cleanup
+  could therefore have claimed applied authority that was missing, mismatched,
+  or unknown at cutover.
+- The corrected pure input carries one closed observation per Workspace, bound
+  to exact WorkspaceID. Only `exact_owned` evidence agreeing with Template
+  generation/digest, RuntimeID/revision, and resolved spec can retain the
+  AppliedEntry. `missing`, `mismatched`, and `unknown` publish no AppliedEntry
+  and become explicit unverified state. Focused fixtures cover all four states.
+- The new Workspace Template, Context, Policy Memory, Workspace binding,
+  independent activation-receipt, opaque-reference, and migration-plan types
+  remain dormant domain code. No current Manifest reader, writer, Catalog path,
+  schema, application port, infrastructure adapter, or public output consumes
+  them in this concern.
 
 ## Security and public-boundary notes
 

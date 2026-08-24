@@ -48,7 +48,7 @@ authority axes even when routine UI presents them under one Context.
 | Concept | Owner | Scope | Lifetime | Mutability | Authority candidate |
 |---|---|---|---|---|---|
 | Workspace Template | installation/trusted host | reusable across Projects and Contexts | until explicit Template deletion | stable identity; current pointer advances | TemplateID |
-| Template Revision | Workspace Template | complete static desired definition | immutable retained history | immutable; semantic no-op publishes nothing | TemplateID + semantic digest |
+| Template Revision | Workspace Template | complete typed static desired body: fixed Boundary, baseline policy, Runtime/entry, session, and creation defaults | immutable retained history | immutable; semantic no-op publishes nothing | TemplateID + semantic digest recomputed from the complete body |
 | Context | one Project × one Template binding | project-specific work setup | survives Workspace deletion; until explicit Context deletion | binding immutable in V1; desired revision derives from Template current | ContextID |
 | Policy Memory | Context | learned decisions for that Project/Template relationship | survives Workspace replacement; ends/reset by explicit Context/policy action | mutable, independently revised and atomically activated | Context identity + policy semantic revision |
 | Workspace | Context | one applied isolated instance and home | replaceable; ends at Workspace delete | applied receipt and bounded reconciliation/observation change | WorkspaceID + ContextID; observations are not authority |
@@ -394,7 +394,9 @@ with empty Policy Memory.
 1. Owner sequencing, vocabulary decision, revised thesis/ADR, public contract,
    identity/reference graph, and failing contract tests.
 2. Template revision and Context/Policy Memory domain invariants plus pure
-   migration model.
+   migration model. The final Template revision stores the complete typed
+   static body and recomputes all slice/overall digests from it; copy and entry
+   derivation consume no predecessor or parallel body.
 3. Application use cases and typed read/mutation ports for Template copy,
    Context creation/lifecycle, Workspace entry/deletion, and policy activation.
 4. Owner-only stores, atomic migration/rollback, principal projection, and
@@ -409,9 +411,13 @@ only where transaction and authority boundaries remain coherent.
 
 ## Verification
 
-- Unit and contract tests: identity, semantic digest/no-op/A→B→A, Context
+- Unit and contract tests: identity, complete-body clone/mutation canaries,
+  semantic digest/no-op/A→B→A, normal exact copy/entry derivation, Context
   uniqueness, multiple Contexts per Project, Template follow-current, Policy
   Memory isolation, Workspace preservation/deletion, and AppliedEntry timing.
+- Advanced-source tests: the only executable source projection is the bounded
+  exact `tobari.rego`/`tobari_test.rego` pair; missing, renamed, duplicate,
+  extra, incomplete, and oversized sources fail before authority publication.
 - Negative side-effect tests: stale/different Template authority, name reuse,
   cross-Context rule reuse, policy beyond Boundary, attached unsafe adoption,
   read-triggered mutation, and partial/mixed migration.
@@ -459,22 +465,24 @@ transaction must:
 4. generate and journal one fresh ContextID for each exact pair, rejecting
    duplicate, dangling, ambiguous, name-only, or observation-only association;
 5. verify that every retained immutable Manifest revision for one preserved ID
-   carries the same source/network Boundary fingerprint. Any differing,
-   missing, corrupt, or ambiguous fingerprint fails closed before mutation; the
-   migration neither splits authority nor invents a replacement ID. Transform
-   the validated revisions into static Template revisions, preserving generation
-   as correlation, recomputing semantic digest after dynamic learned decisions
-   are excluded, and preserving every exact Runtime reference required by WP03
-   protection;
+   carries the same source/network Boundary fingerprint and one exact complete
+   typed predecessor body. Any differing, missing, corrupt, or ambiguous body
+   fails closed before mutation; the migration neither splits authority nor
+   invents a replacement ID. Transform each validated body into one complete
+   static Template revision, preserve generation as correlation, recompute every
+   slice/overall semantic digest after dynamic learned decisions are excluded,
+   and preserve every exact Runtime reference required by WP03 protection;
 6. publish one Context schema-1 binding and one complete Policy Memory schema-1
    revision from the exact predecessor decisions. Learned authority drops the
    predecessor WorkspaceID dimension and binds ContextID so it survives a later
    Workspace replacement; pending observations retain both ContextID and the
    observing WorkspaceID;
 7. rewrite Workspace state to schema 3 with the fresh ContextID and preserved
-   WorkspaceID/home bytes. Synthesize or preserve AppliedEntry only from exact
-   predecessor receipt plus bounded owned-Docker evidence; otherwise publish an
-   explicit pending/unverified state;
+   WorkspaceID/home bytes. Synthesize or preserve AppliedEntry only when an
+   exact predecessor receipt and bounded `exact_owned` Docker observation agree
+   on WorkspaceID, Template generation/digest, RuntimeID/revision, and resolved
+   spec. Missing, mismatched, or unknown observation publishes no AppliedEntry
+   and becomes explicit unverified state;
 8. convert DefaultManifestSelection to DefaultTemplateSelection with the exact
    preserved TemplateID;
 9. quarantine rather than rebind any replay-capable research Broker authority,

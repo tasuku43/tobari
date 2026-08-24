@@ -133,6 +133,18 @@ nothing and does not increment generation. A→B→A publishes a later generatio
 with A's original semantic digest. A retained storage receipt may use
 `generation + digest`, but generation never becomes content authority.
 
+The revision owns one complete typed body: immutable source/network Boundary,
+baseline policy, exact Runtime binding, entry defaults, session defaults, and
+creation defaults. Boundary, policy, entry, session, creation, and overall
+semantic digests are recomputed from that body during validation. Digests are
+receipts and activation identities, not a substitute body or permission to read
+the predecessor Manifest store. Copy, entry derivation, and cluster projection
+must therefore be derivable from the one validated final revision alone.
+Advanced policy retains the existing closed executable-source boundary: exactly
+`tobari.rego` and `tobari_test.rego`, both present and bounded. Alternate,
+missing, duplicate, or extra source paths are not Template authority and fail
+before publication or migration; WP11 does not add arbitrary policy files.
+
 Template copy and Context creation are separate outcomes. `template copy
 --from TEMPLATE_REVISION_REF --name NAME` consumes one exact retained immutable
 revision reviewed through `template show`; it issues a fresh TemplateID at
@@ -314,17 +326,21 @@ WorkspaceTemplateID and each WorkspaceID byte sequence as WorkspaceID. It
 generates and journals one fresh ContextID per exact `(canonical ProjectRoot,
 WorkspaceTemplateID)` pair. Every retained revision under one preserved ID must
 carry the same Boundary fingerprint; any different, missing, corrupt, or
-ambiguous fingerprint fails before mutation. Valid revisions become static
-Template revisions with generation retained as correlation and semantic digest
-recomputed after dynamic learned decisions are excluded.
+ambiguous fingerprint fails before mutation. Each retained predecessor revision
+supplies its exact immutable typed body, which becomes one complete static
+Template body. Generation is retained as correlation and every slice/overall
+semantic digest is recomputed from that body after dynamic learned decisions
+are excluded.
 
 Each exact predecessor policy set becomes one complete Context-owned Policy
 Memory revision. Confirmed authority drops the predecessor WorkspaceID
 dimension; pending observations retain ContextID plus observing WorkspaceID.
 Workspace state advances with the fresh ContextID and preserved WorkspaceID/home
-bytes. AppliedEntry is retained or synthesized only from exact predecessor
-receipts and bounded owned-Docker evidence; otherwise migration records explicit
-pending/unverified state. DefaultManifestSelection becomes
+bytes. AppliedEntry is retained or synthesized only when an exact predecessor
+receipt and a bounded `exact_owned` Docker observation agree on WorkspaceID,
+Template generation/digest, RuntimeID/revision, and resolved spec. Missing,
+mismatched, or unknown Docker observation retains no AppliedEntry and records
+explicit unverified state. DefaultManifestSelection becomes
 DefaultTemplateSelection with the preserved ID.
 
 Replay-capable predecessor research Broker filesystem authority is quarantined,
