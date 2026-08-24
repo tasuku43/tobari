@@ -472,3 +472,90 @@ func TestWorkspaceEntryPlanAndExactContainerReceiptBindCurrentAuthority(t *testi
 		t.Fatal("entry plan clone aliases AppliedEntry")
 	}
 }
+
+func TestWorkspaceSessionBindingCarriesCompleteFinalPrincipalAndEntryAuthority(t *testing.T) {
+	literal := "workspace"
+	body := templateBodyFixture("session")
+	body.SessionDefaults.ShellEnvironment = []ManifestShellEnvironmentSetting{{Variable: "PS1", Source: ManifestShellEnvironmentLiteral, Value: &literal}}
+	revision, err := NewWorkspaceTemplateRevision(testTemplateAuthorityID, 1, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := WorkspaceTemplate{SchemaVersion: WorkspaceTemplateSchemaVersion, ID: testTemplateAuthorityID, Name: "restricted", Current: revision, Retained: []WorkspaceTemplateRevision{revision.Clone()}}
+	contextBinding := ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: testContextAuthorityID, ProjectRoot: "/workspace/example", TemplateID: testTemplateAuthorityID}
+	memory, _, err := PublishPolicyMemory(testContextAuthorityID, []PolicyMemoryRule{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	templateReceipt := TemplatePolicyActivationReceipt{ContextID: contextBinding.ID, TemplateID: template.ID, PolicySliceDigest: revision.Slices.PolicySliceDigest}
+	memoryReceipt := PolicyMemoryActivationReceipt{ContextID: contextBinding.ID, Revision: memory.Revision}
+	applied := WorkspaceAppliedEntry{
+		ContextID: contextBinding.ID, TemplateID: template.ID, TemplateRevision: revision.Revision,
+		EntrySliceDigest: revision.Slices.EntrySliceDigest, RuntimeID: revision.Slices.RuntimeID,
+		RuntimeRevision: revision.Slices.RuntimeRevision, ResolvedSpec: authorityDigest("7"), ReconciledAt: time.Unix(3, 0).UTC(),
+	}
+	workspace := WorkspaceBinding{
+		SchemaVersion: WorkspaceBindingSchemaVersion, ID: testWorkspaceAuthorityID, ContextID: contextBinding.ID,
+		ProjectRoot: contextBinding.ProjectRoot, Home: "/workspace/home", CreationDefaults: revision.Slices.CreationDefaultsDigest,
+		LastSuccessfulEntry: &applied,
+	}
+	snapshot := ContextAuthoritySnapshot{
+		Context: contextBinding, Template: template, PolicyMemory: memory, Workspace: &workspace,
+		ActiveTemplatePolicy: &templateReceipt, ActivePolicyMemory: &memory, ActivePolicyMemoryRef: &memoryReceipt,
+	}
+	receipt := WorkspaceEntryReconciliationReceipt{
+		WorkspaceID: workspace.ID, ContextID: contextBinding.ID, Applied: applied, ContainerID: strings.Repeat("a", 64),
+	}
+	binding, err := NewWorkspaceSessionBinding(snapshot, receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if binding.ContextID != contextBinding.ID || binding.WorkspaceID != workspace.ID || binding.TemplateID != template.ID ||
+		binding.ContextPresentation != template.Name || binding.ProjectRoot != contextBinding.ProjectRoot ||
+		binding.ContainerID != receipt.ContainerID || binding.AppliedEntry != applied {
+		t.Fatalf("final session binding = %#v", binding)
+	}
+	identity, err := NewWorkspaceSessionIdentity(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity.ContextID != binding.ContextID || identity.WorkspaceID != binding.WorkspaceID ||
+		identity.TemplateID != binding.TemplateID || identity.ContextPresentation != binding.ContextPresentation ||
+		identity.ProjectRoot != binding.ProjectRoot {
+		t.Fatalf("persistent session identity = %#v", identity)
+	}
+	fromBinding, err := binding.Identity()
+	if err != nil || fromBinding != identity {
+		t.Fatalf("binding identity = %#v, %v; snapshot identity = %#v", fromBinding, err, identity)
+	}
+	changedIdentity := identity
+	changedIdentity.ProjectRoot = "/workspace/other"
+	if err := changedIdentity.Validate(); err == nil {
+		t.Fatal("mutated persistent session identity passed")
+	}
+
+	for name, mutate := range map[string]func(*WorkspaceSessionBinding){
+		"Context":              func(value *WorkspaceSessionBinding) { value.ContextID = "01912345-6789-7abc-8def-0123456789a6" },
+		"Workspace":            func(value *WorkspaceSessionBinding) { value.WorkspaceID = "01912345-6789-7abc-8def-0123456789a6" },
+		"Template":             func(value *WorkspaceSessionBinding) { value.TemplateID = "01912345-6789-7abc-8def-0123456789a6" },
+		"Template revision":    func(value *WorkspaceSessionBinding) { value.TemplateRevision = authorityDigest("9") },
+		"presentation":         func(value *WorkspaceSessionBinding) { value.ContextPresentation = "bad name" },
+		"Project root":         func(value *WorkspaceSessionBinding) { value.ProjectRoot = "/workspace/other" },
+		"Workspace home":       func(value *WorkspaceSessionBinding) { value.WorkspaceHome = "/workspace/other-home" },
+		"session slice digest": func(value *WorkspaceSessionBinding) { value.SessionDefaultsDigest = authorityDigest("9") },
+		"container":            func(value *WorkspaceSessionBinding) { value.ContainerID = strings.Repeat("A", 64) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			changed := binding.Clone()
+			mutate(&changed)
+			if err := changed.Validate(); err == nil {
+				t.Fatal("cross-authority final session binding passed")
+			}
+		})
+	}
+	clone := binding.Clone()
+	*clone.SessionDefaults.ShellEnvironment[0].Value = "changed"
+	if *binding.SessionDefaults.ShellEnvironment[0].Value != literal {
+		t.Fatal("final Workspace session binding clone aliases Template defaults")
+	}
+}

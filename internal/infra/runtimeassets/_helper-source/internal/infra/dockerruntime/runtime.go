@@ -155,6 +155,9 @@ type Runtime struct {
 	// failures before and after the atomic shared-state publication boundary.
 	clusterStateWriteHook   func(tobari.State, func() error) error
 	clusterJournalClearHook func() error
+	// finalSessionAfterLiveness is nil in production. Tests use it to move the
+	// principal projection between the two complete Run-start observations.
+	finalSessionAfterLiveness func()
 }
 
 // New resolves XDG paths without creating them.

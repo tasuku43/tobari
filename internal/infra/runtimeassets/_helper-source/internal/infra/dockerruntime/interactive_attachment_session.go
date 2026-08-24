@@ -57,6 +57,65 @@ type interactiveWorkspaceAttachment struct {
 	clock         func() time.Time
 }
 
+// interactiveWorkspacePrincipal is the one private identity consumed by the
+// canonical WP07 attachment registry. The frozen Gateway wire keeps the
+// context_id/project_id/context spellings; final callers put ContextID,
+// WorkspaceID, and Context presentation in those values. TemplateID is
+// validated by the final binding before this projection and never becomes a
+// frozen wire token or session selector.
+type interactiveWorkspacePrincipal struct {
+	contextID           string
+	workspaceID         string
+	contextPresentation string
+	projectRoot         string
+}
+
+func (p interactiveWorkspacePrincipal) validate() error {
+	if err := tobari.ValidateWorkspaceManifestID(p.contextID); err != nil {
+		return fmt.Errorf("interactive attachment Context ID is invalid: %w", err)
+	}
+	if err := tobari.ValidateWorkspaceID(p.workspaceID); err != nil {
+		return fmt.Errorf("interactive attachment Workspace ID is invalid: %w", err)
+	}
+	if err := tobari.ValidateName(p.contextPresentation); err != nil {
+		return fmt.Errorf("interactive attachment Context presentation is invalid: %w", err)
+	}
+	if err := tobari.ValidateCanonicalRoot(p.projectRoot); err != nil {
+		return fmt.Errorf("interactive attachment Project root is invalid: %w", err)
+	}
+	return nil
+}
+
+func legacyInteractiveWorkspacePrincipal(workspace tobari.Workspace) (interactiveWorkspacePrincipal, error) {
+	if err := workspace.Validate(); err != nil {
+		return interactiveWorkspacePrincipal{}, err
+	}
+	principal := interactiveWorkspacePrincipal{
+		contextID: workspace.WorkspaceManifestID, workspaceID: workspace.ID,
+		contextPresentation: workspace.WorkspaceManifestName, projectRoot: workspace.Root,
+	}
+	return principal, principal.validate()
+}
+
+func finalInteractiveWorkspacePrincipal(binding tobari.WorkspaceSessionBinding) (interactiveWorkspacePrincipal, error) {
+	identity, err := binding.Identity()
+	if err != nil {
+		return interactiveWorkspacePrincipal{}, err
+	}
+	return finalInteractiveWorkspacePrincipalFromIdentity(identity)
+}
+
+func finalInteractiveWorkspacePrincipalFromIdentity(identity tobari.WorkspaceSessionIdentity) (interactiveWorkspacePrincipal, error) {
+	if err := identity.Validate(); err != nil {
+		return interactiveWorkspacePrincipal{}, err
+	}
+	principal := interactiveWorkspacePrincipal{
+		contextID: string(identity.ContextID), workspaceID: string(identity.WorkspaceID),
+		contextPresentation: identity.ContextPresentation, projectRoot: identity.ProjectRoot,
+	}
+	return principal, principal.validate()
+}
+
 func (r *Runtime) interactiveAttachmentDirectory() string {
 	return filepath.Join(r.configDirectory, "interactive-attachments")
 }
@@ -187,19 +246,25 @@ func frozenPrincipalFingerprint(binding projectPrincipalBinding) string {
 	return hex.EncodeToString(digest[:])
 }
 
-func (r *Runtime) exactFrozenPrincipalFingerprint(workspaceManifestID, workspaceID string) (string, error) {
+func (r *Runtime) exactFrozenPrincipalFingerprint(principal interactiveWorkspacePrincipal) (string, error) {
+	if err := principal.validate(); err != nil {
+		return "", err
+	}
 	registry, err := r.readProjectPrincipalRegistry()
 	if err != nil {
 		return "", err
 	}
 	matches := make([]projectPrincipalBinding, 0, 1)
 	for _, binding := range registry.Bindings {
-		if binding.WorkspaceManifestID == workspaceManifestID && binding.ProjectID == workspaceID {
+		if binding.WorkspaceManifestID == principal.contextID && binding.ProjectID == principal.workspaceID {
 			matches = append(matches, binding)
 		}
 	}
 	if len(matches) != 1 {
 		return "", fmt.Errorf("canonical interactive attachment principal join is not unique")
+	}
+	if matches[0].WorkspaceManifestName != principal.contextPresentation || matches[0].ProjectRoot != principal.projectRoot {
+		return "", fmt.Errorf("canonical interactive attachment principal projection is stale")
 	}
 	return frozenPrincipalFingerprint(matches[0]), nil
 }
@@ -290,14 +355,75 @@ func (r *Runtime) borrowInteractiveWorkspaceAttachment(
 	return &interactiveWorkspaceAttachment{runtime: r, session: verified, owned: false}, nil
 }
 
+// confirmExactInteractiveWorkspaceAttachment closes the lifecycle-lock release
+// boundary before session-owned side effects start. A different valid owner is
+// still a mismatch: the caller must retain the exact epoch/nonce/lease/wait
+// authority acquired under the installation lifecycle lock.
+func (r *Runtime) confirmExactInteractiveWorkspaceAttachment(
+	ctx context.Context, principal interactiveWorkspacePrincipal, expected tobari.InteractiveAttachmentSession,
+) error {
+	if err := principal.validate(); err != nil {
+		return err
+	}
+	if err := expected.Validate(); err != nil {
+		return err
+	}
+	if expected.WorkspaceManifestID != principal.contextID || expected.WorkspaceID != principal.workspaceID ||
+		!permissionSessionLeaseCurrent(expected, time.Now()) {
+		return fmt.Errorf("canonical interactive attachment no longer matches its final principal")
+	}
+	verifyPair := func() error {
+		fingerprint, err := r.exactFrozenPrincipalFingerprint(principal)
+		if err != nil {
+			return err
+		}
+		if expected.FrozenPrincipalFingerprint != fingerprint {
+			return fmt.Errorf("canonical interactive attachment principal changed")
+		}
+		return r.withInteractiveAttachmentLock(ctx, func() error {
+			var registry tobari.InteractiveAttachmentSessionRegistry
+			if err := readStrictJSON(r.interactiveAttachmentSessionRegistryPath(), &registry); err != nil {
+				return err
+			}
+			if err := registry.Validate(); err != nil {
+				return err
+			}
+			current := findInteractiveSession(registry, principal.contextID, principal.workspaceID)
+			if current == nil || !sameInteractiveSessionAuthority(*current, expected) ||
+				!permissionSessionLeaseCurrent(*current, time.Now()) {
+				return fmt.Errorf("canonical interactive attachment owner changed")
+			}
+			return nil
+		})
+	}
+	if err := verifyPair(); err != nil {
+		return err
+	}
+	if !r.permissionSessionActive(expected) {
+		return fmt.Errorf("canonical interactive attachment owner is unavailable")
+	}
+	if r.finalSessionAfterLiveness != nil {
+		r.finalSessionAfterLiveness()
+	}
+	return verifyPair()
+}
+
 func (r *Runtime) beginInteractiveWorkspaceAttachment(ctx context.Context, workspace tobari.Workspace) (*interactiveWorkspaceAttachment, error) {
-	if err := workspace.Validate(); err != nil {
+	principal, err := legacyInteractiveWorkspacePrincipal(workspace)
+	if err != nil {
+		return nil, err
+	}
+	return r.beginInteractiveWorkspaceAttachmentForPrincipal(ctx, principal)
+}
+
+func (r *Runtime) beginInteractiveWorkspaceAttachmentForPrincipal(ctx context.Context, principal interactiveWorkspacePrincipal) (*interactiveWorkspaceAttachment, error) {
+	if err := principal.validate(); err != nil {
 		return nil, err
 	}
 	if err := r.ensureInteractiveAttachmentStore(ctx); err != nil {
 		return nil, err
 	}
-	fingerprint, err := r.exactFrozenPrincipalFingerprint(workspace.WorkspaceManifestID, workspace.ID)
+	fingerprint, err := r.exactFrozenPrincipalFingerprint(principal)
 	if err != nil {
 		return nil, fmt.Errorf("bind canonical interactive attachment principal: %w", err)
 	}
@@ -324,7 +450,7 @@ func (r *Runtime) beginInteractiveWorkspaceAttachment(ctx context.Context, works
 				}
 				continue
 			}
-			if session.WorkspaceManifestID == workspace.WorkspaceManifestID && session.WorkspaceID == workspace.ID {
+			if session.WorkspaceManifestID == principal.contextID && session.WorkspaceID == principal.workspaceID {
 				copy := session
 				existing = &copy
 			}
@@ -365,7 +491,7 @@ func (r *Runtime) beginInteractiveWorkspaceAttachment(ctx context.Context, works
 	now := time.Now().UTC()
 	session := tobari.InteractiveAttachmentSession{
 		SchemaVersion:       tobari.PermissionSessionSchema,
-		WorkspaceManifestID: workspace.WorkspaceManifestID, WorkspaceID: workspace.ID,
+		WorkspaceManifestID: principal.contextID, WorkspaceID: principal.workspaceID,
 		AttachmentID: epochID, OwnerKind: tobari.PermissionSessionOwnerInteractive,
 		FrozenPrincipalFingerprint: fingerprint, OwnerPID: os.Getpid(),
 		IngestionTransport: r.permissionIngestionTransport, IngestionEndpoint: endpoint, IngestionNonce: nonce,
@@ -394,7 +520,7 @@ func (r *Runtime) beginInteractiveWorkspaceAttachment(ctx context.Context, works
 		if err := registry.Validate(); err != nil {
 			return err
 		}
-		if current := findInteractiveSession(registry, workspace.WorkspaceManifestID, workspace.ID); current != nil {
+		if current := findInteractiveSession(registry, principal.contextID, principal.workspaceID); current != nil {
 			copy := *current
 			winner = &copy
 			return nil

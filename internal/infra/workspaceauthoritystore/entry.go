@@ -42,7 +42,7 @@ type WorkspaceSessionOwner interface {
 }
 
 type WorkspaceSessionAuthority interface {
-	BeginWorkspaceSession(context.Context, tobari.ContextAuthoritySnapshot) (WorkspaceSessionOwner, error)
+	BeginWorkspaceSession(context.Context, tobari.WorkspaceSessionBinding) (WorkspaceSessionOwner, error)
 }
 
 // ContextEntryAdapter is dormant until the atomic WP11 composition cutover.
@@ -166,14 +166,14 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 	if !active && terminalPresent && terminal.Operation == "context-entry" && terminal.Target == contextRef {
 		if snapshot, consequenceErr := entryTerminalConsequence(current, terminal, contextID); consequenceErr == nil {
 			settlementContext, cancel := a.newSettlementContext(ctx)
-			confirmErr := a.confirmEntry(settlementContext, snapshot, *terminal.EntryPlan, entryDecisionRef(*terminal.EntryPlan, terminal.NextRevision))
+			receipt, confirmErr := a.confirmEntry(settlementContext, snapshot, *terminal.EntryPlan, entryDecisionRef(*terminal.EntryPlan, terminal.NextRevision))
 			cancel()
 			if confirmErr == nil {
 				publicationConfirmed = true
 				if err := m.removeTerminalEntryStage(terminal); err != nil {
 					return snapshot, nil, err
 				}
-				owner, beginErr := a.sessions.BeginWorkspaceSession(ctx, snapshot.Clone())
+				owner, beginErr := a.beginSession(ctx, snapshot, receipt)
 				if beginErr != nil {
 					return snapshot, nil, confirmedEntryAttachmentError(beginErr)
 				}
@@ -199,15 +199,15 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 				return tobari.ContextAuthoritySnapshot{}, nil, err
 			}
 			settlementContext, cancel := a.newSettlementContext(ctx)
-			err = a.confirmEntry(settlementContext, snapshot, *decision.EntryPlan, entryDecisionRef(*decision.EntryPlan, decision.NextRevision))
+			receipt, confirmErr := a.confirmEntry(settlementContext, snapshot, *decision.EntryPlan, entryDecisionRef(*decision.EntryPlan, decision.NextRevision))
 			cancel()
-			if err != nil {
-				return tobari.ContextAuthoritySnapshot{}, nil, err
+			if confirmErr != nil {
+				return tobari.ContextAuthoritySnapshot{}, nil, confirmErr
 			}
 			if err := m.clearEffectDecision(); err != nil {
 				return tobari.ContextAuthoritySnapshot{}, nil, err
 			}
-			owner, err := a.sessions.BeginWorkspaceSession(ctx, snapshot.Clone())
+			owner, err := a.beginSession(ctx, snapshot, receipt)
 			if err != nil {
 				return snapshot, nil, confirmedEntryAttachmentError(err)
 			}
@@ -318,10 +318,10 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 		return tobari.ContextAuthoritySnapshot{}, nil, fmt.Errorf("Workspace reconciliation returned another authority: %w", err)
 	}
 	completionContext, cancelSettlement := a.newSettlementContext(ctx)
-	err = a.confirmEntry(completionContext, desired, plan, decisionRef)
+	confirmedReceipt, confirmErr := a.confirmEntry(completionContext, desired, plan, decisionRef)
 	cancelSettlement()
-	if err != nil {
-		return tobari.ContextAuthoritySnapshot{}, nil, err
+	if confirmErr != nil {
+		return tobari.ContextAuthoritySnapshot{}, nil, confirmErr
 	}
 	encoded, err := EncodeComplete(next)
 	if err != nil {
@@ -352,7 +352,7 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 	if err := ctx.Err(); err != nil {
 		return confirmed, nil, confirmedEntryAttachmentError(err)
 	}
-	owner, err := a.sessions.BeginWorkspaceSession(ctx, confirmed.Clone())
+	owner, err := a.beginSession(ctx, confirmed, confirmedReceipt)
 	if err != nil {
 		return confirmed, nil, confirmedEntryAttachmentError(err)
 	}
@@ -441,18 +441,29 @@ func (a *ContextEntryAdapter) confirmCurrentActivations(ctx context.Context, sna
 	return nil
 }
 
-func (a *ContextEntryAdapter) confirmEntry(ctx context.Context, snapshot tobari.ContextAuthoritySnapshot, plan tobari.WorkspaceEntryReconciliationPlan, decisionRef string) error {
+func (a *ContextEntryAdapter) confirmEntry(ctx context.Context, snapshot tobari.ContextAuthoritySnapshot, plan tobari.WorkspaceEntryReconciliationPlan, decisionRef string) (tobari.WorkspaceEntryReconciliationReceipt, error) {
 	if err := plan.ValidateFor(snapshot); err != nil {
-		return err
+		return tobari.WorkspaceEntryReconciliationReceipt{}, err
 	}
 	if err := a.confirmCurrentActivations(ctx, snapshot); err != nil {
-		return err
+		return tobari.WorkspaceEntryReconciliationReceipt{}, err
 	}
 	receipt, err := a.runtime.ConfirmWorkspaceEntry(ctx, plan.Clone(), decisionRef)
 	if err != nil {
-		return err
+		return tobari.WorkspaceEntryReconciliationReceipt{}, err
 	}
-	return receipt.ValidateFor(plan)
+	if err := receipt.ValidateFor(plan); err != nil {
+		return tobari.WorkspaceEntryReconciliationReceipt{}, err
+	}
+	return receipt, nil
+}
+
+func (a *ContextEntryAdapter) beginSession(ctx context.Context, snapshot tobari.ContextAuthoritySnapshot, receipt tobari.WorkspaceEntryReconciliationReceipt) (WorkspaceSessionOwner, error) {
+	binding, err := tobari.NewWorkspaceSessionBinding(snapshot, receipt)
+	if err != nil {
+		return nil, fmt.Errorf("derive final Workspace session authority: %w", err)
+	}
+	return a.sessions.BeginWorkspaceSession(ctx, binding)
 }
 
 func entryCollection(current tobari.WorkspaceAuthorityCollection, plan tobari.WorkspaceEntryReconciliationPlan) (tobari.WorkspaceAuthorityCollection, bool, error) {

@@ -1179,11 +1179,15 @@ func (r WorkspaceEntryReconciliationReceipt) ValidateFor(plan WorkspaceEntryReco
 	if r.WorkspaceID != plan.Workspace.ID || r.ContextID != plan.Workspace.ContextID || r.Applied != plan.Applied {
 		return fmt.Errorf("Workspace entry receipt does not confirm its exact plan")
 	}
-	if len(r.ContainerID) != 64 {
+	return validateWorkspaceContainerID(r.ContainerID)
+}
+
+func validateWorkspaceContainerID(value string) error {
+	if len(value) != 64 {
 		return fmt.Errorf("Workspace entry container observation is invalid")
 	}
-	for _, value := range r.ContainerID {
-		if !((value >= 'a' && value <= 'f') || (value >= '0' && value <= '9')) {
+	for _, character := range value {
+		if !((character >= 'a' && character <= 'f') || (character >= '0' && character <= '9')) {
 			return fmt.Errorf("Workspace entry container observation is invalid")
 		}
 	}
@@ -1326,6 +1330,232 @@ type ContextAuthoritySnapshot struct {
 	ActivePolicyMemory    *PolicyMemoryRevision
 	ActivePolicyMemoryRef *PolicyMemoryActivationReceipt
 	Workspace             *WorkspaceBinding
+}
+
+// WorkspaceSessionBinding is the complete final-identity input to the
+// canonical interactive attachment owner. It carries the exact current
+// AppliedEntry and Docker observation established by Context entry; neither a
+// mutable Template name nor a predecessor Manifest record can select session
+// authority. ContextPresentation is the frozen private wire's display value,
+// not an identity or selector.
+type WorkspaceSessionBinding struct {
+	AuthorityDigest       SemanticDigest                   `json:"authority_digest"`
+	ContextID             ContextID                        `json:"context_id"`
+	WorkspaceID           WorkspaceID                      `json:"workspace_id"`
+	TemplateID            WorkspaceTemplateID              `json:"workspace_template_id"`
+	TemplateRevision      SemanticDigest                   `json:"workspace_template_revision"`
+	ProjectRoot           string                           `json:"project_root"`
+	WorkspaceHome         string                           `json:"workspace_home"`
+	ContextPresentation   string                           `json:"context_presentation"`
+	AppliedEntry          WorkspaceAppliedEntry            `json:"applied_entry"`
+	SessionDefaults       WorkspaceTemplateSessionDefaults `json:"session_defaults"`
+	SessionDefaultsDigest SemanticDigest                   `json:"session_defaults_digest"`
+	ContainerID           string                           `json:"container_id"`
+}
+
+// WorkspaceSessionIdentity is the persistent final identity used to observe
+// the canonical WP07 owner across process invocations. It is derivable from
+// one coherent final snapshot and deliberately excludes the entry receipt,
+// ContainerID, resolved spec, and session defaults needed only when beginning
+// or running a session.
+type WorkspaceSessionIdentity struct {
+	AuthorityDigest     SemanticDigest      `json:"authority_digest"`
+	ContextID           ContextID           `json:"context_id"`
+	WorkspaceID         WorkspaceID         `json:"workspace_id"`
+	TemplateID          WorkspaceTemplateID `json:"workspace_template_id"`
+	ContextPresentation string              `json:"context_presentation"`
+	ProjectRoot         string              `json:"project_root"`
+}
+
+type workspaceSessionIdentityAuthority struct {
+	ContextID           ContextID
+	WorkspaceID         WorkspaceID
+	TemplateID          WorkspaceTemplateID
+	ContextPresentation string
+	ProjectRoot         string
+}
+
+func workspaceSessionIdentityDigest(identity WorkspaceSessionIdentity) (SemanticDigest, error) {
+	return semanticIdentity(workspaceSessionIdentityAuthority{
+		ContextID: identity.ContextID, WorkspaceID: identity.WorkspaceID,
+		TemplateID: identity.TemplateID, ContextPresentation: identity.ContextPresentation,
+		ProjectRoot: identity.ProjectRoot,
+	})
+}
+
+func NewWorkspaceSessionIdentity(snapshot ContextAuthoritySnapshot) (WorkspaceSessionIdentity, error) {
+	if err := snapshot.Validate(); err != nil {
+		return WorkspaceSessionIdentity{}, err
+	}
+	if snapshot.Workspace == nil {
+		return WorkspaceSessionIdentity{}, fmt.Errorf("Workspace session identity requires one Workspace")
+	}
+	identity := WorkspaceSessionIdentity{
+		ContextID: snapshot.Context.ID, WorkspaceID: snapshot.Workspace.ID,
+		TemplateID: snapshot.Template.ID, ContextPresentation: snapshot.Template.Name,
+		ProjectRoot: snapshot.Context.ProjectRoot,
+	}
+	var err error
+	identity.AuthorityDigest, err = workspaceSessionIdentityDigest(identity)
+	if err != nil {
+		return WorkspaceSessionIdentity{}, err
+	}
+	return identity, identity.Validate()
+}
+
+func (i WorkspaceSessionIdentity) Validate() error {
+	if err := i.AuthorityDigest.Validate(); err != nil {
+		return err
+	}
+	if err := i.ContextID.Validate(); err != nil {
+		return err
+	}
+	if err := i.WorkspaceID.Validate(); err != nil {
+		return err
+	}
+	if err := i.TemplateID.Validate(); err != nil {
+		return err
+	}
+	if err := ValidateName(i.ContextPresentation); err != nil {
+		return fmt.Errorf("Workspace session Context presentation is invalid: %w", err)
+	}
+	if err := ValidateCanonicalRoot(i.ProjectRoot); err != nil {
+		return err
+	}
+	want, err := workspaceSessionIdentityDigest(i)
+	if err != nil || want != i.AuthorityDigest {
+		return fmt.Errorf("Workspace session identity does not match its complete authority digest")
+	}
+	return nil
+}
+
+func (b WorkspaceSessionBinding) Identity() (WorkspaceSessionIdentity, error) {
+	if err := b.Validate(); err != nil {
+		return WorkspaceSessionIdentity{}, err
+	}
+	identity := WorkspaceSessionIdentity{
+		ContextID: b.ContextID, WorkspaceID: b.WorkspaceID, TemplateID: b.TemplateID,
+		ContextPresentation: b.ContextPresentation, ProjectRoot: b.ProjectRoot,
+	}
+	var err error
+	identity.AuthorityDigest, err = workspaceSessionIdentityDigest(identity)
+	if err != nil {
+		return WorkspaceSessionIdentity{}, err
+	}
+	return identity, identity.Validate()
+}
+
+type workspaceSessionBindingAuthority struct {
+	ContextID             ContextID
+	WorkspaceID           WorkspaceID
+	TemplateID            WorkspaceTemplateID
+	TemplateRevision      SemanticDigest
+	ProjectRoot           string
+	WorkspaceHome         string
+	ContextPresentation   string
+	AppliedEntry          WorkspaceAppliedEntry
+	SessionDefaults       WorkspaceTemplateSessionDefaults
+	SessionDefaultsDigest SemanticDigest
+	ContainerID           string
+}
+
+func workspaceSessionBindingDigest(binding WorkspaceSessionBinding) (SemanticDigest, error) {
+	return semanticIdentity(workspaceSessionBindingAuthority{
+		ContextID: binding.ContextID, WorkspaceID: binding.WorkspaceID,
+		TemplateID: binding.TemplateID, TemplateRevision: binding.TemplateRevision,
+		ProjectRoot: binding.ProjectRoot, WorkspaceHome: binding.WorkspaceHome,
+		ContextPresentation: binding.ContextPresentation, AppliedEntry: binding.AppliedEntry,
+		SessionDefaults: binding.SessionDefaults.Clone(), SessionDefaultsDigest: binding.SessionDefaultsDigest,
+		ContainerID: binding.ContainerID,
+	})
+}
+
+func NewWorkspaceSessionBinding(snapshot ContextAuthoritySnapshot, receipt WorkspaceEntryReconciliationReceipt) (WorkspaceSessionBinding, error) {
+	if err := snapshot.Validate(); err != nil {
+		return WorkspaceSessionBinding{}, err
+	}
+	if snapshot.Workspace == nil || snapshot.Workspace.LastSuccessfulEntry == nil {
+		return WorkspaceSessionBinding{}, fmt.Errorf("Workspace session requires one last-successful AppliedEntry")
+	}
+	entry := *snapshot.Workspace.LastSuccessfulEntry
+	if err := entry.ValidateForRevision(snapshot.Context, snapshot.Template.Current); err != nil {
+		return WorkspaceSessionBinding{}, fmt.Errorf("Workspace session requires the current Template entry authority: %w", err)
+	}
+	if receipt.WorkspaceID != snapshot.Workspace.ID || receipt.ContextID != snapshot.Context.ID || receipt.Applied != entry {
+		return WorkspaceSessionBinding{}, fmt.Errorf("Workspace session receipt does not belong to the final authority snapshot")
+	}
+	if err := validateWorkspaceContainerID(receipt.ContainerID); err != nil {
+		return WorkspaceSessionBinding{}, err
+	}
+	binding := WorkspaceSessionBinding{
+		ContextID: snapshot.Context.ID, WorkspaceID: snapshot.Workspace.ID,
+		TemplateID: snapshot.Template.ID, TemplateRevision: snapshot.Template.Current.Revision,
+		ProjectRoot: snapshot.Context.ProjectRoot, WorkspaceHome: snapshot.Workspace.Home,
+		ContextPresentation: snapshot.Template.Name, AppliedEntry: entry,
+		SessionDefaults:       snapshot.Template.Current.Body.SessionDefaults.Clone(),
+		SessionDefaultsDigest: snapshot.Template.Current.Slices.SessionDefaultsDigest,
+		ContainerID:           receipt.ContainerID,
+	}
+	digest, err := workspaceSessionBindingDigest(binding)
+	if err != nil {
+		return WorkspaceSessionBinding{}, err
+	}
+	binding.AuthorityDigest = digest
+	return binding, binding.Validate()
+}
+
+func (b WorkspaceSessionBinding) Validate() error {
+	if err := b.AuthorityDigest.Validate(); err != nil {
+		return err
+	}
+	if err := b.ContextID.Validate(); err != nil {
+		return err
+	}
+	if err := b.WorkspaceID.Validate(); err != nil {
+		return err
+	}
+	if err := b.TemplateID.Validate(); err != nil {
+		return err
+	}
+	if err := b.TemplateRevision.Validate(); err != nil {
+		return err
+	}
+	if err := ValidateCanonicalRoot(b.ProjectRoot); err != nil {
+		return err
+	}
+	if b.WorkspaceHome == "" || !filepath.IsAbs(b.WorkspaceHome) || filepath.Clean(b.WorkspaceHome) != b.WorkspaceHome {
+		return fmt.Errorf("Workspace session home is invalid")
+	}
+	if err := ValidateName(b.ContextPresentation); err != nil {
+		return fmt.Errorf("Workspace session Context presentation is invalid: %w", err)
+	}
+	if err := b.AppliedEntry.Validate(); err != nil {
+		return err
+	}
+	if b.AppliedEntry.ContextID != b.ContextID || b.AppliedEntry.TemplateID != b.TemplateID || b.AppliedEntry.TemplateRevision != b.TemplateRevision {
+		return fmt.Errorf("Workspace session AppliedEntry crosses final identity")
+	}
+	if err := b.SessionDefaults.Validate(); err != nil {
+		return err
+	}
+	digest, err := semanticIdentity(b.SessionDefaults)
+	if err != nil || digest != b.SessionDefaultsDigest {
+		return fmt.Errorf("Workspace session defaults do not match their exact Template slice")
+	}
+	if err := validateWorkspaceContainerID(b.ContainerID); err != nil {
+		return err
+	}
+	want, err := workspaceSessionBindingDigest(b)
+	if err != nil || want != b.AuthorityDigest {
+		return fmt.Errorf("Workspace session binding does not match its complete authority digest")
+	}
+	return nil
+}
+
+func (b WorkspaceSessionBinding) Clone() WorkspaceSessionBinding {
+	result := b
+	result.SessionDefaults = b.SessionDefaults.Clone()
+	return result
 }
 
 func (s ContextAuthoritySnapshot) Validate() error {

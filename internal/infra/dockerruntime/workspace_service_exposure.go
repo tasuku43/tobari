@@ -125,7 +125,7 @@ type workspaceServiceExposureRuntime struct {
 
 type workspaceServiceController struct {
 	runtime          *Runtime
-	instance         tobari.Workspace
+	principal        interactiveWorkspacePrincipal
 	container        string
 	attachmentID     string
 	nonce            string
@@ -187,6 +187,17 @@ func (r *Runtime) serviceExposureSocketDirectory() string {
 }
 
 func (r *Runtime) startWorkspaceServiceController(ctx context.Context, instance tobari.Workspace, container string) (*workspaceServiceController, error) {
+	principal, err := legacyInteractiveWorkspacePrincipal(instance)
+	if err != nil {
+		return nil, err
+	}
+	return r.startWorkspaceServiceControllerForPrincipal(ctx, principal, container)
+}
+
+func (r *Runtime) startWorkspaceServiceControllerForPrincipal(ctx context.Context, principal interactiveWorkspacePrincipal, container string) (*workspaceServiceController, error) {
+	if err := principal.validate(); err != nil {
+		return nil, err
+	}
 	runner, ok := r.runner.(workspaceServiceControlRunner)
 	if !ok {
 		return &workspaceServiceController{}, nil
@@ -204,7 +215,7 @@ func (r *Runtime) startWorkspaceServiceController(ctx context.Context, instance 
 		return nil, err
 	}
 	controller := &workspaceServiceController{
-		runtime: r, instance: instance, container: container, attachmentID: attachmentID, nonce: nonce,
+		runtime: r, principal: principal, container: container, attachmentID: attachmentID, nonce: nonce,
 		workspaceSocket: "/run/tobari-service-" + workspaceIdentity + ".sock",
 		pending:         map[string]*workspaceServicePending{}, exposures: map[string]*workspaceServiceExposureRuntime{}, done: make(chan struct{}),
 	}
@@ -340,7 +351,7 @@ func (c *workspaceServiceController) submit(input workspaceServiceControlRequest
 		c.respond(workspaceServiceControlResponse{SchemaVersion: 1, ClientID: input.ClientID, Code: "service_request_failed"})
 		return
 	}
-	request := tobari.ServiceRequest{SchemaVersion: 1, ID: requestID, AttachmentID: c.attachmentID, ProjectID: c.instance.ID, WorkspaceManifestID: c.instance.WorkspaceManifestID, Workspace: c.instance.Root, TargetPort: input.Port, State: tobari.ServiceStatePending}
+	request := tobari.ServiceRequest{SchemaVersion: 1, ID: requestID, AttachmentID: c.attachmentID, ProjectID: c.principal.workspaceID, WorkspaceManifestID: c.principal.contextID, Workspace: c.principal.projectRoot, TargetPort: input.Port, State: tobari.ServiceStatePending}
 	c.pending[requestID] = &workspaceServicePending{request: request, clientID: input.ClientID}
 	c.mu.Unlock()
 }
@@ -415,7 +426,7 @@ func (c *workspaceServiceController) allow(requestID string) (tobari.ServiceExpo
 		return tobari.ServiceExposure{}, err
 	}
 	hostPort := listener.Addr().(*net.TCPAddr).Port
-	exposure := tobari.ServiceExposure{SchemaVersion: 1, ID: exposureID, RequestID: requestID, AttachmentID: c.attachmentID, ProjectID: c.instance.ID, WorkspaceManifestID: c.instance.WorkspaceManifestID, Workspace: c.instance.Root, TargetPort: pending.request.TargetPort, HostPort: hostPort, URL: "http://127.0.0.1:" + strconv.Itoa(hostPort), State: tobari.ServiceStateListening}
+	exposure := tobari.ServiceExposure{SchemaVersion: 1, ID: exposureID, RequestID: requestID, AttachmentID: c.attachmentID, ProjectID: c.principal.workspaceID, WorkspaceManifestID: c.principal.contextID, Workspace: c.principal.projectRoot, TargetPort: pending.request.TargetPort, HostPort: hostPort, URL: "http://127.0.0.1:" + strconv.Itoa(hostPort), State: tobari.ServiceStateListening}
 	exposureContext, cancel := context.WithCancel(c.attachmentCtx)
 	active := &workspaceServiceExposureRuntime{exposure: exposure, listener: listener, cancel: cancel, active: map[net.Conn]struct{}{}}
 	c.exposures[exposureID] = active

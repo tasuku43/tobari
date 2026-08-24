@@ -355,12 +355,29 @@ contract and source inspection plus the product-owner lifecycle decisions above.
 - The dormant coordinator invokes a task-owned `WorkspaceSessionAuthority`
   port while the lifecycle lock still excludes Workspace deletion, and runs
   the returned child/cleanup owner only after that lock is released. Focused
-  fakes prove this ordering. The concrete bridge to WP07's canonical
-  `beginInteractiveWorkspaceAttachment`/live-session authority is not in this
-  concern because it requires the deferred final principal projection. No
-  attachment registry, wait transport, Gateway/Broker wiring, resident
-  controller, or public recovery command is added; current composition and
-  Catalog remain unchanged.
+  fakes prove this ordering.
+- The dormant host-only `workspaceauthoritysession` bridge now maps the
+  complete final `WorkspaceSessionBinding` to WP07's one canonical interactive
+  attachment owner. `dockerruntime` exports only that narrow owner and does not
+  import the final store, preserving the exposure-helper closure. Legacy and
+  final entry wrap the same private principal path; no second attachment
+  registry, epoch, nonce, heartbeat, wait registry, or permission transport is
+  created.
+- The final principal places exact ContextID, WorkspaceID, Template-derived
+  presentation, and canonical ProjectRoot into the frozen private
+  `context_id`/`project_id`/`context` projection. TemplateID, Template revision,
+  Runtime/spec, session defaults, and exact 64-hex container evidence are
+  validated by the complete binding and Docker observation but do not become
+  wire tokens or session selectors. Immediately before child/route/channel
+  effects, Run re-observes the exact principal fingerprint and same canonical
+  owner on both sides of a nonce liveness handshake.
+- Cross-process zero-owner observation uses a smaller persistent final session
+  identity derived from one coherent Context snapshot. Missing session store
+  or a valid registry without the exact ContextID+WorkspaceID is confirmed
+  absent without requiring a live principal or container; malformed/unsafe
+  state, stale records, failed liveness, or concurrent replacement remain
+  ambiguous. No Gateway/Broker composition, resident controller, public
+  recovery command, current reader, or Catalog route is changed.
 
 ## Dormant migration-engine evidence
 

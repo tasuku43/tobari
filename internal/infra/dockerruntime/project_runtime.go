@@ -46,12 +46,18 @@ func projectShellExecEnvironment(
 	if err := manifest.Validate(); err != nil {
 		return nil, err
 	}
+	return projectShellSettingsEnvironment(manifest.ShellEnvironment, lookup)
+}
+
+func projectShellSettingsEnvironment(
+	settings []tobari.ManifestShellEnvironmentSetting, lookup func(string) (string, bool),
+) ([]string, error) {
 	if lookup == nil {
 		return nil, fmt.Errorf("host shell environment lookup is required")
 	}
 	prompt := projectInteractivePrompt
-	resolved := make(map[string]string, len(manifest.ShellEnvironment))
-	for _, setting := range manifest.ShellEnvironment {
+	resolved := make(map[string]string, len(settings))
+	for _, setting := range settings {
 		var value string
 		var present bool
 		switch setting.Source {
@@ -460,6 +466,20 @@ func (r *Runtime) EnterProjectRuntime(
 	if err := session.Validate(); err != nil {
 		return outcome, err
 	}
+	if err := manifest.Validate(); err != nil {
+		return outcome, err
+	}
+	principal, err := legacyInteractiveWorkspacePrincipal(instance)
+	if err != nil {
+		return outcome, err
+	}
+	if manifest.ID != principal.contextID {
+		return outcome, fmt.Errorf("Context shell environment does not belong to the selected Workspace")
+	}
+	container, _, err := tobari.ProjectResourceNames(principal.workspaceID)
+	if err != nil {
+		return outcome, err
+	}
 	interactiveAttachment, err := r.beginInteractiveWorkspaceAttachment(ctx, instance)
 	if err != nil {
 		return outcome, err
@@ -469,8 +489,35 @@ func (r *Runtime) EnterProjectRuntime(
 			outcome.CleanupIssues = append(outcome.CleanupIssues, tobari.WorkspaceCleanupInteractiveSession)
 		}
 	}()
+	return r.runWorkspaceSession(
+		ctx, principal, manifest.ShellEnvironment, cwd, container, session,
+		interactiveAttachment, in, out, errOut,
+	)
+}
+
+// runWorkspaceSession reuses one attachment owner already acquired under the
+// installation lifecycle order. Both the predecessor wrapper and the dormant
+// final-identity bridge enter here; neither can begin a second WP07 session.
+func (r *Runtime) runWorkspaceSession(
+	ctx context.Context, principal interactiveWorkspacePrincipal,
+	shellSettings []tobari.ManifestShellEnvironmentSetting, cwd string,
+	container string,
+	session tobari.WorkspaceSessionRequest, interactiveAttachment *interactiveWorkspaceAttachment,
+	in io.Reader, out, errOut io.Writer,
+) (outcome tobari.WorkspaceSessionOutcome, resultErr error) {
+	if err := principal.validate(); err != nil {
+		return outcome, err
+	}
+	if err := session.Validate(); err != nil {
+		return outcome, err
+	}
+	if interactiveAttachment == nil ||
+		interactiveAttachment.session.WorkspaceManifestID != principal.contextID ||
+		interactiveAttachment.session.WorkspaceID != principal.workspaceID {
+		return outcome, fmt.Errorf("interactive attachment does not belong to the exact Workspace principal")
+	}
 	extraEnvironment := []string{}
-	hostLoopbackAttachment, hostLoopbackErr := r.beginHostLoopbackAttachment(ctx, instance, interactiveAttachment.session.AttachmentID)
+	hostLoopbackAttachment, hostLoopbackErr := r.beginHostLoopbackAttachmentForPrincipal(ctx, principal, interactiveAttachment.session.AttachmentID)
 	if hostLoopbackErr != nil {
 		return outcome, fmt.Errorf("establish Host Loopback attachment: %w", hostLoopbackErr)
 	}
@@ -485,9 +532,8 @@ func (r *Runtime) EnterProjectRuntime(
 		return outcome, encodeErr
 	}
 	extraEnvironment = append(extraEnvironment, "TOBARI_CAPABILITIES_JSON="+string(encoded))
-	container, _, containerErr := tobari.ProjectResourceNames(instance.ID)
-	if containerErr != nil {
-		return outcome, containerErr
+	if strings.TrimSpace(container) == "" {
+		return outcome, fmt.Errorf("Workspace session container is missing")
 	}
 	permissionChannel, permissionChannelErr := r.startWorkspacePermissionChannel(ctx, interactiveAttachment, container)
 	if permissionChannelErr != nil {
@@ -500,7 +546,7 @@ func (r *Runtime) EnterProjectRuntime(
 	}()
 	extraEnvironment = append(extraEnvironment, permissionChannel.environment()...)
 	code, resultErr := r.enterProjectRuntime(
-		ctx, instance, manifest, cwd, session,
+		ctx, principal, shellSettings, cwd, container, session,
 		extraEnvironment, in, out, errOut,
 	)
 	outcome.ExitCode = code
@@ -508,32 +554,27 @@ func (r *Runtime) EnterProjectRuntime(
 }
 
 func (r *Runtime) enterProjectRuntime(
-	ctx context.Context, instance tobari.Workspace, manifest tobari.WorkspaceManifest, cwd string,
+	ctx context.Context, principal interactiveWorkspacePrincipal,
+	shellSettings []tobari.ManifestShellEnvironmentSetting, cwd string,
+	container string,
 	session tobari.WorkspaceSessionRequest, extraEnvironment []string, in io.Reader, out, errOut io.Writer,
 ) (int, error) {
-	if err := instance.Validate(); err != nil {
+	if err := principal.validate(); err != nil {
 		return 0, err
-	}
-	if err := manifest.Validate(); err != nil {
-		return 0, err
-	}
-	if manifest.ID != instance.WorkspaceManifestID {
-		return 0, fmt.Errorf("Context shell environment does not belong to the selected Workspace")
 	}
 	resolved, err := r.ResolveProjectRoot(ctx, cwd)
 	if err != nil {
 		return 0, err
 	}
-	workdir, err := r.projectContainerCWD(instance.Root, resolved)
+	workdir, err := r.projectContainerCWD(principal.projectRoot, resolved)
 	if err != nil {
 		return 0, err
 	}
-	container, _, err := tobari.ProjectResourceNames(instance.ID)
-	if err != nil {
-		return 0, err
+	if strings.TrimSpace(container) == "" {
+		return 0, fmt.Errorf("Workspace session container is missing")
 	}
 	uid, gid := currentIDs()
-	shellEnvironment, err := projectShellExecEnvironment(manifest, os.LookupEnv)
+	shellEnvironment, err := projectShellSettingsEnvironment(shellSettings, os.LookupEnv)
 	if err != nil {
 		return 0, err
 	}
@@ -542,14 +583,14 @@ func (r *Runtime) enterProjectRuntime(
 		// forwarding; inherit the caller's streams without a shell wrapper.
 		"exec", "-i", "-t", "--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
 	}
-	bridge := newWorkspaceLoginBridge(ctx, r, container, instance.ID)
+	bridge := newWorkspaceLoginBridge(ctx, r, container, principal.workspaceID)
 	defer bridge.close()
 	browserChannel, err := r.startWorkspaceBrowserChannel(ctx, bridge, container)
 	if err != nil {
 		return 0, err
 	}
 	defer browserChannel.close()
-	serviceController, err := r.startWorkspaceServiceController(ctx, instance, container)
+	serviceController, err := r.startWorkspaceServiceControllerForPrincipal(ctx, principal, container)
 	if err != nil {
 		return 0, err
 	}

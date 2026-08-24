@@ -134,13 +134,13 @@ type entrySessionFixture struct {
 	outcome   tobari.WorkspaceSessionOutcome
 }
 
-func (s *entrySessionFixture) BeginWorkspaceSession(_ context.Context, snapshot tobari.ContextAuthoritySnapshot) (WorkspaceSessionOwner, error) {
+func (s *entrySessionFixture) BeginWorkspaceSession(_ context.Context, binding tobari.WorkspaceSessionBinding) (WorkspaceSessionOwner, error) {
 	s.begin++
 	if s.lifecycle == nil || !s.lifecycle.held.Load() {
 		return nil, fmt.Errorf("session owner was not acquired under lifecycle authority")
 	}
-	if snapshot.Workspace == nil || snapshot.Workspace.LastSuccessfulEntry == nil {
-		return nil, fmt.Errorf("session owner received unapplied Workspace")
+	if err := binding.Validate(); err != nil {
+		return nil, fmt.Errorf("session owner received invalid final authority: %w", err)
 	}
 	if s.beginErr != nil {
 		return nil, s.beginErr

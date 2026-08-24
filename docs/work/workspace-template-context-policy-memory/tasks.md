@@ -182,11 +182,18 @@ implementation is authorized by creating it.
       interruption; and invoke the session-owner port under the existing
       lifecycle authority while running the returned owner only after lock
       release.
-- [ ] Implement the concrete final-identity bridge from the dormant
+- [x] Implement the concrete final-identity bridge from the dormant
       `WorkspaceSessionAuthority` port to WP07's canonical interactive
       attachment/session registry, with exact Context/Workspace principal
-      projection and live-session tests. Keep this in the next
-      principal/session projection concern before atomic cutover.
+      projection and live-session tests. Evidence: a host-only sibling bridge
+      keeps dockerruntime independent of the final store; complete final entry
+      authority validates Template/Runtime/spec/container before beginning;
+      frozen `context_id`/`project_id`/`context` values carry final
+      Context/Workspace/presentation; Begin borrows the same epoch/nonce/wait
+      owner; Run double-observes exact principal+session around liveness before
+      route/channel/child effects; and persistent snapshot identity classifies
+      missing/empty registries as absent while malformed, stale, or owner-loss
+      evidence fails closed. Current composition/Catalog remain unchanged.
 - [ ] Wire the exact predecessor adapter and migration selection only with the
       atomic final-reader cutover; implement principal/policy projection and
       reconciliation adapters without changing WP03/04/07 mechanisms.

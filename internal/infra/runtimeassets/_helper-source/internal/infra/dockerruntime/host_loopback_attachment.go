@@ -113,7 +113,17 @@ func (r *Runtime) withHostLoopbackLock(ctx context.Context, action func() error)
 func (r *Runtime) beginHostLoopbackAttachment(
 	ctx context.Context, project tobari.Workspace, epochID string,
 ) (*hostLoopbackAttachment, error) {
-	if err := project.Validate(); err != nil {
+	principal, err := legacyInteractiveWorkspacePrincipal(project)
+	if err != nil {
+		return nil, err
+	}
+	return r.beginHostLoopbackAttachmentForPrincipal(ctx, principal, epochID)
+}
+
+func (r *Runtime) beginHostLoopbackAttachmentForPrincipal(
+	ctx context.Context, principal interactiveWorkspacePrincipal, epochID string,
+) (*hostLoopbackAttachment, error) {
+	if err := principal.validate(); err != nil {
 		return nil, err
 	}
 	if err := tobari.ValidateAttachmentEpochID(epochID); err != nil {
@@ -130,13 +140,17 @@ func (r *Runtime) beginHostLoopbackAttachment(
 	if err != nil {
 		return nil, fmt.Errorf("listen for Host Loopback: %w", err)
 	}
-	route, err := tobari.NewAttachmentHostLoopbackRoute(epochID, project, listener.Addr().(*net.TCPAddr).Port, token)
+	route, err := tobari.NewAttachmentHostLoopbackRouteForPrincipal(
+		epochID, principal.contextID, principal.contextPresentation,
+		principal.workspaceID, principal.projectRoot,
+		listener.Addr().(*net.TCPAddr).Port, token,
+	)
 	if err != nil {
 		_ = listener.Close()
 		return nil, err
 	}
 	attachment := &hostLoopbackAttachment{
-		runtime: r, projectID: project.ID, epochID: epochID, route: route,
+		runtime: r, projectID: principal.workspaceID, epochID: epochID, route: route,
 		listener: listener, owned: true, active: map[net.Conn]struct{}{},
 	}
 	go attachment.serve()
@@ -175,8 +189,10 @@ func (r *Runtime) beginHostLoopbackAttachment(
 			return err
 		}
 		for _, existing := range registry.Routes {
-			if existing.ProjectID == project.ID {
-				if existing.WorkspaceManifestID != project.WorkspaceManifestID || existing.EpochID != epochID {
+			if existing.ProjectID == principal.workspaceID {
+				if existing.WorkspaceManifestID != principal.contextID ||
+					existing.WorkspaceManifestName != principal.contextPresentation ||
+					existing.ProjectRoot != principal.projectRoot || existing.EpochID != epochID {
 					return fmt.Errorf("Host Loopback route does not belong to the canonical interactive attachment")
 				}
 				attachment.route = existing

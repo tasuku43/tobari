@@ -408,8 +408,12 @@ with empty Policy Memory.
    installation lifecycle authority and the one final-envelope effect decision,
    confirms exact runtime/container plus independent activation receipts before
    AppliedEntry, and calls a session-owner port before releasing the lock. The
-   concrete WP07 attachment bridge lands with final principal/session
-   projection, not in the dormant coordinator concern.
+   concrete host-only WP07 bridge then projects final Context/Workspace
+   identity into the existing frozen private principal wire and reuses the one
+   canonical attachment owner. It keeps Template/Runtime/spec evidence outside
+   the session selector and gives deletion a persistent identity-based
+   live/absent/ambiguous observation without importing the final store into the
+   exposure-helper dockerruntime closure.
 5. Catalog hard cutover, CLI/human/JSON/status/default-selection behavior,
    completion/help/examples/site, and generated snapshots.
 6. Security, migration, public-boundary, agent-readiness, and isolated runtime

@@ -74,10 +74,25 @@ type AttachmentHostLoopbackRoute struct {
 func NewAttachmentHostLoopbackRoute(
 	epochID string, project Workspace, relayPort int, relayToken string,
 ) (AttachmentHostLoopbackRoute, error) {
+	return NewAttachmentHostLoopbackRouteForPrincipal(
+		epochID, project.WorkspaceManifestID, project.WorkspaceManifestName,
+		project.ID, project.Root, relayPort, relayToken,
+	)
+}
+
+// NewAttachmentHostLoopbackRouteForPrincipal projects one already-validated
+// session principal into the frozen private Gateway route schema. The
+// context_id/project_id/context field spellings are compatibility tokens;
+// callers must establish final Context/Workspace/Template authority before
+// using this constructor.
+func NewAttachmentHostLoopbackRouteForPrincipal(
+	epochID, contextID, contextPresentation, workspaceID, projectRoot string,
+	relayPort int, relayToken string,
+) (AttachmentHostLoopbackRoute, error) {
 	route := AttachmentHostLoopbackRoute{
-		ID: hostLoopbackRouteID(epochID, project.WorkspaceManifestID, project.ID), EpochID: epochID,
-		WorkspaceManifestID: project.WorkspaceManifestID, WorkspaceManifestName: project.WorkspaceManifestName,
-		ProjectID: project.ID, ProjectRoot: project.Root,
+		ID: hostLoopbackRouteID(epochID, contextID, workspaceID), EpochID: epochID,
+		WorkspaceManifestID: contextID, WorkspaceManifestName: contextPresentation,
+		ProjectID: workspaceID, ProjectRoot: projectRoot,
 		Hostname: HostLoopbackHostname, RelayPort: relayPort, RelayToken: relayToken,
 	}
 	if err := route.Validate(); err != nil {
