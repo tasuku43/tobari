@@ -42,19 +42,20 @@ const (
 // Docker allocates it during the effect and it enters Candidate only after an
 // exact post-replacement observation has been journaled.
 type finalGatewaySettlementCandidate struct {
-	Plan            tobari.WorkspacePolicyProjection   `json:"plan"`
-	Principals      []FinalWorkspacePrincipalRow       `json:"principals"`
-	GatewayNetworks []FinalGatewayNetworkAddress       `json:"gateway_networks"`
-	OPANetworks     []FinalGatewayNetworkAddress       `json:"opa_networks"`
-	GatewayImageID  string                             `json:"gateway_image_id"`
-	OPAImageID      string                             `json:"opa_image_id"`
-	ReviewedGateway string                             `json:"reviewed_gateway_container_id"`
-	GatewayEnv      []string                           `json:"gateway_environment"`
-	Profile         tobari.SharedClusterAppliedProfile `json:"profile"`
-	Compose         candidateComposeClosureReceipt     `json:"compose"`
-	Aggregate       FinalAggregateProjection           `json:"aggregate"`
-	PolicyArtifact  tobari.SemanticDigest              `json:"policy_artifact_digest"`
-	GatewayArtifact tobari.SemanticDigest              `json:"gateway_artifact_digest"`
+	Plan              tobari.WorkspacePolicyProjection   `json:"plan"`
+	ReviewedSetDigest tobari.SemanticDigest              `json:"reviewed_set_digest,omitempty"`
+	Principals        []FinalWorkspacePrincipalRow       `json:"principals"`
+	GatewayNetworks   []FinalGatewayNetworkAddress       `json:"gateway_networks"`
+	OPANetworks       []FinalGatewayNetworkAddress       `json:"opa_networks"`
+	GatewayImageID    string                             `json:"gateway_image_id"`
+	OPAImageID        string                             `json:"opa_image_id"`
+	ReviewedGateway   string                             `json:"reviewed_gateway_container_id"`
+	GatewayEnv        []string                           `json:"gateway_environment"`
+	Profile           tobari.SharedClusterAppliedProfile `json:"profile"`
+	Compose           candidateComposeClosureReceipt     `json:"compose"`
+	Aggregate         FinalAggregateProjection           `json:"aggregate"`
+	PolicyArtifact    tobari.SemanticDigest              `json:"policy_artifact_digest"`
+	GatewayArtifact   tobari.SemanticDigest              `json:"gateway_artifact_digest"`
 }
 
 func (c finalGatewaySettlementCandidate) validate(runtime *Runtime) error {
@@ -64,6 +65,13 @@ func (c finalGatewaySettlementCandidate) validate(runtime *Runtime) error {
 		c.GatewayArtifact.Validate() != nil || c.Principals == nil || c.GatewayNetworks == nil || c.OPANetworks == nil ||
 		validateFinalGatewayEnvironment(c.GatewayEnv, c.Profile) != nil || !containerIDPattern.MatchString(c.ReviewedGateway) {
 		return fmt.Errorf("final Gateway settlement candidate metadata is invalid")
+	}
+	if c.Plan.Mode == tobari.WorkspacePolicyProjectionReviewed {
+		if c.ReviewedSetDigest.Validate() != nil {
+			return fmt.Errorf("final Gateway settlement reviewed-set identity is invalid")
+		}
+	} else if c.ReviewedSetDigest != "" {
+		return fmt.Errorf("final Gateway settlement carries reviewed-set identity outside reviewed mode")
 	}
 	if c.Aggregate.MaterializedDigest != c.Plan.ContentDigest {
 		return fmt.Errorf("final Gateway settlement candidate aggregate crosses its plan")
@@ -122,8 +130,14 @@ type finalGatewaySettlementJournal struct {
 func (j finalGatewaySettlementJournal) validate(runtime *Runtime) error {
 	if j.SchemaVersion != finalGatewaySettlementSchema || j.Operation == "" || j.DecisionRef == "" ||
 		j.PreviousGeneration == 0 || j.NextGeneration == 0 || j.PreviousRevision.Validate() != nil ||
-		j.NextRevision.Validate() != nil || j.PreviousPrincipals.Validate() != nil || j.Candidate.validate(runtime) != nil {
+		j.NextRevision.Validate() != nil {
 		return fmt.Errorf("final Gateway settlement journal metadata is invalid")
+	}
+	if err := j.PreviousPrincipals.Validate(); err != nil {
+		return fmt.Errorf("final Gateway settlement predecessor principals are invalid: %w", err)
+	}
+	if err := j.Candidate.validate(runtime); err != nil {
+		return fmt.Errorf("final Gateway settlement candidate is invalid: %w", err)
 	}
 	switch j.EffectClass {
 	case finalGatewaySettlementOPA:
@@ -228,6 +242,75 @@ func (r *Runtime) ReconcileFinalClusterAuthority(
 	return r.settleFinalAuthority(ctx, previous, next, plan, operation, decisionRef)
 }
 
+// SettleFinalReviewedPolicyAuthority applies one fixed reviewed set as one
+// global projection. It never sequences Contexts and never selects Template
+// current/current as cluster reconciliation would.
+func (r *Runtime) SettleFinalReviewedPolicyAuthority(
+	ctx context.Context,
+	previous, next tobari.WorkspaceAuthorityCollection,
+	set tobari.PolicyMemoryReviewedDecisionSet,
+	operation, decisionRef string,
+) (tobari.PolicyMemoryReviewedSettlementReceipt, error) {
+	if err := tobari.ValidatePolicyMemoryReviewedTransition(previous, next, set); err != nil {
+		return tobari.PolicyMemoryReviewedSettlementReceipt{}, fmt.Errorf("reviewed Policy Memory settlement transition: %w", err)
+	}
+	targets, err := set.TargetContextIDs()
+	if err != nil {
+		return tobari.PolicyMemoryReviewedSettlementReceipt{}, err
+	}
+	plan, err := tobari.BuildReviewedWorkspacePolicyProjection(next, targets)
+	if err != nil {
+		return tobari.PolicyMemoryReviewedSettlementReceipt{}, err
+	}
+	if err := r.settleFinalAuthority(ctx, previous, next, plan, operation, decisionRef, set.Digest); err != nil {
+		return tobari.PolicyMemoryReviewedSettlementReceipt{}, err
+	}
+	return r.confirmFinalReviewedPolicyAuthority(ctx, plan, set)
+}
+
+func (r *Runtime) ConfirmFinalReviewedPolicyAuthority(
+	ctx context.Context,
+	current tobari.WorkspaceAuthorityCollection,
+	set tobari.PolicyMemoryReviewedDecisionSet,
+) (tobari.PolicyMemoryReviewedSettlementReceipt, error) {
+	targets, err := set.TargetContextIDs()
+	if err != nil {
+		return tobari.PolicyMemoryReviewedSettlementReceipt{}, err
+	}
+	plan, err := tobari.BuildReviewedWorkspacePolicyProjection(current, targets)
+	if err != nil {
+		return tobari.PolicyMemoryReviewedSettlementReceipt{}, err
+	}
+	return r.confirmFinalReviewedPolicyAuthority(ctx, plan, set)
+}
+
+func (r *Runtime) confirmFinalReviewedPolicyAuthority(
+	ctx context.Context,
+	plan tobari.WorkspacePolicyProjection,
+	set tobari.PolicyMemoryReviewedDecisionSet,
+) (tobari.PolicyMemoryReviewedSettlementReceipt, error) {
+	if plan.Mode != tobari.WorkspacePolicyProjectionReviewed {
+		return tobari.PolicyMemoryReviewedSettlementReceipt{}, fmt.Errorf("reviewed Policy Memory confirmation plan is invalid")
+	}
+	if err := r.confirmFinalPolicyProjection(ctx, plan); err != nil {
+		return tobari.PolicyMemoryReviewedSettlementReceipt{}, err
+	}
+	active, err := r.readFinalPolicyActivation(r.finalPolicyActiveReceiptPath())
+	if err != nil {
+		return tobari.PolicyMemoryReviewedSettlementReceipt{}, err
+	}
+	if active.ReviewedSetDigest != set.Digest || active.Material.Plan.ContentDigest != plan.ContentDigest ||
+		active.Receipt.MaterializedDigest != active.Material.MaterializedDigest {
+		return tobari.PolicyMemoryReviewedSettlementReceipt{}, fmt.Errorf("reviewed Policy Memory active receipt crosses selected content")
+	}
+	receipt := tobari.PolicyMemoryReviewedSettlementReceipt{
+		DecisionSetDigest: set.Digest, PlanDigest: plan.PlanDigest, ContentDigest: plan.ContentDigest,
+		AggregateRevision: active.Aggregate.AggregateRevision, PolicyArtifact: active.Receipt.PolicyArtifact,
+		GatewayArtifact: active.Receipt.GatewayArtifact, PrincipalDigest: active.Receipt.PrincipalDigest,
+	}
+	return receipt, receipt.Validate()
+}
+
 func (r *Runtime) ConfirmFinalAuthoritySettled(
 	ctx context.Context, next tobari.WorkspaceAuthorityCollection, target tobari.ContextID,
 ) error {
@@ -263,8 +346,18 @@ func (r *Runtime) settleFinalAuthority(
 	previous, next tobari.WorkspaceAuthorityCollection,
 	plan tobari.WorkspacePolicyProjection,
 	operation, decisionRef string,
+	reviewedSetDigest ...tobari.SemanticDigest,
 ) error {
-	if r == nil || previous.Validate() != nil || next.Validate() != nil || plan.Validate() != nil || plan.CollectionRevision != next.Revision || operation == "" || decisionRef == "" {
+	var setDigest tobari.SemanticDigest
+	if len(reviewedSetDigest) > 1 {
+		return fmt.Errorf("final Gateway settlement has ambiguous reviewed-set identity")
+	}
+	if len(reviewedSetDigest) == 1 {
+		setDigest = reviewedSetDigest[0]
+	}
+	if r == nil || previous.Validate() != nil || next.Validate() != nil || plan.Validate() != nil || plan.CollectionRevision != next.Revision || operation == "" || decisionRef == "" ||
+		plan.Mode == tobari.WorkspacePolicyProjectionReviewed && setDigest.Validate() != nil ||
+		plan.Mode != tobari.WorkspacePolicyProjectionReviewed && setDigest != "" {
 		return fmt.Errorf("final Gateway settlement request is invalid")
 	}
 	if err := r.requireNoInterruptedClusterReconcile(ctx); err != nil {
@@ -279,12 +372,12 @@ func (r *Runtime) settleFinalAuthority(
 			if journal.Operation != operation || journal.DecisionRef != decisionRef ||
 				journal.PreviousGeneration != previous.Generation || journal.PreviousRevision != previous.Revision ||
 				journal.NextGeneration != next.Generation || journal.NextRevision != next.Revision ||
-				!reflect.DeepEqual(journal.Candidate.Plan, plan) {
+				!reflect.DeepEqual(journal.Candidate.Plan, plan) || journal.Candidate.ReviewedSetDigest != setDigest {
 				return fmt.Errorf("another final Gateway settlement requires exact same-action recovery")
 			}
 			return r.resumeFinalGatewaySettlement(ctx, journal)
 		}
-		prepared, err := r.prepareFinalGatewaySettlement(ctx, previous, next, plan, operation, decisionRef)
+		prepared, err := r.prepareFinalGatewaySettlement(ctx, previous, next, plan, operation, decisionRef, setDigest)
 		if err != nil {
 			return err
 		}
@@ -312,6 +405,7 @@ func (r *Runtime) prepareFinalGatewaySettlement(
 	previous, next tobari.WorkspaceAuthorityCollection,
 	plan tobari.WorkspacePolicyProjection,
 	operation, decisionRef string,
+	reviewedSetDigest tobari.SemanticDigest,
 ) (finalGatewaySettlementJournal, error) {
 	if err := r.ensurePrivateDirectory(r.finalGatewaySettlementRoot()); err != nil {
 		return finalGatewaySettlementJournal{}, err
@@ -356,7 +450,7 @@ func (r *Runtime) prepareFinalGatewaySettlement(
 		return finalGatewaySettlementJournal{}, err
 	}
 	candidate := finalGatewaySettlementCandidate{
-		Plan: plan.Clone(), Principals: principals, GatewayNetworks: networks,
+		Plan: plan.Clone(), ReviewedSetDigest: reviewedSetDigest, Principals: principals, GatewayNetworks: networks,
 		GatewayImageID: candidateGatewayImage, OPAImageID: candidateOPAImage, ReviewedGateway: gateway.ContainerID,
 		GatewayEnv: selectedFinalGatewayEnvironment(profile), Profile: profile,
 		Compose: compose, Aggregate: aggregate, PolicyArtifact: policyDigest, GatewayArtifact: gatewayDigest,
@@ -800,7 +894,7 @@ func (r *Runtime) resumeFinalGatewayOPAOnly(ctx context.Context, journal finalGa
 	if err := r.validateFinalGatewayComposeCandidate(journal.Candidate); err != nil {
 		return err
 	}
-	record, err := r.prepareFinalPolicyActivation(ctx, journal.Candidate.Plan)
+	record, err := r.prepareFinalPolicyActivation(ctx, journal.Candidate.Plan, journal.Candidate.ReviewedSetDigest)
 	if err != nil {
 		return err
 	}
@@ -856,7 +950,10 @@ func (r *Runtime) observeExactSettledGateway(ctx context.Context, candidate fina
 	if err != nil {
 		return finalPolicyActivationRecord{}, err
 	}
-	record := finalPolicyActivationRecord{SchemaVersion: finalPolicyActivationSchema, Material: material, Aggregate: aggregate, Receipt: receipt}
+	record := finalPolicyActivationRecord{
+		SchemaVersion: finalPolicyActivationSchema, ReviewedSetDigest: candidate.ReviewedSetDigest,
+		Material: material, Aggregate: aggregate, Receipt: receipt,
+	}
 	if receipt.PolicyArtifact != candidate.PolicyArtifact || receipt.GatewayArtifact != candidate.GatewayArtifact {
 		return finalPolicyActivationRecord{}, fmt.Errorf("settled Gateway artifacts differ from the reviewed candidate")
 	}

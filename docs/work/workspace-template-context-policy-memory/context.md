@@ -280,7 +280,10 @@ contract and source inspection plus the product-owner lifecycle decisions above.
   candidate ID. Allow/Deny validates the expected decision and reconstructs
   `previous + exact result rule`; Reset reconstructs `previous - exact target
   rule`. Both direct paths require `Changed=true` and exact generation/revision
-  equality. Apply-reviewed retains its separate reviewed-set no-op semantics.
+  equality. Apply-reviewed requires one nonempty explicitly confirmed set and
+  always publishes its reviewed authority change. Only same-set terminal replay
+  performs zero repeated external effect, while returning the original
+  confirmed `Changed=true` result.
 - Pending-candidate migration now carries that complete typed effect, validates
   the predecessor payload digest against it, deep-copies it into the final
   plan, and exposes a final candidate authority without any predecessor read.
@@ -439,9 +442,20 @@ contract and source inspection plus the product-owner lifecycle decisions above.
 - Learned GraphQL Policy Memory remains a normal Gateway-changing input. Direct
   Allow/Deny/Reset now choose the full settlement when `gateway.json` changes;
   byte-identical HTTP/MCP changes may use the OPA-only path. The still-open
-  fixed `policy apply-reviewed` adapter must supply one complete multi-Context
-  reviewed plan to this coordinator rather than settle Contexts sequentially or
-  adopt Template.Current. No public/current reader selects these dormant seams.
+  fixed `policy apply-reviewed` application path now passes one complete,
+  immutable multi-Context reviewed set into one dormant store/coordinator
+  decision rather than settling Contexts sequentially or adopting
+  Template.Current. ReviewItemID strict order is canonical: reversed UI
+  enumeration of the same items produces the same set digest and same-action
+  recovery identity, while ProposalDigest and the private reviewed-set digest
+  still distinguish genuinely different complete evidence. Its domain
+  transition validator proves that the supplied
+  next collection is exactly the result of that set before a journal, Compose,
+  principal, OPA, or envelope effect. The private active receipt also binds the
+  exact reviewed-set digest, so confirmation cannot relabel another valid live
+  aggregate as the requested set. Direct wrong-next fixtures preserve the
+  journal, principal registry, active receipt, Compose, and OPA counters
+  byte-for-byte/unchanged. No public/current reader selects these dormant seams.
 
 ## Dormant migration-engine evidence
 

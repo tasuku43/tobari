@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -54,7 +57,59 @@ type finalSettlementFixture struct {
 	confirms              int
 	contextDeleteCalls    int
 	contextDeleteConfirms int
+	reviewedCalls         int
+	reviewedConfirms      int
 	err                   error
+}
+
+func reviewedSettlementFixtureReceipt(
+	next tobari.WorkspaceAuthorityCollection,
+	set tobari.PolicyMemoryReviewedDecisionSet,
+) (tobari.PolicyMemoryReviewedSettlementReceipt, error) {
+	targets, err := set.TargetContextIDs()
+	if err != nil {
+		return tobari.PolicyMemoryReviewedSettlementReceipt{}, err
+	}
+	projection, err := tobari.BuildReviewedWorkspacePolicyProjection(next, targets)
+	if err != nil {
+		return tobari.PolicyMemoryReviewedSettlementReceipt{}, err
+	}
+	digest := func(value string) tobari.SemanticDigest {
+		return tobari.SemanticDigest("sha256:" + strings.Repeat(value, 64))
+	}
+	return tobari.PolicyMemoryReviewedSettlementReceipt{
+		DecisionSetDigest: set.Digest, PlanDigest: projection.PlanDigest, ContentDigest: projection.ContentDigest,
+		AggregateRevision: strings.Repeat("a", 64), PolicyArtifact: digest("b"),
+		GatewayArtifact: digest("c"), PrincipalDigest: digest("d"),
+	}, nil
+}
+
+func (s *finalSettlementFixture) SettleFinalReviewedPolicyAuthority(
+	_ context.Context,
+	previous, next tobari.WorkspaceAuthorityCollection,
+	set tobari.PolicyMemoryReviewedDecisionSet,
+	_, _ string,
+) (tobari.PolicyMemoryReviewedSettlementReceipt, error) {
+	if s.err != nil {
+		return tobari.PolicyMemoryReviewedSettlementReceipt{}, s.err
+	}
+	if err := tobari.ValidatePolicyMemoryReviewedTransition(previous, next, set); err != nil {
+		return tobari.PolicyMemoryReviewedSettlementReceipt{}, err
+	}
+	s.reviewedCalls++
+	return reviewedSettlementFixtureReceipt(next, set)
+}
+
+func (s *finalSettlementFixture) ConfirmFinalReviewedPolicyAuthority(
+	_ context.Context,
+	current tobari.WorkspaceAuthorityCollection,
+	set tobari.PolicyMemoryReviewedDecisionSet,
+) (tobari.PolicyMemoryReviewedSettlementReceipt, error) {
+	if s.err != nil {
+		return tobari.PolicyMemoryReviewedSettlementReceipt{}, s.err
+	}
+	s.reviewedConfirms++
+	return reviewedSettlementFixtureReceipt(current, set)
 }
 
 func (s *finalSettlementFixture) SettleFinalContextDeletion(_ context.Context, _, next tobari.WorkspaceAuthorityCollection, contextID tobari.ContextID, _, _ string) error {
@@ -197,6 +252,119 @@ func newMutationFixture(t *testing.T, existing *tobari.WorkspaceAuthorityCollect
 	}
 	mutator.entropy = bytes.NewReader(entropy)
 	return store, mutator, lifecycle, deletion, activation
+}
+
+func reviewedSetForCandidates(
+	t *testing.T,
+	collection tobari.WorkspaceAuthorityCollection,
+	candidates ...tobari.PolicyCandidateAuthority,
+) tobari.PolicyMemoryReviewedDecisionSet {
+	t.Helper()
+	decisions := make([]tobari.PolicyMemoryReviewedDecision, len(candidates))
+	for index, candidate := range candidates {
+		decision, err := tobari.NewPolicyMemoryReviewedDecision(
+			candidate.ID, []tobari.PolicyCandidateAuthority{candidate}, nil, tobari.PolicyMemoryAllow,
+			candidate.Effect.RuleBody(candidate.ID),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decisions[index] = decision
+	}
+	set, err := tobari.NewPolicyMemoryReviewedDecisionSet(collection, decisions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return set
+}
+
+func twoContextReviewedCollection(t *testing.T) (tobari.WorkspaceAuthorityCollection, tobari.PolicyCandidateAuthority, tobari.PolicyCandidateAuthority) {
+	t.Helper()
+	first := storeCollectionFixture(t)
+	secondTemplateID := tobari.WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789b1")
+	secondContextID := tobari.ContextID("01912345-6789-7abc-8def-0123456789b2")
+	secondWorkspaceID := tobari.WorkspaceID("01912345-6789-7abc-8def-0123456789b3")
+	secondTemplate, err := tobari.CopyWorkspaceTemplateRevision(secondTemplateID, "second", first.Templates[0].Current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memory, _, err := tobari.PublishPolicyMemory(secondContextID, []tobari.PolicyMemoryRule{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := tobari.ContextBinding{
+		SchemaVersion: tobari.ContextBindingSchemaVersion, ID: secondContextID,
+		ProjectRoot: first.Contexts[0].Context.ProjectRoot, TemplateID: secondTemplateID,
+	}
+	templateReceipt := tobari.TemplatePolicyActivationReceipt{
+		ContextID: secondContextID, TemplateID: secondTemplateID,
+		PolicySliceDigest: secondTemplate.Current.Slices.PolicySliceDigest,
+	}
+	memoryReceipt := tobari.PolicyMemoryActivationReceipt{ContextID: secondContextID, Revision: memory.Revision}
+	active := memory.Clone()
+	secondRecord := tobari.WorkspaceAuthorityContextRecord{
+		Context: binding, PolicyMemory: memory, ActiveTemplatePolicy: &templateReceipt,
+		ActivePolicyMemory: &active, ActivePolicyMemoryRef: &memoryReceipt,
+	}
+	applied := tobari.WorkspaceAppliedEntry{
+		ContextID: secondContextID, TemplateID: secondTemplateID, TemplateRevision: secondTemplate.Current.Revision,
+		EntrySliceDigest: secondTemplate.Current.Slices.EntrySliceDigest, RuntimeID: secondTemplate.Current.Slices.RuntimeID,
+		RuntimeRevision: secondTemplate.Current.Slices.RuntimeRevision,
+		ResolvedSpec:    tobari.SemanticDigest("sha256:" + strings.Repeat("8", 64)), ReconciledAt: time.Unix(2, 0).UTC(),
+	}
+	secondWorkspace := tobari.WorkspaceBinding{
+		SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: secondWorkspaceID, ContextID: secondContextID,
+		ProjectRoot: binding.ProjectRoot, Home: "/workspace/home-" + string(secondWorkspaceID),
+		CreationDefaults: secondTemplate.Current.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied,
+	}
+	effect := first.PendingCandidates[0].Effect
+	effect.Path = "/second-candidate"
+	effect.Examples = []string{effect.Path}
+	secondCandidate, err := tobari.NewPolicyCandidateAuthority(secondContextID, secondWorkspaceID, effect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending := []tobari.PolicyCandidateAuthority{first.PendingCandidates[0].Clone(), secondCandidate}
+	sort.Slice(pending, func(i, j int) bool { return pending[i].ID < pending[j].ID })
+	defaultID := storeTemplateID
+	collection, _, err := tobari.PublishWorkspaceAuthorityCollection(
+		[]tobari.WorkspaceTemplate{first.Templates[0].Clone(), secondTemplate},
+		[]tobari.WorkspaceAuthorityContextRecord{first.Contexts[0].Clone(), secondRecord},
+		[]tobari.WorkspaceBinding{first.Workspaces[0], secondWorkspace}, pending, &defaultID, nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return collection, first.PendingCandidates[0], secondCandidate
+}
+
+func addPendingCandidate(
+	t *testing.T,
+	mutator *Mutator,
+	path string,
+) (tobari.WorkspaceAuthorityCollection, tobari.PolicyCandidateAuthority) {
+	t.Helper()
+	effect := tobari.PolicyCandidateEffect{
+		PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP},
+		Match:                  tobari.PolicyMatchExact, Host: "api.example.dev", Port: 443, Method: "GET", Path: path,
+		Segments: []string{}, Examples: []string{path},
+	}
+	candidate, err := tobari.NewPolicyCandidateAuthority(storeContextID, storeWorkspaceID, effect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = mutator.mutate(context.Background(), func(current tobari.WorkspaceAuthorityCollection, present bool) (tobari.WorkspaceAuthorityCollection, bool, error) {
+		pending := append(clonePolicyCandidates(current.PendingCandidates), candidate)
+		return publishCollection(current, present, current.Templates, current.Contexts, current.Workspaces, pending, current.DefaultTemplateID)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, present, err := mutator.store.ReadComplete(context.Background())
+	if err != nil || !present {
+		t.Fatalf("read collection with pending candidate: present=%t err=%v", present, err)
+	}
+	return current, candidate
 }
 
 func TestMutatorCreatesCopiesSelectsAndDeletesTemplatesThroughOneEnvelope(t *testing.T) {
@@ -680,6 +848,221 @@ func TestPolicyDecisionUsesDurableEffectDecisionAndTerminalReplay(t *testing.T) 
 	replayed, err := mutator.AllowPolicyCandidateByReference(context.Background(), candidate.ID)
 	if err != nil || replayed.RuleID != publication.RuleID || activation.calls != calls || activation.confirmCalls != 1 {
 		t.Fatalf("terminal replay=%#v calls=%d confirms=%d err=%v", replayed, activation.calls, activation.confirmCalls, err)
+	}
+}
+
+func TestApplyReviewedPublishesOneSetAndReplaysAcrossUnrelatedPureMutation(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	_, mutator, _, _, _ := newMutationFixture(t, &existing)
+	settlement := mutator.settlement.(*finalSettlementFixture)
+	set := reviewedSetForCandidates(t, existing, existing.PendingCandidates[0])
+
+	publication, err := mutator.ApplyReviewedPolicyMemory(context.Background(), set)
+	if err != nil || publication.Validate() != nil || settlement.reviewedCalls != 1 || len(publication.AppliedDecisions) != 1 {
+		t.Fatalf("publication=%#v calls=%d err=%v validate=%v", publication, settlement.reviewedCalls, err, publication.Validate())
+	}
+	if publication.DecisionSet.Decisions[0].ReviewItemID != set.Decisions[0].ReviewItemID ||
+		publication.DecisionSet.Decisions[0].ProposalDigest != set.Decisions[0].ProposalDigest {
+		t.Fatal("durable reviewed result lost stable item or complete evidence identity")
+	}
+	body := existing.Templates[0].Current.Body.Clone()
+	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "unrelated-after-reviewed", body); err != nil {
+		t.Fatal(err)
+	}
+	calls := settlement.reviewedCalls
+	replayed, err := mutator.ApplyReviewedPolicyMemory(context.Background(), set)
+	if err != nil || replayed.Validate() != nil || settlement.reviewedCalls != calls || settlement.reviewedConfirms != 1 ||
+		!reflect.DeepEqual(replayed.AppliedDecisions, publication.AppliedDecisions) || replayed.ActiveRevision != publication.ActiveRevision || !replayed.Changed {
+		t.Fatalf("replay=%#v calls=%d confirms=%d err=%v validate=%v", replayed, settlement.reviewedCalls, settlement.reviewedConfirms, err, replayed.Validate())
+	}
+}
+
+func TestApplyReviewedSettlesTwoContextAllowAndDenyAsOneGlobalMutation(t *testing.T) {
+	existing, firstCandidate, secondCandidate := twoContextReviewedCollection(t)
+	_, mutator, _, _, _ := newMutationFixture(t, &existing)
+	settlement := mutator.settlement.(*finalSettlementFixture)
+	allow, err := tobari.NewPolicyMemoryReviewedDecision(
+		firstCandidate.ID, []tobari.PolicyCandidateAuthority{firstCandidate}, nil, tobari.PolicyMemoryAllow,
+		firstCandidate.Effect.RuleBody(firstCandidate.ID),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deny, err := tobari.NewPolicyMemoryReviewedDecision(
+		secondCandidate.ID, []tobari.PolicyCandidateAuthority{secondCandidate}, nil, tobari.PolicyMemoryDeny,
+		secondCandidate.Effect.RuleBody(secondCandidate.ID),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := tobari.NewPolicyMemoryReviewedDecisionSet(existing, []tobari.PolicyMemoryReviewedDecision{allow, deny})
+	if err != nil {
+		t.Fatal(err)
+	}
+	publication, err := mutator.ApplyReviewedPolicyMemory(context.Background(), set)
+	if err != nil || publication.Validate() != nil || settlement.reviewedCalls != 1 ||
+		len(publication.Changes) != 2 || len(publication.AppliedDecisions) != 2 ||
+		publication.AllowCount != 1 || publication.DenyCount != 1 {
+		t.Fatalf("publication=%#v calls=%d err=%v validate=%v", publication, settlement.reviewedCalls, err, publication.Validate())
+	}
+	current, present, err := mutator.store.ReadComplete(context.Background())
+	if err != nil || !present || len(current.PendingCandidates) != 0 || len(current.Contexts[0].PolicyMemory.Rules) != 1 || len(current.Contexts[1].PolicyMemory.Rules) != 1 {
+		t.Fatalf("current=%#v present=%t err=%v", current, present, err)
+	}
+}
+
+func TestApplyReviewedFixedTargetDoesNotReplayAnOlderDifferentSet(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	_, mutator, _, _, _ := newMutationFixture(t, &existing)
+	settlement := mutator.settlement.(*finalSettlementFixture)
+	setA := reviewedSetForCandidates(t, existing, existing.PendingCandidates[0])
+	if _, err := mutator.ApplyReviewedPolicyMemory(context.Background(), setA); err != nil {
+		t.Fatal(err)
+	}
+	withB, candidateB := addPendingCandidate(t, mutator, "/candidate-b")
+	setB := reviewedSetForCandidates(t, withB, candidateB)
+	resultB, err := mutator.ApplyReviewedPolicyMemory(context.Background(), setB)
+	if err != nil || resultB.Validate() != nil || settlement.reviewedCalls != 2 ||
+		len(resultB.AppliedDecisions) != 1 || resultB.AppliedDecisions[0].ReviewItemID != candidateB.ID ||
+		resultB.DecisionSet.Digest != setB.Digest || resultB.DecisionSet.Digest == setA.Digest {
+		t.Fatalf("second result=%#v calls=%d err=%v validate=%v", resultB, settlement.reviewedCalls, err, resultB.Validate())
+	}
+	calls := settlement.reviewedCalls
+	replayedB, err := mutator.ApplyReviewedPolicyMemory(context.Background(), setB)
+	if err != nil || replayedB.AppliedDecisions[0].ReviewItemID != candidateB.ID || settlement.reviewedCalls != calls {
+		t.Fatalf("same-set replay=%#v calls=%d err=%v", replayedB, settlement.reviewedCalls, err)
+	}
+}
+
+func TestApplyReviewedRejectsConfirmedCollectionDriftBeforeDecisionOrEffect(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	_, mutator, _, _, _ := newMutationFixture(t, &existing)
+	settlement := mutator.settlement.(*finalSettlementFixture)
+	set := reviewedSetForCandidates(t, existing, existing.PendingCandidates[0])
+	body := existing.Templates[0].Current.Body.Clone()
+	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "concurrent-template", body); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mutator.ApplyReviewedPolicyMemory(context.Background(), set); !errors.Is(err, tobari.ErrPolicyReviewChanged) {
+		t.Fatalf("collection drift err=%v", err)
+	}
+	if settlement.reviewedCalls != 0 {
+		t.Fatalf("collection drift reached settlement: calls=%d", settlement.reviewedCalls)
+	}
+	if _, active, err := mutator.readEffectDecision(); err != nil || active {
+		t.Fatalf("collection drift left decision: active=%t err=%v", active, err)
+	}
+}
+
+func TestApplyReviewedResumesOneGlobalDecisionAcrossPublicationBoundaries(t *testing.T) {
+	tests := []struct {
+		name             string
+		installFailure   func(*Mutator) func()
+		wantSettleCalls  int
+		wantConfirmCalls int
+	}{
+		{
+			name: "after settlement before terminal evidence",
+			installFailure: func(mutator *Mutator) func() {
+				realRename := mutator.rename
+				decisionRenames := 0
+				mutator.rename = func(source, target string) error {
+					if source == mutator.effectDecisionTempPath() && target == mutator.effectDecisionPath() {
+						decisionRenames++
+						if decisionRenames == 2 {
+							return fmt.Errorf("injected result-evidence publication interruption")
+						}
+					}
+					return realRename(source, target)
+				}
+				return func() { mutator.rename = realRename }
+			},
+			wantSettleCalls: 2,
+		},
+		{
+			name: "after terminal evidence before envelope",
+			installFailure: func(mutator *Mutator) func() {
+				realRename := mutator.rename
+				stage := mutator.store.root + ".wp11-mutation-stage"
+				authority := filepath.Join(mutator.store.root, authorityFileName)
+				mutator.rename = func(source, target string) error {
+					if source == stage && target == authority {
+						return fmt.Errorf("injected envelope publication interruption")
+					}
+					return realRename(source, target)
+				}
+				return func() { mutator.rename = realRename }
+			},
+			wantSettleCalls: 2,
+		},
+		{
+			name: "after envelope before terminal transition",
+			installFailure: func(mutator *Mutator) func() {
+				realRename := mutator.rename
+				mutator.rename = func(source, target string) error {
+					if source == mutator.effectDecisionPath() && target == mutator.effectDecisionDonePath() {
+						return fmt.Errorf("injected terminal transition interruption")
+					}
+					return realRename(source, target)
+				}
+				return func() { mutator.rename = realRename }
+			},
+			wantSettleCalls: 1, wantConfirmCalls: 1,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			existing := storeCollectionFixture(t)
+			_, mutator, _, _, _ := newMutationFixture(t, &existing)
+			settlement := mutator.settlement.(*finalSettlementFixture)
+			set := reviewedSetForCandidates(t, existing, existing.PendingCandidates[0])
+			restore := test.installFailure(mutator)
+			if _, err := mutator.ApplyReviewedPolicyMemory(context.Background(), set); err == nil {
+				t.Fatal("interrupted reviewed application was reported complete")
+			}
+			if _, active, err := mutator.readEffectDecision(); err != nil || !active {
+				t.Fatalf("active decision=%t err=%v", active, err)
+			}
+			body := existing.Templates[0].Current.Body.Clone()
+			if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "blocked-during-reviewed", body); err == nil {
+				t.Fatal("different mutation crossed active reviewed decision")
+			}
+			restore()
+			publication, err := mutator.ApplyReviewedPolicyMemory(context.Background(), set)
+			if err != nil || publication.Validate() != nil || publication.DecisionSet.Digest != set.Digest ||
+				settlement.reviewedCalls != test.wantSettleCalls || settlement.reviewedConfirms != test.wantConfirmCalls {
+				t.Fatalf("publication=%#v calls=%d confirms=%d err=%v validate=%v", publication, settlement.reviewedCalls, settlement.reviewedConfirms, err, publication.Validate())
+			}
+		})
+	}
+}
+
+func TestApplyReviewedReplaysAfterTerminalRenameResultUncertainty(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	_, mutator, _, _, _ := newMutationFixture(t, &existing)
+	settlement := mutator.settlement.(*finalSettlementFixture)
+	set := reviewedSetForCandidates(t, existing, existing.PendingCandidates[0])
+	realRename := mutator.rename
+	mutator.rename = func(source, target string) error {
+		if source == mutator.effectDecisionPath() && target == mutator.effectDecisionDonePath() {
+			if err := realRename(source, target); err != nil {
+				return err
+			}
+			return fmt.Errorf("injected post-terminal-rename uncertainty")
+		}
+		return realRename(source, target)
+	}
+	if _, err := mutator.ApplyReviewedPolicyMemory(context.Background(), set); err == nil {
+		t.Fatal("post-terminal-rename uncertainty was reported complete")
+	}
+	if _, active, err := mutator.readEffectDecision(); err != nil || active {
+		t.Fatalf("active decision=%t err=%v", active, err)
+	}
+	mutator.rename = realRename
+	calls := settlement.reviewedCalls
+	publication, err := mutator.ApplyReviewedPolicyMemory(context.Background(), set)
+	if err != nil || publication.Validate() != nil || settlement.reviewedCalls != calls || settlement.reviewedConfirms != 1 || !publication.Changed {
+		t.Fatalf("publication=%#v calls=%d confirms=%d err=%v", publication, settlement.reviewedCalls, settlement.reviewedConfirms, err)
 	}
 }
 

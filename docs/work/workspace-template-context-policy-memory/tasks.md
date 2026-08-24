@@ -226,13 +226,21 @@ implementation is authorized by creating it.
       parent decision; fully inactive Contexts are omitted without adoption,
       partial active axes fail closed, and Context deletion can produce an exact
       empty active projection. No current composition exposes these adapters.
-- [ ] Implement fixed-target `policy apply-reviewed` as one complete reviewed-set
+- [x] Implement fixed-target `policy apply-reviewed` as one complete reviewed-set
       settlement: advance every reviewed target Policy Memory together, preserve
       all non-target memories and all active Template-policy axes, and publish
       one global Gateway/OPA/principal receipt. It must not sequence one
       settlement per Context or use cluster current/current selection. Add
-      normal/no-op, multi-Context GraphQL+HTTP, interruption, and zero-partial-
-      adoption fixtures before public cutover.
+      normal nonempty application, same-set terminal replay with zero repeated
+      external effect and the original changed result, multi-Context
+      GraphQL+HTTP, interruption, and zero-partial-adoption fixtures before
+      public cutover. Empty reviewed sets are invalid rather than no-op. The
+      dormant concrete boundary now validates exact previous→set→next authority
+      before any external effect and binds the set digest in its private active
+      receipt. Review items use one strict canonical ReviewItemID order, so
+      reversed enumeration resumes the same durable set rather than inventing
+      another action identity; public/current composition remains intentionally
+      absent.
 - [ ] Perform one public Catalog hard cutover with no accidental aliases.
 - [ ] Update human output, JSON schemas, completion, help, examples, site,
       embedded/generated snapshots, and agent-readiness fixtures.

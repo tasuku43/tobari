@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -80,6 +81,8 @@ type fakePort struct {
 	copyPublication  tobari.WorkspaceTemplateCopyPublication
 	policy           tobari.PolicyCandidatePublication
 	reset            tobari.PolicyRuleResetPublication
+	reviewed         tobari.PolicyMemoryReviewedSetPublication
+	reviewedSet      tobari.PolicyMemoryReviewedDecisionSet
 	lastRef          string
 	calls            int
 	entryErr         error
@@ -167,6 +170,11 @@ func (f *fakePort) ResetPolicyMemoryRuleByReference(_ context.Context, ref strin
 	f.calls++
 	f.lastRef = ref
 	return f.reset, nil
+}
+func (f *fakePort) ApplyReviewedPolicyMemory(_ context.Context, set tobari.PolicyMemoryReviewedDecisionSet) (tobari.PolicyMemoryReviewedSetPublication, error) {
+	f.calls++
+	f.reviewedSet = set.Clone()
+	return f.reviewed.Clone(), nil
 }
 
 func intent(command string, effect operation.Effect, target operation.TargetRef, impact operation.Impact) operation.Intent {
@@ -335,6 +343,130 @@ func policyEffect(path string) tobari.PolicyCandidateEffect {
 		PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP},
 		Match:                  tobari.PolicyMatchExact, Host: "api.example.dev", Port: 443, Method: "GET", Path: path,
 		Segments: []string{}, Examples: []string{path},
+	}
+}
+
+func reviewedApplicationFixture(t *testing.T) (tobari.PolicyMemoryReviewedDecisionSet, tobari.PolicyMemoryReviewedSetPublication) {
+	t.Helper()
+	snapshot := snapshotFixture(t, true, true)
+	candidate, err := tobari.NewPolicyCandidateAuthority(contextID, workspaceID, policyEffect("/reviewed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous, _, err := tobari.PublishWorkspaceAuthorityCollection(
+		[]tobari.WorkspaceTemplate{snapshot.Template},
+		[]tobari.WorkspaceAuthorityContextRecord{{
+			Context: snapshot.Context, PolicyMemory: snapshot.PolicyMemory,
+			ActiveTemplatePolicy: snapshot.ActiveTemplatePolicy, ActivePolicyMemory: snapshot.ActivePolicyMemory,
+			ActivePolicyMemoryRef: snapshot.ActivePolicyMemoryRef,
+		}},
+		[]tobari.WorkspaceBinding{*snapshot.Workspace}, []tobari.PolicyCandidateAuthority{candidate}, nil, nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := tobari.NewPolicyMemoryReviewedDecision(
+		candidate.ID,
+		[]tobari.PolicyCandidateAuthority{candidate}, []tobari.PolicyMemoryRule{}, tobari.PolicyMemoryAllow,
+		candidate.Effect.RuleBody(candidate.ID),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := tobari.NewPolicyMemoryReviewedDecisionSet(previous, []tobari.PolicyMemoryReviewedDecision{decision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule, err := tobari.NewPolicyMemoryRule(contextID, tobari.PolicyMemoryAllow, decision.Rule)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memory, changed, err := tobari.PublishPolicyMemory(contextID, []tobari.PolicyMemoryRule{rule}, &snapshot.PolicyMemory)
+	if err != nil || !changed {
+		t.Fatalf("reviewed memory: changed=%t err=%v", changed, err)
+	}
+	memoryReceipt := tobari.PolicyMemoryActivationReceipt{ContextID: contextID, Revision: memory.Revision}
+	nextRecord := tobari.WorkspaceAuthorityContextRecord{
+		Context: snapshot.Context, PolicyMemory: memory, ActiveTemplatePolicy: snapshot.ActiveTemplatePolicy,
+		ActivePolicyMemory: ptrMemory(memory), ActivePolicyMemoryRef: &memoryReceipt,
+	}
+	next, changed, err := tobari.PublishWorkspaceAuthorityCollection(
+		previous.Templates, []tobari.WorkspaceAuthorityContextRecord{nextRecord}, previous.Workspaces,
+		[]tobari.PolicyCandidateAuthority{}, previous.DefaultTemplateID, &previous,
+	)
+	if err != nil || !changed {
+		t.Fatalf("reviewed collection: changed=%t err=%v", changed, err)
+	}
+	projection, err := tobari.BuildReviewedWorkspacePolicyProjection(next, []tobari.ContextID{contextID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	settlement := tobari.PolicyMemoryReviewedSettlementReceipt{
+		DecisionSetDigest: set.Digest, PlanDigest: projection.PlanDigest, ContentDigest: projection.ContentDigest,
+		AggregateRevision: strings.Repeat("a", 64), PolicyArtifact: digest("b"), GatewayArtifact: digest("c"), PrincipalDigest: digest("d"),
+	}
+	publication, err := tobari.NewPolicyMemoryReviewedSetPublication(previous, next, set, settlement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return set, publication
+}
+
+func TestApplyReviewedConsumesOneExplicitCompleteSetAndReturnsExhaustiveResult(t *testing.T) {
+	set, publication := reviewedApplicationFixture(t)
+	fake := &fakePort{reviewed: publication}
+	service := NewPolicyMemoryService(fake)
+	target := operation.TargetRef{Kind: tobari.PolicyDecisionSetKind, ID: tobari.PolicyDecisionSetID}
+	result, err := service.ApplyReviewed(
+		context.Background(), intent(TaskPolicyApply, operation.EffectWrite, target, PolicyMemoryImpact()), set,
+	)
+	if err != nil || fake.calls != 1 || !reflect.DeepEqual(fake.reviewedSet, set) ||
+		len(result.AppliedDecisions) != 1 || result.AppliedDecisions[0].ReviewItemID != set.Decisions[0].ReviewItemID {
+		t.Fatalf("result=%#v set=%#v calls=%d err=%v", result, fake.reviewedSet, fake.calls, err)
+	}
+	if _, err := tobari.ParseContextRef(result.AppliedDecisions[0].ContextRef); err != nil {
+		t.Fatalf("result Context reference is not actionable: %v", err)
+	}
+	if _, err := tobari.ParseWorkspaceTemplateRef(result.AppliedDecisions[0].TemplateRef); err != nil {
+		t.Fatalf("result Template reference is not actionable: %v", err)
+	}
+	if _, err := tobari.ParseWorkspaceRef(result.AppliedDecisions[0].ObservingWorkspaceRef); err != nil {
+		t.Fatalf("result Workspace reference is not actionable: %v", err)
+	}
+}
+
+func TestApplyReviewedRejectsInvalidOrSubstitutedSetBeforeSemanticSuccess(t *testing.T) {
+	set, publication := reviewedApplicationFixture(t)
+	fake := &fakePort{reviewed: publication}
+	service := NewPolicyMemoryService(fake)
+	target := operation.TargetRef{Kind: tobari.PolicyDecisionSetKind, ID: tobari.PolicyDecisionSetID}
+	_, err := service.ApplyReviewed(
+		context.Background(), intent(TaskPolicyApply, operation.EffectWrite, target, PolicyMemoryImpact()), tobari.PolicyMemoryReviewedDecisionSet{},
+	)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "invalid_policy_review_set" || fake.calls != 0 {
+		t.Fatalf("invalid set reached adapter: fault=%#v calls=%d", public, fake.calls)
+	}
+
+	otherDecision, err := tobari.NewPolicyMemoryReviewedDecision(
+		set.Decisions[0].Candidates[0].ID,
+		[]tobari.PolicyCandidateAuthority{set.Decisions[0].Candidates[0]}, []tobari.PolicyMemoryRule{}, tobari.PolicyMemoryDeny,
+		set.Decisions[0].Candidates[0].Effect.RuleBody(set.Decisions[0].Candidates[0].ID),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherSet, err := tobari.NewPolicyMemoryReviewedDecisionSet(publication.Previous, []tobari.PolicyMemoryReviewedDecision{otherDecision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.reviewed.DecisionSet = otherSet
+	_, err = service.ApplyReviewed(
+		context.Background(), intent(TaskPolicyApply, operation.EffectWrite, target, PolicyMemoryImpact()), set,
+	)
+	public, ok = fault.PublicCopy(err)
+	if !ok || public.Code != "invalid_policy_memory_result" || fake.calls != 1 {
+		t.Fatalf("substituted set was accepted: fault=%#v calls=%d", public, fake.calls)
 	}
 }
 

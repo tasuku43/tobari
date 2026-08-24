@@ -180,6 +180,38 @@ func TestWorkspacePolicyProjectionIsCompleteSortedAndCloneIsolated(t *testing.T)
 	}
 }
 
+func TestWorkspacePolicyProjectionClonePreservesPlanIdentityForEveryMode(t *testing.T) {
+	collection := workspaceAuthorityCollectionFixture(t)
+	hot, err := BuildHotWorkspacePolicyProjection(collection, collection.Contexts[0].Context.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cluster, err := BuildClusterWorkspacePolicyProjection(collection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := BuildActiveWorkspacePolicyProjection(collection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewed, err := BuildReviewedWorkspacePolicyProjection(collection, []ContextID{collection.Contexts[0].Context.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, projection := range []WorkspacePolicyProjection{hot, cluster, active, reviewed} {
+		clone := projection.Clone()
+		if err := clone.Validate(); err != nil || clone.PlanDigest != projection.PlanDigest || clone.ContentDigest != projection.ContentDigest ||
+			(projection.TargetContextIDs == nil) != (clone.TargetContextIDs == nil) {
+			t.Fatalf("mode=%q clone=%#v err=%v", projection.Mode, clone, err)
+		}
+	}
+	noncanonical := hot.Clone()
+	noncanonical.TargetContextIDs = []ContextID{}
+	if err := noncanonical.Validate(); err == nil {
+		t.Fatal("hot projection accepted a noncanonical empty reviewed-target slice")
+	}
+}
+
 func TestWorkspacePolicyProjectionUsesWorkspaceRetainedCreationAuthority(t *testing.T) {
 	bodyA := templateBodyFixture("items")
 	bootstrapA, err := NewContextBootstrapSnapshotWithEKS(1, testAWSBootstrap(), testEKSBootstrap(t))

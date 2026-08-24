@@ -14,11 +14,12 @@ const (
 	WorkspacePolicyProjectionHotMemory WorkspacePolicyProjectionMode = "hot_policy_memory"
 	WorkspacePolicyProjectionCluster   WorkspacePolicyProjectionMode = "cluster_reconciliation"
 	WorkspacePolicyProjectionActive    WorkspacePolicyProjectionMode = "active_authority"
+	WorkspacePolicyProjectionReviewed  WorkspacePolicyProjectionMode = "reviewed_policy_set"
 )
 
 func (m WorkspacePolicyProjectionMode) Validate() error {
 	switch m {
-	case WorkspacePolicyProjectionHotMemory, WorkspacePolicyProjectionCluster, WorkspacePolicyProjectionActive:
+	case WorkspacePolicyProjectionHotMemory, WorkspacePolicyProjectionCluster, WorkspacePolicyProjectionActive, WorkspacePolicyProjectionReviewed:
 		return nil
 	default:
 		return fmt.Errorf("Workspace policy projection mode is invalid")
@@ -201,6 +202,7 @@ type WorkspacePolicyProjection struct {
 	Mode               WorkspacePolicyProjectionMode      `json:"mode"`
 	CollectionRevision SemanticDigest                     `json:"collection_revision"`
 	TargetContextID    *ContextID                         `json:"target_context_id,omitempty"`
+	TargetContextIDs   []ContextID                        `json:"target_context_ids,omitempty"`
 	Contexts           []WorkspacePolicyProjectionContext `json:"contexts"`
 	ContentDigest      SemanticDigest                     `json:"content_digest"`
 	PlanDigest         SemanticDigest                     `json:"plan_digest"`
@@ -217,10 +219,21 @@ func (p WorkspacePolicyProjection) Validate() error {
 		return err
 	}
 	if p.Mode == WorkspacePolicyProjectionHotMemory {
-		if p.TargetContextID == nil || p.TargetContextID.Validate() != nil {
+		if p.TargetContextID == nil || p.TargetContextID.Validate() != nil || p.TargetContextIDs != nil {
 			return fmt.Errorf("hot Workspace policy projection target is invalid")
 		}
-	} else if p.TargetContextID != nil {
+	} else if p.Mode == WorkspacePolicyProjectionReviewed {
+		if p.TargetContextID != nil || p.TargetContextIDs == nil || len(p.TargetContextIDs) == 0 || len(p.TargetContextIDs) > MaxPolicyReviewDecisions {
+			return fmt.Errorf("reviewed Workspace policy projection targets are invalid")
+		}
+		previousTarget := ContextID("")
+		for _, target := range p.TargetContextIDs {
+			if target.Validate() != nil || previousTarget != "" && target <= previousTarget {
+				return fmt.Errorf("reviewed Workspace policy projection targets must be unique and sorted")
+			}
+			previousTarget = target
+		}
+	} else if p.TargetContextID != nil || p.TargetContextIDs != nil {
 		return fmt.Errorf("non-hot Workspace policy projection cannot carry a hot target")
 	}
 	if p.Contexts == nil {
@@ -228,7 +241,13 @@ func (p WorkspacePolicyProjection) Validate() error {
 	}
 	previous := ContextID("")
 	workspaces := map[WorkspaceID]struct{}{}
-	targetFound := p.Mode != WorkspacePolicyProjectionHotMemory
+	targetsFound := make(map[ContextID]bool, len(p.TargetContextIDs)+1)
+	if p.TargetContextID != nil {
+		targetsFound[*p.TargetContextID] = false
+	}
+	for _, target := range p.TargetContextIDs {
+		targetsFound[target] = false
+	}
 	for _, context := range p.Contexts {
 		if err := context.Validate(); err != nil {
 			return err
@@ -242,13 +261,15 @@ func (p WorkspacePolicyProjection) Validate() error {
 			}
 			workspaces[context.Principal.WorkspaceID] = struct{}{}
 		}
-		if p.TargetContextID != nil && context.ContextID == *p.TargetContextID {
-			targetFound = true
+		if _, selected := targetsFound[context.ContextID]; selected {
+			targetsFound[context.ContextID] = true
 		}
 		previous = context.ContextID
 	}
-	if !targetFound {
-		return fmt.Errorf("hot Workspace policy projection target is absent from complete content")
+	for _, found := range targetsFound {
+		if !found {
+			return fmt.Errorf("Workspace policy projection target is absent from complete content")
+		}
 	}
 	wantContent, err := workspacePolicyProjectionContentDigest(p)
 	if err != nil {
@@ -277,6 +298,9 @@ func (p WorkspacePolicyProjection) Clone() WorkspacePolicyProjection {
 		target := *p.TargetContextID
 		result.TargetContextID = &target
 	}
+	if p.TargetContextIDs != nil {
+		result.TargetContextIDs = append([]ContextID{}, p.TargetContextIDs...)
+	}
 	return result
 }
 
@@ -291,19 +315,20 @@ func workspacePolicyProjectionPlanDigest(p WorkspacePolicyProjection) (SemanticD
 		Mode               WorkspacePolicyProjectionMode
 		CollectionRevision SemanticDigest
 		TargetContextID    *ContextID
+		TargetContextIDs   []ContextID
 		ContentDigest      SemanticDigest
-	}{p.Mode, p.CollectionRevision, p.TargetContextID, p.ContentDigest})
+	}{p.Mode, p.CollectionRevision, p.TargetContextID, p.TargetContextIDs, p.ContentDigest})
 }
 
 func BuildHotWorkspacePolicyProjection(collection WorkspaceAuthorityCollection, target ContextID) (WorkspacePolicyProjection, error) {
 	if err := target.Validate(); err != nil {
 		return WorkspacePolicyProjection{}, err
 	}
-	return buildWorkspacePolicyProjection(collection, WorkspacePolicyProjectionHotMemory, target)
+	return buildWorkspacePolicyProjection(collection, WorkspacePolicyProjectionHotMemory, target, nil)
 }
 
 func BuildClusterWorkspacePolicyProjection(collection WorkspaceAuthorityCollection) (WorkspacePolicyProjection, error) {
-	return buildWorkspacePolicyProjection(collection, WorkspacePolicyProjectionCluster, "")
+	return buildWorkspacePolicyProjection(collection, WorkspacePolicyProjectionCluster, "", nil)
 }
 
 // BuildActiveWorkspacePolicyProjection selects every Context's independently
@@ -311,7 +336,20 @@ func BuildClusterWorkspacePolicyProjection(collection WorkspaceAuthorityCollecti
 // target or adopting Template.Current. It is the complete authority used when
 // a Context deletion removes one axis owner from the global projection.
 func BuildActiveWorkspacePolicyProjection(collection WorkspaceAuthorityCollection) (WorkspacePolicyProjection, error) {
-	return buildWorkspacePolicyProjection(collection, WorkspacePolicyProjectionActive, "")
+	return buildWorkspacePolicyProjection(collection, WorkspacePolicyProjectionActive, "", nil)
+}
+
+func BuildReviewedWorkspacePolicyProjection(collection WorkspaceAuthorityCollection, targets []ContextID) (WorkspacePolicyProjection, error) {
+	if len(targets) == 0 || len(targets) > MaxPolicyReviewDecisions {
+		return WorkspacePolicyProjection{}, fmt.Errorf("reviewed Workspace policy projection target set is invalid")
+	}
+	copyTargets := append([]ContextID{}, targets...)
+	for index, target := range copyTargets {
+		if target.Validate() != nil || index > 0 && target <= copyTargets[index-1] {
+			return WorkspacePolicyProjection{}, fmt.Errorf("reviewed Workspace policy projection targets must be unique and sorted")
+		}
+	}
+	return buildWorkspacePolicyProjection(collection, WorkspacePolicyProjectionReviewed, "", copyTargets)
 }
 
 // NewWorkspacePolicyProjection validates one already selected complete set of
@@ -342,7 +380,7 @@ func NewWorkspacePolicyProjection(mode WorkspacePolicyProjectionMode, collection
 	return result, result.Validate()
 }
 
-func buildWorkspacePolicyProjection(collection WorkspaceAuthorityCollection, mode WorkspacePolicyProjectionMode, target ContextID) (WorkspacePolicyProjection, error) {
+func buildWorkspacePolicyProjection(collection WorkspaceAuthorityCollection, mode WorkspacePolicyProjectionMode, target ContextID, reviewedTargets []ContextID) (WorkspacePolicyProjection, error) {
 	if err := collection.Validate(); err != nil {
 		return WorkspacePolicyProjection{}, err
 	}
@@ -358,7 +396,15 @@ func buildWorkspacePolicyProjection(collection WorkspaceAuthorityCollection, mod
 		workspaces[workspace.ContextID] = workspace
 	}
 	contexts := make([]WorkspacePolicyProjectionContext, 0, len(collection.Contexts))
+	targetSet := make(map[ContextID]struct{}, len(reviewedTargets))
+	for _, reviewedTarget := range reviewedTargets {
+		targetSet[reviewedTarget] = struct{}{}
+	}
 	targetFound := mode != WorkspacePolicyProjectionHotMemory
+	reviewedFound := make(map[ContextID]bool, len(reviewedTargets))
+	for _, reviewedTarget := range reviewedTargets {
+		reviewedFound[reviewedTarget] = false
+	}
 	for _, record := range collection.Contexts {
 		template := templates[record.Context.TemplateID]
 		var revision WorkspaceTemplateRevision
@@ -395,13 +441,18 @@ func buildWorkspacePolicyProjection(collection WorkspaceAuthorityCollection, mod
 			if !found || record.ActiveTemplatePolicy.ValidateFor(record.Context, revision) != nil {
 				return WorkspacePolicyProjection{}, fmt.Errorf("active Template policy revision is unavailable")
 			}
-			if mode == WorkspacePolicyProjectionHotMemory && record.Context.ID == target {
+			_, reviewedTarget := targetSet[record.Context.ID]
+			selectingCurrent := mode == WorkspacePolicyProjectionHotMemory && record.Context.ID == target || mode == WorkspacePolicyProjectionReviewed && reviewedTarget
+			if selectingCurrent {
 				targetFound = true
+				if reviewedTarget {
+					reviewedFound[record.Context.ID] = true
+				}
 				memory = record.PolicyMemory.Clone()
 			} else {
 				memory = record.ActivePolicyMemory.Clone()
 			}
-			if (mode != WorkspacePolicyProjectionHotMemory || record.Context.ID != target) && record.ActivePolicyMemoryRef.ValidateFor(record.Context, memory) != nil {
+			if !selectingCurrent && record.ActivePolicyMemoryRef.ValidateFor(record.Context, memory) != nil {
 				return WorkspacePolicyProjection{}, fmt.Errorf("active Policy Memory authority is unavailable")
 			}
 		}
@@ -444,6 +495,11 @@ func buildWorkspacePolicyProjection(collection WorkspaceAuthorityCollection, mod
 	if !targetFound {
 		return WorkspacePolicyProjection{}, fmt.Errorf("hot Policy Memory target Context is unavailable")
 	}
+	for _, found := range reviewedFound {
+		if !found {
+			return WorkspacePolicyProjection{}, fmt.Errorf("reviewed Policy Memory target Context is unavailable")
+		}
+	}
 	sort.Slice(contexts, func(i, j int) bool { return contexts[i].ContextID < contexts[j].ContextID })
 	result := WorkspacePolicyProjection{
 		SchemaVersion: WorkspacePolicyProjectionSchemaVersion, Mode: mode,
@@ -452,6 +508,8 @@ func buildWorkspacePolicyProjection(collection WorkspaceAuthorityCollection, mod
 	if mode == WorkspacePolicyProjectionHotMemory {
 		value := target
 		result.TargetContextID = &value
+	} else if mode == WorkspacePolicyProjectionReviewed {
+		result.TargetContextIDs = append([]ContextID{}, reviewedTargets...)
 	}
 	contentDigest, err := workspacePolicyProjectionContentDigest(result)
 	if err != nil {

@@ -48,6 +48,7 @@ var (
 	ErrWorkspaceEntryCanceledBeforeDecision  = errors.New("Workspace entry was canceled before a durable reconciliation decision")
 	ErrWorkspaceEntryRuntimeNotCurrent       = errors.New("Workspace entry runtime is confirmed missing or mismatched")
 	ErrPolicyMemoryTargetNotFound            = errors.New("Policy Memory target does not exist")
+	ErrPolicyReviewChanged                   = errors.New("reviewed Policy Memory collection changed")
 )
 
 const (

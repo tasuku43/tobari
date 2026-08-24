@@ -3,6 +3,7 @@ package workspaceauthoritycmd
 import (
 	"context"
 	"errors"
+	"reflect"
 
 	"github.com/tasuku43/tobari/internal/app/execution"
 	"github.com/tasuku43/tobari/internal/app/portcheck"
@@ -21,7 +22,7 @@ type PolicyRulePort interface {
 }
 
 type PolicyReviewedPort interface {
-	ApplyReviewedPolicyMemory(context.Context) (tobari.PolicyMemoryPublication, error)
+	ApplyReviewedPolicyMemory(context.Context, tobari.PolicyMemoryReviewedDecisionSet) (tobari.PolicyMemoryReviewedSetPublication, error)
 }
 
 type policyMemoryMutationPolicy struct{}
@@ -124,20 +125,32 @@ func (s *PolicyMemoryService) Reset(ctx context.Context, intent operation.Intent
 	return result, err
 }
 
-func (s *PolicyMemoryService) ApplyReviewed(ctx context.Context, intent operation.Intent) (tobari.PolicyMemoryPublication, error) {
+func (s *PolicyMemoryService) ApplyReviewed(
+	ctx context.Context,
+	intent operation.Intent,
+	set tobari.PolicyMemoryReviewedDecisionSet,
+) (tobari.PolicyMemoryReviewedSetPublication, error) {
 	if s == nil || portcheck.IsNil(s.reviewed) {
-		return tobari.PolicyMemoryPublication{}, missingPort("reviewed Policy Memory")
+		return tobari.PolicyMemoryReviewedSetPublication{}, missingPort("reviewed Policy Memory")
+	}
+	if err := set.Validate(); err != nil {
+		return tobari.PolicyMemoryReviewedSetPublication{}, invalidFault(
+			"invalid_policy_review_set", "reviewed Policy Memory decision set is invalid", err, "review permissions",
+		)
 	}
 	target := operation.TargetRef{Kind: tobari.PolicyDecisionSetKind, ID: tobari.PolicyDecisionSetID}
 	request := execution.Request{Intent: intent, ExpectedCommand: TaskPolicyApply, ExpectedEffect: operation.EffectWrite, ExpectedTarget: target, ExpectedImpact: PolicyMemoryImpact()}
-	var result tobari.PolicyMemoryPublication
+	var result tobari.PolicyMemoryReviewedSetPublication
 	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		publication, err := s.reviewed.ApplyReviewedPolicyMemory(actionContext)
+		publication, err := s.reviewed.ApplyReviewedPolicyMemory(actionContext, set.Clone())
 		if err != nil {
 			return policyMemoryMutationFault(err)
 		}
 		if err := publication.Validate(); err != nil {
 			return contractFault("invalid_policy_memory_result", "reviewed Policy Memory publication is invalid", err)
+		}
+		if !reflect.DeepEqual(publication.DecisionSet, set) {
+			return contractFault("invalid_policy_memory_result", "reviewed Policy Memory publication is invalid", errors.New("reviewed decision set changed across the task boundary"))
 		}
 		result = publication
 		return nil
@@ -146,6 +159,12 @@ func (s *PolicyMemoryService) ApplyReviewed(ctx context.Context, intent operatio
 }
 
 func policyMemoryMutationFault(err error) error {
+	if errors.Is(err, tobari.ErrPolicyReviewChanged) {
+		return fault.WithClassification(fault.New(
+			fault.KindRejected, "policy_review_changed", "reviewed Policy Memory authority changed before Apply", false,
+			fault.NextAction{Command: "review permissions", Reason: "Review the current complete decision set again."},
+		), fault.PhasePrecondition, fault.ChangeNone)
+	}
 	if errors.Is(err, tobari.ErrPolicyMemoryTargetNotFound) {
 		return fault.WithClassification(fault.New(fault.KindNotFound, "policy_target_not_found", "Policy Memory target no longer exists", false, fault.NextAction{Command: "policy rules", Reason: "Read current remembered authority."}), fault.PhasePrecondition, fault.ChangeNone)
 	}

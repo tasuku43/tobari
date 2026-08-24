@@ -19,10 +19,11 @@ import (
 const finalPolicyActivationSchema = 1
 
 type finalPolicyActivationRecord struct {
-	SchemaVersion int                              `json:"schema_version"`
-	Material      FinalWorkspacePolicyProjection   `json:"material"`
-	Aggregate     FinalAggregateProjection         `json:"aggregate"`
-	Receipt       FinalAggregatePublicationReceipt `json:"receipt"`
+	SchemaVersion     int                              `json:"schema_version"`
+	ReviewedSetDigest tobari.SemanticDigest            `json:"reviewed_set_digest,omitempty"`
+	Material          FinalWorkspacePolicyProjection   `json:"material"`
+	Aggregate         FinalAggregateProjection         `json:"aggregate"`
+	Receipt           FinalAggregatePublicationReceipt `json:"receipt"`
 }
 
 func (r finalPolicyActivationRecord) validate(runtime *Runtime) error {
@@ -31,6 +32,13 @@ func (r finalPolicyActivationRecord) validate(runtime *Runtime) error {
 	}
 	if err := r.Material.Validate(); err != nil {
 		return fmt.Errorf("final policy activation material is inconsistent: %w", err)
+	}
+	if r.Material.Plan.Mode == tobari.WorkspacePolicyProjectionReviewed {
+		if r.ReviewedSetDigest.Validate() != nil {
+			return fmt.Errorf("final policy activation reviewed-set identity is invalid")
+		}
+	} else if r.ReviewedSetDigest != "" {
+		return fmt.Errorf("final policy activation carries reviewed-set identity outside reviewed mode")
 	}
 	if r.Aggregate.MaterializedDigest != r.Material.MaterializedDigest || !aggregateRevisionPattern.MatchString(r.Aggregate.AggregateRevision) {
 		return fmt.Errorf("final policy activation aggregate is inconsistent")
@@ -138,7 +146,25 @@ func (r *Runtime) PrepareFinalClusterPolicyReconciliation(ctx context.Context, c
 	return material, aggregate, receipt, err
 }
 
-func (r *Runtime) prepareFinalPolicyActivation(ctx context.Context, plan tobari.WorkspacePolicyProjection) (finalPolicyActivationRecord, error) {
+func (r *Runtime) prepareFinalPolicyActivation(
+	ctx context.Context,
+	plan tobari.WorkspacePolicyProjection,
+	reviewedSetDigest ...tobari.SemanticDigest,
+) (finalPolicyActivationRecord, error) {
+	var setDigest tobari.SemanticDigest
+	if len(reviewedSetDigest) > 1 {
+		return finalPolicyActivationRecord{}, fmt.Errorf("final policy activation has ambiguous reviewed-set identity")
+	}
+	if len(reviewedSetDigest) == 1 {
+		setDigest = reviewedSetDigest[0]
+	}
+	if plan.Mode == tobari.WorkspacePolicyProjectionReviewed {
+		if setDigest.Validate() != nil {
+			return finalPolicyActivationRecord{}, fmt.Errorf("final policy activation requires exact reviewed-set identity")
+		}
+	} else if setDigest != "" {
+		return finalPolicyActivationRecord{}, fmt.Errorf("final policy activation rejects reviewed-set identity outside reviewed mode")
+	}
 	if err := r.ensurePrivateDirectory(r.finalPolicyActivationRoot()); err != nil {
 		return finalPolicyActivationRecord{}, err
 	}
@@ -156,7 +182,7 @@ func (r *Runtime) prepareFinalPolicyActivation(ctx context.Context, plan tobari.
 	var existing finalPolicyActivationRecord
 	if recovered, err := r.readFinalPolicyActivation(r.finalPolicyActivationJournalPath()); err == nil {
 		existing = recovered
-		if !reflect.DeepEqual(existing.Material.Plan, plan) {
+		if !reflect.DeepEqual(existing.Material.Plan, plan) || existing.ReviewedSetDigest != setDigest {
 			return finalPolicyActivationRecord{}, fmt.Errorf("another final policy activation requires exact recovery")
 		}
 		return existing, nil
@@ -175,7 +201,10 @@ func (r *Runtime) prepareFinalPolicyActivation(ctx context.Context, plan tobari.
 	if err != nil {
 		return finalPolicyActivationRecord{}, err
 	}
-	record := finalPolicyActivationRecord{SchemaVersion: finalPolicyActivationSchema, Material: material, Aggregate: aggregate, Receipt: receipt}
+	record := finalPolicyActivationRecord{
+		SchemaVersion: finalPolicyActivationSchema, ReviewedSetDigest: setDigest,
+		Material: material, Aggregate: aggregate, Receipt: receipt,
+	}
 	if err := record.validate(r); err != nil {
 		return finalPolicyActivationRecord{}, err
 	}
