@@ -399,6 +399,10 @@ with empty Policy Memory.
    derivation consume no predecessor or parallel body.
 3. Application use cases and typed read/mutation ports for Template copy,
    Context creation/lifecycle, Workspace entry/deletion, and policy activation.
+   The dormant final-envelope mutator uses the installation lifecycle
+   authority, bounded stage/read-back publication, one durable active effect
+   decision, and one latest terminal receipt; it remains absent from current
+   composition and public routing.
 4. Owner-only stores, atomic migration/rollback, principal projection, and
    desired/applied/observed reconciliation adapters.
 5. Catalog hard cutover, CLI/human/JSON/status/default-selection behavior,

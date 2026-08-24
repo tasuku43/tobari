@@ -314,6 +314,16 @@ contract and source inspection plus the product-owner lifecycle decisions above.
   accepted read ports and is not connected to the predecessor Manifest reader,
   current composition root, Catalog, migration writer, policy activation, or
   public output in this concern.
+- The dormant final-authority mutation adapter serializes through the existing
+  installation lifecycle authority and publishes only one complete normalized
+  envelope. Pure semantic no-ops preserve generation. Workspace retirement
+  and Policy Memory activation durably bind exact previous/next authority,
+  operation, target, and request dimensions before the external effect. An
+  active decision excludes unrelated mutation; same-ref recovery re-observes
+  the exact retirement or activation receipt. One bounded latest terminal
+  effect receipt survives result-delivery interruption and remains replayable
+  across unrelated pure envelope mutations until the next confirmed effectful
+  outcome replaces it.
 
 ## Dormant migration-engine evidence
 

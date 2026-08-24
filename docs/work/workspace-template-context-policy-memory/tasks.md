@@ -160,6 +160,13 @@ implementation is authorized by creating it.
       validate the complete normalized authority, never consult predecessor
       Manifest state, and return empty/not-found without creating a root or
       lock.
+- [x] Implement the dormant owner-only final-envelope mutation adapter for
+      Template/default, Context, Workspace retirement, and direct Policy Memory
+      operations. Serialize through the installation lifecycle authority,
+      preserve semantic no-op generations, classify publication by exact
+      read-back, durably bind external effects before execution, exclude
+      different mutations during recovery, and retain one bounded terminal
+      receipt for zero-repeat same-ref result replay.
 - [x] Implement the dormant journaled migration engine and internal rollback
       seam: exact owner-only preflight facts, one final-envelope publication,
       atomic cutoff selection, same-filesystem predecessor quarantine,
