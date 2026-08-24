@@ -55,10 +55,11 @@ for claim in \
   fi
 done
 for claim in \
-  'run_tobari service requests' \
-  'run_tobari service allow --id' \
+  'run_tobari review services --format=json' \
+  'run_tobari service allow --id "$request_ref" --format=json' \
+  'exact generated origin and opaque exposure reference' \
   'exact-authority Workspace HTTP relay' \
-  'current-attachment exposure list' \
+  'current-attachment exposure status' \
   'stopped Workspace service exposure remained reachable'; do
   if ! grep -F "$claim" "$workspace_service_helper" >/dev/null; then
     echo "integration scope: missing Workspace service boundary canary: $claim" >&2

@@ -32,20 +32,32 @@ assert_workspace_service_helper_mount() {
 }
 
 verify_workspace_service_exposure() {
-  local requests request_ref allow_result url exposure_ref helper_output list_output response _
+  local review request_ref allow_result url exposure_ref helper_output helper_status response _
   for _ in $(seq 1 60); do
-    requests=$(run_tobari service requests)
-    request_ref=$(awk '$1 == "Request" && $2 ~ /^srq_/ {print $2; exit}' <<<"$requests")
+    review=$(run_tobari review services --format=json)
+    request_ref=$(python3 -c 'import json,sys; rows=json.load(sys.stdin)["service_review"]["requests"]; print(rows[0]["id"] if rows else "")' <<<"$review")
     [[ -n $request_ref ]] && break
     sleep 0.2
   done
   [[ -n $request_ref ]] || fail "Workspace service request did not reach separate-host discovery"
-  assert_contains "$requests" "Service 127.0.0.1:32123" "exact Workspace service request"
-  allow_result=$(run_tobari service allow --id "$request_ref")
-  url=$(awk '$1 == "Host" && $2 == "URL" {print $3; exit}' <<<"$allow_result")
-  exposure_ref=$(awk '$1 == "Exposure" && $2 ~ /^exp_/ {print $2; exit}' <<<"$allow_result")
-  [[ $url == http://127.0.0.1:* && -n $exposure_ref ]] ||
-    fail "service Allow once did not return exact numeric loopback URL and opaque exposure reference"
+  python3 -c 'import json,sys; row=json.load(sys.stdin)["service_review"]["requests"][0]; assert row["target_port"] == 32123 and row["state"] == "pending"' <<<"$review" ||
+    fail "Service review did not preserve the exact pending Workspace target"
+  allow_result=$(run_tobari service allow --id "$request_ref" --format=json)
+  url=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["exposure"]["url"])' <<<"$allow_result")
+  exposure_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["exposure"]["id"])' <<<"$allow_result")
+  python3 - "$url" "$exposure_ref" <<'PY' || fail "Allow once did not return the exact generated origin and opaque exposure reference"
+import re
+import sys
+from urllib.parse import urlsplit
+
+parsed = urlsplit(sys.argv[1])
+suffix = "." + "localhost"
+assert parsed.scheme == "http" and parsed.path == "/" and not parsed.query and not parsed.fragment
+assert parsed.hostname is not None and parsed.hostname.endswith(suffix)
+assert re.fullmatch(r"svc-[0-9a-f]{32}", parsed.hostname[:-len(suffix)])
+assert parsed.port is not None and 1024 <= parsed.port <= 65535
+assert re.fullmatch(r"exp_[0-9a-f]{32}", sys.argv[2])
+PY
   for _ in $(seq 1 60); do
     run_project test -e /var/lib/tobari/service-exposure-ready >/dev/null 2>&1 && break
     sleep 0.1
@@ -64,8 +76,8 @@ verify_workspace_service_exposure() {
   done
   run_project test -e /var/lib/tobari/service-stopped >/dev/null 2>&1 ||
     fail "opaque Workspace service stop did not complete"
-  list_output=$(run_project cat /var/lib/tobari/service-exposure-list.out)
-  assert_contains "$list_output" "$exposure_ref" "current-attachment exposure list"
+  helper_status=$(run_project cat /var/lib/tobari/service-exposure-status.out)
+  assert_contains "$helper_status" "$exposure_ref" "current-attachment exposure status"
   if curl --fail --silent --show-error "$url/" >/dev/null 2>&1; then
     fail "stopped Workspace service exposure remained reachable"
   fi
