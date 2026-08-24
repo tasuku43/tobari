@@ -2,9 +2,9 @@ package tobari
 
 import (
 	"fmt"
-	"net/url"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 const (
@@ -134,20 +134,19 @@ func ServiceExposureURL(port int, label string) (string, error) {
 }
 
 func ParseServiceExposureURL(value string) (string, int, error) {
-	parsed, err := url.Parse(value)
-	if err != nil || parsed.Scheme != "http" || parsed.User != nil || parsed.Path != "/" || parsed.RawPath != "" ||
-		parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || parsed.Opaque != "" {
+	const prefix = "http://svc-"
+	const suffix = ".localhost:"
+	if !strings.HasPrefix(value, prefix) || !strings.HasSuffix(value, "/") {
 		return "", 0, fmt.Errorf("service exposure URL is invalid")
 	}
-	port, err := strconv.Atoi(parsed.Port())
-	hostname := parsed.Hostname()
-	const prefix, suffix = "svc-", ".localhost"
-	if err != nil || port < 1 || port > 65535 || len(hostname) <= len(prefix)+len(suffix) ||
-		hostname[:len(prefix)] != prefix || hostname[len(hostname)-len(suffix):] != suffix {
+	remainder := value[len(prefix) : len(value)-1]
+	if len(remainder) <= 32+len(suffix) || remainder[32:32+len(suffix)] != suffix {
 		return "", 0, fmt.Errorf("service exposure URL is invalid")
 	}
-	label := hostname[len(prefix) : len(hostname)-len(suffix)]
-	if !serviceOriginLabelPattern.MatchString(label) || parsed.Host != serviceExposureAuthority(port, label) {
+	label := remainder[:32]
+	port, err := strconv.Atoi(remainder[32+len(suffix):])
+	if err != nil || port < 1 || port > 65535 || !serviceOriginLabelPattern.MatchString(label) ||
+		value != "http://"+serviceExposureAuthority(port, label)+"/" {
 		return "", 0, fmt.Errorf("service exposure URL is invalid")
 	}
 	return label, port, nil
