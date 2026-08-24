@@ -694,6 +694,36 @@ func (t WorkspaceTemplate) Clone() WorkspaceTemplate {
 	return result
 }
 
+// ValidateWorkspaceTemplateAuthorities proves that one exhaustive observation
+// does not assign contradictory content or names to installation-owned
+// Template authority. Repeated snapshots may embed the same Template only when
+// its complete validated value is identical.
+func ValidateWorkspaceTemplateAuthorities(templates []WorkspaceTemplate) error {
+	if templates == nil {
+		return fmt.Errorf("Workspace Template authority collection is unknown")
+	}
+	byID := make(map[WorkspaceTemplateID]SemanticDigest, len(templates))
+	byName := make(map[string]WorkspaceTemplateID, len(templates))
+	for _, template := range templates {
+		if err := template.Validate(); err != nil {
+			return err
+		}
+		digest, err := semanticIdentity(template)
+		if err != nil {
+			return err
+		}
+		if previous, exists := byID[template.ID]; exists && previous != digest {
+			return fmt.Errorf("one Workspace Template ID has contradictory authority")
+		}
+		if previous, exists := byName[template.Name]; exists && previous != template.ID {
+			return fmt.Errorf("one Workspace Template name identifies multiple Templates")
+		}
+		byID[template.ID] = digest
+		byName[template.Name] = template.ID
+	}
+	return nil
+}
+
 // CopyWorkspaceTemplateRevision creates a fresh independent Template at
 // generation one from one exact immutable source revision. No lineage or
 // source authority is retained in the result.
@@ -1335,15 +1365,136 @@ type PolicyMemoryPublication struct {
 	Changed          bool
 }
 
-type PolicyCandidatePublication struct {
-	CandidateID string
-	RuleID      string
-	Memory      PolicyMemoryPublication
+// PolicyCandidateAuthority is the complete immutable authority behind one
+// opaque candidate reference. The ID binds the candidate to both its Context
+// owner and the Workspace observation that produced the exact payload.
+type PolicyCandidateAuthority struct {
+	ID                   string                `json:"id"`
+	ContextID            ContextID             `json:"context_id"`
+	ObservingWorkspaceID WorkspaceID           `json:"observing_workspace_id"`
+	PayloadDigest        SemanticDigest        `json:"payload_digest"`
+	Effect               PolicyCandidateEffect `json:"effect"`
 }
 
-func (p PolicyCandidatePublication) Validate() error {
-	if err := ValidatePolicyCandidateID(p.CandidateID); err != nil {
+// PolicyCandidateEffect is the complete exact policy effect proposed by one
+// candidate. SourceCandidates is deliberately absent: the opaque candidate ID
+// is derived from this payload and is added only when a decision becomes a
+// remembered rule.
+type PolicyCandidateEffect struct {
+	PolicyProtocolIdentity
+	Match    string   `json:"match"`
+	Host     string   `json:"host"`
+	Port     int      `json:"port"`
+	Method   string   `json:"method"`
+	Path     string   `json:"path"`
+	Segments []string `json:"segments"`
+	Examples []string `json:"examples"`
+}
+
+func (c PolicyCandidateAuthority) Clone() PolicyCandidateAuthority {
+	result := c
+	result.Effect = c.Effect.Clone()
+	return result
+}
+
+func (e PolicyCandidateEffect) Clone() PolicyCandidateEffect {
+	result := e
+	result.Segments = append([]string{}, e.Segments...)
+	result.Examples = append([]string{}, e.Examples...)
+	return result
+}
+
+func (e PolicyCandidateEffect) RuleBody(candidateID string) PolicyMemoryRuleBody {
+	return PolicyMemoryRuleBody{
+		PolicyProtocolIdentity: e.PolicyProtocolIdentity,
+		Match:                  e.Match, Host: e.Host, Port: e.Port, Method: e.Method, Path: e.Path,
+		Segments: append([]string{}, e.Segments...), Examples: append([]string{}, e.Examples...),
+		SourceCandidates: []string{candidateID},
+	}
+}
+
+func (e PolicyCandidateEffect) Validate() error {
+	// Direct candidate actions remain exact-rule operations. Broader reviewed
+	// compaction is owned by ApplyReviewed and is not inferred here.
+	if e.Match != PolicyMatchExact {
+		return fmt.Errorf("Policy candidate effect must be exact")
+	}
+	return e.RuleBody("pcy_00000000000000000000000000000000").Validate(PolicyMemoryAllow)
+}
+
+func policyCandidateEffectDigest(effect PolicyCandidateEffect) (SemanticDigest, error) {
+	if err := effect.Validate(); err != nil {
+		return "", err
+	}
+	return semanticIdentity(effect)
+}
+
+func NewPolicyCandidateAuthority(contextID ContextID, workspaceID WorkspaceID, effect PolicyCandidateEffect) (PolicyCandidateAuthority, error) {
+	payload, err := policyCandidateEffectDigest(effect)
+	if err != nil {
+		return PolicyCandidateAuthority{}, err
+	}
+	candidate := PolicyCandidateAuthority{
+		ID: policyCandidateAuthorityID(contextID, workspaceID, payload), ContextID: contextID,
+		ObservingWorkspaceID: workspaceID, PayloadDigest: payload, Effect: effect.Clone(),
+	}
+	return candidate, candidate.Validate()
+}
+
+func policyCandidateAuthorityID(contextID ContextID, workspaceID WorkspaceID, payload SemanticDigest) string {
+	digest, _ := semanticIdentity(struct {
+		ContextID   ContextID
+		WorkspaceID WorkspaceID
+		Payload     SemanticDigest
+	}{contextID, workspaceID, payload})
+	return "pcy_" + strings.TrimPrefix(string(digest), "sha256:")[:32]
+}
+
+func (c PolicyCandidateAuthority) Validate() error {
+	if err := ValidatePolicyCandidateID(c.ID); err != nil {
 		return err
+	}
+	if err := c.ContextID.Validate(); err != nil {
+		return err
+	}
+	if err := c.ObservingWorkspaceID.Validate(); err != nil {
+		return err
+	}
+	if err := c.PayloadDigest.Validate(); err != nil {
+		return err
+	}
+	payload, err := policyCandidateEffectDigest(c.Effect)
+	if err != nil {
+		return err
+	}
+	if payload != c.PayloadDigest {
+		return fmt.Errorf("Policy candidate payload does not bind its exact effect")
+	}
+	if c.ID != policyCandidateAuthorityID(c.ContextID, c.ObservingWorkspaceID, c.PayloadDigest) {
+		return fmt.Errorf("Policy candidate ID does not bind its complete authority")
+	}
+	return nil
+}
+
+type PolicyCandidatePublication struct {
+	Candidate PolicyCandidateAuthority
+	RuleID    string
+	Previous  PolicyMemoryRevision
+	Memory    PolicyMemoryPublication
+}
+
+func (p PolicyCandidatePublication) ValidateFor(candidateID string, decision PolicyMemoryDecision) error {
+	if err := ValidatePolicyCandidateID(candidateID); err != nil {
+		return err
+	}
+	if err := decision.Validate(); err != nil {
+		return err
+	}
+	if err := p.Candidate.Validate(); err != nil {
+		return err
+	}
+	if p.Candidate.ID != candidateID {
+		return fmt.Errorf("Policy candidate reference was not consumed unchanged")
 	}
 	if err := ValidatePolicyMemoryRuleID(p.RuleID); err != nil {
 		return err
@@ -1351,30 +1502,115 @@ func (p PolicyCandidatePublication) Validate() error {
 	if err := p.Memory.Validate(); err != nil {
 		return err
 	}
-	for _, rule := range p.Memory.Snapshot.PolicyMemory.Rules {
-		if rule.ID == p.RuleID {
-			return nil
+	if !p.Memory.Changed {
+		return fmt.Errorf("Policy candidate publication did not change authority")
+	}
+	if p.Memory.Snapshot.Context.ID != p.Candidate.ContextID || p.Memory.Snapshot.Workspace == nil || p.Memory.Snapshot.Workspace.ID != p.Candidate.ObservingWorkspaceID {
+		return fmt.Errorf("Policy candidate publication crosses its Context or observing Workspace")
+	}
+	if err := p.Previous.ValidateFor(p.Memory.Snapshot.Context, p.Memory.Snapshot.Template.Current); err != nil {
+		return err
+	}
+	if p.Previous.Revision != p.Memory.PreviousRevision || p.Previous.ContextID != p.Candidate.ContextID || p.Memory.Snapshot.PolicyMemory.Generation != p.Previous.Generation+1 {
+		return fmt.Errorf("Policy candidate publication does not bind its exact previous revision")
+	}
+	for _, rule := range p.Previous.Rules {
+		for _, source := range rule.Body.SourceCandidates {
+			if source == candidateID {
+				return fmt.Errorf("Policy candidate was already present in previous authority")
+			}
 		}
 	}
-	return fmt.Errorf("Policy candidate publication has no resulting Policy Memory rule")
+	var resultingRule *PolicyMemoryRule
+	for index := range p.Memory.Snapshot.PolicyMemory.Rules {
+		rule := &p.Memory.Snapshot.PolicyMemory.Rules[index]
+		if rule.ID != p.RuleID {
+			continue
+		}
+		if rule.Decision != decision {
+			return fmt.Errorf("Policy candidate publication has the wrong decision")
+		}
+		wantBody := p.Candidate.Effect.RuleBody(candidateID)
+		wantDigest, err := semanticIdentity(wantBody)
+		if err != nil {
+			return err
+		}
+		gotDigest, err := semanticIdentity(rule.Body)
+		if err != nil {
+			return err
+		}
+		if gotDigest != wantDigest {
+			return fmt.Errorf("Policy candidate publication rule does not match the requested exact effect")
+		}
+		resultingRule = rule
+		break
+	}
+	if resultingRule == nil {
+		return fmt.Errorf("Policy candidate publication has no resulting Policy Memory rule")
+	}
+	expectedRules := make([]PolicyMemoryRule, 0, len(p.Previous.Rules)+1)
+	for _, rule := range p.Previous.Rules {
+		expectedRules = append(expectedRules, rule.Clone())
+	}
+	expectedRules = append(expectedRules, resultingRule.Clone())
+	want, changed, err := PublishPolicyMemory(p.Previous.ContextID, expectedRules, &p.Previous)
+	if err != nil {
+		return err
+	}
+	if !changed || want.Revision != p.Memory.Snapshot.PolicyMemory.Revision || want.Generation != p.Memory.Snapshot.PolicyMemory.Generation {
+		return fmt.Errorf("Policy candidate publication changed authority beyond the exact requested rule")
+	}
+	return nil
 }
 
 type PolicyRuleResetPublication struct {
-	RuleID string
-	Memory PolicyMemoryPublication
+	RuleID      string
+	RemovedFrom PolicyMemoryRevision
+	Memory      PolicyMemoryPublication
 }
 
-func (p PolicyRuleResetPublication) Validate() error {
-	if err := ValidatePolicyMemoryRuleID(p.RuleID); err != nil {
+func (p PolicyRuleResetPublication) ValidateFor(ruleID string) error {
+	if err := ValidatePolicyMemoryRuleID(ruleID); err != nil {
 		return err
+	}
+	if p.RuleID != ruleID {
+		return fmt.Errorf("Policy Memory rule reference was not consumed unchanged")
 	}
 	if err := p.Memory.Validate(); err != nil {
 		return err
 	}
+	if !p.Memory.Changed {
+		return fmt.Errorf("Policy Memory reset did not change authority")
+	}
+	if err := p.RemovedFrom.ValidateFor(p.Memory.Snapshot.Context, p.Memory.Snapshot.Template.Current); err != nil {
+		return err
+	}
+	if p.RemovedFrom.Revision != p.Memory.PreviousRevision || p.Memory.Snapshot.PolicyMemory.Generation != p.RemovedFrom.Generation+1 {
+		return fmt.Errorf("Policy Memory reset does not bind its exact previous revision")
+	}
+	remaining := make([]PolicyMemoryRule, 0, len(p.RemovedFrom.Rules))
+	found := false
+	for _, rule := range p.RemovedFrom.Rules {
+		if rule.ID == ruleID {
+			found = true
+			continue
+		}
+		remaining = append(remaining, rule.Clone())
+	}
+	if !found {
+		return fmt.Errorf("reset Policy Memory rule was absent from previous authority")
+	}
 	for _, rule := range p.Memory.Snapshot.PolicyMemory.Rules {
-		if rule.ID == p.RuleID {
+		if rule.ID == ruleID {
 			return fmt.Errorf("reset Policy Memory rule remains active")
 		}
+	}
+	want, changed, err := PublishPolicyMemory(p.RemovedFrom.ContextID, remaining, &p.RemovedFrom)
+	if err != nil {
+		return err
+	}
+	if !changed || want.Revision != p.Memory.Snapshot.PolicyMemory.Revision || want.Generation != p.Memory.Snapshot.PolicyMemory.Generation {
+		return fmt.Errorf("Policy Memory reset changed authority beyond the exact requested rule")
 	}
 	return nil
 }

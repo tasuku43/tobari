@@ -1,7 +1,6 @@
 package tobari
 
 import (
-	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -274,16 +273,21 @@ func (s PredecessorPolicySet) Validate() error {
 }
 
 type PredecessorPendingCandidate struct {
-	ID            string         `json:"id"`
-	ManifestID    string         `json:"workspace_manifest_id"`
-	WorkspaceID   string         `json:"workspace_id"`
-	ProjectRoot   string         `json:"project_root"`
-	PayloadDigest SemanticDigest `json:"payload_digest"`
+	ID            string                `json:"id"`
+	ManifestID    string                `json:"workspace_manifest_id"`
+	WorkspaceID   string                `json:"workspace_id"`
+	ProjectRoot   string                `json:"project_root"`
+	PayloadDigest SemanticDigest        `json:"payload_digest"`
+	Effect        PolicyCandidateEffect `json:"effect"`
 }
 
 func (c PredecessorPendingCandidate) Validate() error {
 	if ValidatePolicyCandidateID(c.ID) != nil || ValidateWorkspaceManifestID(c.ManifestID) != nil || ValidateWorkspaceID(c.WorkspaceID) != nil || ValidateCanonicalRoot(c.ProjectRoot) != nil || c.PayloadDigest.Validate() != nil {
 		return fmt.Errorf("predecessor pending candidate is invalid")
+	}
+	payload, err := policyCandidateEffectDigest(c.Effect)
+	if err != nil || payload != c.PayloadDigest {
+		return fmt.Errorf("predecessor pending candidate payload does not bind its exact effect")
 	}
 	return nil
 }
@@ -332,37 +336,30 @@ type WorkspaceAuthorityMigrationInput struct {
 }
 
 type MigratedPendingCandidate struct {
-	ID                   string         `json:"id"`
-	PredecessorID        string         `json:"predecessor_id"`
-	ContextID            ContextID      `json:"context_id"`
-	ObservingWorkspaceID WorkspaceID    `json:"observing_workspace_id"`
-	PayloadDigest        SemanticDigest `json:"payload_digest"`
+	ID                   string                `json:"id"`
+	PredecessorID        string                `json:"predecessor_id"`
+	ContextID            ContextID             `json:"context_id"`
+	ObservingWorkspaceID WorkspaceID           `json:"observing_workspace_id"`
+	PayloadDigest        SemanticDigest        `json:"payload_digest"`
+	Effect               PolicyCandidateEffect `json:"effect"`
 }
 
 func (c MigratedPendingCandidate) Validate() error {
-	if len(c.ID) != len("pcy_")+32 || !strings.HasPrefix(c.ID, "pcy_") {
-		return fmt.Errorf("migrated candidate ID is invalid")
-	}
-	if _, err := hex.DecodeString(strings.TrimPrefix(c.ID, "pcy_")); err != nil {
-		return fmt.Errorf("migrated candidate ID is invalid")
-	}
 	if ValidatePolicyCandidateID(c.PredecessorID) != nil || c.ContextID.Validate() != nil || c.ObservingWorkspaceID.Validate() != nil || c.PayloadDigest.Validate() != nil {
 		return fmt.Errorf("migrated pending candidate authority is invalid")
 	}
-	want := migratedCandidateID(c.ContextID, c.ObservingWorkspaceID, c.PayloadDigest)
-	if c.ID != want {
-		return fmt.Errorf("migrated pending candidate ID does not bind its final authority")
+	if _, err := c.Authority(); err != nil {
+		return fmt.Errorf("migrated pending candidate ID does not bind its final authority: %w", err)
 	}
 	return nil
 }
 
-func migratedCandidateID(contextID ContextID, workspaceID WorkspaceID, payload SemanticDigest) string {
-	digest, _ := semanticIdentity(struct {
-		ContextID   ContextID
-		WorkspaceID WorkspaceID
-		Payload     SemanticDigest
-	}{contextID, workspaceID, payload})
-	return "pcy_" + strings.TrimPrefix(string(digest), "sha256:")[:32]
+func (c MigratedPendingCandidate) Authority() (PolicyCandidateAuthority, error) {
+	authority := PolicyCandidateAuthority{
+		ID: c.ID, ContextID: c.ContextID, ObservingWorkspaceID: c.ObservingWorkspaceID,
+		PayloadDigest: c.PayloadDigest, Effect: c.Effect.Clone(),
+	}
+	return authority, authority.Validate()
 }
 
 type WorkspaceMigrationAdoption string
@@ -543,8 +540,8 @@ func BuildWorkspaceAuthorityMigrationPlan(input WorkspaceAuthorityMigrationInput
 		context := contextByWorkspace[oldCandidate.WorkspaceID]
 		workspaceID := WorkspaceID(oldCandidate.WorkspaceID)
 		candidate := MigratedPendingCandidate{
-			ID: migratedCandidateID(context.ID, workspaceID, oldCandidate.PayloadDigest), PredecessorID: oldCandidate.ID,
-			ContextID: context.ID, ObservingWorkspaceID: workspaceID, PayloadDigest: oldCandidate.PayloadDigest,
+			ID: policyCandidateAuthorityID(context.ID, workspaceID, oldCandidate.PayloadDigest), PredecessorID: oldCandidate.ID,
+			ContextID: context.ID, ObservingWorkspaceID: workspaceID, PayloadDigest: oldCandidate.PayloadDigest, Effect: oldCandidate.Effect.Clone(),
 		}
 		if err := candidate.Validate(); err != nil {
 			return WorkspaceAuthorityMigrationPlan{}, err
@@ -858,6 +855,9 @@ func (p WorkspaceAuthorityMigrationPlan) Clone() WorkspaceAuthorityMigrationPlan
 		}
 	}
 	result.PendingCandidates = append([]MigratedPendingCandidate{}, p.PendingCandidates...)
+	for index := range result.PendingCandidates {
+		result.PendingCandidates[index].Effect = p.PendingCandidates[index].Effect.Clone()
+	}
 	result.ContextAssignments = append([]ContextIDAssignment{}, p.ContextAssignments...)
 	if p.DefaultTemplateID != nil {
 		id := *p.DefaultTemplateID

@@ -13,9 +13,12 @@ import (
 )
 
 const (
-	templateID  tobari.WorkspaceTemplateID = "01912345-6789-7abc-8def-0123456789a1"
-	contextID   tobari.ContextID           = "01912345-6789-7abc-8def-0123456789a2"
-	workspaceID tobari.WorkspaceID         = "01912345-6789-7abc-8def-0123456789a3"
+	templateID       tobari.WorkspaceTemplateID = "01912345-6789-7abc-8def-0123456789a1"
+	contextID        tobari.ContextID           = "01912345-6789-7abc-8def-0123456789a2"
+	workspaceID      tobari.WorkspaceID         = "01912345-6789-7abc-8def-0123456789a3"
+	otherContextID   tobari.ContextID           = "01912345-6789-7abc-8def-0123456789a4"
+	otherWorkspaceID tobari.WorkspaceID         = "01912345-6789-7abc-8def-0123456789a5"
+	otherTemplateID  tobari.WorkspaceTemplateID = "01912345-6789-7abc-8def-0123456789a6"
 )
 
 func digest(c string) tobari.SemanticDigest {
@@ -75,6 +78,7 @@ type fakePort struct {
 	snapshot        tobari.ContextAuthoritySnapshot
 	copyPublication tobari.WorkspaceTemplateCopyPublication
 	policy          tobari.PolicyCandidatePublication
+	reset           tobari.PolicyRuleResetPublication
 	lastRef         string
 	calls           int
 }
@@ -146,6 +150,11 @@ func (f *fakePort) AllowPolicyCandidateByReference(_ context.Context, ref string
 func (f *fakePort) DenyPolicyCandidateByReference(_ context.Context, ref string) (tobari.PolicyCandidatePublication, error) {
 	return f.AllowPolicyCandidateByReference(context.Background(), ref)
 }
+func (f *fakePort) ResetPolicyMemoryRuleByReference(_ context.Context, ref string) (tobari.PolicyRuleResetPublication, error) {
+	f.calls++
+	f.lastRef = ref
+	return f.reset, nil
+}
 
 func intent(command string, effect operation.Effect, target operation.TargetRef, impact operation.Impact) operation.Intent {
 	return operation.Intent{Command: command, Effect: effect, Target: target, Impact: impact}
@@ -209,7 +218,12 @@ func TestContextAndWorkspaceActionsUseOnlyExactRefs(t *testing.T) {
 func TestPolicyMemoryActionRejectsCrossBoundaryAndKeepsCandidateRef(t *testing.T) {
 	snapshot := snapshotFixture(t, true, true)
 	previous := snapshot.PolicyMemory
-	body := tobari.PolicyMemoryRuleBody{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Match: tobari.PolicyMatchExact, Host: "api.example.dev", Port: 443, Method: "GET", Path: "/items", Segments: []string{}, Examples: []string{"/items"}, SourceCandidates: []string{"pcy_0123456789abcdef0123456789abcdef"}}
+	effect := policyEffect("/items")
+	candidate, err := tobari.NewPolicyCandidateAuthority(contextID, workspaceID, effect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := effect.RuleBody(candidate.ID)
 	rule, err := tobari.NewPolicyMemoryRule(contextID, tobari.PolicyMemoryAllow, body)
 	if err != nil {
 		t.Fatal(err)
@@ -223,18 +237,287 @@ func TestPolicyMemoryActionRejectsCrossBoundaryAndKeepsCandidateRef(t *testing.T
 	receipt := tobari.PolicyMemoryActivationReceipt{ContextID: contextID, Revision: current.Revision}
 	snapshot.ActivePolicyMemoryRef = &receipt
 	publication := tobari.PolicyMemoryPublication{Snapshot: snapshot, PreviousRevision: previous.Revision, Changed: true}
-	candidate := body.SourceCandidates[0]
-	fake := &fakePort{policy: tobari.PolicyCandidatePublication{CandidateID: candidate, RuleID: rule.ID, Memory: publication}}
+	fake := &fakePort{policy: tobari.PolicyCandidatePublication{Candidate: candidate, RuleID: rule.ID, Previous: previous, Memory: publication}}
 	service := NewPolicyMemoryService(fake)
-	target := operation.TargetRef{Kind: tobari.PolicyCandidateKind, ID: candidate}
-	result, err := service.Allow(context.Background(), intent(TaskPolicyAllow, operation.EffectWrite, target, PolicyMemoryImpact()), candidate)
-	if err != nil || result.CandidateID != candidate || fake.lastRef != candidate {
+	target := operation.TargetRef{Kind: tobari.PolicyCandidateKind, ID: candidate.ID}
+	result, err := service.Allow(context.Background(), intent(TaskPolicyAllow, operation.EffectWrite, target, PolicyMemoryImpact()), candidate.ID)
+	if err != nil || result.Candidate.ID != candidate.ID || fake.lastRef != candidate.ID {
 		t.Fatalf("allow=%#v ref=%q err=%v", result, fake.lastRef, err)
 	}
 	bad := snapshot
 	bad.Template.Current.Body.Boundary.DestinationCeiling.Authorities[0].Host = "other.example.dev"
 	if err := bad.PolicyMemory.ValidateFor(bad.Context, bad.Template.Current); err == nil {
 		t.Fatal("cross-Boundary Policy Memory passed")
+	}
+}
+
+func policyEffect(path string) tobari.PolicyCandidateEffect {
+	return tobari.PolicyCandidateEffect{
+		PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP},
+		Match:                  tobari.PolicyMatchExact, Host: "api.example.dev", Port: 443, Method: "GET", Path: path,
+		Segments: []string{}, Examples: []string{path},
+	}
+}
+
+func candidatePublicationFixture(t *testing.T, candidate tobari.PolicyCandidateAuthority, resultingEffect tobari.PolicyCandidateEffect, ruleCandidate string, decision tobari.PolicyMemoryDecision) tobari.PolicyCandidatePublication {
+	t.Helper()
+	snapshot := snapshotFixture(t, true, true)
+	previous := snapshot.PolicyMemory
+	rule, err := tobari.NewPolicyMemoryRule(contextID, decision, resultingEffect.RuleBody(ruleCandidate))
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, changed, err := tobari.PublishPolicyMemory(contextID, []tobari.PolicyMemoryRule{rule}, &previous)
+	if err != nil || !changed {
+		t.Fatalf("publish candidate memory: changed=%t err=%v", changed, err)
+	}
+	snapshot.PolicyMemory = current
+	snapshot.ActivePolicyMemory = ptrMemory(current)
+	receipt := tobari.PolicyMemoryActivationReceipt{ContextID: contextID, Revision: current.Revision}
+	snapshot.ActivePolicyMemoryRef = &receipt
+	return tobari.PolicyCandidatePublication{
+		Candidate: candidate, RuleID: rule.ID, Previous: previous,
+		Memory: tobari.PolicyMemoryPublication{Snapshot: snapshot, PreviousRevision: previous.Revision, Changed: true},
+	}
+}
+
+func TestPolicyCandidatePublicationBindsRequestedAuthorityAndDecision(t *testing.T) {
+	effect := policyEffect("/items")
+	otherEffect := policyEffect("/other")
+	candidate, err := tobari.NewPolicyCandidateAuthority(contextID, workspaceID, effect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherCandidate, err := tobari.NewPolicyCandidateAuthority(contextID, workspaceID, otherEffect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherContextCandidate, err := tobari.NewPolicyCandidateAuthority(otherContextID, workspaceID, effect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherWorkspaceCandidate, err := tobari.NewPolicyCandidateAuthority(contextID, otherWorkspaceID, effect)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name        string
+		requested   tobari.PolicyCandidateAuthority
+		publication tobari.PolicyCandidatePublication
+	}{
+		{name: "opposite decision", requested: candidate, publication: candidatePublicationFixture(t, candidate, effect, candidate.ID, tobari.PolicyMemoryDeny)},
+		{name: "other candidate rule", requested: candidate, publication: candidatePublicationFixture(t, candidate, otherEffect, otherCandidate.ID, tobari.PolicyMemoryAllow)},
+		{name: "wrong exact effect", requested: candidate, publication: candidatePublicationFixture(t, candidate, otherEffect, candidate.ID, tobari.PolicyMemoryAllow)},
+		{name: "cross Context", requested: otherContextCandidate, publication: candidatePublicationFixture(t, otherContextCandidate, effect, otherContextCandidate.ID, tobari.PolicyMemoryAllow)},
+		{name: "cross observing Workspace", requested: otherWorkspaceCandidate, publication: candidatePublicationFixture(t, otherWorkspaceCandidate, effect, otherWorkspaceCandidate.ID, tobari.PolicyMemoryAllow)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &fakePort{policy: test.publication}
+			service := NewPolicyMemoryService(fake)
+			target := operation.TargetRef{Kind: tobari.PolicyCandidateKind, ID: test.requested.ID}
+			_, err := service.Allow(context.Background(), intent(TaskPolicyAllow, operation.EffectWrite, target, PolicyMemoryImpact()), test.requested.ID)
+			public, ok := fault.PublicCopy(err)
+			if !ok || public.Code != "invalid_policy_memory_result" || fake.calls != 1 {
+				t.Fatalf("fault=%#v ok=%t calls=%d err=%v", public, ok, fake.calls, err)
+			}
+		})
+	}
+
+	noOp := candidatePublicationFixture(t, candidate, effect, candidate.ID, tobari.PolicyMemoryAllow)
+	noOp.Previous = noOp.Memory.Snapshot.PolicyMemory.Clone()
+	noOp.Memory.PreviousRevision = noOp.Previous.Revision
+	noOp.Memory.Changed = false
+	fake := &fakePort{policy: noOp}
+	service := NewPolicyMemoryService(fake)
+	target := operation.TargetRef{Kind: tobari.PolicyCandidateKind, ID: candidate.ID}
+	if _, err := service.Allow(context.Background(), intent(TaskPolicyAllow, operation.EffectWrite, target, PolicyMemoryImpact()), candidate.ID); err == nil {
+		t.Fatal("unchanged candidate authority was accepted as successful mutation")
+	}
+
+	collateral := candidatePublicationFixture(t, candidate, effect, candidate.ID, tobari.PolicyMemoryAllow)
+	unrelatedCandidate, err := tobari.NewPolicyCandidateAuthority(contextID, workspaceID, otherEffect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unrelatedRule, err := tobari.NewPolicyMemoryRule(contextID, tobari.PolicyMemoryAllow, otherEffect.RuleBody(unrelatedCandidate.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestedRule := collateral.Memory.Snapshot.PolicyMemory.Rules[0]
+	current, changed, err := tobari.PublishPolicyMemory(contextID, []tobari.PolicyMemoryRule{requestedRule, unrelatedRule}, &collateral.Previous)
+	if err != nil || !changed {
+		t.Fatalf("publish collateral memory: changed=%t err=%v", changed, err)
+	}
+	collateral.Memory.Snapshot.PolicyMemory = current
+	collateral.Memory.Snapshot.ActivePolicyMemory = ptrMemory(current)
+	collateral.Memory.Snapshot.ActivePolicyMemoryRef = &tobari.PolicyMemoryActivationReceipt{ContextID: contextID, Revision: current.Revision}
+	fake = &fakePort{policy: collateral}
+	service = NewPolicyMemoryService(fake)
+	if _, err := service.Allow(context.Background(), intent(TaskPolicyAllow, operation.EffectWrite, target, PolicyMemoryImpact()), candidate.ID); err == nil {
+		t.Fatal("candidate mutation with collateral authority change was accepted")
+	}
+}
+
+func TestPolicyResetRequiresExactRemovalAndChangedAuthority(t *testing.T) {
+	effect := policyEffect("/items")
+	candidate, err := tobari.NewPolicyCandidateAuthority(contextID, workspaceID, effect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := snapshotFixture(t, true, true)
+	empty := snapshot.PolicyMemory
+	rule, err := tobari.NewPolicyMemoryRule(contextID, tobari.PolicyMemoryAllow, effect.RuleBody(candidate.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous, _, err := tobari.PublishPolicyMemory(contextID, []tobari.PolicyMemoryRule{rule}, &empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, changed, err := tobari.PublishPolicyMemory(contextID, []tobari.PolicyMemoryRule{}, &previous)
+	if err != nil || !changed {
+		t.Fatalf("publish reset memory: changed=%t err=%v", changed, err)
+	}
+	snapshot.PolicyMemory = current
+	snapshot.ActivePolicyMemory = ptrMemory(current)
+	receipt := tobari.PolicyMemoryActivationReceipt{ContextID: contextID, Revision: current.Revision}
+	snapshot.ActivePolicyMemoryRef = &receipt
+	publication := tobari.PolicyRuleResetPublication{
+		RuleID: rule.ID, RemovedFrom: previous,
+		Memory: tobari.PolicyMemoryPublication{Snapshot: snapshot, PreviousRevision: previous.Revision, Changed: true},
+	}
+	fake := &fakePort{reset: publication}
+	service := NewPolicyMemoryService(fake)
+	target := operation.TargetRef{Kind: tobari.PolicyRuleKind, ID: rule.ID}
+	if _, err := service.Reset(context.Background(), intent(TaskPolicyReset, operation.EffectWrite, target, PolicyMemoryImpact()), rule.ID); err != nil || fake.lastRef != rule.ID {
+		t.Fatalf("reset ref=%q err=%v", fake.lastRef, err)
+	}
+
+	noOp := publication
+	noOp.Memory.Snapshot.PolicyMemory = previous.Clone()
+	noOp.Memory.Snapshot.ActivePolicyMemory = ptrMemory(previous)
+	noOp.Memory.Snapshot.ActivePolicyMemoryRef = &tobari.PolicyMemoryActivationReceipt{ContextID: contextID, Revision: previous.Revision}
+	noOp.Memory.PreviousRevision = previous.Revision
+	noOp.Memory.Changed = false
+	fake = &fakePort{reset: noOp}
+	service = NewPolicyMemoryService(fake)
+	if _, err := service.Reset(context.Background(), intent(TaskPolicyReset, operation.EffectWrite, target, PolicyMemoryImpact()), rule.ID); err == nil {
+		t.Fatal("unchanged rule authority was accepted as successful reset")
+	}
+}
+
+func rebindSnapshot(t *testing.T, source tobari.ContextAuthoritySnapshot, newContextID tobari.ContextID, root string, newWorkspaceID tobari.WorkspaceID) tobari.ContextAuthoritySnapshot {
+	t.Helper()
+	result := source.Clone()
+	result.Context.ID = newContextID
+	result.Context.ProjectRoot = root
+	memory, _, err := tobari.PublishPolicyMemory(newContextID, []tobari.PolicyMemoryRule{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result.PolicyMemory = memory
+	if result.ActiveTemplatePolicy != nil {
+		result.ActiveTemplatePolicy.ContextID = newContextID
+		result.ActivePolicyMemory = ptrMemory(memory)
+		result.ActivePolicyMemoryRef = &tobari.PolicyMemoryActivationReceipt{ContextID: newContextID, Revision: memory.Revision}
+	}
+	if result.Workspace != nil {
+		result.Workspace.ID = newWorkspaceID
+		result.Workspace.ContextID = newContextID
+		result.Workspace.ProjectRoot = root
+		if result.Workspace.LastSuccessfulEntry != nil {
+			result.Workspace.LastSuccessfulEntry.ContextID = newContextID
+		}
+	}
+	if err := result.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+func TestExhaustiveAuthorityListsRejectContradictoryBindings(t *testing.T) {
+	firstContext := snapshotFixture(t, false, false)
+	duplicatePair := rebindSnapshot(t, firstContext, otherContextID, firstContext.Context.ProjectRoot, otherWorkspaceID)
+	if _, err := NewContextList([]ContextSnapshot{firstContext, duplicatePair}); err == nil {
+		t.Fatal("duplicate Project and Template Context pair was accepted")
+	}
+
+	firstWorkspace := snapshotFixture(t, true, true)
+	secondForContext := firstWorkspace.Clone()
+	secondForContext.Workspace.ID = otherWorkspaceID
+	if err := secondForContext.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewWorkspaceList([]ContextSnapshot{firstWorkspace, secondForContext}); err == nil {
+		t.Fatal("multiple Workspaces for one Context were accepted")
+	}
+
+	duplicateWorkspaceID := rebindSnapshot(t, firstWorkspace, otherContextID, "/workspace/other", workspaceID)
+	if _, err := NewContextList([]ContextSnapshot{firstWorkspace, duplicateWorkspaceID}); err == nil {
+		t.Fatal("duplicate Workspace ID across Context snapshots was accepted")
+	}
+
+	driftedTemplate := firstContext.Template.Clone()
+	driftedBody := driftedTemplate.Current.Body.Clone()
+	driftedBody.Policy.BaselineGrants[0].Path = "/other"
+	driftedRevision, err := tobari.NewWorkspaceTemplateRevision(templateID, 2, driftedBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	driftedTemplate.Current = driftedRevision
+	driftedTemplate.Retained = append(driftedTemplate.Retained, driftedRevision.Clone())
+	driftedContext := rebindSnapshot(t, firstContext, otherContextID, "/workspace/other", otherWorkspaceID)
+	driftedContext.Template = driftedTemplate
+	if err := driftedContext.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewContextList([]ContextSnapshot{firstContext, driftedContext}); err == nil {
+		t.Fatal("one Template ID with contradictory current authority was accepted by Context list")
+	}
+	if _, err := NewTemplateList([]tobari.WorkspaceTemplate{firstContext.Template, driftedTemplate}); err == nil {
+		t.Fatal("one Template ID with contradictory current authority was accepted by Template list")
+	}
+	driftedWorkspace := rebindSnapshot(t, firstWorkspace, otherContextID, "/workspace/other", otherWorkspaceID)
+	driftedWorkspace.Template = driftedTemplate.Clone()
+	if err := driftedWorkspace.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewWorkspaceList([]ContextSnapshot{firstWorkspace, driftedWorkspace}); err == nil {
+		t.Fatal("one Template ID with contradictory current authority was accepted by Workspace list")
+	}
+
+	otherRevision, err := tobari.NewWorkspaceTemplateRevision(otherTemplateID, 1, firstContext.Template.Current.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherTemplate := tobari.WorkspaceTemplate{
+		SchemaVersion: tobari.WorkspaceTemplateSchemaVersion, ID: otherTemplateID, Name: firstContext.Template.Name,
+		Current: otherRevision, Retained: []tobari.WorkspaceTemplateRevision{otherRevision.Clone()},
+	}
+	nameCollision := rebindSnapshot(t, firstContext, otherContextID, "/workspace/other", otherWorkspaceID)
+	nameCollision.Context.TemplateID = otherTemplateID
+	nameCollision.Template = otherTemplate
+	if err := nameCollision.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewContextList([]ContextSnapshot{firstContext, nameCollision}); err == nil {
+		t.Fatal("one Template name with different IDs was accepted")
+	}
+	if _, err := NewTemplateList([]tobari.WorkspaceTemplate{firstContext.Template, otherTemplate}); err == nil {
+		t.Fatal("one Template name with different IDs was accepted by Template list")
+	}
+	nameCollisionWorkspace := rebindSnapshot(t, firstWorkspace, otherContextID, "/workspace/other", otherWorkspaceID)
+	nameCollisionWorkspace.Context.TemplateID = otherTemplateID
+	nameCollisionWorkspace.Template = otherTemplate.Clone()
+	nameCollisionWorkspace.ActiveTemplatePolicy.TemplateID = otherTemplateID
+	nameCollisionWorkspace.Workspace.LastSuccessfulEntry.TemplateID = otherTemplateID
+	if err := nameCollisionWorkspace.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewWorkspaceList([]ContextSnapshot{firstWorkspace, nameCollisionWorkspace}); err == nil {
+		t.Fatal("one Template name with different IDs was accepted by Workspace list")
 	}
 }
 

@@ -146,6 +146,15 @@ implementation is authorized by creating it.
       application use cases with task-owned smallest ports, exact unchanged ref
       consumption/re-emission, coherent domain-owned receipts, one mutation
       invoker boundary, and no Catalog or infrastructure wiring.
+- [x] Bind direct Allow/Deny/Reset results to exact changed authority: complete
+      candidate Context/observing-Workspace/effect evidence, expected decision,
+      exact previous revision, and plus-one/minus-one full rule-set
+      reconstruction; carry actionable candidates through migration without a
+      predecessor read.
+- [x] Validate exhaustive Context and Workspace collections as aggregate
+      authority: unique ProjectRoot+TemplateID Context pairs, unique optional
+      Workspace IDs, at most one Workspace per Context, exact equality for a
+      repeated TemplateID, and unique installation Template names.
 - [ ] Implement owner-only stores, atomic migration/rollback, principal/policy
       projection, and reconciliation adapters.
 - [ ] Perform one public Catalog hard cutover with no accidental aliases.

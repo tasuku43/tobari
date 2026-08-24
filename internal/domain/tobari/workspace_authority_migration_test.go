@@ -12,12 +12,25 @@ func predecessorRevisionFixture(generation uint64, legacy, policy string) Predec
 	}
 }
 
+func migrationCandidateEffectFixture() PolicyCandidateEffect {
+	return PolicyCandidateEffect{
+		PolicyProtocolIdentity: PolicyProtocolIdentity{Scheme: "https", Protocol: PolicyProtocolHTTP},
+		Match:                  PolicyMatchExact, Host: "api.example.dev", Port: 443, Method: "GET", Path: "/candidate",
+		Segments: []string{}, Examples: []string{"/candidate"},
+	}
+}
+
 func workspaceAuthorityMigrationFixture() WorkspaceAuthorityMigrationInput {
 	manifestID := string(testTemplateAuthorityID)
 	workspaceID := string(testWorkspaceAuthorityID)
 	defaultID := manifestID
 	revision := predecessorRevisionFixture(1, "1", "b")
 	templateRevision, err := NewWorkspaceTemplateRevision(testTemplateAuthorityID, revision.Generation, revision.TemplateBody())
+	if err != nil {
+		panic(err)
+	}
+	candidateEffect := migrationCandidateEffectFixture()
+	candidatePayload, err := policyCandidateEffectDigest(candidateEffect)
 	if err != nil {
 		panic(err)
 	}
@@ -45,7 +58,7 @@ func workspaceAuthorityMigrationFixture() WorkspaceAuthorityMigrationInput {
 		}},
 		PendingCandidates: []PredecessorPendingCandidate{{
 			ID: "pcy_abcdef0123456789abcdef0123456789", ManifestID: manifestID, WorkspaceID: workspaceID,
-			ProjectRoot: "/workspace/example", PayloadDigest: authorityDigest("6"),
+			ProjectRoot: "/workspace/example", PayloadDigest: candidatePayload, Effect: candidateEffect,
 		}},
 		DefaultManifestID: &defaultID,
 		ResearchAuthority: PredecessorResearchAuthority{Present: true, Complete: true, Platform: ResearchAuthorityMacOS, SourceDigest: authorityDigest("9")},
@@ -78,6 +91,9 @@ func cloneWorkspaceAuthorityMigrationInput(input WorkspaceAuthorityMigrationInpu
 		}
 	}
 	result.PendingCandidates = append([]PredecessorPendingCandidate{}, input.PendingCandidates...)
+	for index := range result.PendingCandidates {
+		result.PendingCandidates[index].Effect = input.PendingCandidates[index].Effect.Clone()
+	}
 	if input.DefaultManifestID != nil {
 		value := *input.DefaultManifestID
 		result.DefaultManifestID = &value
@@ -131,7 +147,8 @@ func TestWorkspaceAuthorityMigrationPlanPreservesIdentityAndSeparatesAuthority(t
 	clone.Templates[0].Retained[0].Generation = 99
 	clone.PolicyMemories[0].Rules[0].Body.Examples[0] = "/changed"
 	clone.Workspaces[0].Binding.LastSuccessfulEntry.ResolvedSpec = authorityDigest("5")
-	if plan.Templates[0].Retained[0].Generation != 1 || plan.PolicyMemories[0].Rules[0].Body.Examples[0] == "/changed" || plan.Workspaces[0].Binding.LastSuccessfulEntry.ResolvedSpec == authorityDigest("5") {
+	clone.PendingCandidates[0].Effect.Examples[0] = "/changed"
+	if plan.Templates[0].Retained[0].Generation != 1 || plan.PolicyMemories[0].Rules[0].Body.Examples[0] == "/changed" || plan.Workspaces[0].Binding.LastSuccessfulEntry.ResolvedSpec == authorityDigest("5") || plan.PendingCandidates[0].Effect.Examples[0] == "/changed" {
 		t.Fatal("migration plan clone shares authority storage")
 	}
 
@@ -140,6 +157,54 @@ func TestWorkspaceAuthorityMigrationPlanPreservesIdentityAndSeparatesAuthority(t
 	if err := tampered.Validate(); err == nil {
 		t.Fatal("tampered complete migration plan passed its digest")
 	}
+}
+
+func TestMigratedPendingCandidateIsCompleteForExactDecision(t *testing.T) {
+	plan, err := BuildWorkspaceAuthorityMigrationPlan(workspaceAuthorityMigrationFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrated := plan.PendingCandidates[0]
+	candidate, err := migrated.Authority()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, decision := range []PolicyMemoryDecision{PolicyMemoryAllow, PolicyMemoryDeny} {
+		t.Run(string(decision), func(t *testing.T) {
+			previous := plan.PolicyMemories[0].Clone()
+			rule, err := NewPolicyMemoryRule(candidate.ContextID, decision, candidate.Effect.RuleBody(candidate.ID))
+			if err != nil {
+				t.Fatal(err)
+			}
+			rules := append([]PolicyMemoryRule{}, previous.Rules...)
+			rules = append(rules, rule)
+			current, changed, err := PublishPolicyMemory(candidate.ContextID, rules, &previous)
+			if err != nil || !changed {
+				t.Fatalf("publish migrated decision: changed=%t err=%v", changed, err)
+			}
+			template := plan.Templates[0].Clone()
+			context := plan.Contexts[0]
+			workspace := plan.Workspaces[0].Binding
+			templateReceipt := TemplatePolicyActivationReceipt{ContextID: context.ID, TemplateID: template.ID, PolicySliceDigest: template.Current.Slices.PolicySliceDigest}
+			memoryReceipt := PolicyMemoryActivationReceipt{ContextID: context.ID, Revision: current.Revision}
+			snapshot := ContextAuthoritySnapshot{
+				Context: context, Template: template, PolicyMemory: current, ActiveTemplatePolicy: &templateReceipt,
+				ActivePolicyMemory: ptrPolicyMemory(current), ActivePolicyMemoryRef: &memoryReceipt, Workspace: &workspace,
+			}
+			publication := PolicyCandidatePublication{
+				Candidate: candidate, RuleID: rule.ID, Previous: previous,
+				Memory: PolicyMemoryPublication{Snapshot: snapshot, PreviousRevision: previous.Revision, Changed: true},
+			}
+			if err := publication.ValidateFor(candidate.ID, decision); err != nil {
+				t.Fatalf("migrated candidate could not complete exact %s: %v", decision, err)
+			}
+		})
+	}
+}
+
+func ptrPolicyMemory(memory PolicyMemoryRevision) *PolicyMemoryRevision {
+	clone := memory.Clone()
+	return &clone
 }
 
 func TestWorkspaceAuthorityMigrationMapsRetainedCurrentAndPendingEntry(t *testing.T) {
@@ -267,6 +332,10 @@ func TestWorkspaceAuthorityMigrationFailsClosedOnOrdinaryInvalidSources(t *testi
 		"policy crosses Workspace": func(input *WorkspaceAuthorityMigrationInput) { input.PolicySets[0].ProjectRoot = "/workspace/other" },
 		"candidate crosses Workspace": func(input *WorkspaceAuthorityMigrationInput) {
 			input.PendingCandidates[0].ManifestID = "01912345-6789-7abc-8def-0123456789ff"
+		},
+		"candidate payload and effect mismatch": func(input *WorkspaceAuthorityMigrationInput) {
+			input.PendingCandidates[0].Effect.Path = "/other"
+			input.PendingCandidates[0].Effect.Examples[0] = "/other"
 		},
 		"incomplete research authority": func(input *WorkspaceAuthorityMigrationInput) { input.ResearchAuthority.Complete = false },
 		"AppliedEntry Runtime drift": func(input *WorkspaceAuthorityMigrationInput) {

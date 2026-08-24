@@ -67,25 +67,21 @@ func (v TemplateView) Validate() error {
 type TemplateList struct{ Items []TemplateView }
 
 func NewTemplateList(templates []tobari.WorkspaceTemplate) (TemplateList, error) {
-	if templates == nil {
-		return TemplateList{}, fmt.Errorf("Template collection is unknown")
+	if err := tobari.ValidateWorkspaceTemplateAuthorities(templates); err != nil {
+		return TemplateList{}, err
 	}
 	items := make([]TemplateView, len(templates))
 	seenIDs := make(map[tobari.WorkspaceTemplateID]struct{}, len(templates))
-	seenNames := make(map[string]struct{}, len(templates))
 	for index, template := range templates {
 		if _, exists := seenIDs[template.ID]; exists {
 			return TemplateList{}, fmt.Errorf("Template collection contains a duplicate ID")
-		}
-		if _, exists := seenNames[template.Name]; exists {
-			return TemplateList{}, fmt.Errorf("Template collection contains a duplicate name")
 		}
 		view, err := NewTemplateView(template)
 		if err != nil {
 			return TemplateList{}, err
 		}
 		items[index] = view
-		seenIDs[template.ID], seenNames[template.Name] = struct{}{}, struct{}{}
+		seenIDs[template.ID] = struct{}{}
 	}
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].Template.Name == items[j].Template.Name {
@@ -130,17 +126,29 @@ func NewContextList(snapshots []ContextSnapshot) (ContextList, error) {
 		return ContextList{}, fmt.Errorf("Context collection is unknown")
 	}
 	items := make([]ContextView, len(snapshots))
-	seen := make(map[tobari.ContextID]struct{}, len(snapshots))
+	bindings := make([]tobari.ContextBinding, len(snapshots))
+	templates := make([]tobari.WorkspaceTemplate, len(snapshots))
+	workspaceIDs := make(map[tobari.WorkspaceID]struct{}, len(snapshots))
 	for index, snapshot := range snapshots {
-		if _, exists := seen[snapshot.Context.ID]; exists {
-			return ContextList{}, fmt.Errorf("Context collection contains a duplicate ID")
-		}
 		view, err := NewContextView(snapshot)
 		if err != nil {
 			return ContextList{}, err
 		}
 		items[index] = view
-		seen[snapshot.Context.ID] = struct{}{}
+		bindings[index] = view.Snapshot.Context
+		templates[index] = view.Snapshot.Template
+		if view.Snapshot.Workspace != nil {
+			if _, exists := workspaceIDs[view.Snapshot.Workspace.ID]; exists {
+				return ContextList{}, fmt.Errorf("Context collection contains a duplicate Workspace ID")
+			}
+			workspaceIDs[view.Snapshot.Workspace.ID] = struct{}{}
+		}
+	}
+	if err := tobari.ValidateContextBindings(bindings); err != nil {
+		return ContextList{}, fmt.Errorf("Context collection bindings are inconsistent: %w", err)
+	}
+	if err := tobari.ValidateWorkspaceTemplateAuthorities(templates); err != nil {
+		return ContextList{}, fmt.Errorf("Context collection Templates are inconsistent: %w", err)
 	}
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].Snapshot.Context.ProjectRoot == items[j].Snapshot.Context.ProjectRoot {
@@ -188,17 +196,32 @@ func NewWorkspaceList(snapshots []ContextSnapshot) (WorkspaceList, error) {
 		return WorkspaceList{}, fmt.Errorf("Workspace collection is unknown")
 	}
 	items := make([]WorkspaceView, len(snapshots))
-	seen := make(map[tobari.WorkspaceID]struct{}, len(snapshots))
+	workspaceIDs := make(map[tobari.WorkspaceID]struct{}, len(snapshots))
+	contextIDs := make(map[tobari.ContextID]struct{}, len(snapshots))
+	bindings := make([]tobari.ContextBinding, len(snapshots))
+	templates := make([]tobari.WorkspaceTemplate, len(snapshots))
 	for index, snapshot := range snapshots {
 		view, err := NewWorkspaceView(snapshot)
 		if err != nil {
 			return WorkspaceList{}, err
 		}
-		if _, exists := seen[view.Snapshot.Workspace.ID]; exists {
+		if _, exists := workspaceIDs[view.Snapshot.Workspace.ID]; exists {
 			return WorkspaceList{}, fmt.Errorf("Workspace collection contains a duplicate ID")
 		}
+		if _, exists := contextIDs[view.Snapshot.Context.ID]; exists {
+			return WorkspaceList{}, fmt.Errorf("Workspace collection contains more than one Workspace for a Context")
+		}
 		items[index] = view
-		seen[view.Snapshot.Workspace.ID] = struct{}{}
+		bindings[index] = view.Snapshot.Context
+		templates[index] = view.Snapshot.Template
+		workspaceIDs[view.Snapshot.Workspace.ID] = struct{}{}
+		contextIDs[view.Snapshot.Context.ID] = struct{}{}
+	}
+	if err := tobari.ValidateContextBindings(bindings); err != nil {
+		return WorkspaceList{}, fmt.Errorf("Workspace collection Context bindings are inconsistent: %w", err)
+	}
+	if err := tobari.ValidateWorkspaceTemplateAuthorities(templates); err != nil {
+		return WorkspaceList{}, fmt.Errorf("Workspace collection Templates are inconsistent: %w", err)
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Snapshot.Workspace.ID < items[j].Snapshot.Workspace.ID })
 	return WorkspaceList{Items: items}, nil

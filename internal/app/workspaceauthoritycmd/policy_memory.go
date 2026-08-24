@@ -3,7 +3,6 @@ package workspaceauthoritycmd
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/tasuku43/tobari/internal/app/execution"
 	"github.com/tasuku43/tobari/internal/app/portcheck"
@@ -92,10 +91,7 @@ func (s *PolicyMemoryService) applyCandidate(ctx context.Context, intent operati
 		if err != nil {
 			return policyMemoryMutationFault(err)
 		}
-		if err := publication.Validate(); err != nil || publication.CandidateID != candidateRef {
-			if err == nil {
-				err = fmt.Errorf("candidate reference was not consumed unchanged")
-			}
+		if err := publication.ValidateFor(candidateRef, decision); err != nil {
 			return contractFault("invalid_policy_memory_result", "Policy Memory candidate publication is invalid", err)
 		}
 		result = publication
@@ -119,10 +115,7 @@ func (s *PolicyMemoryService) Reset(ctx context.Context, intent operation.Intent
 		if err != nil {
 			return policyMemoryMutationFault(err)
 		}
-		if err := publication.Validate(); err != nil || publication.RuleID != ruleRef {
-			if err == nil {
-				err = fmt.Errorf("rule reference was not consumed unchanged")
-			}
+		if err := publication.ValidateFor(ruleRef); err != nil {
 			return contractFault("invalid_policy_memory_result", "Policy Memory reset publication is invalid", err)
 		}
 		result = publication

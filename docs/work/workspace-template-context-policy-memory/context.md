@@ -271,6 +271,30 @@ contract and source inspection plus the product-owner lifecycle decisions above.
   cross the existing mutation invoker once. Port exchange values are
   domain-owned so infrastructure can satisfy the task-owned interfaces without
   importing application code. No Catalog route or current reader is wired.
+- The first application result contract for direct policy decisions checked
+  only the returned candidate ID, resulting rule ID, and complete current
+  Policy Memory. A normal adapter mix-up could therefore report Allow while
+  returning a Deny or unrelated rule, accept a no-op, or change unrelated
+  authority. The corrected candidate authority contains ContextID, observing
+  WorkspaceID, and one exact typed effect whose digest derives the opaque
+  candidate ID. Allow/Deny validates the expected decision and reconstructs
+  `previous + exact result rule`; Reset reconstructs `previous - exact target
+  rule`. Both direct paths require `Changed=true` and exact generation/revision
+  equality. Apply-reviewed retains its separate reviewed-set no-op semantics.
+- Pending-candidate migration now carries that complete typed effect, validates
+  the predecessor payload digest against it, deep-copies it into the final
+  plan, and exposes a final candidate authority without any predecessor read.
+  A focused round-trip proves one migrated candidate can produce an exact
+  Allow or Deny publication; mismatched predecessor digest/effect fails before
+  planning.
+- The first exhaustive application collections validated each snapshot and
+  duplicate primary IDs but not aggregate binding uniqueness. The corrected
+  Context collection reuses `ValidateContextBindings` and rejects duplicate
+  optional Workspace IDs. The Workspace collection additionally rejects more
+  than one Workspace per Context and inconsistent Project/Template pairs. A
+  shared domain collection validator also makes repeated TemplateIDs require
+  byte/semantic exact Template equality and rejects one Template name assigned
+  to different IDs, so mixed owner-store reads cannot emit contradictory refs.
 
 ## Security and public-boundary notes
 
