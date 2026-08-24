@@ -126,6 +126,12 @@ this-session Host Loopback access. Verify the learned decision remains until
 attachment exits. Confirm `destination_kind` and `authority_lifetime` carry
 that distinction in machine output without parsing a label or reconstructing
 an Attachment Epoch. The routine-success external-processing count is zero.
+The Host Loopback request uses exact `http://host.tobari.internal:{port}` and
+preserves that Host authority through the reviewed relay. Verify Workspace
+`localhost` remains Workspace-local, opposite-direction service exposure uses
+its numeric host-loopback URL, and `host.docker.internal` never appears as
+public or policy identity. Exact retired `host.tobari.test` must be terminal,
+non-learnable, and absent from the review queue.
 
 For permission resume, trigger one synthetic reviewable ordinary HTTP denial
 inside an attached Workspace and copy its exact `tobari-permission wait --id

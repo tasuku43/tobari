@@ -1,6 +1,8 @@
 # Architecture
 
 Build-surface and resolver authority follow [ADR 0082](decisions/0082-release-and-research-build-surfaces.md); this document describes the resulting topology and layer seams.
+Physical-host loopback authority and migration follow
+[ADR 0083](decisions/0083-name-the-physical-host-loopback-authority.md).
 
 ## System topology
 
@@ -46,6 +48,9 @@ configuration store. Gateway receives that registry through a read-only bind
 mount, derives route and epoch identity from the source Workspace and constant
 Tobari-owned hostname, and
 asks OPA before selecting a Gateway-local one-shot TCP pump as the upstream.
+The sole routable authority is exact `host.tobari.internal`; exact retired
+`host.tobari.test` is terminal before ordinary routing for all V1. `.internal`,
+synthetic DNS, and suffix matches never select the branch.
 The pump preserves ordinary mitmproxy request/response streaming; the host
 listener revalidates an active Allow for the requested port before connecting
 to the same physical-host IPv4 loopback port. Workspace headers,
@@ -1033,6 +1038,16 @@ it byte-for-byte and refuses fresh canonical state. macOS Keychain material is
 untouched recovery material and is never queried by migration. Linux
 filesystem root-key material moves with the set. Canonical readers do not know
 the quarantine path, and public output is secret- and path-free.
+
+Host Loopback cutover extends that one migration boundary without merging its
+authority with permission resume. While the lifecycle lock is held, migration
+acquires the canonical interactive-attachment lock, proves zero live owners,
+keeps that lock held while acquiring the Host Loopback lock, and replaces only
+exact schema-1 retired-host route/grant registries with empty schema-2
+registries. The lock order is `lifecycle -> interactive-attachment ->
+host-loopback`; it fences normal entry, which publishes its canonical session
+before Host Loopback. Migration consumes no permission-ingestion endpoint,
+nonce, lease, acknowledgment, wait registry, or Gateway-only transport state.
 
 ## Lifecycle model
 

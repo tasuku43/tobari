@@ -362,7 +362,7 @@ on the physical host, use the constant Host Loopback URL and the server's
 non-privileged port:
 
 ```sh
-curl http://host.tobari.test:3000/health
+curl http://host.tobari.internal:3000/health
 ```
 
 No entry flag or service declaration is needed. The first exact host, port,
@@ -373,6 +373,9 @@ route-owning attachment; exit revokes it, and it never appears in persistent
 range, lifetime, and audience without exposing relay credentials. This outcome
 does not provide host Docker, Compose control, raw TCP, privileged ports, or
 private-LAN access.
+The pre-public `host.tobari.test` spelling is retired, not an alias. Requests
+using it fail locally with fresh-attachment guidance and cannot become ordinary
+external permissions.
 
 ### Open a Workspace development service on the host
 

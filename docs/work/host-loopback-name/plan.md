@@ -1,8 +1,8 @@
 # Work Plan: Give physical-host loopback an honest private authority
 
 - Status: Fix
-- Decision: Accepted by the Product Owner on 2026-08-23; implementation is not
-  authorized by this status
+- Decision: Accepted by the Product Owner on 2026-08-23; implementation was
+  authorized on 2026-08-24 from exact integrated HEAD `97dd314b`
 
 ## Decision
 
@@ -19,14 +19,13 @@ lifetime, mutability, effect dimensions, or trust boundary.
 
 [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md)
 and the current theses/product/architecture/security contracts are the durable
-upstream identity and migration authority, promoted by commits `07535a9` and
-`428812f`. Final V1 uses Workspace Manifest/Manifest,
-`workspace_manifest_id`, and `workspace_id`; no Context, `context_id`,
-`project_id`, or `instance_id` alias is accepted. WP 05 enters implementation
-only after the unchanged completed promotion -> WP08 -> WP03 -> WP04 sequence,
-the post-WP04 contract is re-observed, and this packet is reconciled. Hostname
-selection remains this packet's responsibility and is not derived from the
-Manifest noun.
+upstream identity and migration authority. Final public V1 uses Workspace
+Manifest/Manifest, `workspace_manifest_id`, and `workspace_id`, with no public
+Context alias. Frozen compatibility wires retain their exact `context`,
+`context_id`, and `project_id` spellings while carrying Workspace Manifest and
+Workspace identity. The required upstream sequence and implementation-entry
+gate passed on integrated `97dd314b`. Hostname selection remains this packet's
+responsibility and is not derived from the Manifest noun.
 
 ## Domain model and invariants
 
@@ -107,10 +106,10 @@ Manifest noun.
   product-owned synthetic hostname. It is not a full-URI exception and cannot
   admit `*.tobari.internal`, another `.internal` name, or a sibling host.
 
-## Mandatory implementation-entry gate after WP 04
+## Satisfied implementation-entry gate
 
-No WP 05 production, test, durable-documentation, Catalog, schema, generated,
-or release change may begin until all of the following evidence exists:
+The following evidence was required and accepted before the first production
+edit:
 
 1. Confirm the durable Workspace Manifest/copy-contract promotion evidence
    (`07535a9`, `428812f`), then completion evidence in the unchanged order:
@@ -128,29 +127,28 @@ or release change may begin until all of the following evidence exists:
 4. Run only bounded read-only help and fresh temporary-state observations that
    cannot mutate shared installation or repository state. Record exact binary
    source identity; discard stale-binary output as proof.
-5. Compare the final implementation with every identity, lifetime, migration,
+5. Compare the integrated implementation with every identity, lifetime, migration,
    schema, CA/DNS/policy, copy-isolation, and Runtime-separation assumption in
    this packet. Classify facts, evaluations, unknowns, and inferences. Update
    the packet or obtain an owner decision for every mismatch before code.
 
-The gate fails closed while any predecessor is incomplete, overlapping files
-remain contractually unstable, the integrated revision cannot be identified,
-the worktree overlap is unexplained, or relevant baseline gates fail. WP 05
-does not patch predecessor production files in advance to make this gate pass.
+The gate passed at `97dd314bf00f152d1b1a127089354afd63eacd0c` in a clean
+independent worktree. WP05 still fails closed on newly discovered contract
+drift and does not patch predecessor authority to work around it.
 
 ## Layer ownership and implementation dependency order
 
-1. **Complete the fixed upstream sequence.** The Workspace Manifest/copy
-   contract promotion is complete; WP08 consumes its Catalog/domain contracts,
-   WP03 consumes WP08, WP04 consumes
-   the completed Runtime/output/build-profile contracts, and only then may WP05
-   pass the mandatory entry gate. Freeze actual WorkspaceManifestID/WorkspaceID,
-   Catalog, CA/DNS/policy, standard Runtime, migration, and schema shapes from
-   evidence. Do not implement an intermediate identity or schema.
-2. **Reconcile accepted adjacent decisions.** Confirm ADR 0079 copies no
-   attachment or lineage state, WP03 treats Host Loopback as outside Runtime lifecycle
-   authority, WP08 remains the Catalog-wide reference owner, and WP04 supplies
-   the actual standard Runtime compatibility inventory.
+1. **Consume the completed upstream sequence.** Integrated `97dd314b` contains
+   the final Workspace Manifest/copy, WP08, WP03, WP04, and WP07 contracts.
+   Preserve their WorkspaceManifestID/WorkspaceID, Catalog, CA/DNS/policy,
+   standard Runtime, migration, build-surface, and session-owner seams. Do not
+   implement an intermediate identity or schema.
+2. **Reconcile accepted adjacent decisions.** ADR 0079 copies no attachment or
+   lineage state, WP03 keeps Host Loopback outside Runtime lifecycle authority,
+   WP08 remains the Catalog-wide reference owner, WP04 supplies the actual
+   standard Runtime inventory, and ADR 0081 supplies only the canonical
+   interactive-session owner seam. Permission ingestion and service exposure
+   remain separate authority branches.
 3. **Durable Host Loopback decision.** Revise or supersede ADR 0049 and
    propagate the hostname reason through theses, product, architecture,
    security, harness, and readiness contracts. Record that ICANN private-use
@@ -168,7 +166,11 @@ does not patch predecessor production files in advance to make this gate pass.
    and exact old hostname; it retains legacy UUID bytes under ADR 0079, migrates
    durable principal/policy/audit identity, and atomically replaces only exact
    transient route/grant registries with empty schema-V2 registries. It
-   translates no attachment state and adds no maintenance command.
+   translates no attachment state and adds no maintenance command. Hold locks
+   in the canonical order `lifecycle -> interactive-attachment ->
+   host-loopback`, retaining the interactive lock from the zero-owner proof
+   through private registry replacement so concurrent entry cannot publish a
+   new owner between check and cutover.
 7. **Infrastructure, Gateway, and OPA.** Emit only the final schema-V2
    route/grant shape, switch the exact request branch,
    add the retired terminal guard before ordinary routing, preserve Host/SNI
@@ -219,11 +221,13 @@ names; CLI remains the composition and presentation root.
   the same trusted identity plus their exact effect. Do not add an alias array,
   nullable legacy field, Manifest revision, Project-root-derived ID, or an
   independent AuthorityRevision concept.
-- Candidate/denial/report envelope semantic fields replace legacy Context and
-  project identity with display `workspace_manifest`, authority
-  `workspace_manifest_id`/`workspace_id`, and subordinate diagnostic
-  `project_root`; exact `host` values and opaque IDs also change. No `context`,
-  `context_id`, `project_id`, or `instance_id` output fallback remains.
+- Candidate/denial/report public fields use display `workspace_manifest`,
+  authority `workspace_manifest_id`/`workspace_id`, and subordinate diagnostic
+  `project_root`; exact `host` values and opaque IDs also change. The private
+  schema-V2 route/grant records preserve ADR 0081's frozen `context`,
+  `context_id`, and `project_id` JSON key spellings and their Workspace
+  Manifest/Workspace meaning. Those keys are not public aliases, and
+  `project_id` never means project root.
 - Fresh-state draft and absent-Manifest variants contain no authority ID and
   cannot be accepted by Host Loopback action or route construction. Attachment
   observation in status remains distinct from Manifest desired/applied state.
@@ -237,6 +241,13 @@ names; CLI remains the composition and presentation root.
 - Do not support a rolling hostname migration with a live attachment or mixed
   old/new principal schemas. `migrate apply` must revalidate cluster stopped
   and zero live attachment immediately before cleanup/publication.
+- Under the existing lifecycle lock, acquire
+  `Runtime.withInteractiveAttachmentLock`, use the canonical lock-held
+  zero-owner predicate, keep that lock held while acquiring the Host Loopback
+  lock, and perform the exact route/grant cutover before releasing either
+  inner lock. This `lifecycle -> interactive-attachment -> host-loopback`
+  order fences normal entry, which creates the canonical session before its
+  Host Loopback capability.
 - Order the one pre-public cutover as: stop the cluster and prove zero live
   attachment;
   run ADR 0079's exact predecessor migration; retain Context UUID bytes as
@@ -425,17 +436,18 @@ migration guidance without expanding access.
   recovery argv/path metadata valid.
 - Human and JSON golden fixtures show routine label Manifest,
   `workspace_manifest`, `workspace_manifest_id`, `workspace_id`, subordinate
-  `project_root`, the new host, and attachment lifetime, with no `context`,
-  `context_id`, `project_id`, or `instance_id` alias.
+  `project_root`, the new host, and attachment lifetime, with no public
+  `context`, `context_id`, `project_id`, or `instance_id` alias. Frozen private
+  compatibility wire spellings remain tested separately.
 - Root agent help remains within its 512-byte per-entry budget; exact command
   help owns detailed policy fields.
 - Public-boundary scans permit the old name only in the superseded ADR,
   migration note, retirement guard, and negative fixtures.
-- Revise the public-boundary governing contract and scanner narrowly enough to
-  permit a URI only when its host is the exact product-owned synthetic
-  `host.tobari.internal`; keep other private hostnames and sibling `.internal`
-  names denied. Add positive and negative mechanical tests before placing the
-  complete URI literal in current public documentation.
+- The first durable-decision concern revises the public-boundary scanner only
+  enough to permit bounded-port HTTP URIs whose host is exact product-owned
+  `host.tobari.internal`; positive and negative mechanical tests keep HTTPS,
+  sibling, wildcard, userinfo, casing, unrelated `.internal`, malformed port,
+  and other private hosts denied.
 - Agent-readiness replay distinguishes Workspace `localhost`, physical-host
   `host.tobari.internal`, and opposite-direction numeric exposure with zero
   source inspection or provider-notation decoding.
@@ -478,20 +490,17 @@ additional required evidence. The canonical completion gate remains `task
 check`; public and release gates are additionally required because this name is
 a user-visible V1 contract.
 
-## Implementation-time observation gates
+## Remaining implementation observations
 
-1. Record the exact completed post-WP04 revision and final
-   WorkspaceManifestID/WorkspaceID, Catalog, CA/DNS/policy, migration,
-   route/grant, standard Runtime, and cache schemas. Any incompatible fact is
-   `WP05_BLOCKED`, not permission to invent a compatibility layer.
-2. Inventory exact standard Runtime curl/libc, Python, Go, and Node versions and
+1. Inventory exact standard Runtime curl/libc, Python, Go, and Node versions and
    determine which Go pure/cgo modes are applicable. Java/browser remain
    optional unless that inventory includes them.
-3. Observe whether an old-host leaf cache entry exists and its exact owner/
+2. Observe whether an old-host leaf cache entry exists and its exact owner/
    schema representation. Absence means no cache mutation; presence permits
    only the fixed exact `migrate apply` removal.
-4. Record sufficient Docker evidence for stopped cluster, zero live attachment,
+3. Record sufficient Docker evidence for stopped cluster, zero live attachment,
    exact transient owner/schema/old-host matching, atomic registry-V2
    replacement, and fresh post-`cluster up` attachment.
-5. Consume ADR 0079's final child-session behavior without changing the fixed rule: no
-   session or Manifest revision may expand or inherit an Attachment Grant.
+4. Run the supported transparent-network and Runtime-client canaries for the
+   accepted mitmproxy pre-leaf design; synthetic feasibility is not final
+   release evidence.

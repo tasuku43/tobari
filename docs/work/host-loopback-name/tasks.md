@@ -2,8 +2,9 @@
 
 Product design tasks marked complete below were accepted and fixed by the
 Product Owner on 2026-08-23. Every implementation, test, durable-documentation,
-generated, release, gate, and handoff task remains incomplete. This packet is
-Accepted/Fix and authorizes no production implementation.
+generated, release, gate, and handoff task remains incomplete unless checked.
+Implementation was authorized on 2026-08-24 from exact integrated baseline
+`97dd314bf00f152d1b1a127089354afd63eacd0c`; Accepted/Fix is not completion.
 
 ## Mandatory implementation-entry re-observation gate
 
@@ -11,26 +12,30 @@ Accepted/Fix and authorizes no production implementation.
       [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md)
       and current durable contracts by `07535a9` and `428812f`; deleted
       temporary packet files are not authority.
-- [ ] Continue the unchanged dependency order through WP08 -> WP03 -> WP04,
+- [x] Continue the unchanged dependency order through WP08 -> WP03 -> WP04,
       then identify the integrated revision. Do not modify any predecessor's
       overlapping production, schema, Catalog, migration, CA/DNS, policy,
       build-profile, Runtime, or test files in advance.
-- [ ] Record the exact post-WP-04 `HEAD` and a clean or fully explained `git
+- [x] Record the exact post-WP-04 `HEAD` and a clean or fully explained `git
       status`; preserve all unrelated user/concurrent changes.
-- [ ] Reread `AGENTS.md`, `docs/00_theses.md` through `docs/04_harness.md`,
+- [x] Reread `AGENTS.md`, `docs/00_theses.md` through `docs/04_harness.md`,
       relevant `docs/07` through `docs/09`, ADR 0079, current durable contracts,
       and WP08/03/04 completion evidence in governing order.
-- [ ] Reinspect README, Catalog plus human/agent help, Workspace Manifest and
+- [x] Reinspect README, Catalog plus human/agent help, Workspace Manifest and
       Workspace domain/application/infrastructure code, Host Loopback route/
       grant/principal, Gateway DNS/TLS, OPA policy/data, CA ownership,
       migration/schema fixtures, tests, and recent related commits.
-- [ ] Run only bounded read-only help and safe fresh temporary-state
+- [x] Run only bounded read-only help and safe fresh temporary-state
       observations from the integrated source; record binary source identity
       and reject stale-binary evidence.
-- [ ] Compare every final identity, lifetime, schema, migration, CA/DNS/policy,
+- [x] Compare every final identity, lifetime, schema, migration, CA/DNS/policy,
       copy-isolation, and Runtime-separation fact to this packet. Update only
       the packet or obtain the required owner decision for discrepancies before
-      starting WP 05 production code. Evidence:
+      starting WP 05 production code. Evidence: control accepted
+      `WP05_IMPLEMENTATION_ENTRY_OBSERVED`; canonical APIs are
+      `Runtime.withInteractiveAttachmentLock` and
+      `Runtime.permissionSessionActive`, and a lock-held zero-owner predicate
+      is the only missing WP07-owned migration seam.
 
 ## Decision and contracts
 
@@ -67,12 +72,13 @@ Accepted/Fix and authorizes no production implementation.
       state and expose no lineage/`copied_from`; confirm WP 03 leaves hostname
       selection independent and Host Loopback outside Runtime lifecycle
       authority. Do not implement either packet here.
-- [ ] Revise or supersede ADR 0049 with the exact
+- [x] Revise ADR 0049 through accepted ADR 0083 with the exact
       `host.tobari.internal` decision, source dates, rejected alternatives,
       non-alias migration, CA disposition, and reconsideration triggers.
-- [ ] Propagate the accepted consequence through theses, product, architecture,
+- [x] Propagate the accepted consequence through theses, product, architecture,
       security, harness, readiness, README, threat model, and applicable
-      authentication/external-I/O contracts.
+      authentication/external-I/O contracts. No threat-model, authentication,
+      or external-API text named the old authority or required a new boundary.
 - [ ] Coordinate the integration point with first-public-V1 core and artifact
       packets so no published artifact teaches `host.tobari.test`.
 
@@ -108,6 +114,15 @@ Accepted/Fix and authorizes no production implementation.
       zero live attachment, and refuse mixed, malformed, wrong-owner,
       wrong-schema, wrong-host, symlinked, or unknown predecessor state before
       publication.
+- [ ] Add the smallest canonical lock-held zero-live-owner predicate beside
+      WP07's `Runtime.withInteractiveAttachmentLock` and
+      `Runtime.permissionSessionActive`; Host Loopback code must not read or
+      migrate permission-ingestion endpoint, nonce, lease, ACK, wait registry,
+      or Gateway-only transport/profile fields.
+- [ ] Hold locks in exact order `lifecycle -> interactive-attachment ->
+      host-loopback`, retaining the interactive lock from zero-owner proof
+      through schema-V1 route/grant replacement. Add a deterministic competing-
+      entry canary proving normal entry cannot publish a session in that gap.
 - [ ] Atomically replace only exact owner/schema/`host.tobari.test` transient
       route/grant registries with empty schema-V2 registries. Never translate
       route, grant, candidate, relay, Manifest, AppliedEntry, learned
@@ -148,8 +163,9 @@ Accepted/Fix and authorizes no production implementation.
       principal, and audit contracts at their final V1 shapes while transient
       route/grant registries alone use V2; present Manifest and expose
       `workspace_manifest`, `workspace_manifest_id`, `workspace_id`, and
-      subordinate `project_root`, with no `context`, `context_id`, `project_id`,
-      or `instance_id` fallback, and update capability/schema ledgers.
+      subordinate `project_root`. Preserve frozen private compatibility wire
+      spellings `context`, `context_id`, and `project_id` with their existing
+      Workspace Manifest/Workspace meaning; do not expose them as public aliases.
 - [ ] Add no `copied_from`, provenance, lineage, source Manifest/Runtime, or
       copy-derived Host Loopback field to hostname/route migration or its human,
       JSON, state, status, or audit output. Leave copy-output verification with
@@ -157,16 +173,16 @@ Accepted/Fix and authorizes no production implementation.
 - [ ] Add one exact, secret-free, non-learnable old-name recovery message; do
       not emit a URL redirect or automatically replay the request, and keep the
       terminal classification for all V1.
-- [ ] Update README, agent guidance, examples, generated-site sources, and
+- [x] Update README, agent guidance, examples, generated-site sources, and
       readiness scenarios to distinguish Workspace `localhost`, physical-host
       `host.tobari.internal`, and opposite-direction numeric exposure.
-- [ ] Add a public-boundary allowlist/negative guard that confines the old name
-      to historical decision text, migration guidance, the retirement guard,
-      and negative tests.
-- [ ] Update the governing public-boundary contract and scanner for exactly one
+- [x] Keep current documentation uses of the old name confined to historical
+      decision text, migration guidance, retirement-contract prose, and
+      negative tests; the executable retired guard remains a later concern.
+- [x] Update the governing public-boundary contract and scanner for exactly one
       product-owned synthetic URI host, `host.tobari.internal`; prove sibling
-      and unrelated private hosts remain rejected before publishing a complete
-      URI literal.
+      and unrelated private hosts, TLS, malformed ports, casing, and userinfo
+      remain rejected before publishing a complete URI literal.
 - [ ] Document the ordered cutover: ADR 0079 migration precondition, stable-ID byte
       retention and durable principal rename, cluster stopped, zero live
       attachment, exact registry-V2 replacement, no attachment-state migration,

@@ -15,17 +15,22 @@
 - Owner: Tobari maintainers
 - Target: Accepted/Fix before the first public V1 release
 - Related ADRs: ADR 0049, ADR 0074, and
-  [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md)
+  [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md),
+  [ADR 0081](../../decisions/0081-observe-reviewed-permission-from-an-attached-workspace.md),
+  and [ADR 0082](../../decisions/0082-release-and-research-build-surfaces.md)
 - Related work: completed WP08 Catalog/output contracts in [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md),
   completed [ADR 0080 Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md),
   [ADR 0082 release and research build surfaces](../../decisions/0082-release-and-research-build-surfaces.md),
   [First public V1 core](../first-public-release-core/goal.md), and
   [first public V1 artifacts](../first-public-release-artifacts/goal.md)
 - Integration state: Product Owner accepted and fixed this packet on
-  2026-08-23. The first Workspace Manifest/copy-contract stage has been
-  promoted by `07535a9` and `428812f`; production implementation remains
-  unauthorized until the unchanged sequence continues through WP08 -> WP03 ->
-  WP04 -> WP05 and the WP05 implementation-entry observation gate passes.
+  2026-08-23 and authorized implementation on 2026-08-24. The independent
+  worktree is based on exact integrated HEAD
+  `97dd314bf00f152d1b1a127089354afd63eacd0c`, which contains WP03 final
+  `922fa792452ce053c994f4271e6debebae1e91dc`, WP04 final
+  `cc5d14b949276cafac0387dca3b7807d4ed34ed5`, and WP07 final
+  `77c5607ed6867c3f5162eb0a076f5589234a8462`. The implementation-entry
+  observation was accepted before the first production edit.
 
 ## Outcome
 
@@ -106,11 +111,13 @@ a routable compatibility alias across an authority boundary.
       replaces only the hostname value. It exposes neither a dual old/new value
       nor a schema-2 compatibility surface; public capability schema and
       internal transient-registry schema are tested as separate contracts.
-- [ ] Final-V1 route, grant, denial, review, audit, and principal identity uses
-      routine label Manifest plus `workspace_manifest`,
-      `workspace_manifest_id`, `workspace_id`, and subordinate `project_root`;
-      `context`, `context_id`, `project_id`, and `instance_id` receive no public
-      or internal semantic fallback.
+- [ ] Public route, grant, denial, review, audit, and principal presentation
+      uses routine label Manifest plus `workspace_manifest`,
+      `workspace_manifest_id`, `workspace_id`, and subordinate `project_root`.
+      Frozen schema-V1 principal, Gateway-to-OPA, OPA learned-policy, and Host
+      Loopback compatibility wires retain their exact `context`, `context_id`,
+      and `project_id` spellings while carrying Workspace Manifest/Workspace
+      identity; those spellings are not public aliases or project-root identity.
 - [ ] Host Loopback and Attachment Grant remain attachment-owned authority
       outside Workspace Manifest desired/applied state. Publishing a new
       Manifest revision neither changes an active exact grant nor carries it
@@ -126,13 +133,11 @@ a routable compatibility alias across an authority boundary.
       registries. No new maintenance command, translation, implicit reader
       cleanup, or cleanup by attachment startup, status/doctor, or `cluster up`
       exists.
-- [ ] No WP 05 production implementation starts before the already promoted
-      Workspace Manifest/copy-contract stage, WP08, WP03, and WP04 complete in
-      that unchanged order and an implementation-entry review
-      records their actual integrated `HEAD` and working tree, rereads the
-      promoted contracts, and re-observes final WorkspaceManifestID/
-      WorkspaceID, CA/DNS/policy, Catalog, migration, and route/grant shapes.
-      Any mismatch blocks WP05 or updates this packet before code.
+- [x] WP05 began only after the promoted Workspace Manifest/copy-contract
+      stage, WP08, WP03, WP04, and WP07 were integrated at exact HEAD
+      `97dd314bf00f152d1b1a127089354afd63eacd0c`; the clean independent
+      worktree, governing contracts, final identity/schema surfaces, and
+      session-owner seams were re-observed and accepted before production code.
 - [ ] WP 05 migration never consults nonexistent provenance or `copied_from`
       state, copies attachment authority, or treats an ADR 0079 copy action as
       reconciliation. Verification of copy behavior remains governed by ADR
@@ -179,19 +184,22 @@ a routable compatibility alias across an authority boundary.
   no pre-policy external I/O, private ceiling, and Gateway CA boundary
 - Harness and readiness: [docs/04_harness.md](../../04_harness.md) Host Loopback claim and
   [docs/09_agent_readiness_validation.md](../../09_agent_readiness_validation.md) authority-lifetime scenario
-- Existing ADR: ADR 0049 defines the current name and HTTP attachment lease;
-  ADR 0074 proves the opposite-direction loopback authority must stay separate
+- Host Loopback decision: ADR 0049 defines the HTTP attachment lease and
+  [ADR 0083](../../decisions/0083-name-the-physical-host-loopback-authority.md)
+  revises its name, hard cutover, migration, TLS, and CA contract; ADR 0074
+  proves the opposite-direction loopback authority must stay separate
 - Accepted upper-level decision: [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md)
   defines Workspace Manifest/Workspace identity, desired/applied separation,
   attachment exclusion, the pre-public migration boundary, and target-specific
   one-time copy with no lineage or attachment copying. Commits `07535a9` and
-  `428812f` are the upstream promotion evidence; their final integrated
-  contracts must be re-observed before this packet enters implementation.
+  `428812f` are upstream promotion evidence; the final integrated contracts
+  were re-observed at `97dd314b` before implementation.
 - Accepted adjacent decision: WP 03 fixes Runtime retirement and its
   protection graph without owning Host Loopback naming
-- Accepted integration order: completed Workspace Manifest/copy-contract
-  promotion (`07535a9`, `428812f`), then WP08 Catalog/domain output conformance,
-  then WP03 Runtime retirement, then WP04 build-profile contract, then WP05
+- Satisfied integration order: Workspace Manifest/copy-contract promotion,
+  WP08 Catalog/domain output conformance, WP03 Runtime retirement, WP04
+  build-surface contract, WP07 permission resume, then WP05 on integrated
+  `97dd314bf00f152d1b1a127089354afd63eacd0c`
 
 ## Completion definition
 
@@ -202,5 +210,5 @@ implementation diagnostics are removed, and this temporary packet is removed
 from the final tree. On implementation completion, notify control thread
 `01a02c51-885b-7b80-a66f-05850f48ba4d` with
 `WP05_IMPLEMENTATION_COMPLETE`; an actual implementation blocker is reported
-as `WP05_BLOCKED`. This packet is Accepted/Fix only and does not authorize
-implementation.
+as `WP05_BLOCKED`. Accepted/Fix is the active implementation plan, not a claim
+that implementation is complete.

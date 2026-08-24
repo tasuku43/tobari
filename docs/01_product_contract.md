@@ -2,6 +2,8 @@
 
 The release/research capability vocabulary, resolver axis, breaking V1 schema
 cutover, and archive boundary are governed by [ADR 0082](decisions/0082-release-and-research-build-surfaces.md).
+Physical-host loopback naming, retirement, and cutover are governed by
+[ADR 0083](decisions/0083-name-the-physical-host-loopback-authority.md).
 
 ## Product statement
 
@@ -41,7 +43,7 @@ flows invoke it immediately. Tobari does not observe child output, consume child
 input, or provide a clipboard shortcut.
 
 Every interactive entry exposes the constant Host Loopback capability
-`http://host.tobari.test:{port}` for physical-host IPv4 loopback HTTP on ports
+`http://host.tobari.internal:{port}` for physical-host IPv4 loopback HTTP on ports
 1024 through 65535. No entry flag or service declaration is required. The
 Workspace receives the URL template, bounded port range, Workspace audience,
 and explicit `attachment` lifetime; `localhost` continues to mean the
@@ -51,6 +53,9 @@ the decision is available to every process in the Workspace only until the
 owning host attachment exits. Docker, Compose, host daemon state, automatic
 port discovery, raw TCP, and persistent Host Loopback grants are not part of
 this outcome.
+The retired exact `host.tobari.test` authority is terminal and non-learnable
+for all V1. It has no alias, redirect, translation, external-policy fallback,
+or automatic retry.
 
 The opposite direction is one explicitly reviewed Workspace service. From a
 live attachment, `tobari-expose <port>` requests exact Workspace
@@ -195,7 +200,7 @@ is added explicitly.
   adds one locked Auth Broker and provider projection.
 - **Gateway:** the trusted HTTP/HTTPS policy enforcement point.
 - **OPA:** the trusted policy decision point.
-- **Host Loopback:** the constant `host.tobari.test` HTTP destination whose URL
+- **Host Loopback:** the constant `host.tobari.internal` HTTP destination whose URL
   port selects the same physical-host IPv4 loopback port for an active attachment.
 - **Attachment Epoch:** one unguessable trusted-host identity owned by the
   `tobari` process that established the active Host Loopback route.
@@ -1236,6 +1241,13 @@ synthetic state.
   Workspace Manifest/project-to-owned-Workspace-and-Gateway endpoint bindings, maintained by lifecycle reconciliation
   and directory-mounted read-only into Gateway so atomic host updates remain
   visible without exposing credential files;
+- `host-loopback/routes.json` and `host-loopback/grants.json`: owner-only
+  transient schema-v2 attachment authority. The records use only exact
+  `host.tobari.internal`, fresh hostname-bound opaque IDs, and the frozen
+  compatibility key spellings that carry Workspace Manifest/Workspace
+  identity. They are separate from public capability schema V1, Manifest
+  desired/applied state, learned policy, permission-ingestion state, and
+  service exposure;
 
 Tool authentication state is not cluster configuration. In standard it belongs
 below the selected instance's persistent home, is created by the tool's own
@@ -1575,6 +1587,12 @@ byte-identical set only when no fresh canonical auth state exists. The only
 public disposition is the bounded non-secret
 `research_auth_disposition: reauthentication_required`; later research use
 requires explicit fresh login/import.
+The same explicit migration requires the cluster stopped and continuously
+fences canonical attachment creation while proving zero live owners and
+replacing only exact retired-host schema-v1 route/grant registries with empty
+schema-v2 registries. It translates no route, grant, relay token, candidate,
+or opaque reference. Ordinary readers, entry, `cluster up`, status, and doctor
+do not perform this cleanup.
 Every other development snapshot must be removed and recreated.
 
 The canonical Gateway source label is API V1. Source does not record any owned

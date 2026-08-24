@@ -330,7 +330,7 @@ disabled, so neither path is direct egress.
   path.
 - Reviewed Host Loopback access is a distinct Workspace-to-host exception.
   Every interactive attachment projects the constant
-  `http://host.tobari.test:{port}` capability for physical-host IPv4 loopback
+  `http://host.tobari.internal:{port}` capability for physical-host IPv4 loopback
   HTTP on non-privileged ports; no entry declaration is required and the
   projection grants no authority. An exact HTTP effect becomes reachable only
   through Gateway and OPA after trusted-host review creates an Attachment Grant. The route and
@@ -341,6 +341,9 @@ disabled, so neither path is direct egress.
   registry and policy projection. Inactive, privileged-port, or mismatched
   requests are terminally denied without host-loopback I/O. A concurrent
   attachment may borrow the current epoch but cannot extend it or inherit ownership.
+  The exact retired `host.tobari.test` authority remains terminal and
+  non-learnable throughout V1; it cannot fall through to ordinary external
+  policy or routing. `.internal` and synthetic DNS are never authority.
 
 ### Mechanical enforcement
 

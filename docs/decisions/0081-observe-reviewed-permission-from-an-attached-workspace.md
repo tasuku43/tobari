@@ -167,8 +167,10 @@ handoff. They accept no schema-1 alias or dual shape. Helper JSON remains its
 independent schema 1.
 
 The frozen schema-v1 principal registry, Gateway-to-OPA input, OPA and
-persisted learned-policy wire, and Host Loopback route/grant records remain
-byte- and schema-stable with `context_id`, `project_id`, and `context`. A
+persisted learned-policy wire, and Host Loopback compatibility key spellings
+remain stable with `context_id`, `project_id`, and `context`. ADR 0083
+independently revises the private Host Loopback route/grant registry envelope
+to schema V2 and new authority-bound IDs without renaming those keys. A
 single reviewed projection converts the already-authenticated frozen principal
 into the schema-2 denial/wait record; it does not widen sibling readers.
 

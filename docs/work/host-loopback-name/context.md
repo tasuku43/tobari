@@ -8,12 +8,17 @@ observations. Desired behavior belongs in `goal.md` and `plan.md`.
 
 ### Verified repository facts
 
-- On 2026-08-23, `git fetch origin main` succeeded. `HEAD`, local `main`, and
-  `origin/main` were all
-  `6a26a3c274d2c2ce8dc8c59321ffb7ba67594b42`
-  (`chore(ci): retire obsolete runtime workflows`). `git status --short
-  --branch` reported a clean `main...origin/main` before this packet was
-  created.
+- The original packet was prepared from main
+  `6a26a3c274d2c2ce8dc8c59321ffb7ba67594b42`; that revision is historical
+  evidence only and is not the implementation baseline.
+- On 2026-08-24 the Product Owner fixed the implementation baseline as clean
+  integrated branch `codex/workspace-manifest-v1` at exact HEAD
+  `97dd314bf00f152d1b1a127089354afd63eacd0c`. A separate sibling worktree on
+  branch `codex/wp05-host-loopback-name` was created from that exact commit. The
+  commit contains WP03 `922fa792452ce053c994f4271e6debebae1e91dc`, WP04
+  `cc5d14b949276cafac0387dca3b7807d4ed34ed5`, and WP07
+  `77c5607ed6867c3f5162eb0a076f5589234a8462`; ancestry checks passed and the
+  worktree was clean before edits.
 - The inspection read `AGENTS.md`, `docs/00_theses.md` through
   `docs/04_harness.md`, `docs/07_authentication.md` through
   `docs/09_agent_readiness_validation.md`, the README, CLI Catalog output
@@ -29,29 +34,42 @@ observations. Desired behavior belongs in `goal.md` and `plan.md`.
   fields, README/agent guidance, and runtime/Gateway state. A binary invocation
   was therefore not needed to establish the name contract; the Catalog,
   executable sources, and tests are the direct sources of truth.
-- The current public-boundary guard rejects a URI literal whose authority is a
-  private hostname. This packet therefore writes the accepted scheme and
-  authority separately. Implementation must revise the governing guard with
-  one exact product-owned synthetic-authority exception and negative sibling
-  tests; it must not disable the general private-hostname protection.
-- **Verified upstream synchronization, 2026-08-23:** integrated `HEAD` is
-  `52a53bcc69a0f2bdf9bf2a6782ecd98bacd8b0e1`. Commit `07535a9` promotes the
-  Workspace Manifest and copy contracts through theses, product, architecture,
-  harness, CLI, schema, migration, and implementation; commit `428812f` adds
-  accepted [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md)
-  and its security/migration consequences. The predecessor temporary packet
-  files no longer exist and are not authority.
-- **Verified shared-checkout hygiene observation, 2026-08-23:** `git status
-  --short --branch` reports no tracked production modification and only
-  untracked work-packet directories. All concurrent packet changes are
-  user-owned and protected; this synchronization edits only this packet's
-  `goal.md`, `context.md`, `plan.md`, and `tasks.md`, without staging or
-  committing.
-- The current-main facts below remain a **packet-creation baseline**, not an
-  implementation-time contract. WP 05 must re-observe the integrated
-  post-WP-04 `HEAD`, working tree, contracts, code, tests, and safe runtime
-  behavior after the unchanged completed promotion -> WP08 -> WP03 -> WP04
-  sequence and before any production change.
+- The baseline public-boundary guard rejected every URI literal whose authority
+  was a private hostname. The first implementation concern added one exact,
+  port-bounded `http://host.tobari.internal:{port}` exception with negative HTTP/TLS,
+  sibling, wildcard, userinfo, casing, unrelated `.internal`, and malformed-
+  port tests. General private-hostname protection remains closed.
+- The implementation-entry reread covered `AGENTS.md`, docs 00 through 04,
+  ADRs 0079, 0081, and 0082, the four packet files, final session-owner source,
+  Host Loopback source, migration source, and current tests. Control accepted
+  `WP05_IMPLEMENTATION_ENTRY_OBSERVED` before the first production edit.
+- The former extra fifth packet artifact was outside the repository's
+  four-file work-packet shape and contradicted the fixed public capability V1
+  contract. Its valid retirement requirements are folded into the canonical
+  packet files and the extra artifact is deleted in the first documentation-
+  only concern.
+
+### Integrated WP07 session seam
+
+- The canonical session lock is
+  `Runtime.withInteractiveAttachmentLock`; the liveness probe is
+  `Runtime.permissionSessionActive`, both in
+  `internal/infra/dockerruntime/interactive_attachment_session.go`.
+- The integrated source has no separately named zero-live-owner helper.
+  Registry validation and expired-session compaction are inline today. WP05
+  adds the smallest lock-held zero-owner predicate to that WP07-owned file and
+  focused tests; Host Loopback migration does not inspect ingestion endpoint,
+  nonce, lease, ACK, wait, or Gateway-only mount/profile fields.
+- Migration must hold the lifecycle lock, then the interactive-attachment
+  lock, and keep it held while acquiring the Host Loopback lock and replacing
+  the exact private registries. The canonical order is therefore
+  `lifecycle -> interactive-attachment -> host-loopback`. Releasing the
+  interactive lock after a zero-owner check would let ordinary entry publish a
+  canonical session before cutover; a deterministic competing-entry test must
+  prevent that race.
+- Permission ingestion remains a separate WP07-owned authority. Darwin
+  `host.docker.internal` is its closed infrastructure transport and is neither
+  migrated nor renamed by WP05. Service exposure remains a third owner branch.
 
 ### Durable Workspace Manifest and copy contract
 
@@ -75,8 +93,8 @@ observations. Desired behavior belongs in `goal.md` and `plan.md`.
   principal and Attachment Epoch.
 - ADR 0079 leaves sufficient Docker migration evidence as an implementation
   gate. For WP 05's specific transient cleanup, the Product Owner has fixed the stronger
-  precondition as cluster stopped plus zero live attachment; the post-WP-04
-  gate must consume the actual final state and schema shapes.
+  precondition as cluster stopped plus zero live attachment; the integrated
+  implementation consumes the final state and schema shapes at `97dd314b`.
 
 ### Accepted one-time copy and adjacent WP 03 decisions
 
@@ -149,16 +167,17 @@ observations. Desired behavior belongs in `goal.md` and `plan.md`.
 |---|---|---|---|---|
 | Public Host Loopback authority | Tobari product contract | Exact `host.tobari.test` plus non-privileged port | Product/release constant | Immutable within the build |
 | Capability projection | Host runtime, projected into one Workspace | Workspace audience; URL template and limits | Interactive attachment environment | Constant and secret-free |
-| Attachment route | Host attachment process | Legacy current-main Context ID, project ID, Attachment Epoch, exact hostname | Owning attachment | Atomically added/removed; borrower cannot extend owner lifetime |
-| Attachment grant | Trusted-host reviewer and owning attachment | Legacy current-main Context ID/project ID plus exact epoch, host, port, method, and path | Attachment | Added by exact review; revoked at route teardown |
-| Learned external rule | Legacy Context-keyed policy store | Ordinary external destination only | Persistent until reset | Separate from attachment and future Manifest desired/applied state; cannot authorize Host Loopback |
+| Attachment route | Canonical interactive attachment owner | WorkspaceManifestID and WorkspaceID carried by frozen `context_id`/`project_id` wire keys, Attachment Epoch, exact hostname | Owning attachment | Atomically added/removed; borrower cannot extend owner lifetime |
+| Attachment grant | Trusted-host reviewer and canonical interactive attachment owner | Same frozen wire spellings carrying Workspace Manifest/Workspace identity, plus exact epoch, host, port, method, and path | Attachment | Added by exact review; revoked at route teardown |
+| Learned external rule | Manifest/Workspace-keyed policy store with frozen compatibility wire names | Ordinary external destination only | Persistent until reset | Separate from attachment and Manifest desired/applied state; cannot authorize Host Loopback |
 | Relay coordinates | Infrastructure adapter | One active route | Attachment | Random relay port and 256-bit token; never projected publicly |
 | `host.docker.internal` | Docker/Gateway infrastructure | Gateway container to physical host relay listener | Runtime transport | Compose `host-gateway` mapping; not authority |
 | Gateway CA | Installation-shared Gateway infrastructure | Ordinary transparent HTTPS interception | Shared cluster state; purge rotates | Not used to authorize current plain-HTTP Host Loopback |
 
 ### Current data and request path
 
-1. `internal/domain/tobari/host_loopback.go` defines
+1. At integrated baseline `97dd314b`,
+   `internal/domain/tobari/host_loopback.go` defines
    `HostLoopbackHostname = "host.tobari.test"`, the HTTP URL template,
    capability schema 1, route/grant registry schema 1, ports 1024-65535,
    attachment lifetime, Workspace audience, and policy-review-required access.
@@ -403,19 +422,18 @@ Host Loopback branch. Only explicit Workspace entry may establish it.
   than a compatibility alias because Host Loopback state is already explicitly
   attachment-scoped and non-persistent.
 
-## Implementation-time observation unknowns
+## Implementation-entry observations and remaining unknowns
 
-- [ ] After the already promoted Workspace Manifest/copy-contract stage, WP08,
-      WP03, and WP04 complete in the unchanged order, record the actual
-      integrated `HEAD` and clean-or-explained working tree; reread durable
-      contracts; and
-      inspect the final Workspace Manifest, Workspace, route/grant/principal,
-      CA/DNS/policy, Catalog, JSON, migration, and test shapes. A contradiction
-      is `WP05_BLOCKED`, not authority to redesign production locally.
-- [ ] Re-run bounded read-only help and, where safe, fresh temporary-state
-      observations from the post-WP-04 source. The current in-progress
-      production tree must not be treated as final evidence or patched ahead
-      of its owner.
+- [x] Recorded exact integrated HEAD `97dd314bf00f152d1b1a127089354afd63eacd0c`,
+      clean independent worktree, accepted upstream ancestry, final contracts,
+      Host Loopback source, session owner seams, migration, and test shapes.
+- [x] Confirmed the current public capability is schema V1, route/grant stores
+      are schema V1 at the predecessor, and the fixed target is public V1 plus
+      private route/grant V2 with frozen compatibility key spellings.
+- [x] Confirmed the canonical owner APIs are
+      `Runtime.withInteractiveAttachmentLock` and
+      `Runtime.permissionSessionActive`; a named zero-owner predicate is absent
+      and is a bounded WP05 implementation requirement.
 - [ ] Inventory the actual standard Runtime after upstream implementation and
       pin exact curl/libc, Python, Go, and Node versions plus applicable Go
       pure/cgo modes. Observe Java/browser only if present; their absence is not
@@ -427,10 +445,12 @@ Host Loopback branch. Only explicit Workspace entry may establish it.
       Loopback additionally needs evidence for stopped cluster, zero live
       attachment, and exact owner/schema/old-host matching before registry
       replacement; route/grant files provide no AppliedEntry evidence.
-- [ ] Resolve ADR 0079's new-child-session behavior when entry adoption is
-      pending. Whichever option is selected, a new session default cannot
-      expand an existing exact grant, and a new Attachment Epoch cannot inherit
-      one.
+- [ ] Confirm the final supported transparent-network and Runtime-client
+      canaries in the disposable WP05 integration profile. Prior mitmproxy
+      12.1.2 feasibility proves exact `tls_clienthello` classification followed
+      by `tls_start_client` terminal close can stop rejected SNI/ECH cases
+      before leaf generation/cache insertion and before passthrough, upstream,
+      or HTTP hooks; production behavior still needs the supported canaries.
 
 ## Cross-packet dependencies and conflicts
 
@@ -438,17 +458,17 @@ Host Loopback branch. Only explicit Workspace entry may establish it.
   before publishing README, generated site, capability/schema ledgers, images,
   checksums, or readiness evidence. Publishing first would create a real
   compatibility obligation for `host.tobari.test`.
-- The fixed order is completed Workspace Manifest/copy-contract promotion ->
-  WP08 Catalog/domain output conformance -> WP03 Runtime retirement -> WP04
-  build-profile contract -> WP05. Every remaining predecessor
-  must complete before WP05's implementation-entry review; an in-progress
-  schema, Catalog, build profile, or Runtime graph is not a frozen dependency.
+- The fixed predecessor order is satisfied on integrated `97dd314b`: Workspace
+  Manifest/copy-contract promotion -> WP08 Catalog/domain output conformance
+  -> WP03 Runtime retirement -> WP04 build-surface contract. WP07 is also
+  integrated and supplies the canonical interactive-session owner seam that
+  WP05 consumes without consuming its ingestion authority.
 - [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md)
   and the current theses/product/architecture/security contracts remain the
   identity and migration authority. WP 05 consumes their final vocabulary,
   stable-ID byte retention, exact predecessor decoder,
   principal schema, CA/DNS/policy state, and Docker evidence from the integrated
-  post-WP04 tree rather than from the old main baseline.
+  integrated tree rather than from the old main baseline.
 - ADR 0079's accepted one-time copy contract does not constrain hostname
   selection. WP 05 depends only on its no-lineage/no-provenance and no-copy-of-
   attachment guarantees: migration must never consult `copied_from`, and a
@@ -465,11 +485,17 @@ Host Loopback branch. Only explicit Workspace entry may establish it.
 - ADR 0074 is an explicit non-overlap: Workspace-to-host Host Loopback becomes
   `host.tobari.internal`, while host-to-Workspace service exposure stays an
   exact random numeric `127.0.0.1:<port>` authority.
+- ADR 0081 is another explicit non-overlap: WP05 consumes its canonical
+  interactive-session owner lock/liveness/zero-owner seam only. Permission
+  ingestion endpoint, nonce, lease, acknowledgment, wait registry,
+  Gateway-only mount/profile, and Darwin transport remain WP07-owned and are
+  not Host Loopback migration input. The shared lock order is lifecycle,
+  interactive attachment, then Host Loopback.
 - Any concurrent Gateway DNS, CA, authority normalization, policy schema, or
   generated-site change must be rebased and reviewed together. A suffix-wide
   `.internal` route or public `gateway.*` concept would conflict with this
   packet.
-- WP 08 owns the Catalog-wide nested reference/output mechanism consumed by
+- WP08 owns the Catalog-wide nested reference/output mechanism consumed by
   WP03 and WP04; WP05 creates no parallel validator. WP04's completed build
   profile fixes the actual standard Runtime inventory used by WP05's release
   compatibility floor.

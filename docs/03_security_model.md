@@ -2,6 +2,9 @@
 
 The release/research trust-boundary distinction and migration disposition are
 fixed by [ADR 0082](decisions/0082-release-and-research-build-surfaces.md).
+Physical-host loopback authority, retired-name denial, and private-registry
+cutover are fixed by
+[ADR 0083](decisions/0083-name-the-physical-host-loopback-authority.md).
 
 This document is the durable Tobari security contract. The detailed threat
 catalog and operational limits are in [Threat Model](THREAT_MODEL.md).
@@ -25,12 +28,16 @@ Every supported HTTP/HTTPS request is normalized, authorized by OPA, and
 enforced by the shared Gateway before forwarding.
 
 Every interactive attachment exposes the constant physical-host loopback HTTP
-capability, but that ambient existence grants no authority. Gateway derives an
+capability at exact `host.tobari.internal`, but that ambient existence grants
+no authority. Gateway derives an
 active Attachment Epoch from host-owned registry state and OPA must allow the
 exact Host Loopback effect including URL port.
 The resulting Attachment Grant applies to every process in the Workspace and
 ends with the owning attachment. It provides no Docker, raw TCP, private-LAN,
 arbitrary socket, executable, or persistent policy authority.
+Exact retired `host.tobari.test` is a terminal non-learnable V1 authority and
+cannot fall through to external DNS, ordinary policy, Broker, upstream, or
+relay. The `.internal` suffix and a synthetic DNS answer grant nothing.
 
 The host relay listens on a random TCP port for transport portability, but it
 is not an unauthenticated host-service exposure. Each connection must present
@@ -597,7 +604,9 @@ principal to exactly one bounded canonical interactive-session record and that
 owner acknowledges the immutable secret-free wait record. The schema-2 denial
 and wait projection uses `workspace_manifest_id` and `workspace_id`; the
 principal registry, Gateway-to-OPA input, persisted learned-policy wire, and
-Host Loopback route/grant schema-v1 bytes remain unchanged. Zero, duplicate,
+Host Loopback compatibility key spellings remain unchanged. ADR 0083
+independently moves the private route/grant registries to schema V2 and new
+hostname-bound opaque IDs while retaining those frozen key spellings. Zero, duplicate,
 stale, malformed, symlinked, drifted, or concurrently replaced owner records
 omit the handoff. The attachment-local helper socket proves attachment
 possession independently of the non-authoritative wait ID. Gateway ingestion
@@ -931,6 +940,12 @@ symlinked, corrupt, mixed, or concurrently changed input fails before
 mutation. Context UUID bytes become WorkspaceManifestID and ProjectInstance
 UUID bytes become WorkspaceID; standard Workspace home and native-auth bytes
 are retained without being read, moved, or transformed.
+For Host Loopback cutover, migration holds locks in exact order `lifecycle ->
+interactive-attachment -> host-loopback` and keeps the interactive lock from
+the zero-live-owner proof through exact route/grant replacement. This prevents
+normal entry from publishing a new canonical owner between proof and cutover.
+The migration consumes no permission-ingestion endpoint, nonce, lease,
+acknowledgment, wait registry, or Gateway-only transport/profile field.
 
 Predecessor research authentication is a distinct replay-capable authority
 set: ciphertext plus every filesystem binding, handle, lookup, projection,

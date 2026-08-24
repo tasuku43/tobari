@@ -58,6 +58,8 @@ var (
 	}
 )
 
+const publicHostLoopbackHTTPPrefix = "http://host.tobari.internal"
+
 func main() {
 	scope := flag.String("scope", "hygiene", "hygiene, security, or public")
 	rootFlag := flag.String("root", ".", "repository root")
@@ -1106,7 +1108,7 @@ func checkTextWithLocaleExemption(path, text string, config projectconfig.Config
 		if !scannerSource && absoluteHome.MatchString(line) {
 			issues = append(issues, issue{Path: path, Line: lineNumber, Message: "machine-specific home directory path"})
 		}
-		if !scannerSource && privateNetwork.MatchString(line) {
+		if !scannerSource && hasDisallowedPrivateNetwork(line) {
 			issues = append(issues, issue{Path: path, Line: lineNumber, Message: "private hostname or network address"})
 		}
 		for _, term := range denylist {
@@ -1122,6 +1124,54 @@ func checkTextWithLocaleExemption(path, text string, config projectconfig.Config
 		}
 	}
 	return issues
+}
+
+// hasDisallowedPrivateNetwork keeps the private-network guard closed except
+// for Tobari's one product-owned synthetic HTTP authority. The match and its
+// following authority boundary are intentionally case-sensitive and exact so
+// sibling, suffix, userinfo, TLS, and general private-host URLs remain denied.
+func hasDisallowedPrivateNetwork(line string) bool {
+	for _, location := range privateNetwork.FindAllStringIndex(line, -1) {
+		if line[location[0]:location[1]] != publicHostLoopbackHTTPPrefix ||
+			!validPublicHostLoopbackPortSuffix(line[location[1]:]) {
+			return true
+		}
+	}
+	return false
+}
+
+func validPublicHostLoopbackPortSuffix(suffix string) bool {
+	if !strings.HasPrefix(suffix, ":") {
+		return false
+	}
+	rest := suffix[1:]
+	if strings.HasPrefix(rest, "{port}") {
+		return publicHostLoopbackURITerminator(rest[len("{port}"):])
+	}
+	end := 0
+	for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
+		end++
+	}
+	if end == 0 || end > 5 {
+		return false
+	}
+	port := 0
+	for index := 0; index < end; index++ {
+		port = port*10 + int(rest[index]-'0')
+	}
+	return port >= 1024 && port <= 65535 && publicHostLoopbackURITerminator(rest[end:])
+}
+
+func publicHostLoopbackURITerminator(rest string) bool {
+	if rest == "" {
+		return true
+	}
+	switch rest[0] {
+	case '/', '?', '#', ' ', '\t', '\r', '\n', '`', '\'', '"', ')', ']', '}', '>':
+		return true
+	default:
+		return false
+	}
 }
 
 // projectDocumentationLocale masks fenced blocks, HTML comments, block quotes,

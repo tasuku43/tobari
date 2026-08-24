@@ -62,6 +62,38 @@ func TestCheckTextDetectsPublicLeaksAndUnsafeSecrets(t *testing.T) {
 	}
 }
 
+func TestCheckTextAllowsOnlyExactProductHostLoopbackHTTPURI(t *testing.T) {
+	config := projectconfig.Config{}
+	for _, value := range []string{
+		"curl http://host.tobari.internal:3000/health",
+		"authority `http://host.tobari.internal:{port}`",
+		"http://host.tobari.internal:65535?probe=1",
+	} {
+		if issues := checkText("README.md", value, config, nil, "public"); len(issues) != 0 {
+			t.Errorf("exact Host Loopback URI %q issues = %#v", value, issues)
+		}
+	}
+
+	for _, value := range []string{
+		"http://host.tobari." + "internal",
+		"http://host.tobari." + "internal:80",
+		"https://host.tobari." + "internal:3000",
+		"http://HOST.TOBARI." + "INTERNAL:3000",
+		"http://host.tobari." + "internal.example.com:3000",
+		"http://sibling.tobari." + "internal:3000",
+		"http://*.tobari." + "internal:3000",
+		"http://gateway.tobari." + "internal:3000",
+		"http://host.other." + "internal:3000",
+		"http://host.tobari." + "internal@evil.example:3000",
+		"http://host.tobari." + "internal:3000.evil",
+	} {
+		issues := checkText("README.md", value, config, nil, "public")
+		if len(issues) != 1 || issues[0].Message != "private hostname or network address" {
+			t.Errorf("non-authority URI %q issues = %#v", value, issues)
+		}
+	}
+}
+
 func TestCheckTextAppliesTheConfiguredDocumentationLocale(t *testing.T) {
 	english := projectconfig.Config{PublicGuard: projectconfig.PublicGuard{DocumentationLocale: "en"}}
 	issues := checkText("README.md", "日本語の説明", english, nil, "public")

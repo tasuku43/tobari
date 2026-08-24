@@ -5,6 +5,7 @@
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, security, network policy, Workspace lifecycle, CLI, and harness
 - Revises: Thesis 2 host-loopback boundary and Thesis 8 policy-decision lifetime
+- Revised by: ADR 0083
 - Superseded by: None
 
 ## Context
@@ -36,9 +37,9 @@ imply per-process isolation.
 Every interactive `tobari` attachment projects one constant Host Loopback
 capability:
 
-```text
-http://host.tobari.test:<port>
-```
+The initial hostname was `host.tobari.test`. ADR 0083 revises the current
+public authority to exact `host.tobari.internal` and retains the old name only
+as a terminal non-routable V1 retirement guard.
 
 The URL port selects the same physical-host IPv4 loopback port. The first slice
 supports plain HTTP on ports 1024 through 65535. No entry declaration, service
