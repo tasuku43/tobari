@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
@@ -30,6 +31,12 @@ type DeletionAuthority interface {
 	ConfirmWorkspaceRetirementAllowed(context.Context, tobari.WorkspaceBinding, bool) error
 	RetireWorkspace(context.Context, tobari.WorkspaceBinding, bool, string) error
 	ConfirmWorkspaceRetired(context.Context, tobari.WorkspaceBinding, string) error
+}
+
+// ContextCredentialAbsenceAuthority is separate from Workspace retirement so
+// the final research adapter, not a predecessor deletion adapter, owns the
+// exhaustive Context-scoped Broker inventory prerequisite.
+type ContextCredentialAbsenceAuthority interface {
 	ConfirmContextCredentialAbsent(context.Context, tobari.ContextID) error
 }
 
@@ -58,13 +65,15 @@ type FinalAuthoritySettlementAuthority interface {
 // Mutator publishes complete final-authority envelopes behind the existing
 // lifecycle authority. It is dormant until the atomic WP11 reader cutover.
 type Mutator struct {
-	store      *Store
-	lifecycle  LifecycleAuthority
-	deletion   DeletionAuthority
-	activation PolicyMemoryActivationAuthority
-	settlement FinalAuthoritySettlementAuthority
-	clock      func() time.Time
-	entropy    io.Reader
+	store             *Store
+	lifecycle         LifecycleAuthority
+	deletion          DeletionAuthority
+	activation        PolicyMemoryActivationAuthority
+	settlement        FinalAuthoritySettlementAuthority
+	researchAuth      FinalContextCredentialAuthority
+	credentialAbsence ContextCredentialAbsenceAuthority
+	clock             func() time.Time
+	entropy           io.Reader
 
 	rename func(string, string) error
 	sync   func(string) error
@@ -92,6 +101,8 @@ type effectDecision struct {
 	EntryPlan           *tobari.WorkspaceEntryReconciliationPlan `json:"workspace_entry_plan,omitempty"`
 	ReviewedSet         *tobari.PolicyMemoryReviewedDecisionSet  `json:"reviewed_set,omitempty"`
 	ReviewedPublication *reviewedTerminalPublication             `json:"reviewed_publication,omitempty"`
+	AuthDecision        *authbroker.ContextAuthDecisionAuthority `json:"auth_decision,omitempty"`
+	AuthResult          *authbroker.ContextMutationObservation   `json:"auth_result,omitempty"`
 }
 
 type reviewedTerminalAppliedDecision struct {
@@ -194,25 +205,25 @@ func (d effectDecision) validate() error {
 	}
 	switch d.Operation {
 	case "workspace-delete", "workspace-delete-force":
-		if d.NextGeneration != d.PreviousGeneration+1 || d.ContextID != nil || d.WorkspaceID == nil || d.WorkspaceID.Validate() != nil || d.Workspace == nil || d.Workspace.ID != *d.WorkspaceID || d.Force == nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil || d.EntryPlan != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil {
+		if d.NextGeneration != d.PreviousGeneration+1 || d.ContextID != nil || d.WorkspaceID == nil || d.WorkspaceID.Validate() != nil || d.Workspace == nil || d.Workspace.ID != *d.WorkspaceID || d.Force == nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil || d.EntryPlan != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil || d.AuthDecision != nil || d.AuthResult != nil {
 			return fmt.Errorf("Workspace delete effect decision is invalid")
 		}
 	case "context-delete":
 		contextID, err := tobari.ParseContextRef(d.Target)
-		if err != nil || d.NextGeneration != d.PreviousGeneration+1 || d.ContextID == nil || *d.ContextID != contextID || d.ContextID.Validate() != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil || d.EntryPlan != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil {
+		if err != nil || d.NextGeneration != d.PreviousGeneration+1 || d.ContextID == nil || *d.ContextID != contextID || d.ContextID.Validate() != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil || d.EntryPlan != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil || d.AuthDecision != nil || d.AuthResult != nil {
 			return fmt.Errorf("Context delete effect decision is invalid")
 		}
 	case "policy-allow", "policy-deny":
-		if d.NextGeneration != d.PreviousGeneration+1 || d.ContextID != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate == nil || d.Candidate.Validate() != nil || d.RuleID == "" || d.PreviousMemory == nil || d.PreviousMemory.Validate() != nil || d.Decision.Validate() != nil || d.EntryPlan != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil {
+		if d.NextGeneration != d.PreviousGeneration+1 || d.ContextID != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate == nil || d.Candidate.Validate() != nil || d.RuleID == "" || d.PreviousMemory == nil || d.PreviousMemory.Validate() != nil || d.Decision.Validate() != nil || d.EntryPlan != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil || d.AuthDecision != nil || d.AuthResult != nil {
 			return fmt.Errorf("Policy candidate effect decision is invalid")
 		}
 	case "policy-reset":
-		if d.NextGeneration != d.PreviousGeneration+1 || d.ContextID != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID == "" || d.PreviousMemory == nil || d.PreviousMemory.Validate() != nil || d.Decision != "" || d.EntryPlan != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil {
+		if d.NextGeneration != d.PreviousGeneration+1 || d.ContextID != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID == "" || d.PreviousMemory == nil || d.PreviousMemory.Validate() != nil || d.Decision != "" || d.EntryPlan != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil || d.AuthDecision != nil || d.AuthResult != nil {
 			return fmt.Errorf("Policy reset effect decision is invalid")
 		}
 	case "context-entry":
 		contextID, err := tobari.ParseContextRef(d.Target)
-		if err != nil || d.EntryPlan == nil || d.EntryPlan.Workspace.ContextID != contextID || d.EntryPlan.Applied.ContextID != contextID || d.ContextID != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil {
+		if err != nil || d.EntryPlan == nil || d.EntryPlan.Workspace.ContextID != contextID || d.EntryPlan.Applied.ContextID != contextID || d.ContextID != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil || d.AuthDecision != nil || d.AuthResult != nil {
 			return fmt.Errorf("Context entry effect decision is invalid")
 		}
 		binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, ProjectRoot: d.EntryPlan.Workspace.ProjectRoot, TemplateID: d.EntryPlan.Applied.TemplateID}
@@ -228,7 +239,7 @@ func (d effectDecision) validate() error {
 	case "policy-apply-reviewed":
 		if d.Target != tobari.PolicyDecisionSetID || d.NextGeneration != d.PreviousGeneration+1 || d.ContextID != nil ||
 			d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID != "" ||
-			d.Decision != "" || d.PreviousMemory != nil || d.EntryPlan != nil || d.ReviewedSet == nil || d.ReviewedSet.Validate() != nil ||
+			d.Decision != "" || d.PreviousMemory != nil || d.EntryPlan != nil || d.ReviewedSet == nil || d.ReviewedSet.Validate() != nil || d.AuthDecision != nil || d.AuthResult != nil ||
 			d.ReviewedSet.ObservedGeneration != d.PreviousGeneration || d.ReviewedSet.ObservedRevision != d.PreviousRevision {
 			return fmt.Errorf("reviewed Policy Memory effect decision is invalid")
 		}
@@ -237,6 +248,20 @@ func (d effectDecision) validate() error {
 				d.ReviewedPublication.PreviousGeneration != d.PreviousGeneration || d.ReviewedPublication.PreviousRevision != d.PreviousRevision ||
 				d.ReviewedPublication.NextGeneration != d.NextGeneration || d.ReviewedPublication.NextRevision != d.NextRevision {
 				return fmt.Errorf("reviewed Policy Memory terminal publication is invalid: %w", err)
+			}
+		}
+	case "research-auth-login", "research-auth-import", "research-auth-logout":
+		contextID, err := tobari.ParseContextRef(d.Target)
+		if err != nil || d.NextGeneration != d.PreviousGeneration || d.NextRevision != d.PreviousRevision || d.AuthDecision == nil || d.AuthDecision.Context.ContextID != contextID || d.AuthDecision.Context.ContextRef != d.Target || d.ContextID != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil || d.EntryPlan != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil {
+			return fmt.Errorf("final Context authentication effect decision is invalid")
+		}
+		wantTask := map[string]string{"research-auth-login": authbroker.TaskLogin, "research-auth-import": authbroker.TaskImport, "research-auth-logout": authbroker.TaskLogout}[d.Operation]
+		if d.AuthDecision.Task != wantTask || d.AuthDecision.Validate() != nil {
+			return fmt.Errorf("final Context authentication decision authority is invalid")
+		}
+		if d.AuthResult != nil {
+			if err := d.AuthResult.ValidateFor(wantTask, d.Target, d.AuthDecision.Provider); err != nil || !reflect.DeepEqual(d.AuthResult.Decision, *d.AuthDecision) {
+				return fmt.Errorf("final Context authentication terminal result is invalid: %w", err)
 			}
 		}
 	default:
@@ -259,10 +284,14 @@ func NewMutator(store *Store, lifecycle LifecycleAuthority, deletion DeletionAut
 	if lifecycle == nil {
 		return nil, fmt.Errorf("installation lifecycle authority is required")
 	}
-	return &Mutator{
+	mutator := &Mutator{
 		store: store, lifecycle: lifecycle, deletion: deletion, activation: activation, settlement: settlement,
 		clock: time.Now, entropy: rand.Reader, rename: os.Rename, sync: syncMutationDirectory,
-	}, nil
+	}
+	if absence, ok := deletion.(ContextCredentialAbsenceAuthority); ok {
+		mutator.credentialAbsence = absence
+	}
+	return mutator, nil
 }
 
 func (m *Mutator) CreateWorkspaceTemplate(ctx context.Context, name string, body tobari.WorkspaceTemplateBody) (created tobari.WorkspaceTemplate, resultErr error) {
@@ -437,10 +466,10 @@ func (m *Mutator) DeleteContextByReference(ctx context.Context, ref string) (res
 				return effectPlan{}, tobari.ErrContextBindingProtected
 			}
 		}
-		if m.deletion == nil {
+		if m.credentialAbsence == nil {
 			return effectPlan{}, fmt.Errorf("Context credential deletion authority is unavailable")
 		}
-		if err := m.deletion.ConfirmContextCredentialAbsent(ctx, id); err != nil {
+		if err := m.credentialAbsence.ConfirmContextCredentialAbsent(ctx, id); err != nil {
 			return effectPlan{}, err
 		}
 		contexts := append(cloneContextRecords(current.Contexts[:index]), cloneContextRecords(current.Contexts[index+1:])...)
@@ -893,7 +922,8 @@ func (m *Mutator) effectfulMutate(
 		}
 		terminalMatches := terminal.Operation == operation && terminal.Target == target &&
 			(requestMatches == nil || requestMatches(terminal))
-		if !active && terminalPresent && terminalMatches && m.terminalConsequenceCurrent(current, terminal) == nil {
+		terminalReplayable := !isResearchAuthOperation(terminal.Operation) || terminal.Operation == "research-auth-logout"
+		if !active && terminalPresent && terminalMatches && terminalReplayable && m.terminalConsequenceCurrent(current, terminal) == nil {
 			if err := m.confirmCommittedEffect(lockedContext, current, terminal); err != nil {
 				return err
 			}
@@ -904,7 +934,14 @@ func (m *Mutator) effectfulMutate(
 			if decision.Operation != operation || decision.Target != target || requestMatches != nil && !requestMatches(decision) {
 				return fmt.Errorf("another final-authority mutation requires exact same-target recovery")
 			}
-			if current.Generation == decision.NextGeneration && current.Revision == decision.NextRevision {
+			if isResearchAuthOperation(decision.Operation) && decision.AuthResult != nil {
+				if err := m.confirmCommittedEffect(lockedContext, current, decision); err != nil {
+					return err
+				}
+				committed = decision
+				return m.clearEffectDecision()
+			}
+			if !isResearchAuthOperation(decision.Operation) && current.Generation == decision.NextGeneration && current.Revision == decision.NextRevision {
 				if err := m.confirmCommittedEffect(lockedContext, current, decision); err != nil {
 					return err
 				}
@@ -942,19 +979,27 @@ func (m *Mutator) effectfulMutate(
 		if err := complete.validate(); err != nil {
 			return err
 		}
+		noEnvelopeEffect := plan.next.Generation == current.Generation && plan.next.Revision == current.Revision
+		if noEnvelopeEffect && !isResearchAuthOperation(operation) {
+			return fmt.Errorf("only final Context authentication may retain the envelope authority")
+		}
 		if active {
 			if !reflect.DeepEqual(decision, complete) {
 				return fmt.Errorf("same-target recovery does not match the durable effect decision")
 			}
-			if err := m.validatePreparedStage(encoded); err != nil {
-				return err
+			if !noEnvelopeEffect {
+				if err := m.validatePreparedStage(encoded); err != nil {
+					return err
+				}
 			}
 		} else {
 			if err := m.reconcileStage(); err != nil {
 				return err
 			}
-			if err := m.prepareEffectStage(encoded); err != nil {
-				return err
+			if !noEnvelopeEffect {
+				if err := m.prepareEffectStage(encoded); err != nil {
+					return err
+				}
 			}
 			if err := m.writeEffectDecision(complete); err != nil {
 				return err
@@ -981,8 +1026,10 @@ func (m *Mutator) effectfulMutate(
 		// Once the external authority confirms the exact decision, cancellation
 		// cannot turn success into replay permission. Process death remains
 		// recoverable from the durable decision.
-		if err := m.publishPreparedEffect(current, plan.next, encoded); err != nil {
-			return err
+		if !noEnvelopeEffect {
+			if err := m.publishPreparedEffect(current, plan.next, encoded); err != nil {
+				return err
+			}
 		}
 		committed = complete
 		return m.clearEffectDecision()
@@ -990,8 +1037,25 @@ func (m *Mutator) effectfulMutate(
 	return committed, resultErr
 }
 
+func isResearchAuthOperation(operation string) bool {
+	return operation == "research-auth-login" || operation == "research-auth-import" || operation == "research-auth-logout"
+}
+
 func (m *Mutator) terminalConsequenceCurrent(current tobari.WorkspaceAuthorityCollection, decision effectDecision) error {
 	switch decision.Operation {
+	case "research-auth-login", "research-auth-import", "research-auth-logout":
+		if decision.AuthDecision == nil || decision.AuthResult == nil {
+			return fmt.Errorf("terminal final Context authentication evidence is incomplete")
+		}
+		snapshot, err := snapshotForContext(current, decision.AuthDecision.Context.ContextID)
+		if err != nil {
+			return err
+		}
+		authority, err := authbroker.NewContextAuthenticationAuthority(snapshot, decision.Target)
+		if err != nil || authority != decision.AuthDecision.Context || decision.AuthResult.Authority != authority {
+			return fmt.Errorf("terminal final Context authentication authority is no longer current")
+		}
+		return nil
 	case "context-delete":
 		for _, record := range current.Contexts {
 			if record.Context.ID == *decision.ContextID {
@@ -1071,6 +1135,30 @@ func terminalPolicyMemoryCurrent(current tobari.WorkspaceAuthorityCollection, wa
 
 func (m *Mutator) confirmCommittedEffect(ctx context.Context, current tobari.WorkspaceAuthorityCollection, decision effectDecision) error {
 	switch decision.Operation {
+	case "research-auth-login", "research-auth-import", "research-auth-logout":
+		if m.researchAuth == nil || decision.AuthDecision == nil || decision.AuthResult == nil {
+			return fmt.Errorf("final Context authentication recovery authority is unavailable")
+		}
+		target, err := m.researchAuth.ResolveFinalContextProvider(ctx, decision.AuthDecision.Context, decision.AuthDecision.Provider)
+		if err != nil {
+			return err
+		}
+		providerAuthority, err := target.DecisionProvider()
+		if err != nil || !reflect.DeepEqual(providerAuthority, decision.AuthDecision.ProviderAuthority) {
+			return fmt.Errorf("final Context reviewed provider authority differs from the confirmed decision")
+		}
+		provider, backend, state, err := m.researchAuth.ObserveFinalContextProvider(ctx, target)
+		if err != nil {
+			return err
+		}
+		observed := authbroker.ContextMutationObservation{
+			Authority: decision.AuthDecision.Context, Decision: *decision.AuthDecision, Provider: provider,
+			StorageBackend: backend, BrokerState: state, Changed: decision.AuthResult.Changed, DecisionRef: decision.AuthResult.DecisionRef,
+		}
+		if err := observed.ValidateFor(decision.AuthDecision.Task, decision.Target, decision.AuthDecision.Provider); err != nil || !reflect.DeepEqual(observed, *decision.AuthResult) {
+			return fmt.Errorf("final Context authentication consequence differs from the confirmed result: %w", err)
+		}
+		return nil
 	case "context-delete":
 		if m.settlement == nil {
 			return fmt.Errorf("final Context deletion settlement recovery authority is unavailable")

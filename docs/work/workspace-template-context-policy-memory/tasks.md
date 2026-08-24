@@ -241,6 +241,29 @@ implementation is authorized by creating it.
       reversed enumeration resumes the same durable set rather than inventing
       another action identity; public/current composition remains intentionally
       absent.
+- [x] Implement the dormant final-Context research authentication seam without
+      selecting it from the current Catalog/composition. Login/import/status/
+      logout consume one unchanged Context ref; mutation results retain exact
+      Context-parent/task/provider/method/runtime decision authority, while
+      status is a zero-mutation exhaustive Context-scoped Broker inventory and
+      re-emits only `context_ref`. Login/import/logout and Context deletion
+      serialize through one installation lifecycle authority. A durable
+      secret-free no-envelope decision distinguishes pre-effect interruption
+      from a confirmed Broker consequence, logout converges idempotently, and
+      a later explicit identical login/import remains a new rotation. Context
+      deletion uses the bounded exhaustive final inventory, including removed
+      providers, and never treats locked/incomplete/unsafe state as absence.
+      Container-backed acquisition resolves an exact immutable Runtime image
+      from stable final Runtime authority; standard providers do not inspect a
+      Runtime image. Predecessor/quarantined credentials are never adopted or
+      rebound, release remains unavailable, and the five research paths remain
+      unchanged and still unwired in this concern.
+      The strict read-only status path uses the existing non-creating lifecycle
+      observation plus exact two-pass final-envelope and Broker-inventory
+      equality, so a fresh read creates no state directory or lock and drift is
+      observation failure. Active recovery retains the complete normalized
+      reviewed Provider body; a same-ID owner-manifest change cannot substitute
+      another acquisition/projection plan after the durable decision.
 - [ ] Perform one public Catalog hard cutover with no accidental aliases.
 - [ ] Update human output, JSON schemas, completion, help, examples, site,
       embedded/generated snapshots, and agent-readiness fixtures.
@@ -283,7 +306,19 @@ implementation is authorized by creating it.
       inactive Context omission/partial-axis rejection, and terminal same-action
       replay. Canonical/helper sources are byte-identical and `task check:fast`
       passes with pinned Go 1.26.6/Node 24.18.0.
-- [ ] `task check` passes. Evidence:
+- [x] Dormant final-Context research authentication focused tests pass.
+      Evidence: complete standard and focused race runs of
+      `internal/domain/authbroker`, `internal/app/authcmd`,
+      `internal/infra/workspaceauthoritystore`, and
+      `internal/infra/dockerruntime` cover exact Context A/B isolation,
+      exhaustive multi-provider status and deletion absence, non-creating
+      two-pass status observation, stable complete Provider recovery,
+      immutable Runtime image execution, no-envelope interruption/terminal
+      recovery, consecutive credential rotation, release absence, and
+      predecessor/quarantine non-adoption. `task authbroker:test` passes all
+      123 tests; canonical/helper sources are byte-identical.
+- [x] `task check` passes. Evidence: full pinned Go 1.26.6/Node 24.18.0 gate
+      passes on the stable dormant final-Context research-auth snapshot.
 - [ ] `task security` passes. Evidence:
 - [ ] `task public:check` passes. Evidence:
 - [ ] `task release:check` passes when the release surface is affected. Evidence:

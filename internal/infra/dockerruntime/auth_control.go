@@ -38,21 +38,30 @@ func (e brokerControlError) Error() string {
 }
 
 type brokerControlResponse struct {
-	SchemaVersion          int      `json:"schema_version"`
-	OK                     bool     `json:"ok"`
-	State                  string   `json:"state,omitempty"`
-	EpochID                string   `json:"epoch_id,omitempty"`
-	Provider               string   `json:"provider,omitempty"`
-	Revision               string   `json:"revision,omitempty"`
-	AccountLabel           *string  `json:"account_label,omitempty"`
-	Handle                 string   `json:"handle,omitempty"`
-	OAuthScopes            []string `json:"oauth_scopes,omitempty"`
-	ClaudeSubscriptionType string   `json:"claude_subscription_type,omitempty"`
-	ClaudeRateLimitTier    string   `json:"claude_rate_limit_tier,omitempty"`
-	Changed                *bool    `json:"changed,omitempty"`
+	SchemaVersion          int                           `json:"schema_version"`
+	OK                     bool                          `json:"ok"`
+	State                  string                        `json:"state,omitempty"`
+	EpochID                string                        `json:"epoch_id,omitempty"`
+	Provider               string                        `json:"provider,omitempty"`
+	Revision               string                        `json:"revision,omitempty"`
+	AccountLabel           *string                       `json:"account_label,omitempty"`
+	Handle                 string                        `json:"handle,omitempty"`
+	OAuthScopes            []string                      `json:"oauth_scopes,omitempty"`
+	ClaudeSubscriptionType string                        `json:"claude_subscription_type,omitempty"`
+	ClaudeRateLimitTier    string                        `json:"claude_rate_limit_tier,omitempty"`
+	Changed                *bool                         `json:"changed,omitempty"`
+	Complete               *bool                         `json:"complete,omitempty"`
+	Providers              []brokerControlProviderStatus `json:"providers,omitempty"`
 	Error                  *struct {
 		Code string `json:"code"`
 	} `json:"error,omitempty"`
+}
+
+type brokerControlProviderStatus struct {
+	Provider     string  `json:"provider"`
+	State        string  `json:"state"`
+	Revision     string  `json:"revision"`
+	AccountLabel *string `json:"account_label,omitempty"`
 }
 
 type boundedBuffer struct {

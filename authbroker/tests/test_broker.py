@@ -217,6 +217,58 @@ class BrokerStateTests(unittest.TestCase):
         with self.assertRaisesRegex(BrokerError, "locked"):
             self.state.import_secret(CONTEXT_A, "github", CANARY)
 
+    def test_context_status_is_exhaustive_over_vault_records_including_removed_provider(self) -> None:
+        locked = self.state.context_status(CONTEXT_A)
+        self.assertEqual(
+            locked,
+            {
+                "schema_version": 1,
+                "ok": True,
+                "state": "locked",
+                "complete": False,
+                "providers": [],
+            },
+        )
+        self.state.unlock(KEY)
+        empty = self.state.context_status(CONTEXT_A)
+        self.assertTrue(empty["complete"])
+        self.assertEqual(empty["providers"], [])
+
+        self.state.import_secret(CONTEXT_A, "github", CANARY)
+        self.state.import_secret(CONTEXT_A, "removed-owner", b"synthetic-removed")
+        handle = self.state.issue_handle(
+            CONTEXT_A, PROJECT_A, "github", github_bindings()
+        )["handle"]
+        observed = self.state.context_status(CONTEXT_A)
+        self.assertEqual(
+            [item["provider"] for item in observed["providers"]],
+            ["github", "removed-owner"],
+        )
+        self.assertTrue(observed["complete"])
+        serialized = json.dumps(observed)
+        self.assertNotIn(handle, serialized)
+        self.assertNotIn(CANARY.decode(), serialized)
+
+        self.state.logout(CONTEXT_A, "github")
+        one_left = self.state.context_status(CONTEXT_A)
+        self.assertEqual(
+            [item["provider"] for item in one_left["providers"]],
+            ["removed-owner"],
+        )
+
+    def test_context_status_fails_closed_on_unsafe_or_corrupt_vault(self) -> None:
+        self.state.unlock(KEY)
+        self.state.import_secret(CONTEXT_A, "github", CANARY)
+        vault = self.store.root / CONTEXT_A / "vault.enc"
+        vault.chmod(0o644)
+        with self.assertRaisesRegex(BrokerError, "vault_path_invalid"):
+            self.state.context_status(CONTEXT_A)
+        vault.chmod(0o600)
+        vault.write_bytes(vault.read_bytes()[:16])
+        vault.chmod(0o600)
+        with self.assertRaisesRegex(BrokerError, "vault_invalid"):
+            self.state.context_status(CONTEXT_A)
+
     def test_import_omits_account_but_login_preserves_verified_label(self) -> None:
         self.state.unlock(KEY)
         imported = self.state.import_secret(CONTEXT_A, "github", CANARY)

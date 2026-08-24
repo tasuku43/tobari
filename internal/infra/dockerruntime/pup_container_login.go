@@ -53,7 +53,16 @@ func (r *Runtime) loginPupInContextContainer(
 	if err != nil {
 		return hostCredentialPayload{}, hostCLIUnavailableError{provider: "datadog", stage: hostCLIStagePupContextSelection}
 	}
-	image := r.resolveBuiltinImageSelector(manifest.Image)
+	return r.loginPupInRuntimeImage(ctx, manifest.Image, visible)
+}
+
+func (r *Runtime) loginPupInRuntimeImage(
+	ctx context.Context, runtimeImage string, visible io.Writer,
+) (payload hostCredentialPayload, resultErr error) {
+	if ctx == nil || visible == nil {
+		return hostCredentialPayload{}, credentialhost.ErrPupLoginSetup
+	}
+	image := r.resolveBuiltinImageSelector(runtimeImage)
 	if err := r.validateCompatibleImage(ctx, image); err != nil {
 		return hostCredentialPayload{}, hostCLIUnavailableError{provider: "datadog", stage: hostCLIStagePupImageContract}
 	}

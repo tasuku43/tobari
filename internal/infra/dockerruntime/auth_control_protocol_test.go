@@ -35,6 +35,9 @@ func TestDecodeBrokerControlResponseAcceptsOnlyOperationSpecificSuccessFrames(t 
 		{name: "status absent", args: []string{"status", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"state":"not_configured","provider":"github"}`, state: "not_configured"},
 		{name: "status ready", args: []string{"status", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"state":"ready","provider":"github","revision":"revision_synthetic"}`, state: "ready"},
 		{name: "status ready label", args: []string{"status", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"state":"ready","provider":"github","revision":"revision_synthetic","account_label":"octocat"}`, state: "ready"},
+		{name: "Context status empty", args: []string{"context_status", "--context-id", testBrokerContextID}, response: `{"schema_version":1,"ok":true,"state":"ready","complete":true,"providers":[]}`, state: "ready"},
+		{name: "Context status exhaustive", args: []string{"context_status", "--context-id", testBrokerContextID}, response: `{"schema_version":1,"ok":true,"state":"ready","complete":true,"providers":[{"provider":"github","state":"ready","revision":"revision_synthetic","account_label":"octocat"},{"provider":"removed-owner","state":"ready","revision":"revision_synthetic"}]}`, state: "ready"},
+		{name: "Context status locked", args: []string{"context_status", "--context-id", testBrokerContextID}, response: `{"schema_version":1,"ok":true,"state":"locked","complete":false,"providers":[]}`, state: "locked"},
 		{name: "login", args: []string{"login", "--context-id", testBrokerContextID, "--provider", "github", "--account-label", "octocat"}, response: `{"schema_version":1,"ok":true,"provider":"github","revision":"revision_synthetic","account_label":"octocat"}`},
 		{name: "aws login", args: []string{"login", "--context-id", testBrokerContextID, "--provider", "aws", "--account-label", "123456789012", "--driver-id", "aws_cli_sso", "--driver-revision", testAWSDriverRevision}, response: `{"schema_version":1,"ok":true,"provider":"aws","revision":"revision_synthetic","account_label":"123456789012"}`},
 		{name: "aws console login", args: []string{"login", "--context-id", testBrokerContextID, "--provider", "aws", "--account-label", "123456789012", "--driver-id", "aws_cli_console_login", "--driver-revision", testAWSDriverRevision}, response: `{"schema_version":1,"ok":true,"provider":"aws","revision":"revision_synthetic","account_label":"123456789012"}`},
@@ -87,6 +90,11 @@ func TestDecodeBrokerControlResponseRejectsCrossOperationAndAmbiguousFrames(t *t
 		{name: "wrong provider", args: []string{"status", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"state":"not_configured","provider":"example"}`},
 		{name: "absent status revision", args: []string{"status", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"state":"not_configured","provider":"github","revision":"revision_synthetic"}`},
 		{name: "ready status null label", args: []string{"status", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"state":"ready","provider":"github","revision":"revision_synthetic","account_label":null}`},
+		{name: "Context status unknown field", args: []string{"context_status", "--context-id", testBrokerContextID}, response: `{"schema_version":1,"ok":true,"state":"ready","complete":true,"providers":[],"path":"secret"}`},
+		{name: "Context status missing coverage", args: []string{"context_status", "--context-id", testBrokerContextID}, response: `{"schema_version":1,"ok":true,"state":"ready","providers":[]}`},
+		{name: "Context status incomplete rows", args: []string{"context_status", "--context-id", testBrokerContextID}, response: `{"schema_version":1,"ok":true,"state":"locked","complete":false,"providers":[{"provider":"github","revision":"revision_synthetic"}]}`},
+		{name: "Context status duplicate provider", args: []string{"context_status", "--context-id", testBrokerContextID}, response: `{"schema_version":1,"ok":true,"state":"ready","complete":true,"providers":[{"provider":"github","revision":"revision_synthetic"},{"provider":"github","revision":"revision_synthetic"}]}`},
+		{name: "Context status unsorted provider", args: []string{"context_status", "--context-id", testBrokerContextID}, response: `{"schema_version":1,"ok":true,"state":"ready","complete":true,"providers":[{"provider":"removed-owner","revision":"revision_synthetic"},{"provider":"github","revision":"revision_synthetic"}]}`},
 		{name: "login missing label", args: []string{"login", "--context-id", testBrokerContextID, "--provider", "github", "--account-label", "octocat"}, response: `{"schema_version":1,"ok":true,"provider":"github","revision":"revision_synthetic"}`},
 		{name: "login mismatched label", args: []string{"login", "--context-id", testBrokerContextID, "--provider", "github", "--account-label", "octocat"}, response: `{"schema_version":1,"ok":true,"provider":"github","revision":"revision_synthetic","account_label":"other"}`},
 		{name: "import has label", args: []string{"import", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"provider":"github","revision":"revision_synthetic","account_label":"octocat"}`},
@@ -114,6 +122,29 @@ func TestDecodeBrokerControlResponseRejectsCrossOperationAndAmbiguousFrames(t *t
 				t.Fatalf("decodeBrokerControlResponse() accepted %s", test.response)
 			}
 		})
+	}
+}
+
+func TestBrokerControlContextStatusRejectsShortOrAliasedArgumentsWithoutPanic(t *testing.T) {
+	t.Parallel()
+	for _, arguments := range [][]string{
+		nil,
+		{"context_status"},
+		{"context_status", "--context-id"},
+		{"context_status", "--manifest-id", testBrokerContextID},
+		{"context_status", "--context-id", "not-a-uuid"},
+		{"context_status", "--context-id", testBrokerContextID, "--extra"},
+	} {
+		func() {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					t.Fatalf("brokerControlExpectationFor(%v) panicked: %v", arguments, recovered)
+				}
+			}()
+			if _, err := brokerControlExpectationFor(arguments); err == nil {
+				t.Fatalf("brokerControlExpectationFor(%v) accepted malformed Context inventory argv", arguments)
+			}
+		}()
 	}
 }
 

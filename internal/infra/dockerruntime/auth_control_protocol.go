@@ -24,6 +24,7 @@ const (
 	brokerControlHealth           brokerControlOperation = "health"
 	brokerControlUnlock           brokerControlOperation = "unlock"
 	brokerControlStatus           brokerControlOperation = "status"
+	brokerControlContextStatus    brokerControlOperation = "context_status"
 	brokerControlLogin            brokerControlOperation = "login"
 	brokerControlImport           brokerControlOperation = "import"
 	brokerControlLogout           brokerControlOperation = "logout"
@@ -60,6 +61,15 @@ func brokerControlExpectationFor(arguments []string) (brokerControlExpectation, 
 	expectation := brokerControlExpectation{Operation: brokerControlOperation(arguments[0])}
 	switch expectation.Operation {
 	case brokerControlHealth, brokerControlUnlock:
+		return expectation, nil
+	case brokerControlContextStatus:
+		if len(arguments) != 3 || arguments[1] != "--context-id" {
+			return brokerControlExpectation{}, fmt.Errorf("Auth Broker Context inventory arguments are invalid")
+		}
+		if _, contextErr := tobari.ParseContextID(arguments[2]); contextErr != nil {
+			return brokerControlExpectation{}, fmt.Errorf("Auth Broker Context inventory arguments are invalid")
+		}
+		expectation.WorkspaceManifestID = arguments[2]
 		return expectation, nil
 	case brokerControlCompanionPrepare:
 		if len(arguments) != 3 || arguments[1] != "--epoch-id" ||
@@ -294,6 +304,10 @@ func decodeBrokerControlResponse(
 		default:
 			return brokerControlResponse{}, fmt.Errorf("Auth Broker provider status is invalid")
 		}
+	case brokerControlContextStatus:
+		if err := decodeBrokerContextStatus(fields, &response); err != nil {
+			return brokerControlResponse{}, err
+		}
 	case brokerControlLogin, brokerControlImport:
 		expected := []string{"schema_version", "ok", "provider", "revision"}
 		requireAccountLabel := expectation.Operation == brokerControlLogin
@@ -397,6 +411,66 @@ func decodeBrokerProviderState(
 		return fmt.Errorf("Auth Broker provider state is invalid")
 	}
 	response.State = state
+	return nil
+}
+
+func decodeBrokerContextStatus(fields map[string]json.RawMessage, response *brokerControlResponse) error {
+	if err := requireBrokerFields(fields, "schema_version", "ok", "state", "complete", "providers"); err != nil {
+		return err
+	}
+	state, err := brokerRequiredField[string](fields, "state")
+	if err != nil || state != "ready" && state != "locked" {
+		return fmt.Errorf("Auth Broker Context inventory state is invalid")
+	}
+	complete, err := brokerRequiredField[bool](fields, "complete")
+	if err != nil || complete != (state == "ready") {
+		return fmt.Errorf("Auth Broker Context inventory coverage is invalid")
+	}
+	rawProviders, err := brokerRequiredField[[]json.RawMessage](fields, "providers")
+	if err != nil || rawProviders == nil || len(rawProviders) > authbroker.MaxContextProviderInventory || state == "locked" && len(rawProviders) != 0 {
+		return fmt.Errorf("Auth Broker Context inventory provider collection is invalid")
+	}
+	providers := make([]brokerControlProviderStatus, 0, len(rawProviders))
+	previous := ""
+	for _, raw := range rawProviders {
+		providerFields, err := decodeBrokerJSONObject(raw)
+		if err != nil {
+			return fmt.Errorf("Auth Broker Context inventory provider is invalid: %w", err)
+		}
+		expected := []string{"provider", "state", "revision"}
+		if _, present := providerFields["account_label"]; present {
+			expected = append(expected, "account_label")
+		}
+		if err := requireBrokerFields(providerFields, expected...); err != nil {
+			return err
+		}
+		provider, err := brokerRequiredField[string](providerFields, "provider")
+		if err != nil || authbroker.ValidateProviderID(provider) != nil || previous != "" && provider <= previous {
+			return fmt.Errorf("Auth Broker Context inventory provider order is invalid")
+		}
+		item := brokerControlProviderStatus{Provider: provider}
+		item.State, err = brokerRequiredField[string](providerFields, "state")
+		if err != nil || item.State != "ready" {
+			return fmt.Errorf("Auth Broker Context inventory provider state is invalid")
+		}
+		item.Revision, err = brokerRequiredField[string](providerFields, "revision")
+		if err != nil || !validAuthRevision(item.Revision) {
+			return fmt.Errorf("Auth Broker Context inventory provider revision is invalid")
+		}
+		if raw, present := providerFields["account_label"]; present {
+			labelFields := map[string]json.RawMessage{"account_label": raw}
+			label, labelErr := brokerRequiredField[string](labelFields, "account_label")
+			if labelErr != nil || authbroker.ValidateSecretFreeText("account label", label, 128) != nil {
+				return fmt.Errorf("Auth Broker Context inventory account label is invalid")
+			}
+			item.AccountLabel = &label
+		}
+		providers = append(providers, item)
+		previous = provider
+	}
+	response.State = state
+	response.Complete = &complete
+	response.Providers = providers
 	return nil
 }
 

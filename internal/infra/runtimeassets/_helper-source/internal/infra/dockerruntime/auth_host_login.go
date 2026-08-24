@@ -552,6 +552,18 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 	errOut io.Writer,
 	methods ...string,
 ) (brokerControlResponse, error) {
+	return r.runHostCredentialLoginOnTTYForRuntime(ctx, contextID, "", provider, input, errOut, methods...)
+}
+
+func (r *Runtime) runHostCredentialLoginOnTTYForRuntime(
+	ctx context.Context,
+	contextID string,
+	runtimeImage string,
+	provider string,
+	input io.Reader,
+	errOut io.Writer,
+	methods ...string,
+) (brokerControlResponse, error) {
 	method := ""
 	if len(methods) > 1 {
 		return brokerControlResponse{}, credentialhost.ErrInvalidProfile
@@ -652,7 +664,9 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 			)
 		}
 	case reviewedHostLoginDriverDatadog:
-		if r.pupContainerLogin != nil {
+		if runtimeImage != "" {
+			payload, err = r.loginPupInRuntimeImage(loginContext, runtimeImage, visible)
+		} else if r.pupContainerLogin != nil {
 			payload, err = r.pupContainerLogin(loginContext, contextID, input, visible)
 		} else {
 			payload, err = r.loginPupInContextContainer(loginContext, contextID, input, visible)
@@ -669,7 +683,9 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 			},
 		)
 	case reviewedHostLoginDriverAnthropic:
-		if r.claudeContainerLogin != nil {
+		if runtimeImage != "" {
+			payload, err = r.loginClaudeInRuntimeImage(loginContext, runtimeImage, input, visible)
+		} else if r.claudeContainerLogin != nil {
 			payload, err = r.claudeContainerLogin(loginContext, contextID, input, visible)
 		} else {
 			payload, err = r.loginClaudeInContextContainer(loginContext, contextID, input, visible)

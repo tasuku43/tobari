@@ -35,7 +35,13 @@ func (r *Runtime) loginClaudeInContextContainer(
 	if err != nil {
 		return hostCredentialPayload{}, hostCLIUnavailableError{provider: "anthropic", stage: hostCLIStageClaudeContextSelection}
 	}
-	image := r.resolveBuiltinImageSelector(manifest.Image)
+	return r.loginClaudeInRuntimeImage(ctx, manifest.Image, input, visible)
+}
+
+func (r *Runtime) loginClaudeInRuntimeImage(
+	ctx context.Context, runtimeImage string, input io.Reader, visible io.Writer,
+) (payload hostCredentialPayload, resultErr error) {
+	image := r.resolveBuiltinImageSelector(runtimeImage)
 	if err := r.validateCompatibleImage(ctx, image); err != nil {
 		return hostCredentialPayload{}, hostCLIUnavailableError{provider: "anthropic", stage: hostCLIStageClaudeImageContract}
 	}

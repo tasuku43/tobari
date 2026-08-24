@@ -544,6 +544,48 @@ class BrokerState:
         except Exception as error:
             raise _translate_error(error) from None
 
+    def context_status(self, context_id: Any) -> dict[str, Any]:
+        """Return the complete secret-free credential inventory for one Context.
+
+        This operation enumerates the validated vault payload rather than the
+        currently installed provider definitions. A removed provider with a
+        retained credential therefore remains visible and blocks Context
+        deletion until explicit logout.
+        """
+
+        try:
+            context_id = validate_context_id(context_id)
+            with self._mutex:
+                if self._key is None:
+                    return {
+                        "schema_version": SCHEMA_VERSION,
+                        "ok": True,
+                        "state": "locked",
+                        "complete": False,
+                        "providers": [],
+                    }
+                payload = self._load_or_empty(context_id)
+                providers: list[dict[str, Any]] = []
+                for provider in sorted(payload["providers"]):
+                    record = payload["providers"][provider]
+                    item: dict[str, Any] = {
+                        "provider": provider,
+                        "state": "ready",
+                        "revision": record["revision"],
+                    }
+                    if record["account_label"] is not None:
+                        item["account_label"] = record["account_label"]
+                    providers.append(item)
+                return {
+                    "schema_version": SCHEMA_VERSION,
+                    "ok": True,
+                    "state": "ready",
+                    "complete": True,
+                    "providers": providers,
+                }
+        except Exception as error:
+            raise _translate_error(error) from None
+
     def issue_handle(
         self,
         context_id: Any,

@@ -191,6 +191,11 @@ class Dispatcher:
             if raw_payload:
                 raise ProtocolError("unexpected_payload")
             return self._state.status(request["context_id"], request["provider"])
+        if operation == "context_status":
+            require_exact_keys(request, {"schema_version", "op", "context_id"})
+            if raw_payload:
+                raise ProtocolError("unexpected_payload")
+            return self._state.context_status(request["context_id"])
         if operation == "unlock":
             require_exact_keys(request, {"schema_version", "op", "key_length"})
             if len(raw_payload) != 32:

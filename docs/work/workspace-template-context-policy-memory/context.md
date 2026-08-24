@@ -512,6 +512,48 @@ contract and source inspection plus the product-owner lifecycle decisions above.
   collide with a later transaction. Starting again requires a separately
   reviewed new transaction rather than mutating the existing journal.
 
+## Dormant final-Context research authentication evidence
+
+- The task-owned application seam accepts only one unchanged final Context ref.
+  Login/import bind that ref as the credential-create parent; logout targets the
+  Context credential authority; status is a zero-mutation exhaustive read that
+  re-emits only `context_ref`. No Template ref becomes an auth result producer.
+- One private decision digest binds task, exact Context/Template revision,
+  Runtime binding, provider ID plus the complete normalized reviewed Provider
+  authority, login method, and exact prior credential status. Recovery resolves
+  the current owner manifest but requires its complete body to equal the
+  journaled authority; a valid same-ID replacement cannot change the helper,
+  credential, projection, or binding plan after interruption.
+  The owner-only effect decision is durable before Broker mutation. Recovery
+  distinguishes a decision written before the effect from an exact observed
+  consequence, retains a secret-free terminal result through output
+  uncertainty, and never repeats a confirmed effect while the decision is
+  active. Completed login/import does not permanently shadow a later explicit
+  rotation; status never acknowledges or mutates a receipt. Logout remains an
+  idempotent same-target convergence path.
+- Context deletion and credential create/logout share the installation
+  lifecycle authority. Deletion consumes the final adapter's bounded exhaustive
+  Context inventory, not the predecessor Workspace deletion adapter. All vault
+  records count even when their provider definition was removed; locked,
+  incomplete, malformed, unsafe, or over-bound Broker authority fails closed.
+- Status does not acquire the creating mutation lock. It uses the existing
+  non-creating lifecycle observation and requires two exact complete final
+  collection plus exhaustive Broker inventory observations to agree. A fresh
+  root remains tree-identical; an appearing lifecycle root or authority/
+  inventory drift fails closed without creating `lifecycle.lock`.
+- Container-backed acquisition revalidates the complete final Context and
+  resolves stable Runtime ID plus semantic revision to a twice-observed exact
+  Docker image ID with owner/component/revision/compatibility evidence. The
+  persisted mutable image selector is correlation only and is never passed to
+  the credential helper as execution authority. Standard providers do not
+  inspect a Runtime image.
+- Final Context A/B credentials remain isolated by fresh ContextID. Context
+  creation/copy has no credential input, and matching predecessor/quarantine
+  bytes or legacy IDs are never adopted. The canonical Broker source and its
+  embedded runtime input remain byte-identical. Release returns unsupported
+  before provider, Broker, helper, or Docker effects; research Catalog/current
+  composition selection remains deliberately absent until the atomic cutover.
+
 ## Security and public-boundary notes
 
 - Assets and side effects involved: static Template revisions, mutable learned

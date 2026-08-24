@@ -44,6 +44,9 @@ def _request(arguments: argparse.Namespace) -> tuple[dict[str, Any], bytes]:
         key = _read_stdin(32, exact=32)
         base["key_length"] = len(key)
         return base, key
+    if arguments.operation == "context_status":
+        base.update(context_id=arguments.context_id)
+        return base, b""
     if arguments.operation == "status":
         base.update(context_id=arguments.context_id, provider=arguments.provider)
         return base, b""
@@ -105,6 +108,8 @@ def _parser() -> argparse.ArgumentParser:
     companion_prepare = subparsers.add_parser("companion_prepare")
     companion_prepare.add_argument("--epoch-id", required=True)
     subparsers.add_parser("unlock")
+    context_status = subparsers.add_parser("context_status")
+    context_status.add_argument("--context-id", required=True)
     for operation in ("status", "import", "logout"):
         command = subparsers.add_parser(operation)
         command.add_argument("--context-id", required=True)

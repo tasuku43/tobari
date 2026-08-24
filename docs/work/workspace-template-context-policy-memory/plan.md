@@ -413,7 +413,13 @@ with empty Policy Memory.
    canonical attachment owner. It keeps Template/Runtime/spec evidence outside
    the session selector and gives deletion a persistent identity-based
    live/absent/ambiguous observation without importing the final store into the
-   exposure-helper dockerruntime closure.
+   exposure-helper dockerruntime closure. The research build's dormant final
+   authentication adapter consumes only complete final Context authority,
+   retains the frozen private Broker `context_id` token without exposing it as
+   public identity, and shares the installation lifecycle plus durable effect
+   decision with Context deletion. Its exhaustive Broker inventory is the sole
+   research credential-absence authority; standard Workspace-home auth and
+   quarantined predecessor Broker state remain outside the adapter.
 5. Catalog hard cutover, CLI/human/JSON/status/default-selection behavior,
    completion/help/examples/site, and generated snapshots.
 6. Security, migration, public-boundary, agent-readiness, and isolated runtime
