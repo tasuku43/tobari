@@ -51,22 +51,30 @@ Workspace service exposure is distinct from that Host Loopback branch. A
 Workspace may submit only one exact non-privileged loopback port through an
 unpredictable attachment-local helper socket; the request grants nothing.
 Only a separately invoked trusted-host review can create access, and the live
-attachment owner revalidates the opaque request immediately before binding
-exact IPv4 `127.0.0.1` on a random port. Every HTTP/1.1 request must carry exact
-`127.0.0.1:<host-port>` authority before a Workspace stream opens. Ambiguous
-Host, transfer framing, folded headers, and mismatched absolute targets fail
-closed. WebSocket bytes become opaque only after a validated Upgrade and `101`.
+Service attachment owner revalidates the opaque request immediately before
+binding `tcp4 127.0.0.1:0`. It generates a fresh independent 128-bit lowercase
+label; the only URL uses scheme `http`, exact authority
+`svc-<label>.localhost:<assigned-port>`, and root path `/`. Every HTTP/1.1
+request must carry that exact canonical Host authority before a Workspace
+stream opens. Numeric loopback, bare localhost, sibling labels, absent,
+duplicate, malformed, wrong-port, absolute-form mismatch, DNS-rebinding Host,
+ambiguous transfer framing, and folded headers fail closed. The accepted Host,
+ordinary headers, cookies, Origin, redirects, and content pass unchanged.
+WebSocket bytes become opaque only after a validated Upgrade and `101`.
 Application bytes are never policy evidence, review text, diagnostics, or logs.
 
 The host rendezvous uses owner-only directories, regular 0600 atomic records,
 unpredictable sockets and nonces, and Darwin/Linux peer PID and UID checks.
-The reviewer owns no listener or lifetime. Stale, forged, mismatched, oversized,
-or symlink records are removed without following them. The owner bounds pending
-requests, exposures, connections, metadata, setup, and shutdown; attachment
-exit first prevents new connections, closes listeners and streams, then removes
-control and rendezvous authority. The helper has no Docker socket, host files,
-credentials, browser opener, policy writer, general executor, LAN bind, chosen
-host port, or persistence path.
+The reviewer owns no listener or lifetime. Reads never clean state: unsafe,
+forged, contradictory, duplicate, oversized, or symlink records fail the
+command, while bounded owner unavailability remains explicit as complete,
+partial, or unavailable observation. Exact actions take a fresh anchor and
+fail closed unless UID/PID/nonce/attachment/ref identity resolves uniquely.
+The owner bounds pending requests, exposures, connections, metadata, setup,
+and shutdown; attachment exit first prevents new connections, closes and
+confirms listeners/streams, then removes control and rendezvous authority. The
+helper has no Docker socket, host files, credentials, browser opener, policy
+writer, general executor, LAN bind, chosen host port, or persistence path.
 
 The helper is not the host release executable under another name. A dedicated
 Linux main hardcodes the helper Program, so spoofed `argv[0]` and copied helper

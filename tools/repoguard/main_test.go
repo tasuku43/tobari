@@ -94,6 +94,43 @@ func TestCheckTextAllowsOnlyExactProductHostLoopbackHTTPURI(t *testing.T) {
 	}
 }
 
+func TestCheckTextAllowsOnlyExactGeneratedServiceExposureRootURL(t *testing.T) {
+	config := projectconfig.Config{}
+	httpScheme := "http" + "://"
+	prefix := httpScheme + "svc-"
+	valid := prefix + strings.Repeat("a", 32) + ".localhost:49152/"
+	for _, value := range []string{valid, "URL `" + valid + "`", valid + " next"} {
+		if issues := checkText("README.md", value, config, nil, "public"); len(issues) != 0 {
+			t.Errorf("exact generated Service exposure URL %q issues = %#v", value, issues)
+		}
+	}
+	invalid := []string{
+		httpScheme + "localhost:49152/",
+		httpScheme + "other.localhost:49152/",
+		prefix + strings.Repeat("a", 31) + ".localhost:49152/",
+		prefix + strings.Repeat("a", 33) + ".localhost:49152/",
+		prefix + strings.Repeat("A", 32) + ".localhost:49152/",
+		prefix + strings.Repeat("g", 32) + ".localhost:49152/",
+		prefix + strings.Repeat("a", 32) + ".localhost:80/",
+		prefix + strings.Repeat("a", 32) + ".localhost:49152",
+		prefix + strings.Repeat("a", 32) + ".localhost:49152/path",
+		prefix + strings.Repeat("a", 32) + ".localhost:49152/?query",
+		"https" + "://" + "svc-" + strings.Repeat("a", 32) + ".localhost:49152/",
+		httpScheme + "service.local/private",
+	}
+	for _, value := range invalid {
+		if validPublicServiceExposureURL(value) {
+			t.Errorf("non-Service authority passed the narrow exception: %q", value)
+		}
+	}
+	for _, value := range append(invalid[1:], valid+" "+httpScheme+"other.localhost:49152/") {
+		issues := checkText("README.md", value, config, nil, "public")
+		if len(issues) != 1 || issues[0].Message != "private hostname or network address" {
+			t.Errorf("non-Service authority %q issues = %#v", value, issues)
+		}
+	}
+}
+
 func TestCheckTextAppliesTheConfiguredDocumentationLocale(t *testing.T) {
 	english := projectconfig.Config{PublicGuard: projectconfig.PublicGuard{DocumentationLocale: "en"}}
 	issues := checkText("README.md", "日本語の説明", english, nil, "public")

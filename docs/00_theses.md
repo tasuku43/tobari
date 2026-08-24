@@ -73,8 +73,11 @@ is built from the checked source closure into the verified base Runtime, and is
 mounted read-only; it cannot expose host routes through `argv[0]` spoofing or a
 copied binary. It requests one Workspace-loopback HTTP service, while a
 separate trusted-host `tobari review services` revalidates and allows it once. The live
-attachment owns the random host-loopback listener and every relay, and removes
-them when it exits. Service exposure is neither durable Workspace Manifest policy nor the
+Service-controller attachment owns the random IPv4-loopback listener, a fresh
+128-bit lowercase `.localhost` origin, and every relay, and removes them when
+it exits. The exact generated Host authority is checked before Workspace I/O;
+its URL is access authority while the unrelated opaque exposure reference is
+lifecycle authority. Service exposure is neither durable Context/Template policy nor the
 opposite-direction Host Loopback branch, and it does not create a generic
 attachment RPC, Docker publication, LAN access, or raw transport.
 Trusted-host decisions share one task-first `review` namespace, but not one

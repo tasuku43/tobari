@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -59,6 +60,7 @@ var (
 )
 
 const publicHostLoopbackHTTPPrefix = "http://host.tobari.internal"
+const publicServiceExposureHTTPPrefix = "http://svc-"
 
 func main() {
 	scope := flag.String("scope", "hygiene", "hygiene, security, or public")
@@ -1132,12 +1134,62 @@ func checkTextWithLocaleExemption(path, text string, config projectconfig.Config
 // sibling, suffix, userinfo, TLS, and general private-host URLs remain denied.
 func hasDisallowedPrivateNetwork(line string) bool {
 	for _, location := range privateNetwork.FindAllStringIndex(line, -1) {
+		if validPublicServiceExposureURL(line[location[0]:]) {
+			continue
+		}
 		if line[location[0]:location[1]] != publicHostLoopbackHTTPPrefix ||
 			!validPublicHostLoopbackPortSuffix(line[location[1]:]) {
 			return true
 		}
 	}
 	return false
+}
+
+// validPublicServiceExposureURL admits only Tobari's generated per-exposure
+// root URL. It is deliberately not a general localhost exception.
+func validPublicServiceExposureURL(value string) bool {
+	if !strings.HasPrefix(value, publicServiceExposureHTTPPrefix) {
+		return false
+	}
+	rest := value[len(publicServiceExposureHTTPPrefix):]
+	if len(rest) < 32+len(".localhost:")+2 {
+		return false
+	}
+	label := rest[:32]
+	for _, value := range label {
+		if (value < '0' || value > '9') && (value < 'a' || value > 'f') {
+			return false
+		}
+	}
+	rest = rest[32:]
+	if !strings.HasPrefix(rest, ".localhost:") {
+		return false
+	}
+	rest = rest[len(".localhost:"):]
+	end := 0
+	for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
+		end++
+	}
+	if end == 0 || end > 5 || end >= len(rest) || rest[end] != '/' {
+		return false
+	}
+	port, err := strconv.Atoi(rest[:end])
+	if err != nil || port < 1024 || port > 65535 {
+		return false
+	}
+	return publicServiceExposureURITerminator(rest[end+1:])
+}
+
+func publicServiceExposureURITerminator(rest string) bool {
+	if rest == "" {
+		return true
+	}
+	switch rest[0] {
+	case ' ', '\t', '\r', '\n', '`', '\'', '"', ')', ']', '}', '>', ',':
+		return true
+	default:
+		return false
+	}
 }
 
 func validPublicHostLoopbackPortSuffix(suffix string) bool {

@@ -59,13 +59,18 @@ or automatic retry.
 
 The opposite direction is one explicitly reviewed Workspace service. From a
 live attachment, `tobari-expose <port>` requests exact Workspace
-`127.0.0.1:<port>` access. A separate trusted-host `tobari review services` may choose
-`Allow once` or `Deny`; only Allow once makes the owning attachment bind a
-random host IPv4-loopback port. The returned URL is exactly
-`http://127.0.0.1:<random-port>`. HTTP/1.1 and WebSocket Upgrade relay without
+`127.0.0.1:<port>` access. A separate trusted-host `tobari review services`
+shows one complete effect card and accepts one deliberate Allow once, Allow
+once then Open, Deny, or Back action; only Allow once makes the owning Service
+attachment bind `tcp4 127.0.0.1:0`. Each exposure receives a fresh URL with
+scheme `http`, authority
+`svc-<128-bit-random-lowercase-label>.localhost:<random-port>`, and path `/`.
+HTTP/1.1 and WebSocket Upgrade relay without
 rewriting Host, Origin, redirects, cookies, headers, or content. The helper can
-list current-attachment exposures and stop one only with its unchanged opaque
-reference. Attachment exit closes the listener and streams. This grants no
+report current-attachment pending and active state and stop one only with its
+unchanged opaque reference. `service open` accepts only that reference and
+derives the exact live root URL; browser dispatch is separate from Allow.
+Attachment exit closes the listener and streams. This grants no
 Template policy, Context Policy Memory decision, Host Loopback authority, LAN access,
 automatic discovery, requested host port, health probe, or browser opening.
 
@@ -364,10 +369,12 @@ The public commands are:
 | `workspace list [--format text|json]` | discover | read | Return every final Workspace and its exact owner binding |
 | `workspace status --id <workspace-ref> [--format text|json]` | discover | read | Return one exact Workspace and its applied authority |
 | `workspace delete --id <workspace-ref> --confirm=delete [--force] [--format text|json]` | act | write | Retire one exact Workspace, home, native authentication state, and owned runtime resources while preserving Context Policy Memory |
-| `review services` | discover plus TTY reference-bound actions | read, or one confirmed create/write | In a separate trusted-host terminal, review a fresh live Service request; Allow once or Deny is immediate and attachment-local, while redirected output is read-only |
-| `service requests` | discover | read | Return one fresh exhaustive snapshot of pending service requests from live attachment owners with opaque request references |
-| `service allow --id ID` | act, reference bound | create | Revalidate one pending request and create one attachment-owned random IPv4-loopback exposure |
-| `service deny --id ID` | act, reference bound | write | Resolve one pending request without creating host access |
+| `review services [--watch] [--notify auto\|osc9\|bel\|off] [--format text\|json]` | discover plus TTY reference-bound actions | read, or one confirmed create/write | Return pending request refs only; a trusted interactive text TTY uses one action key/token as confirmation, while JSON and redirected operation are read-only |
+| `service status [--format text\|json]` | discover | read | Return one complete-delivery, bounded-window host snapshot of pending requests and active exposures with both opaque ref kinds and explicit complete/partial/unavailable owner observation |
+| `service allow --id REQUEST_REF [--format text\|json]` | act, reference bound | create | Revalidate one pending request and create one attachment-owned random IPv4-loopback exposure without opening a browser |
+| `service deny --id REQUEST_REF [--format text\|json]` | act, reference bound | write | Resolve one pending request without creating host access |
+| `service open --id EXPOSURE_REF [--format text\|json]` | act, reference bound | write | Revalidate one active exposure and request purpose-limited browser opening of its owner-derived root URL |
+| `service stop --id EXPOSURE_REF [--format text\|json]` | act, reference bound | write | Close one exact listener and its relays through the live owner |
 | `runtime list [--format text\|json]` | discover | read | List the exhaustive installation-wide Runtime catalog, stable Runtime references, and each ready head revision |
 | `runtime show --name NAME [--format text\|json]` | discover | read | Inspect one Runtime's stable reference, managed source path, and complete successful revisions |
 | `runtime history --name NAME [--format text\|json]` | discover | read | Show one Runtime's stable reference and ordered immutable successful revision history |
@@ -384,8 +391,9 @@ The public commands are:
 Bare `tobari review` is a pure Catalog namespace listing with exactly the
 public task leaves `permissions`, `runtimes`, and `services`; it performs no task read or
 mutation and has no registered selector handler. `review permissions` retains
-bounded, durable staged Apply. `review services` retains fresh exhaustive
-discovery and immediate attachment-local Allow once or Deny. The pre-public
+bounded, durable staged Apply. `review services` retains complete delivery
+over bounded-window owner observation and immediate attachment-local Allow
+once, Allow once then Open, or Deny. The pre-public
 `policy review` path and registered root `review` selector have no alias or
 fallback; persisted policy and attachment state need no migration.
 
@@ -397,9 +405,9 @@ or copying a helper cannot expose host commands:
 
 | Helper command | Role | Effect | Outcome |
 |---|---|---|---|
-| `tobari-expose <port>` | act, fixed target | create | Request trusted-host review for one exact non-privileged Workspace-loopback port; wait for the confirmed result and return its opaque exposure reference and exact stop command |
-| `tobari-expose list` | discover | read | List the exhaustive current-attachment exposure inventory and unchanged opaque references |
-| `tobari-expose stop <exposure-ref>` | act, reference bound | write | Close one exact current-attachment listener and its active relays without stopping the Workspace service |
+| `tobari-expose <port>` | act, fixed target | create | Request trusted-host review, block, keep pending guidance on stderr, and emit one final schema-1 JSON exposure only after confirmed Allow |
+| `tobari-expose status` | discover | read | Emit schema-1 JSON for complete current-attachment pending and active state; pending rows have no host mutation ref and active rows carry exact stop refs |
+| `tobari-expose stop <exposure-ref>` | act, reference bound | write | Emit schema-1 JSON after closing one exact current-attachment listener and its active relays |
 | `tobari-expose help [<command>...] [--format text\|agent]` | utility | read | Discover only the helper program's exact contracts |
 | `tobari-permission wait --id <permission-wait-id> [--format text\|json]` | utility | read | Observe one attachment-owned reviewed disposition as `Allow`, `Deny`, or lease `Expired`, without mutating policy or retrying the denied request |
 

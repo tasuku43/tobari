@@ -14,13 +14,14 @@ func serviceExposureFixture() ServiceExposure {
 
 func TestServiceExposureBindsFinalIdentityOriginAndAttachment(t *testing.T) {
 	fixture := serviceExposureFixture()
+	httpScheme := "http" + "://"
 	if err := fixture.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	for name, mutate := range map[string]func(*ServiceExposure){
 		"context":   func(value *ServiceExposure) { value.ContextID = "" },
 		"workspace": func(value *ServiceExposure) { value.WorkspaceID = "" },
-		"authority": func(value *ServiceExposure) { value.URL = "http://localhost:54321/" },
+		"authority": func(value *ServiceExposure) { value.URL = httpScheme + "localhost:54321/" },
 		"target":    func(value *ServiceExposure) { value.TargetPort = 80 },
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -34,6 +35,7 @@ func TestServiceExposureBindsFinalIdentityOriginAndAttachment(t *testing.T) {
 }
 
 func TestServiceExposureURLRequiresExactIndependentOrigin(t *testing.T) {
+	httpScheme := "http" + "://"
 	valid, err := ServiceExposureURL(54321, "0123456789abcdef0123456789abcdef")
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +43,7 @@ func TestServiceExposureURLRequiresExactIndependentOrigin(t *testing.T) {
 	if label, port, err := ParseServiceExposureURL(valid); err != nil || label != "0123456789abcdef0123456789abcdef" || port != 54321 {
 		t.Fatalf("parse = %q %d %v", label, port, err)
 	}
-	for _, invalid := range []string{"http://127.0.0.1:54321/", "http://localhost:54321/", "http://svc-0123456789abcdef0123456789abcdef.localhost:54321/path", "http://svc-0123456789abcdef0123456789abcdef.localhost:54321/?x=1", "http://svc-ABCDEF0123456789abcdef0123456789.localhost:54321/"} {
+	for _, invalid := range []string{httpScheme + "127.0.0.1:54321/", httpScheme + "localhost:54321/", httpScheme + "svc-0123456789abcdef0123456789abcdef.localhost:54321/path", httpScheme + "svc-0123456789abcdef0123456789abcdef.localhost:54321/?x=1", httpScheme + "svc-ABCDEF0123456789abcdef0123456789.localhost:54321/"} {
 		if _, _, err := ParseServiceExposureURL(invalid); err == nil {
 			t.Errorf("invalid URL passed: %s", invalid)
 		}

@@ -3,128 +3,153 @@
 - Status: Accepted
 - Date: 2026-08-22
 - Deciders: Tobari maintainers
-- Scope: Product, catalog, attachment architecture, HTTP relay, security, and
+- Scope: Product, Catalog, attachment architecture, HTTP relay, security, and
   harness
 - Revises: Catalog fixed-target create reference production
-- Related: ADR 0049, ADR 0055, ADR 0073
-- Revised by: None
+- Related: ADR 0049, ADR 0055, ADR 0073, ADR 0079, ADR 0081, ADR 0083, ADR 0084
+- Revised by: WP09 Service Exposure UX, 2026-08-25
 - Superseded by: None
 
 ## Context
 
 Development servers normally listen inside a Workspace while their browser runs
-on the trusted host. Docker publishing would bind this access to container
-lifetime and daemon configuration. Installing the host CLI in the Workspace or
-reusing the browser channel as a generic RPC bus would give untrusted processes
-an interface broader than this one task. ADR 0073 also rules out drawing trusted
-review over the child's terminal.
+on the trusted host. Docker publication would bind access to daemon state and
+container lifecycle. Reusing the browser-login, Permission Inbox, permission-
+wait, Host Loopback, or Context Policy Memory channels would merge unrelated
+authority and let Workspace code influence trusted-host decisions.
 
-Compatibility observations used exact host-facing authority
-`127.0.0.1:<random-port>` while targeting Workspace
-`127.0.0.1:<service-port>`. Pinned Vite 8.2.2, Next.js 16.3.2 with React 19,
-Storybook 10.5.10, and Jupyter Server 2.20.0 with ipykernel 7.3 accepted that
-authority without Host, Origin, redirect, cookie, content, or WebSocket
-rewriting. A random `.localhost` name was rejected by Jupyter's default remote
-access check, so numeric loopback is the compatible narrow contract.
-
-The helper creates an opaque pending child resource in one fixed
-current-attachment scope. The existing catalog rule allowed fixed-target acts
-to produce no references at all, which made an opaque create result impossible
-without inventing a second registry or reconstructing identity from a port.
+A random port on one numeric host is not browser isolation: the
+[current RFC6265bis draft](https://httpwg.org/http-extensions/draft-ietf-httpbis-rfc6265bis.html)
+states that cookies are shared across ports on one host.
+[RFC 6761](https://www.rfc-editor.org/rfc/rfc6761.html) reserves `localhost`
+and names below `.localhost` for loopback handling.
+Service access therefore needs a fresh hostname per exposure while the socket
+remains IPv4 loopback-only.
 
 ## Decision
 
-An interactive attachment receives one Tobari-owned, engine-native
-`tobari-expose` helper, mounted read-only. A dedicated Linux main hardcodes the
-helper Program; `argv[0]` never selects host authority. The canonical base
-cross-compiles it for Docker `TARGETARCH` with a pinned Go builder and the exact
-checked source/module closure. The host extracts it from the verified
-source-derived base through a bounded temporary container, validates its
-source/API/digest identity and Linux ELF engine architecture, and retains one
-owner-only copy for read-only mounting into standard and custom Runtimes.
-`tobari-expose <port>` requests review of one exact
-non-privileged Workspace-loopback port. It neither chooses nor opens host
-access. A separate host terminal runs `tobari review services` and immediately
-applies one reference-bound `Allow once` or `Deny`. Bare `tobari review` is
-only the Catalog-derived namespace listing; it owns no selector or authority.
-The existing `tobari review permissions [--watch]` and its staged Apply remain
-unchanged.
+An interactive Workspace receives one Tobari-owned, engine-native
+`tobari-expose` helper with a hardcoded Program. It is built from the checked
+source closure into the verified base Runtime, extracted with source/API/digest
+and Linux-architecture checks, and mounted read-only in standard and custom
+Runtimes. It is not a host CLI alias and cannot select authority through
+`argv[0]`.
 
-Allow once makes the live attachment owner bind one random IPv4-loopback host
-port. The URL and every accepted HTTP/1.1 request use exact authority
-`127.0.0.1:<host-port>`. After bounded validation, bytes relay to exact
-Workspace `127.0.0.1:<service-port>`. WebSocket Upgrade switches to a bounded
-bidirectional stream only after a valid `101` response. Tobari does not rewrite
-Host, Origin, redirects, cookies, application headers, or content. TLS
-termination, HTTP/2, raw TCP, UDP, LAN binding, automatic discovery, health
-polling, requested host ports, and automatic browser opening are excluded.
+`tobari-expose PORT` is one fixed-target create. It submits one exact
+non-privileged Workspace-loopback port, prints pending guidance only on stderr,
+blocks for trusted-host disposition, and emits one final schema-1 JSON exposure
+only after confirmed Allow. `tobari-expose status` returns complete current-
+attachment pending and active state; pending rows carry no host mutation ref.
+`tobari-expose stop EXPOSURE_REF` consumes an active ref unchanged. The retired
+helper `list` spelling has no alias.
 
-The attachment owner—not the helper, reviewer, cluster, Context, or Workspace
-container—owns pending requests, host listeners, streams, and cleanup. The
-helper may list only its current attachment and stops an exposure only by the
-opaque `exp_...` reference returned by create or list. Attachment exit closes
-listeners and active streams and removes pending state and rendezvous records.
+Host tasks are:
 
-Host review discovers live owners through owner-only atomic ephemeral records
-and unpredictable Unix rendezvous sockets. Both sides validate peer process,
-user, nonce, and attachment identity. Review always requests a fresh snapshot
-and never acquires route or listener lifetime. Stale, malformed, mismatched,
-symlink, or forged records fail closed and are removed without following them.
-Workspace output, control messages, and browser requests cannot invoke or drive
-review.
+- `review services [--watch] [--notify auto|osc9|bel|off] [--format text|json]`
+  returns pending request refs only. One pending request shows its complete
+  effect card directly; multiple requests require selection first. On a safe
+  raw TTY, `a`, `o`, `d`, or `b` is the confirmation. Line fallback uses
+  `allow`, `open`, `deny`, or `back` plus Enter. There is no second yes prompt.
+  Redirected and JSON operation are read-only. Watch and notifications reject
+  non-interactive/JSON operation before any Service read; notifications contain
+  only a fixed generic cue.
+- `service status [--format text|json]` replaces `service requests` with no
+  alias. It returns one complete-delivery, bounded-window host snapshot of
+  pending requests and active exposures.
+- `service allow --id REQUEST_REF` and `service deny --id REQUEST_REF` retain
+  reference-bound create/write semantics. `service open --id EXPOSURE_REF` and
+  `service stop --id EXPOSURE_REF` consume only a live exposure ref. Direct
+  exact actions need no redundant confirmation flag.
 
-One global Program-aware Catalog validates commands and opaque-reference flow
-across `tobari` and `tobari-expose`, while routing and help expose only the
-selected program. A fixed-target `EffectCreate` may now produce confirmed opaque
-child-resource references only when it consumes no reference, the produced kind
-differs from its fixed target kind, `target_inputs` is explicitly empty, no
-parent or target ID is bound, and `TargetKind` equals the fixed scope kind.
-Fixed-target reads and writes remain reference-free. Mutation Impact, canonical
-invoker, and confirmed-result requirements are unchanged.
+Review and status take one bounded owner-registry anchor. Successful scans with
+no owners are known empty. Owner collection reports `complete`, `partial`, or
+`unavailable` with bounded observed/unavailable counts. Reads never clean state.
+Unsafe type/mode/path, duplicate authority, contradictory identity, or
+ambiguous references fail the command. Exact actions re-anchor and revalidate
+owner UID/PID, nonce, Service AttachmentID, final ContextID/WorkspaceID, and the
+opaque ref immediately before mutation.
+
+Allow binds only `tcp4 127.0.0.1:0` and generates two independent authorities:
+
+- access authority: scheme `http`, authority
+  `svc-<128-bit-random-lowercase-label>.localhost:<assigned-port>`, path `/`;
+- lifecycle authority: opaque `exp_...` reference.
+
+The relay accepts only the exact generated Host hostname and assigned port
+before opening a Workspace stream. It rejects numeric loopback, bare localhost,
+sibling labels, absent/duplicate/malformed Host, wrong ports, mismatched
+absolute-form authority, DNS-rebinding values, folded headers, and ambiguous
+framing. It publishes no numeric fallback. After validation it preserves the
+accepted Host and ordinary HTTP/WebSocket headers, cookies, Origin, redirects,
+and content unchanged. WebSocket relay begins only after a valid `101`.
+
+Allow never opens a browser. Interactive `o` first crosses the confirmed Allow
+mutation-complete boundary, then invokes the separate Open use case with only
+the confirmed exposure ref. Open accepts no URL, path, query, fragment, or
+browser argv and reports exactly `open_not_dispatched` (safe manual retry),
+`open_requested` (dispatch, not page load), or `open_outcome_unknown` (no
+automatic retry). Open failure never rolls back or makes Allow replayable.
+
+Stop closes listener admission first, terminates and drains relays within a
+fixed bound, confirms closure, then removes owner state. Attachment teardown
+withdraws pending requests and closes exposures/streams in the same order. A
+best-effort terminal receipt carries counts only; output loss changes no cleanup
+authority.
+
+Service authority is attachment-local and binds final ContextID, WorkspaceID,
+its distinct Service AttachmentID epoch, trusted owner/controller, exact target,
+and request/exposure identity. Context presentation and Project root are
+non-authoritative display. Template copy, Context Policy Memory, Runtime,
+Permission Inbox/wait state, canonical permission-ingestion transport, and Host
+Loopback route/grant authority are neither copied nor reused. Runtime lifecycle
+must fail closed around a live observed Workspace/exposure and never cascade-
+delete it. CWD `status` remains owned by its separate task and may consume only
+a typed bounded count/attention/observation summary with no Service refs, URLs,
+ports, or actions.
+
+There is no durable Service state migration. The private host/helper protocol
+cuts over atomically; old live attachments must exit and re-enter. The first
+public Service JSON schema is schema 1.
 
 ## Consequences
 
-- Routine browser development takes one Workspace request, one visibly
-  trusted-host approval, and one exact loopback URL without Docker publishing.
-- Approval is temporary access, not Context policy, a remembered decision, or
-  Host Loopback authority in the opposite direction.
-- The data plane accepts bounded HTTP metadata but treats application bytes as
-  untrusted opaque data. No application payload enters logs, policy evidence,
-  review copy, or diagnostics.
-- A validated request whose Workspace target is unavailable receives one fixed
-  secret-free 502 response. No probe creates application-visible traffic.
-- Pending requests are bounded at 64, active exposures at 16, connections per
-  attachment at 64, headers/messages at 32 KiB, and setup/shutdown phases have
-  finite deadlines. Stream backpressure is kernel- and pipe-bounded; shutdown
-  closes both directions.
-- `tobari -- tobari-expose 3000` is valid but not a useful persistent workflow:
-  the direct child exit ends the attachment and therefore its exposure.
+- Routine access is one Workspace request plus one trusted-host action. The
+  trusted host, never Workspace code, creates temporary access.
+- Per-exposure hostnames isolate browser origins despite random ports not
+  isolating cookies. Pinned supported-browser tests are a release gate; a
+  contradiction blocks Service release rather than enabling numeric fallback
+  or ad-hoc cookie rewriting.
+- Pending requests, exposures, connections, headers/messages, registry scans,
+  setup, browser dispatch, shutdown, and cleanup all retain fixed bounds.
+- A validated request whose Workspace target is unavailable receives one fixed,
+  secret-free `502` and only passive status changes.
+- `tobari -- tobari-expose 3000` remains non-persistent: child exit ends the
+  owning attachment and its exposure.
 
 ## Mechanical enforcement
 
-- Catalog tests prove global cross-program reference closure, program-filtered
-  routing/help, the fixed-create child-reference rule, and unchanged fixed
-  read/write and mutation bindings.
-- Domain/application tests validate ports, request/exposure references, scope,
-  state, action ordering, and invalid-input zero-side-effect behavior.
-- Infrastructure tests cover owner-only rendezvous, Darwin/Linux peer identity,
-  stale/forged cleanup, concurrent attachments, exact authority before
-  Workspace connection, ambiguous and smuggling headers, keepalive revalidation,
-  fixed 502, WebSocket Upgrade, 4 MiB full-duplex backpressure, cancellation,
-  foreign references, and owner teardown.
-- Asset tests require source/snapshot equality, the dedicated hardcoded helper
-  Program, spoofed-`argv[0]` denial, pinned-builder Linux amd64/arm64
-  construction, source/API/digest/regular-file/safe-mode/Linux-ELF/engine-arch
-  extraction, cleanup and stale replacement, owner-only executable host mode,
-  and read-only `/usr/local/bin/tobari-expose` mount for standard and custom
-  Runtimes. Clean-environment integration closes request, discovery, Allow,
-  exact-authority relay, exhaustive list, opaque stop, and attachment teardown.
-- Catalog, capability-ledger, agent-readiness, public-boundary, security, and
-  generated-site gates keep the public grammar and excluded transports aligned.
+- Catalog tests prove the exact task partition, Program-filtered routing/help,
+  fixed-create child refs, recursive nested reference graph, effects, mutation
+  bindings, confirmations, conflicts, and predecessor absence.
+- Domain/application/CLI fixtures prove final identity, absent/empty/partial/
+  unavailable semantics, schema 1, helper stdout/stderr separation, raw/line/
+  redirected/JSON behavior, Allow-then-Open ordering, mutation completion, and
+  recovery output.
+- Infrastructure tests prove owner-only registry/rendezvous identity, races,
+  no read cleanup, fresh exact action resolution, tcp4 random loopback binding,
+  hostile Host/framing rejection before Workspace I/O, header preservation,
+  fixed 502, HTTP/WebSocket/backpressure, browser outcomes, stop ordering, and
+  bounded cleanup receipts.
+- Pinned Playwright Chromium proves two generated origins do not exchange
+  host-only cookies and `Domain=localhost` cannot contaminate a sibling.
+- Repoguard admits only the exact generated Service root-URL grammar, with
+  positive and negative tests against broad localhost/private-network masking.
+- Helper source byte equality, isolated Engine/Desktop/Colima integration, and
+  repository security/public/release gates close packaging and platform claims.
 
 ## Reconsideration trigger
 
-Broader protocols, another bind address, persistent approval, automatic
-discovery, application-specific rewriting, or a generic attachment RPC require
-a separate product and trust-boundary decision with compatibility, resource,
-cleanup, and hostile-input evidence.
+A supported browser violating the origin/cookie assumption blocks this design.
+Broader protocols, another bind address, persistent approval, requested host
+ports, arbitrary browser input, automatic discovery, application-specific
+rewriting, or a generic attachment RPC require a separate reviewed decision.

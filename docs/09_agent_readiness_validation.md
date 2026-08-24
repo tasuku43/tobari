@@ -16,7 +16,7 @@ transcripts as repository fixtures.
 | Understand authority lifetime | `context show --id CONTEXT_REF`, `policy rules`, and Host Loopback capability/review output | Routine guidance distinguishes Workspace Template policy, remembered Context decisions, and this-session Host Loopback access without requiring baseline, overlay, principal, epoch, or grant reconstruction; typed output retains exact destination kind and authority lifetime |
 | Grow exact permission | `review permissions`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Workspace Manifest/project/scheme/host/port/method/path authority |
 | Resume after reviewed denial | In the attached Workspace run the exact `tobari-permission wait --id pwt_...` printed by one eligible ordinary HTTP/HTTPS denial; in a separate trusted-host terminal review and Apply; after `Allow`, deliberately retry the workload | Wait returns only `Allow`, `Deny`, or lease `Expired`; the helper has no proposal, decision, mutation, discovery, or retry authority; the fresh request receives an independent Gateway authorization |
-| Open one Workspace service | In the attached Workspace run `tobari-expose PORT`; in a separate host terminal run `tobari review services`; later use `tobari-expose list` and `tobari-expose stop EXPOSURE_REF` | Service review shows exact Workspace and target, random host-loopback-only access, no browser opening, and attachment lifetime; Allow once returns exact numeric-loopback URL plus opaque reference; stop consumes that reference unchanged; Permission review remains staged Apply |
+| Open one Workspace service | In the attached Workspace run `tobari-expose PORT`; in a separate host terminal run `tobari review services --watch`; later use helper/host status, open, and stop | One action key/token confirms the complete effect card; Allow returns a generated per-exposure `.localhost` root URL plus an independent opaque lifecycle reference; Open is separate, Stop consumes the reference unchanged, and Permission review remains unrelated staged Apply |
 | Inspect/reset decisions | `policy rules`, then `policy reset --id` | One current exact decision is removed through its unchanged opaque reference and returns to default deny |
 | Use native Workspace auth | Run the agent CLI's native login inside the Workspace | Credential state persists in that Workspace home, receives no network grant from login, and crosses Gateway only after the ordinary exact HTTP effect is allowed |
 | Exercise research Broker (repository-only) | Build with `task build:dev`, then use `bin/tobari-research` `auth` commands | No equivalent command, provider binding, projection, service, image authority, or activation switch exists in the release binary |
@@ -129,7 +129,7 @@ an Attachment Epoch. The routine-success external-processing count is zero.
 The Host Loopback request uses exact `http://host.tobari.internal:{port}` and
 preserves that Host authority through the reviewed relay. Verify Workspace
 `localhost` remains Workspace-local, opposite-direction service exposure uses
-its numeric host-loopback URL, and `host.docker.internal` never appears as
+its generated per-exposure `.localhost` authority, and `host.docker.internal` never appears as
 public or policy identity. Exact retired `host.tobari.test` must be terminal,
 non-learnable, and absent from the review queue.
 
@@ -148,13 +148,16 @@ zero reference discovery, and zero routine external-processing steps.
 
 For Workspace service exposure, start a synthetic HTTP/WebSocket fixture on one
 non-privileged Workspace-loopback port. Run `tobari-expose PORT` in the attached
-shell and obtain one fresh Service snapshot through `tobari review services` in another
-host terminal. Verify Back and cancellation create no listener, Deny resolves
-without access, and Allow once returns exact
-`http://127.0.0.1:<random-port>`, an opaque `exp_...` reference, and exact
-`tobari-expose stop <exposure-ref>` guidance. Use that URL without rewriting
-Host or Origin, verify WebSocket Upgrade, pass the reference unchanged through
-list and stop, and confirm attachment exit closes every listener and stream.
+shell and obtain one bounded Service snapshot through `tobari review services
+--watch` in another host terminal. Verify Back and cancellation create no
+listener, Deny resolves without access, and one `a`/`allow` action returns a
+URL with scheme `http`, authority
+`svc-<128-bit-random-lowercase-label>.localhost:<random-port>`, root path `/`,
+and an independent opaque `exp_...` reference. Verify `o` completes Allow
+before separate Open and reports its bounded dispatch outcome. Use the URL
+without rewriting Host, cookies, or Origin, verify WebSocket Upgrade, pass the
+reference unchanged through status and stop, and confirm attachment exit
+closes every listener and stream with only bounded count receipt output.
 Record two declared task invocations plus review, zero identifier reconstruction,
 zero automatic discovery/probing, and zero routine external-processing steps.
 Before these helper journeys, prove both mounted helpers are dedicated

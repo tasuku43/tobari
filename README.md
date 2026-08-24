@@ -386,18 +386,22 @@ service:
 tobari-expose 3000
 ```
 
-In a separate trusted-host terminal, run `tobari review services`, inspect the
-exact Workspace and `127.0.0.1:3000` target, then choose Allow once. The waiting
-helper prints a random exact URL such as
-`http://127.0.0.1:54321`, its opaque exposure reference, and the exact stop
-command. Tobari does not open the browser automatically.
+In a separate trusted-host terminal, run `tobari review services --watch`,
+inspect the complete effect card, then press `a` for Allow once or `o` for
+Allow once then Open. The waiting helper emits one final JSON document. Its
+confirmed exposure URL has scheme `http`, a fresh
+`svc-<128-bit-random-lowercase-label>.localhost:<random-port>` authority, and
+root path `/`; the unrelated `exp_...` reference controls lifecycle changes.
 
 ```sh
-tobari-expose list
+tobari-expose status
 tobari-expose stop exp_0123456789abcdef0123456789abcdef
+tobari service status
+tobari service open --id exp_0123456789abcdef0123456789abcdef
 ```
 
-Only exact numeric-loopback HTTP/1.1 and WebSocket Upgrade are relayed. Tobari
+The socket still binds only IPv4 `127.0.0.1` on an OS-selected port. Only the
+exact generated Host authority admits HTTP/1.1 and WebSocket Upgrade. Tobari
 does not rewrite Host, Origin, redirects, cookies, headers, or content. The
 attachment owns the listener: exit closes it and active connections. Approval
 is not saved as Workspace Manifest policy or a remembered Workspace decision, and the

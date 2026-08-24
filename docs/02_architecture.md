@@ -71,15 +71,20 @@ Workspace, including one using a managed custom Runtime, receives the same
 read-only `/usr/local/bin/tobari-expose` and `/usr/local/bin/tobari-permission`
 mounts. For service exposure, an unpredictable Workspace Unix socket connects
 `tobari-expose` to one fixed non-TTY control process; it can submit only
-one non-privileged Workspace-loopback port, list current-attachment exposures,
-or stop one unchanged opaque reference. The live host attachment
-owns pending requests and exposes a distinct owner-only Unix rendezvous plus
+one non-privileged Workspace-loopback port, read current-attachment pending and
+active state, or stop one unchanged opaque reference. The distinct live
+Service-controller attachment owns pending requests and exposes a separate
+owner-only Unix rendezvous plus
 atomic ephemeral record. A separate `tobari review services` process validates peer UID
-and PID, nonce, attachment identity, and a fresh snapshot, but never owns the
-listener or route lifetime. Allow once binds random host IPv4 loopback and a
-bounded HTTP/1.1/WebSocket relay to exact Workspace loopback. This channel
+and PID, nonce, Service attachment identity, final Context/Workspace identity,
+and a fresh bounded snapshot, but never owns listener lifetime. Allow once
+binds `tcp4 127.0.0.1:0`, generates an independent 128-bit lowercase
+`.localhost` origin label, and starts a bounded HTTP/1.1/WebSocket relay to
+exact Workspace loopback only after exact Host/framing validation. Host
+`service open` re-resolves the exposure ref and delegates only the confirmed
+root URL to a purpose-limited platform opener. This channel
 shares no schema, socket, registry, authority, or data plane with browser login
-or Host Loopback access.
+Host Loopback, Permission Inbox/wait, or Context Policy Memory.
 
 Permission resume is a third, read-only attachment concern. The interactive
 Tobari entry session created before the child is its canonical owner; Host
@@ -278,9 +283,12 @@ fixed-target read or write remains reference-free. A fixed-target create may
 return confirmed opaque child-resource references, but consumes none and cannot
 return the fixed creation-scope kind.
 
-The Catalog spans the host Program and both helper Programs so the exposure helper's produced service
-reference can close through the host actions and the exposure reference can
-close through helper stop. Validation and reference closure are global;
+The Catalog spans the host Program and both helper Programs. `review services`
+and `service status` produce request refs; host status and confirmed helper
+create/status produce exposure refs; allow consumes a request and may produce
+only its confirmed exposure child; deny consumes a request; open and both Stop
+paths consume an exposure. The one recursive Catalog traversal derives all
+nested reference edges. Validation and reference closure are global;
 dispatch, human help, and scoped agent help are filtered by exact program.
 The dedicated `tobari-permission` Program participates in that same global
 Catalog but its required `permission_wait_id` is bounded plain text, not an
