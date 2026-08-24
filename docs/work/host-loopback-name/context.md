@@ -1,519 +1,84 @@
 # Work Context: Give physical-host loopback an honest private authority
 
-This file separates verified repository facts, verified external facts,
-Product Owner-fixed decisions, assessment, inference, and implementation-time
-observations. Desired behavior belongs in `goal.md` and `plan.md`.
+## Verified integrated facts
 
-## Baseline and inspection record
-
-### Verified repository facts
-
-- The original packet was prepared from main
-  `6a26a3c274d2c2ce8dc8c59321ffb7ba67594b42`; that revision is historical
-  evidence only and is not the implementation baseline.
-- On 2026-08-24 the Product Owner fixed the implementation baseline as clean
-  integrated branch `codex/workspace-manifest-v1` at exact HEAD
-  `97dd314bf00f152d1b1a127089354afd63eacd0c`. A separate sibling worktree on
-  branch `codex/wp05-host-loopback-name` was created from that exact commit. The
-  commit contains WP03 `922fa792452ce053c994f4271e6debebae1e91dc`, WP04
-  `cc5d14b949276cafac0387dca3b7807d4ed34ed5`, and WP07
-  `77c5607ed6867c3f5162eb0a076f5589234a8462`; ancestry checks passed and the
-  worktree was clean before edits.
-- The inspection read `AGENTS.md`, `docs/00_theses.md` through
-  `docs/04_harness.md`, `docs/07_authentication.md` through
-  `docs/09_agent_readiness_validation.md`, the README, CLI Catalog output
-  declarations, Host Loopback domain/application/infrastructure/Gateway code,
-  focused tests, ADRs 0049 and 0074, active work packets, and recent related
-  commits in numeric/governing order.
-- Relevant history includes `80bc6cd` (initial reviewed Host Loopback),
-  `32aec8c` (route reviewed Host Loopback traffic), `1c5f8b4` (correct its
-  authority model), `c9aae59` (authority scope and lifetime), and `1b2341c`
-  (opposite-direction reviewed Workspace service exposure).
-- No current public CLI command accepts a Host Loopback hostname. The name is
-  ambient capability data and appears in `review permissions`, candidate/denial
-  fields, README/agent guidance, and runtime/Gateway state. A binary invocation
-  was therefore not needed to establish the name contract; the Catalog,
-  executable sources, and tests are the direct sources of truth.
-- The baseline public-boundary guard rejected every URI literal whose authority
-  was a private hostname. The first implementation concern added one exact,
-  port-bounded `http://host.tobari.internal:{port}` exception with negative HTTP/TLS,
-  sibling, wildcard, userinfo, casing, unrelated `.internal`, and malformed-
-  port tests. General private-hostname protection remains closed.
-- The implementation-entry reread covered `AGENTS.md`, docs 00 through 04,
-  ADRs 0079, 0081, and 0082, the four packet files, final session-owner source,
-  Host Loopback source, migration source, and current tests. Control accepted
-  `WP05_IMPLEMENTATION_ENTRY_OBSERVED` before the first production edit.
-- The former extra fifth packet artifact was outside the repository's
-  four-file work-packet shape and contradicted the fixed public capability V1
-  contract. Its valid retirement requirements are folded into the canonical
-  packet files and the extra artifact is deleted in the first documentation-
-  only concern.
-
-### Integrated WP07 session seam
-
-- The canonical session lock is
-  `Runtime.withInteractiveAttachmentLock`; the liveness probe is
-  `Runtime.permissionSessionActive`, both in
-  `internal/infra/dockerruntime/interactive_attachment_session.go`.
-- The integrated source has no separately named zero-live-owner helper.
-  Registry validation and expired-session compaction are inline today. WP05
-  adds the smallest lock-held zero-owner predicate to that WP07-owned file and
-  focused tests; Host Loopback migration does not inspect ingestion endpoint,
-  nonce, lease, ACK, wait, or Gateway-only mount/profile fields.
-- Migration must hold the lifecycle lock, then the interactive-attachment
-  lock, and keep it held while acquiring the Host Loopback lock and replacing
-  the exact private registries. The canonical order is therefore
-  `lifecycle -> interactive-attachment -> host-loopback`. Releasing the
-  interactive lock after a zero-owner check would let ordinary entry publish a
-  canonical session before cutover; a deterministic competing-entry test must
-  prevent that race.
-- Permission ingestion remains a separate WP07-owned authority. Darwin
-  `host.docker.internal` is its closed infrastructure transport and is neither
-  migrated nor renamed by WP05. Service exposure remains a third owner branch.
-
-### Durable Workspace Manifest and copy contract
-
-- [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md)
-  removes public Context vocabulary. Product language is **Workspace
-  Manifest**, routine presentation is **Manifest**, CLI selection is
-  `manifest`/`--manifest`, and schema authority is
-  `workspace_manifest_id`, with no alias.
-- The only durable resources in this area are Workspace Manifest, Runtime, and
-  Workspace. Project root and Runtime revision are subordinate typed values.
-- A Workspace is durably bound to `(ProjectRoot, WorkspaceManifestID)` and has
-  one stable `workspace_id`. Current-main Context UUID bytes migrate to
-  WorkspaceManifestID; ProjectInstance UUID bytes migrate to WorkspaceID.
-- Workspace Manifest revisions are complete immutable desired declarations.
-  Desired, last successfully applied, observed, and latest bounded failure are
-  separate. Only explicit Workspace entry reconciles one Workspace, and only
-  `cluster up` reconciles shared cluster state.
-- Standard authentication, learned permission, Host Loopback routes, and
-  Attachment Grants are outside Manifest desired/applied state. Attachment
-  authority is keyed to the trusted current WorkspaceManifestID/WorkspaceID
-  principal and Attachment Epoch.
-- ADR 0079 leaves sufficient Docker migration evidence as an implementation
-  gate. For WP 05's specific transient cleanup, the Product Owner has fixed the stronger
-  precondition as cluster stopped plus zero live attachment; the integrated
-  implementation consumes the final state and schema shapes at `97dd314b`.
-
-### Accepted one-time copy and adjacent WP 03 decisions
-
-- ADR 0079 fixes `manifest create --copy-from NAME --name NAME` and `runtime
-  create --copy-source-from standard|NAME --name NAME`; `--base` has no alias.
-  Both operations create fresh independent identities and retain no
-  provenance, lineage, `copied_from`, current selection, Workspace, auth,
-  learned permission, attachment, AppliedEntry, failure, or observed state.
-  Neither copy action reconciles runtime or attachment state.
-- A copied Manifest therefore receives a fresh WorkspaceManifestID and carries
-  no Host Loopback authority. A Host Loopback route or grant can arise only
-  from a separately bound Workspace and explicit entry/Attachment Epoch/review.
-  Hostname or route migration cannot correlate state through a source Manifest,
-  provenance, or lineage field because no such authority exists.
-- WP 03 fixes whole-Runtime retirement, exact prune-plan discovery/application,
-  digest-exact restore, reference-bound build, and read-only Runtime Review.
-  Its protection graph distinguishes retained Manifest revisions, Workspace
-  last-successful AppliedEntry and pending adoption, and observed Docker use.
-  Host Loopback routes, grants, candidates, relay tokens, and attachment policy
-  are not Runtime revision/history/image material and are not `last_used`
-  evidence.
-- WP 03's nested output producer/consumer rule is Catalog-wide. WP 05 adds no
-  Runtime-only validator or reference edge. Neither ADR 0079's copy contract
-  nor WP 03 changes the
-  hostname candidates, DNS/TLS criteria, accepted selection, or Host Loopback
-  trust-boundary decision.
-
-### Product Owner-fixed WP 05 decision
-
-- `host.tobari.internal` is the only public and routable authority. The old
-  name has no alias, redirect, translation, suffix, or wildcard path.
-- Authority is the conjunction of exact hostname, port, method/path, trusted
-  WorkspaceManifestID/WorkspaceID principal, live Attachment Epoch, trusted-
-  host grant, and route revalidation. `.internal`, DNS success, ordinary
-  external policy, and presentation text grant nothing.
-- `host.tobari.test` remains a terminal retired authority for all V1 and cannot
-  fall through to external candidate creation, learned permission, external
-  DNS, Broker, upstream, or relay. Removal needs a separate ADR and negative
-  safety evidence.
-- Existing `migrate apply` alone owns cleanup. With cluster stopped and zero
-  live attachment, it accepts only exact owner/schema/old-host transient route
-  and grant registries and replaces them atomically with empty schema-V2
-  registries. No read, entry, `cluster up`, or new maintenance command cleans
-  them implicitly.
-- Transient route/grant registries are V2 and issue new opaque IDs. Route ID V2
-  directly binds the exact hostname; there is no AuthorityRevision concept.
-  Public/helper-visible `TOBARI_CAPABILITIES_JSON` remains V1 with only its
-  hostname value replaced. These version domains must not be conflated.
-- Denied or retired HTTPS is classified before any leaf certificate is
-  generated. Only an actually observed exact old-host leaf entry may be
-  removed by `migrate apply` after owner validation; the root CA and broad
-  cache remain untouched.
-- The release floor is the actual standard Runtime inventory: libc/getaddrinfo
-  through curl, Python, applicable Go pure/cgo paths, and Node DNS plus HTTP.
-  Java and browser remain optional unless the standard Runtime contains them.
-- The public-boundary exception is exact string equality with the product-owned
-  `host.tobari.internal` synthetic authority. Full-URI generalization,
-  siblings, wildcard descendants, and other `.internal` names remain denied.
-- The new Host header is preserved through physical-host `127.0.0.1` relay and
-  is the same route/grant/policy/audit identity. Host rewriting would require a
-  separate trust-boundary decision.
-- The implementation order is fixed as completed Workspace Manifest/copy
-  promotion -> WP08 -> WP03 -> WP04 -> WP05.
-  WP 05 consumes actual final identity, Catalog, CA/DNS/policy, migration, and
-  schema contracts rather than anticipating them.
-
-### Current owner, scope, lifetime, and mutability
-
-| Item | Owner | Scope | Lifetime | Mutability today |
-|---|---|---|---|---|
-| Public Host Loopback authority | Tobari product contract | Exact `host.tobari.test` plus non-privileged port | Product/release constant | Immutable within the build |
-| Capability projection | Host runtime, projected into one Workspace | Workspace audience; URL template and limits | Interactive attachment environment | Constant and secret-free |
-| Attachment route | Canonical interactive attachment owner | WorkspaceManifestID and WorkspaceID carried by frozen `context_id`/`project_id` wire keys, Attachment Epoch, exact hostname | Owning attachment | Atomically added/removed; borrower cannot extend owner lifetime |
-| Attachment grant | Trusted-host reviewer and canonical interactive attachment owner | Same frozen wire spellings carrying Workspace Manifest/Workspace identity, plus exact epoch, host, port, method, and path | Attachment | Added by exact review; revoked at route teardown |
-| Learned external rule | Manifest/Workspace-keyed policy store with frozen compatibility wire names | Ordinary external destination only | Persistent until reset | Separate from attachment and Manifest desired/applied state; cannot authorize Host Loopback |
-| Relay coordinates | Infrastructure adapter | One active route | Attachment | Random relay port and 256-bit token; never projected publicly |
-| `host.docker.internal` | Docker/Gateway infrastructure | Gateway container to physical host relay listener | Runtime transport | Compose `host-gateway` mapping; not authority |
-| Gateway CA | Installation-shared Gateway infrastructure | Ordinary transparent HTTPS interception | Shared cluster state; purge rotates | Not used to authorize current plain-HTTP Host Loopback |
-
-### Current data and request path
-
-1. At integrated baseline `97dd314b`,
-   `internal/domain/tobari/host_loopback.go` defines
-   `HostLoopbackHostname = "host.tobari.test"`, the HTTP URL template,
-   capability schema 1, route/grant registry schema 1, ports 1024-65535,
-   attachment lifetime, Workspace audience, and policy-review-required access.
-2. Every interactive entry creates or borrows an Attachment Epoch and projects
-   the secret-free capability. Workspace `localhost` remains Workspace-local.
-3. `gateway/addon/synthetic_dns.py` is non-recursive and returns the synthetic
-   A address `198.18.0.10` with TTL 0 for every syntactically valid A query;
-   other query types receive no address. The global DNS does not decide the
-   Host Loopback destination.
-4. The Gateway recognizes the exact HTTP Host authority, binds it to the
-   principal's active route and epoch, and asks OPA about the separate
-   `host_loopback` destination. Ordinary external policy cannot decide it.
-5. Only after allow, the Gateway opens a one-shot bridge to its private
-   `host.docker.internal:<relay-port>` transport. The relay authenticates the
-   random token, revalidates the reviewed target port, and dials physical-host
-   IPv4 `127.0.0.1:<target-port>`.
-6. The original Host header is preserved to the physical-host service. The
-   public authority is therefore observable to that service and is not merely
-   a documentation label.
-
-### Current identity and schema consequences
-
-- Host Loopback policy candidates and denials carry the exact host. Policy
-  candidate references consequently change when the host changes.
-- Attachment grant ID derivation includes the hostname. Existing grant
-  references cannot be reused under a new name.
-- Route ID derivation currently binds epoch, legacy Context ID, and legacy
-  project ID but omits the hostname; the route object separately validates the
-  exact host. Final V1 must replace those semantic fields with
-  WorkspaceManifestID and WorkspaceID and bind the canonical authority into
-  the final-V1 route identity.
-- Route and grant registries are owner-only attachment runtime files, not
-  durable learned policy. Current readers strictly require schema 1.
-- `TOBARI_CAPABILITIES_JSON` schema 1 embeds the URL template. In isolation,
-  changing that value would normally require a schema bump. ADR 0079 and the
-  current product contract instead define one pre-public exact-contract reset: the final public capability
-  contract remains V1, while only `migrate apply` recognizes the exact
-  current-main predecessor state.
-- **Accepted target distinction:** the owner-only transient route/grant
-  registries move from current schema 1 to schema V2, while public/helper-
-  visible `TOBARI_CAPABILITIES_JSON` remains schema V1. Registry V2 is not a
-  public capability schema-2 compatibility surface.
-- The CLI Catalog's candidate/denial JSON schema already has `host`,
-  `destination_kind`, `authority_lifetime`, and `attachment_epoch_id` fields.
-  The field shapes need not change, but observed values and opaque references
-  do.
-- Current Host Loopback is HTTP-only. Gateway TLS authority normalization
-  requires Host/SNI consistency for HTTPS generally, but Host Loopback rejects
-  `https`. The shared private CA does not currently authenticate the physical
-  host service or add Host Loopback authority.
+- Independent branch `codex/wp05-host-loopback-name` is cleanly rebased on
+  exact `583d4e1e32b74107b6347b8addd622c44e6fb48e`; WP03 `922fa792`, WP04
+  `cc5d14b`, WP07 `77c5607`, and accepted WP05 concern `0bbd9deb` are ancestors.
+- ADR 0084 replaces predecessor conversion and `migrate apply` with a final-only
+  clean break. `ConfirmNoPreReleaseLegacyAuthority` treats the Host Loopback,
+  interactive-attachment, principal, auth, and service-exposure roots as
+  first-initialization-only presence. It observes path presence only and does
+  not decode, migrate, rename, clean, or delete predecessor content.
+- Final entry uses `BeginFinalWorkspaceSession`. The private
+  `interactiveWorkspacePrincipal` projects final ContextID, WorkspaceID,
+  Context presentation, and ProjectRoot into frozen compatibility wires.
+  TemplateID and Policy Memory do not cross this boundary.
+- WP07 owns `Runtime.withInteractiveAttachmentLock`,
+  `Runtime.permissionSessionActive`, and
+  `Runtime.reconcileExpiredInteractiveSessionsLocked`. Its public global
+  absence consumer is `ConfirmNoFinalWorkspaceSessions`. WP05 neither reads nor
+  modifies ingestion endpoint, nonce, lease, ACK, wait registry, or mount/profile.
+- Final entry establishes or borrows the canonical interactive session before
+  Host Loopback. Host Loopback and service exposure remain separate dependent
+  capabilities.
+- Current implementation still uses `host.tobari.test`, public capability
+  schema 1, private registry schema 1, and route ID domain
+  `tobari-host-loopback-route-v1` without the hostname. Gateway has no checked-in
+  TLS terminal hook yet.
+- Gateway currently resolves principal before Host Loopback classification and
+  `_permission_wait_effect` excludes only the old hostname. The retired HTTP
+  guard must precede principal, credential, registry, OPA, wait, DNS/upstream,
+  and relay consumers; both current and retired names must be ineligible for
+  permission resume.
+- The Gateway aggregate selects the Host Loopback branch from
+  `destination.kind == "host_loopback"`; it needs an exact current hostname,
+  HTTP, and bounded-port predicate so crafted sibling input cannot borrow the
+  branch.
+- Gateway source, embedded Gateway snapshot, helper source snapshot, and
+  integration fixtures are mechanically checked and must change coherently via
+  the repository sync scripts.
+- The first accepted concern already added ADR 0083, durable docs, README, and
+  a narrow public-guard exception for exact bounded-port
+  `http://host.tobari.internal:{port}` with sibling/wildcard/TLS/private-host
+  negative tests.
 
 ## Verified external facts
 
-Sources were checked on 2026-08-23 and are official registries,
-standards, product documentation, or first-party source repositories.
+- ICANN Board resolution 2024.07.29.06 permanently withholds `.INTERNAL` from
+  DNS-root delegation for private-use applications.
+- The IANA Special-Use registry updated 2026-05-22 does not list `internal.`;
+  no localhost-like resolver behavior is assumed.
+- RFC 2606 reserves `.test` for testing and `.invalid` for deliberately invalid
+  names. RFC 6761 gives `localhost.` descendants caller-loopback semantics.
+- Pinned mitmproxy 12.1.2 exposes `tls_clienthello` with parsed SNI/raw
+  extensions and `tls_start_client` with mutable `ssl_conn`. Its TLS layer
+  closes when no truthy TLS context is supplied. Accepted disposable evidence
+  proved that an exact terminal classification followed by a false no-cert
+  context stops leaf generation/cache growth and all upstream/HTTP hooks; an
+  ordinary control creates one leaf.
 
-### DNS reservation and resolver semantics
+## Product Owner-fixed decisions
 
-- The [IANA Special-Use Domain Names registry](https://www.iana.org/assignments/special-use-domain-names)
-  reports `Last Updated: 2026-05-22`, lists `.test`, `.invalid`, and
-  `.localhost`, and says the designation applies to their subdomains. It does
-  not list `internal.`.
-- [RFC 2606](https://www.rfc-editor.org/info/rfc2606/) reserves `.test` for
-  testing, `.invalid` for names intended to be obviously invalid, and
-  `.localhost` for traditional loopback use.
-- [RFC 6761](https://www.rfc-editor.org/info/rfc6761/) permits private positive
-  answers for `.test`, but says `localhost` and every name beneath it should
-  resolve to IP loopback and should not be sent to configured caching DNS
-  servers. It says `.invalid` names should receive immediate negative answers.
-- ICANN Board [resolution 2024.07.29.06](https://www.icann.org/en/board-activities-and-meetings/materials/approved-resolutions-special-meeting-of-the-icann-board-29-07-2024-en)
-  permanently reserves `.INTERNAL` from delegation in the DNS root for
-  private-use applications. The rationale explicitly distinguishes that ICANN
-  reservation from the IANA Special-Use registry.
-- As of the inspection date,
-  [draft-davies-internal-tld-06](https://datatracker.ietf.org/doc/html/draft-davies-internal-tld-06)
-  is an active individual Internet-Draft with intended Informational status,
-  expires 2026-11-07, and has no formal standing in the IETF standards
-  process. `.internal` therefore has ICANN root non-delegation, not RFC 6761
-  resolver mandates.
+- Sole public/routable name: `host.tobari.internal`; retired name is a permanent V1 terminal negative guard.
+- Public capability schema stays V1; private route/grant registry is V2. Route ID V2 directly includes exact hostname; grant ID remains hostname-bound and is freshly issued.
+- Frozen `context_id`, `project_id`, `context` tokens remain private compatibility spellings whose values are ContextID, WorkspaceID, and Context presentation.
+- Host header remains the exact new authority. Physical `127.0.0.1`, synthetic Gateway IP, and `host.docker.internal` are transport only.
+- No CA rotation, broad cache deletion, alias, redirect, Host rewrite, or ordinary-policy fallback.
+- Release client floor is curl/libc, Python, applicable Go pure/cgo, and Node; Java/browser are optional unless present.
+- Host Loopback is not Runtime use evidence and cannot borrow WP07 permission-wait, service exposure, or research-auth authority.
 
-### Runtime and library behavior
+## Assessment and remaining observations
 
-- W3C [Secure Contexts](https://www.w3.org/TR/secure-contexts/) allows plain
-  HTTP origins whose host is `localhost` or a `.localhost` descendant to be
-  treated as potentially trustworthy only when the user agent enforces
-  loopback resolution. Using
-  `.localhost` would add both address and browser-security semantics that
-  Tobari does not own.
-- [Node.js DNS documentation](https://nodejs.org/api/dns.html) distinguishes
-  OS-backed `dns.lookup()` from `dns.resolve*()`, which sends network DNS
-  queries directly. [Go package `net`](https://pkg.go.dev/net) likewise may use
-  a native `getaddrinfo` path or a pure-Go DNS resolver. Exact compatibility
-  must therefore cover both OS and direct-DNS families rather than assuming
-  one resolver path.
-- ADR 0074 records a repository-local compatibility observation: a random
-  `.localhost` name was rejected by Jupyter Server's default remote-access
-  check for the opposite-direction service-exposure task. That does not prove
-  Host Loopback behavior, but it proves that library/application treatment of
-  local names is not uniform.
-
-### Container-runtime precedents
-
-- [Docker Desktop](https://docs.docker.com/desktop/features/networking/networking-how-tos/)
-  documents `host.docker.internal` as the host address and
-  `gateway.docker.internal` as the Docker VM gateway. Docker's `host-gateway`
-  mapping is an engine transport feature, not an application authorization
-  identity.
-- [Podman](https://docs.podman.io/en/latest/markdown/podman-run.1.html)
-  documents `host.containers.internal` and `host.docker.internal`, with
-  availability dependent on its ability to determine a host-gateway address.
-- Colima's first-party
-  [default configuration](https://github.com/abiosoft/colima/blob/main/embedded/defaults/colima.yaml)
-  maps `host.docker.internal` to `host.lima.internal` through its internal
-  resolver.
-- [OrbStack](https://docs.orbstack.dev/machines/network) documents
-  `host.orb.internal` for a Linux machine to reach a macOS host and separately
-  documents `docker.orb.internal` for forwarded Docker services. These names
-  are useful mental-model precedents, not portable standards or Tobari policy
-  inputs.
-
-### TLS
-
-- The current [CA/Browser Forum Baseline Requirements](https://cabforum.org/working-groups/server/baseline-requirements/requirements/)
-  prohibit publicly trusted certificates containing internal names. They do
-  not govern an enterprise/private PKI whose root is not distributed by a
-  public application-software supplier.
-- Tobari already owns a private Gateway CA for transparent HTTPS. That makes a
-  future private TLS design technically possible, but it does not turn
-  `.internal` into authenticated identity and does not justify adding HTTPS to
-  this rename.
-
-## Assessment
-
-### Candidate comparison
-
-ADR 0079 changes the principal vocabulary and migration boundary, not the
-hostname decision criteria. The candidates remain evaluated against DNS,
-resolver, TLS, mental-model, and policy properties; none is derived from the
-Workspace Manifest noun.
-
-| Candidate | Global collision | Resolver / loopback behavior | Mental model | TLS and SNI | Synthetic DNS, policy, private ceiling | Assessment |
-|---|---|---|---|---|---|---|
-| `host.tobari.internal` | Root delegation permanently withheld | No standardized loopback short-circuit | Physical host through a private Tobari projection | Private CA required for any future TLS; exact SNI remains possible | Exact-name branch works; `.internal` suffix grants nothing | **Accepted/Fix** |
-| `host.tobari.test` | Special-Use and collision-free | Private positive answers permitted | Sounds like test data or a test-only service | Private CA required; exact SNI possible | Current design works safely | Technically sound, semantically misleading |
-| `host.tobari.localhost` | Special-Use and collision-free | Required/encouraged to resolve to the caller's loopback, often without DNS | Confuses physical-host loopback with Workspace loopback | Browsers may confer secure-context semantics on plain HTTP | Can bypass synthetic DNS and address the Workspace itself | Reject |
-| `host.tobari` | `.tobari` is not reserved | Search-path and future root-delegation behavior is uncontrolled | Memorable but ownership is ambiguous | Future global namespace collision affects SNI | Cannot promise collision-free private routing | Reject |
-| `host.tobari.invalid` | Special-Use and collision-free | Expected to fail locally or return negative | Says the reachable capability is invalid | Some clients can fail before SNI/Gateway | Conflicts with a positive synthetic answer | Reject |
-| `gateway.tobari.internal` | Root delegation permanently withheld | Resolver-neutral | Names an implementation hop, not the physical-host destination | Could make TLS termination look like destination authority | Encourages policy to follow topology | Reject |
-| Projection-only / no public name | No DNS collision | An HTTP URL still needs an authority | Hides the only usable address from users and agents | Cannot express stable Host/SNI identity | IP-only routing would collapse presentation into transport | Reject |
-| Other suffix such as `.local` or `.private` | `.local` is mDNS Special-Use; `.private` is not reserved | Adds mDNS behavior or future collision | Familiar but not owned | Varies | Adds more special handling or less safety | Reject |
-
-### Accepted decision rationale
-
-- `host.tobari.internal` preserves the useful `host.<product>.<private-use>`
-  pattern seen in container runtimes without adopting any runtime's authority
-  or topology.
-- It is safer than `.localhost` because Tobari needs the name to resolve to the
-  Gateway synthetic address, not the Workspace's `127.0.0.1`/`::1`.
-- It is more honest than `.test` because the capability is used in ordinary
-  agent development after explicit review, not to test DNS code.
-- It is safer than an unreserved suffix because ICANN has permanently removed
-  `.internal` from root delegation, while still leaving resolution under the
-  local administrator's explicit control.
-- The exact three-label name remains memorable and names the user outcome.
-  `gateway` would expose a replaceable mechanism and would blur presentation
-  identity with authorization authority.
-
-### Public and internal concept count
-
-The target design adds no durable public resource to ADR 0079's three-resource
-budget. Within the existing operational and authority vocabulary it retains
-one Host Loopback capability, one Attachment Epoch, one exact Attachment
-Grant, and the existing review workflow. It renames one public constant and
-adds no resource, command, role, reference kind, or policy lifetime.
-
-Internally, there is one routable canonical authority plus one terminal
-`retired_host_loopback_authority` sentinel. The sentinel is not an alias,
-candidate, grant, route, or second destination kind. Splitting DNS name,
-presentation host, and policy host into independently mutable concepts would
-create false independence and is rejected.
-
-### Authority and presentation identity
-
-- The exact canonical hostname is both the HTTP presentation authority and one
-  dimension of Host Loopback policy identity. In final V1 it is combined with
-  WorkspaceManifestID, WorkspaceID, Attachment Epoch, target port, method, and
-  path before any physical-host dial. Project root may remain bounded display
-  evidence but is not a parallel ID.
-- The synthetic address is routing projection only. It must never appear as
-  the policy host, user URL, review identity, or certificate name.
-- `host.docker.internal` is private transport identity only. It must never
-  enter capability JSON, OPA input, denials, audit, or public recovery text.
-- `.internal` is neither authentication nor provenance. Only exact Tobari
-  binding plus the reviewed route/grant authorizes access.
-- Gateway preserves `host.tobari.internal:{port}` as the Host header when the
-  authenticated relay dials `127.0.0.1`; physical transport does not rewrite
-  the route/grant/policy/audit identity.
-- A Manifest revision digest is desired-declaration authority, not Attachment
-  Grant authority. Publishing a revision does not mutate the active route or
-  grant. A later entry that creates a new Attachment Epoch receives no grant
-  from the prior epoch.
-
-### Trust-boundary assessment
-
-The rename changes no trust boundary. The Workspace still reaches only a
-shared synthetic Gateway; Gateway remains fail-closed before the authenticated
-relay; the relay dials only physical-host IPv4 loopback; and trusted-host
-review remains required. The implementation must match the full exact hostname
-and must not generalize Host Loopback to `*.tobari.internal`, `*.internal`, a
-CNAME target, or any private address. This preserves the ordinary private
-destination ceiling and the one explicit Host Loopback exception.
-
-A routable old-name alias would be an authority expansion: either one new
-grant would authorize two Host headers, or two parallel grants/routes would
-exist. Neither is necessary before first public V1. A redirect would also make
-client retry behavior part of the security path. The migration therefore uses
-a terminal old-name fault, never an alias or redirect.
-
-The durable Workspace Manifest rename changes principal field names but not the boundary:
-the trusted host supplies WorkspaceManifestID/WorkspaceID to the selected
-attachment. Workspace input, Manifest name, revision generation, Project root,
-and presentation labels cannot reconstruct those IDs. Host Loopback remains a
-separate attachment-owned branch rather than Manifest desired, applied,
-observed, or failure state.
-
-A presentation-only recommended Manifest draft has no WorkspaceManifestID and
-cannot establish a principal, route, or grant. Read-only status/list/show/
-doctor may report attachment observation but cannot reconcile or create the
-Host Loopback branch. Only explicit Workspace entry may establish it.
-
-## Inferences
-
-- The container-runtime precedent supports the memorability of
-  `host.tobari.internal`, but it does not establish interoperable resolver,
-  policy, or TLS semantics. Tobari must retain its own exact synthetic-DNS and
-  Gateway contract.
-- Because the Host Loopback path is plain HTTP, changing its hostname does not
-  cryptographically invalidate or require rotation of the shared root CA. The
-  fixed target rejects denied/retired HTTPS before leaf generation; any
-  already-existing observed leaf cache remains non-authoritative material.
-- A hard pre-public cutover with fresh attachment review is less surprising
-  than a compatibility alias because Host Loopback state is already explicitly
-  attachment-scoped and non-persistent.
-
-## Implementation-entry observations and remaining unknowns
-
-- [x] Recorded exact integrated HEAD `97dd314bf00f152d1b1a127089354afd63eacd0c`,
-      clean independent worktree, accepted upstream ancestry, final contracts,
-      Host Loopback source, session owner seams, migration, and test shapes.
-- [x] Confirmed the current public capability is schema V1, route/grant stores
-      are schema V1 at the predecessor, and the fixed target is public V1 plus
-      private route/grant V2 with frozen compatibility key spellings.
-- [x] Confirmed the canonical owner APIs are
-      `Runtime.withInteractiveAttachmentLock` and
-      `Runtime.permissionSessionActive`; a named zero-owner predicate is absent
-      and is a bounded WP05 implementation requirement.
-- [ ] Inventory the actual standard Runtime after upstream implementation and
-      pin exact curl/libc, Python, Go, and Node versions plus applicable Go
-      pure/cgo modes. Observe Java/browser only if present; their absence is not
-      a release blocker.
-- [ ] Observe whether any exact old-host mitm leaf cache entry actually exists
-      and, if so, its final owner/schema representation needed for bounded
-      `migrate apply` deletion. Absence means no cache mutation.
-- [ ] Record the read-only Docker evidence required by ADR 0079 migration. Host
-      Loopback additionally needs evidence for stopped cluster, zero live
-      attachment, and exact owner/schema/old-host matching before registry
-      replacement; route/grant files provide no AppliedEntry evidence.
-- [ ] Confirm the final supported transparent-network and Runtime-client
-      canaries in the disposable WP05 integration profile. Prior mitmproxy
-      12.1.2 feasibility proves exact `tls_clienthello` classification followed
-      by `tls_start_client` terminal close can stop rejected SNI/ECH cases
-      before leaf generation/cache insertion and before passthrough, upstream,
-      or HTTP hooks; production behavior still needs the supported canaries.
-
-## Cross-packet dependencies and conflicts
-
-- The first-public-V1 core and artifact packets must integrate the new name
-  before publishing README, generated site, capability/schema ledgers, images,
-  checksums, or readiness evidence. Publishing first would create a real
-  compatibility obligation for `host.tobari.test`.
-- The fixed predecessor order is satisfied on integrated `97dd314b`: Workspace
-  Manifest/copy-contract promotion -> WP08 Catalog/domain output conformance
-  -> WP03 Runtime retirement -> WP04 build-surface contract. WP07 is also
-  integrated and supplies the canonical interactive-session owner seam that
-  WP05 consumes without consuming its ingestion authority.
-- [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md)
-  and the current theses/product/architecture/security contracts remain the
-  identity and migration authority. WP 05 consumes their final vocabulary,
-  stable-ID byte retention, exact predecessor decoder,
-  principal schema, CA/DNS/policy state, and Docker evidence from the integrated
-  integrated tree rather than from the old main baseline.
-- ADR 0079's accepted one-time copy contract does not constrain hostname
-  selection. WP 05 depends only on its no-lineage/no-provenance and no-copy-of-
-  attachment guarantees: migration must never consult `copied_from`, and a
-  copied Manifest or Runtime receives no route or grant.
-- WP 03 Runtime Retirement is accepted and does not constrain hostname
-  selection. Its protection graph remains separate: Host Loopback transient
-  authority is not Runtime history, snapshot, execution material, reference
-  production, or usage evidence. WP 05 must not alter WP 03 command contracts.
-- Context capability/source-access packets remain Boundary implementation
-  evidence only; their public Context vocabulary is superseded by ADR 0079 and
-  the current product contract.
-  Authentication narrowing and policy compaction do not own Host Loopback
-  naming, and learned permission remains separate from Manifest state.
-- ADR 0074 is an explicit non-overlap: Workspace-to-host Host Loopback becomes
-  `host.tobari.internal`, while host-to-Workspace service exposure stays an
-  exact random numeric `127.0.0.1:<port>` authority.
-- ADR 0081 is another explicit non-overlap: WP05 consumes its canonical
-  interactive-session owner lock/liveness/zero-owner seam only. Permission
-  ingestion endpoint, nonce, lease, acknowledgment, wait registry,
-  Gateway-only mount/profile, and Darwin transport remain WP07-owned and are
-  not Host Loopback migration input. The shared lock order is lifecycle,
-  interactive attachment, then Host Loopback.
-- Any concurrent Gateway DNS, CA, authority normalization, policy schema, or
-  generated-site change must be rebased and reviewed together. A suffix-wide
-  `.internal` route or public `gateway.*` concept would conflict with this
-  packet.
-- WP08 owns the Catalog-wide nested reference/output mechanism consumed by
-  WP03 and WP04; WP05 creates no parallel validator. WP04's completed build
-  profile fixes the actual standard Runtime inventory used by WP05's release
-  compatibility floor.
-- ADR 0079's current-versus-previous Manifest revision retention and Git fallback
-  slice do not belong in Host Loopback identity. This packet must not create a
-  dependency on either choice. Its child-session behavior remains an upstream
-  observation; WP05's stopped-cluster/zero-live-attachment cleanup condition is
-  fixed.
-
-## Security and public-boundary notes
-
-- No external content is copied into production. This packet links official
-  sources and records interpretations in English, the repository's configured
-  documentation locale.
-- No credentials, live endpoints, real personal data, private organization
-  identifiers, or external provider responses are involved.
-- The state in scope is non-secret capability data plus secret relay tokens in
-  existing owner-only infrastructure files. Migration must never render or log
-  relay coordinates.
-- The public URL and migration fault are untrusted-output-safe constants. The
-  old host must not become an ordinary external candidate after retirement.
+- The mechanism is a hard authority replacement, not a compatibility rename.
+  Schema-V2 validation and hostname-bound IDs make all prior references stale.
+- ADR 0084 removes the former lifecycle -> interactive-attachment ->
+  host-loopback migration transaction from WP05. The final presence guard is
+  the only predecessor-state seam; runtime cleanup remains exact attachment
+  teardown for fresh final records.
+- Supported transparent-network and Runtime-client Docker canaries remain to be
+  observed. Record standard image client versions, CA digest stability, leaf
+  cache non-growth for rejected TLS, and exact Host at a synthetic local service.
+- If a supported client bypasses Tobari synthetic DNS, rewrites Host, or causes
+  a leaf/cache insert before the terminal hook, that is a completion blocker.
+  Unsupported Java/browser/provider shapes are observation only.

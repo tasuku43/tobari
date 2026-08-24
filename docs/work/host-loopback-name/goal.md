@@ -3,212 +3,68 @@
 - Status: Accepted
 - Planning state: Fix
 - Retention: temporary
-- Retention reason: None
-- Governing contract: [theses](../../00_theses.md),
+- Owner: Tobari maintainers
+- Target: pre-public V1
+- Governing contracts: [theses](../../00_theses.md),
   [product](../../01_product_contract.md),
   [architecture](../../02_architecture.md),
   [security](../../03_security_model.md), [harness](../../04_harness.md),
-  [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md),
-  and [agent readiness](../../09_agent_readiness_validation.md)
-- Review/delete trigger: Delete after the authority rename is implemented, durable conclusions are promoted, and the change completes
-- Successor: None
-- Owner: Tobari maintainers
-- Target: Accepted/Fix before the first public V1 release
-- Related ADRs: ADR 0049, ADR 0074, and
-  [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md),
   [ADR 0081](../../decisions/0081-observe-reviewed-permission-from-an-attached-workspace.md),
-  and [ADR 0082](../../decisions/0082-release-and-research-build-surfaces.md)
-- Related work: completed WP08 Catalog/output contracts in [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md),
-  completed [ADR 0080 Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md),
-  [ADR 0082 release and research build surfaces](../../decisions/0082-release-and-research-build-surfaces.md),
-  [First public V1 core](../first-public-release-core/goal.md), and
-  [first public V1 artifacts](../first-public-release-artifacts/goal.md)
-- Integration state: Product Owner accepted and fixed this packet on
-  2026-08-23 and authorized implementation on 2026-08-24. The independent
-  worktree is based on exact integrated HEAD
-  `97dd314bf00f152d1b1a127089354afd63eacd0c`, which contains WP03 final
-  `922fa792452ce053c994f4271e6debebae1e91dc`, WP04 final
-  `cc5d14b949276cafac0387dca3b7807d4ed34ed5`, and WP07 final
-  `77c5607ed6867c3f5162eb0a076f5589234a8462`. The implementation-entry
-  observation was accepted before the first production edit.
+  [ADR 0082](../../decisions/0082-release-and-research-build-surfaces.md),
+  [ADR 0083](../../decisions/0083-name-the-physical-host-loopback-authority.md), and
+  [ADR 0084](../../decisions/0084-separate-workspace-templates-contexts-and-policy-memory.md)
+- Review/delete trigger: delete after implementation, durable propagation, and all completion gates
 
 ## Outcome
 
-Every interactive Workspace reaches plain HTTP on the physical host's IPv4
-loopback through scheme `http` and exact authority template
-`host.tobari.internal:{port}`. The name says that the destination is a
-private Tobari-projected host capability, does not claim testing behavior, and
-does not acquire `.localhost` loopback semantics. The existing attachment
-epoch, trusted-host review, exact method/path/port grant, Gateway policy, and
-authenticated relay remain the authority; the DNS suffix itself grants
-nothing. Route and grant authority uses the attachment's trusted
-`workspace_manifest_id` and `workspace_id`, never a public Context/project
-alias or a Manifest revision.
+Every interactive Workspace can reach plain HTTP on the physical host's IPv4
+loopback through exact authority `host.tobari.internal:{port}`. The capability
+is owned by the canonical interactive attachment session. Its authority is the
+conjunction of exact hostname, non-privileged port, method/path, trusted
+ContextID/WorkspaceID principal, live Attachment Epoch, exact reviewed grant,
+and fresh route validation. `.internal`, DNS success, Template identity, and
+Policy Memory grant nothing by themselves.
 
-## Why now
-
-The current `host.tobari.test` name is globally collision-resistant and works
-with Tobari's synthetic DNS, but RFC 2606 assigns `.test` to testing. Tobari
-uses it for a real, reviewed development capability. ICANN has since
-permanently reserved `.internal` from root delegation for private-use
-applications, while `.internal` is not an IANA Special-Use name with mandated
-resolver short-circuit behavior. Choosing the long-lived name before the first
-public release avoids teaching agents and users a testing metaphor or carrying
-a routable compatibility alias across an authority boundary.
+Exact retired `host.tobari.test` remains terminal and non-learnable throughout
+V1. It has no alias, redirect, translation, ordinary-policy fallback, external
+DNS, Broker, upstream, relay, or retry path.
 
 ## Non-goals
 
-- Adding HTTPS, raw TCP, UDP, privileged ports, LAN reachability, host service
-  discovery, or host Docker control.
-- Changing what `localhost` means inside a Workspace; it continues to mean the
-  Workspace's own loopback.
-- Changing opposite-direction Workspace service exposure from its reviewed
-  numeric host authority in ADR 0074.
-- Exposing `host.docker.internal`, `host-gateway`, the synthetic Gateway IP,
-  relay tokens, or Gateway topology as public or policy identity.
-- Treating `.internal`, any `.internal` suffix, or a successful DNS answer as
-  permission, private-destination eligibility, or trusted provenance.
-- Adding a routable alias, redirect, CNAME, wildcard, search suffix, or learned
-  rule that accepts `host.tobari.test` after the cutover.
-- Rotating the shared Gateway root CA solely because the HTTP authority name
-  changes.
-- Adding Host Loopback or Attachment Grant state to Workspace Manifest desired,
-  last-applied, observed, or failure state.
-- Letting a Workspace Manifest revision publication mutate, widen, inherit, or
-  reactivate an Attachment Grant.
-- Deciding ADR 0079's open Manifest revision retention, Git fallback slice, child
-  session default behavior, or the general Docker evidence sufficient for the
-  upper migration. WP 05's own cutover precondition is fixed as cluster stopped
-  plus zero live attachment.
-- Preempting or duplicating the durable Workspace Manifest implementation in
-  Workspace Manifest, Catalog, state, schema, migration, CA/DNS, or policy
-  contracts.
-- Changing ADR 0079's accepted one-time copy commands or adding copy provenance,
-  lineage, `copied_from`, inheritance, reconciliation, or attachment copying.
-- Changing WP 03's accepted Runtime delete/prune/restore/build commands,
-  protection graph, history retention, `last_used` semantics, or Catalog-wide
-  nested-reference invariant.
+- HTTPS, raw TCP, UDP, privileged ports, LAN access, service discovery, or host Docker control.
+- Changing Workspace `localhost`, opposite-direction service exposure, or infrastructure-only `host.docker.internal`.
+- Adding a command, public resource, selector, reference kind, wildcard, suffix authority, or AuthorityRevision.
+- Putting Host Loopback state in Workspace Template desired/applied state, Context Policy Memory, Workspace AppliedEntry, observation, or Runtime protection.
+- Reading, translating, deleting, or migrating predecessor route/grant/cache bytes. ADR 0084's final-only clean break owns their refusal.
+- Changing frozen private `context`, `context_id`, or `project_id` wire tokens; their values are final ContextID, WorkspaceID, and Context presentation.
+- Changing WP07 permission ingestion, wait authority, service exposure, research authentication, or WP03 Runtime mechanisms.
 
 ## Acceptance criteria
 
-- [ ] `host.tobari.internal` is the sole routable Host Loopback presentation
-      authority and the exact policy, route, grant, denial, review, and audit
-      identity; all matches are exact, never suffix-based.
-- [ ] One fresh interactive attachment projects scheme `http` with authority
-      `host.tobari.internal:{port}`, while `localhost` still names the
-      Workspace and `host.docker.internal` remains infrastructure-only.
-- [ ] Throughout V1, a request to the retired `host.tobari.test` authority
-      produces a fixed,
-      secret-free, non-learnable retirement fault and performs zero external-
-      DNS/upstream/Broker/relay/retry work or policy-grant mutation.
-      Removing this terminal guard requires a separate ADR and negative safety
-      evidence.
-- [ ] Transient route and attachment-grant registries use schema V2, include
-      only the new authority, and issue new opaque route/grant IDs; every old
-      reference is stale. Route ID V2 directly binds the exact hostname and no
-      independent AuthorityRevision concept exists.
-- [ ] Public/helper-visible `TOBARI_CAPABILITIES_JSON` remains schema V1 and
-      replaces only the hostname value. It exposes neither a dual old/new value
-      nor a schema-2 compatibility surface; public capability schema and
-      internal transient-registry schema are tested as separate contracts.
-- [ ] Public route, grant, denial, review, audit, and principal presentation
-      uses routine label Manifest plus `workspace_manifest`,
-      `workspace_manifest_id`, `workspace_id`, and subordinate `project_root`.
-      Frozen schema-V1 principal, Gateway-to-OPA, OPA learned-policy, and Host
-      Loopback compatibility wires retain their exact `context`, `context_id`,
-      and `project_id` spellings while carrying Workspace Manifest/Workspace
-      identity; those spellings are not public aliases or project-root identity.
-- [ ] Host Loopback and Attachment Grant remain attachment-owned authority
-      outside Workspace Manifest desired/applied state. Publishing a new
-      Manifest revision neither changes an active exact grant nor carries it
-      into a new Attachment Epoch.
-- [ ] A presentation-only recommended Manifest draft, an absent Manifest
-      catalog, and every read-only status/list/show/doctor path create no route,
-      grant, principal, or persisted Host Loopback authority. Only explicit
-      Workspace entry may establish the attachment branch.
-- [ ] Existing `migrate apply` is the sole cleanup/cutover owner. After
-      revalidating cluster stopped, zero live attachment, exact owner, exact
-      predecessor schema, and exact old hostname, it atomically replaces only
-      matching transient route/grant registries with empty schema-V2
-      registries. No new maintenance command, translation, implicit reader
-      cleanup, or cleanup by attachment startup, status/doctor, or `cluster up`
-      exists.
-- [x] WP05 began only after the promoted Workspace Manifest/copy-contract
-      stage, WP08, WP03, WP04, and WP07 were integrated at exact HEAD
-      `97dd314bf00f152d1b1a127089354afd63eacd0c`; the clean independent
-      worktree, governing contracts, final identity/schema surfaces, and
-      session-owner seams were re-observed and accepted before production code.
-- [ ] WP 05 migration never consults nonexistent provenance or `copied_from`
-      state, copies attachment authority, or treats an ADR 0079 copy action as
-      reconciliation. Verification of copy behavior remains governed by ADR
-      0079 and its durable contract tests.
-- [ ] WP 05 keeps Runtime retirement as a separate authority graph. It treats
-      Host Loopback route/grant state as neither Runtime revision/history/
-      material nor `last_used` evidence, and it neither modifies WP 03 commands
-      nor creates a Runtime-specific reference validator. Verification of the
-      Runtime lifecycle remains owned by WP 03.
-- [ ] Human help, README examples, agent guidance, structured JSON output,
-      capability projection, generated documentation sources, and recovery
-      text name only the new authority, except an explicit migration note and
-      negative retirement tests.
-- [ ] HTTP-only behavior, Host/SNI consistency, the exact private-destination
-      ceiling exception, and the existing post-policy authenticated relay are
-      unchanged. Denied/retired HTTPS is terminally classified before leaf
-      certificate generation. No new trust boundary or public concept is
-      introduced.
-- [ ] Gateway forwards the exact new Host authority unchanged to physical-host
-      `127.0.0.1`; route, grant, policy, and audit use the same identity. No
-      compatibility Host rewrite is introduced.
-- [ ] The release compatibility matrix covers the standard Runtime's actual
-      libc/getaddrinfo curl path, Python, applicable Go pure/cgo paths, and Node
-      DNS plus HTTP. Java/browser are optional observations unless present in
-      the standard Runtime. Every gated path proves Tobari synthetic DNS, zero
-      external lookup, and exact Host preservation.
-- [ ] The existing shared Gateway CA remains byte-identical across the rename
-      scenario; TLS to both new and retired names remains unavailable with no
-      host relay or leaf generation. If an old-host leaf cache entry is
-      observed, only `migrate apply` may remove its exact owner-verified entry;
-      broad cache deletion and root CA rotation remain forbidden.
-- [ ] `task check`, `task security`, `task public:check`,
-      `task release:check`, and the relevant clean Docker integration journey
-      pass on the integrated implementation.
+- [ ] `host.tobari.internal` is the sole routable Host Loopback hostname in capability, route, grant, denial, review, policy, audit, relay, docs, and supported tests.
+- [ ] `host.tobari.test` is rejected immediately after normalized HTTP authority and before principal, credentials, registry, OPA, permission wait, DNS/upstream, or relay work.
+- [ ] Public `TOBARI_CAPABILITIES_JSON` remains schema V1; private route/grant registries are strict schema V2 and issue fresh hostname-bound opaque IDs.
+- [ ] Frozen private keys carry ContextID/WorkspaceID/Context presentation only. Template identity and Policy Memory never enter attachment authority.
+- [ ] Exact current Host is preserved while the authenticated relay dials physical `127.0.0.1`; sibling and wildcard names receive no Host Loopback authority.
+- [ ] Current, retired, malformed, absent-SNI, ECH-unobservable, and mismatched Host Loopback TLS are terminal before leaf creation/cache insertion and before HTTP/upstream hooks. The root CA is not rotated and cache bytes never authorize.
+- [ ] Clean final absence creates only schema-V2 registries. Predecessor Host Loopback presence blocks final initialization without decoding or mutation; no command performs implicit cleanup.
+- [ ] Release coverage proves synthetic DNS, zero external lookup, and exact Host for standard Runtime curl/libc, Python, applicable Go pure/cgo, and Node clients.
+- [ ] README, durable contracts, agent guidance, source snapshots, and release/public guards agree; old-name occurrences are only retirement/history/negative evidence.
+- [ ] Focused suites, supported isolated Docker canaries, `task check`, `task security`, `task public:check`, and `task release:check` pass.
 
-## Governing documents
+## Integration state
 
-- Thesis: [docs/00_theses.md](../../00_theses.md), especially narrow Host Loopback authority,
-  synthetic DNS, attachment lifetime, and public mental-model claims
-- Product contract section: [docs/01_product_contract.md](../../01_product_contract.md), Host Loopback,
-  authority lifetimes, Workspace capability projection, and compatibility
-- Architecture or security invariant: [docs/02_architecture.md](../../02_architecture.md) Host Loopback
-  order and relay; [docs/03_security_model.md](../../03_security_model.md) exact separate policy branch,
-  no pre-policy external I/O, private ceiling, and Gateway CA boundary
-- Harness and readiness: [docs/04_harness.md](../../04_harness.md) Host Loopback claim and
-  [docs/09_agent_readiness_validation.md](../../09_agent_readiness_validation.md) authority-lifetime scenario
-- Host Loopback decision: ADR 0049 defines the HTTP attachment lease and
-  [ADR 0083](../../decisions/0083-name-the-physical-host-loopback-authority.md)
-  revises its name, hard cutover, migration, TLS, and CA contract; ADR 0074
-  proves the opposite-direction loopback authority must stay separate
-- Accepted upper-level decision: [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md)
-  defines Workspace Manifest/Workspace identity, desired/applied separation,
-  attachment exclusion, the pre-public migration boundary, and target-specific
-  one-time copy with no lineage or attachment copying. Commits `07535a9` and
-  `428812f` are upstream promotion evidence; the final integrated contracts
-  were re-observed at `97dd314b` before implementation.
-- Accepted adjacent decision: WP 03 fixes Runtime retirement and its
-  protection graph without owning Host Loopback naming
-- Satisfied integration order: Workspace Manifest/copy-contract promotion,
-  WP08 Catalog/domain output conformance, WP03 Runtime retirement, WP04
-  build-surface contract, WP07 permission resume, then WP05 on integrated
-  `97dd314bf00f152d1b1a127089354afd63eacd0c`
+Implementation resumed from clean exact integrated HEAD
+`583d4e1e32b74107b6347b8addd622c44e6fb48e`. It already contains WP03,
+WP04, WP07, accepted WP05 durable concern `0bbd9deb424814ab92eed0b816e2c565e4b8f6d3`,
+and final WP11 authority. WP05 consumes final ContextID/WorkspaceID and
+Workspace Template projection; it does not replay the accepted commit or
+revive predecessor Manifest migration.
 
 ## Completion definition
 
-The work is complete when acceptance criteria have evidence, ADR 0049 and all
-affected durable contracts agree on one exact authority, schema and retirement
-behavior are mechanically enforced, required profiles pass, temporary
-implementation diagnostics are removed, and this temporary packet is removed
-from the final tree. On implementation completion, notify control thread
+Promote lasting evidence to durable contracts and tests, delete this temporary
+packet, leave a clean committed worktree, and notify control thread
 `01a02c51-885b-7b80-a66f-05850f48ba4d` with
-`WP05_IMPLEMENTATION_COMPLETE`; an actual implementation blocker is reported
-as `WP05_BLOCKED`. Accepted/Fix is the active implementation plan, not a claim
-that implementation is complete.
+`WP05_IMPLEMENTATION_COMPLETE`. Report `WP05_BLOCKED` only for a genuine
+supported-flow P0/P1 blocker.
