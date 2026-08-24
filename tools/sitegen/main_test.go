@@ -72,9 +72,11 @@ func TestGenerateCatalogUsesExecutableAgentHelp(t *testing.T) {
 		"doctor", "help", "version",
 		"cluster up", "cluster status", "cluster down",
 		"policy candidates", "policy allow", "policy deny",
-		"manifest list", "manifest show", "manifest default set",
+		"template list", "template show", "template default set",
+		"context list", "context show", "context create", "context enter",
+		"workspace list", "workspace status", "workspace delete",
 		"runtime list", "runtime show", "runtime create", "runtime history", "runtime build",
-		"tobari", "status", "list", "delete",
+		"tobari", "status",
 	} {
 		if _, exists := rootPaths[required]; !exists {
 			t.Errorf("required public command %q is missing", required)

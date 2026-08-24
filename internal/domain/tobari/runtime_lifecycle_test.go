@@ -92,7 +92,7 @@ func TestPlanRuntimePruneIsDeterministicAndExcludesProtectedMaterial(t *testing.
 	second := "sha256:" + strings.Repeat("c", 64)
 	bytes := int64(2048)
 	manifest := lifecycleRuntime(id, "frontend", first, second)
-	protection := RuntimeProtection{RuntimeID: id, RuntimeRevision: first, Reason: RuntimeProtectedByManifestCurrent, WorkspaceManifestID: "018bcfe5-687b-7000-8000-000000000088", ManifestRevision: "sha256:" + strings.Repeat("d", 64)}
+	protection := RuntimeProtection{RuntimeID: id, RuntimeRevision: first, Reason: RuntimeProtectedByTemplateCurrent, WorkspaceTemplateID: "018bcfe5-687b-7000-8000-000000000088", TemplateRevision: SemanticDigest("sha256:" + strings.Repeat("d", 64))}
 	snapshot := lifecycleSnapshot([]RuntimeManifest{manifest}, []RuntimeProtection{protection}, []RuntimeMaterialObservation{
 		{RuntimeID: id, Revision: second, Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, OwnershipVerified: true, ObservationComplete: true, ImageVirtualBytes: &bytes},
 		{RuntimeID: id, Revision: first, Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, OwnershipVerified: true, ObservationComplete: true},
@@ -316,7 +316,7 @@ func TestRuntimePrunePlanIdentityChangesWithAuthorityEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	protection := RuntimeProtection{RuntimeID: id, RuntimeRevision: revision, Reason: RuntimeProtectedByManifestCurrent, WorkspaceManifestID: "018bcfe5-687b-7000-8000-000000000088", ManifestRevision: "sha256:" + strings.Repeat("d", 64)}
+	protection := RuntimeProtection{RuntimeID: id, RuntimeRevision: revision, Reason: RuntimeProtectedByTemplateCurrent, WorkspaceTemplateID: "018bcfe5-687b-7000-8000-000000000088", TemplateRevision: SemanticDigest("sha256:" + strings.Repeat("d", 64))}
 	protected, err := PlanRuntimePrune(lifecycleSnapshot([]RuntimeManifest{manifest}, []RuntimeProtection{protection}, available), time.Unix(10, 0).UTC())
 	if err != nil {
 		t.Fatal(err)
@@ -381,7 +381,7 @@ func TestRuntimePrunePlanValidateRejectsDirectInvalidConstruction(t *testing.T) 
 			plan.Protected = []RuntimeProtection{{RuntimeID: id, RuntimeRevision: revision}}
 		},
 		"duplicate protection": func(plan *RuntimePrunePlan) {
-			item := RuntimeProtection{RuntimeID: id, RuntimeRevision: revision, Reason: RuntimeProtectedByManifestCurrent, WorkspaceManifestID: "018bcfe5-687b-7000-8000-000000000088", ManifestRevision: "sha256:" + strings.Repeat("d", 64)}
+			item := RuntimeProtection{RuntimeID: id, RuntimeRevision: revision, Reason: RuntimeProtectedByTemplateCurrent, WorkspaceTemplateID: "018bcfe5-687b-7000-8000-000000000088", TemplateRevision: SemanticDigest("sha256:" + strings.Repeat("d", 64))}
 			plan.Protected = []RuntimeProtection{item, item}
 		},
 		"duplicate blocker": func(plan *RuntimePrunePlan) {
@@ -479,11 +479,11 @@ func TestRuntimeLifecycleSnapshotKeepsPruneRecoveryReachableDuringExactBuildClea
 func TestRuntimePrunePlanValidateRequiresCanonicalProtectionAndBlockerOrder(t *testing.T) {
 	id := "018bcfe5-687b-7000-8000-000000000077"
 	revision := "sha256:" + strings.Repeat("a", 64)
-	manifestID := "018bcfe5-687b-7000-8000-000000000088"
-	manifestRevision := "sha256:" + strings.Repeat("d", 64)
+	templateID := WorkspaceTemplateID("018bcfe5-687b-7000-8000-000000000088")
+	templateRevision := SemanticDigest("sha256:" + strings.Repeat("d", 64))
 	protections := []RuntimeProtection{
-		{RuntimeID: id, RuntimeRevision: revision, Reason: RuntimeProtectedByManifestRetained, WorkspaceManifestID: manifestID, ManifestRevision: manifestRevision},
-		{RuntimeID: id, RuntimeRevision: revision, Reason: RuntimeProtectedByManifestCurrent, WorkspaceManifestID: manifestID, ManifestRevision: manifestRevision},
+		{RuntimeID: id, RuntimeRevision: revision, Reason: RuntimeProtectedByTemplateRetained, WorkspaceTemplateID: templateID, TemplateRevision: templateRevision},
+		{RuntimeID: id, RuntimeRevision: revision, Reason: RuntimeProtectedByTemplateCurrent, WorkspaceTemplateID: templateID, TemplateRevision: templateRevision},
 	}
 	blockers := []RuntimeMaterialBlocker{
 		{RuntimeID: id, Revision: revision, Reason: RuntimeBlockedByWorkspaceContainer},
@@ -537,7 +537,7 @@ func TestRuntimePrunePlanValidateRejectsCandidateProtectionOrBlockerOverlap(t *t
 	}
 
 	protectionOverlap := valid
-	protectionOverlap.Protected = []RuntimeProtection{{RuntimeID: id, RuntimeRevision: revision, Reason: RuntimeProtectedByManifestCurrent, WorkspaceManifestID: "018bcfe5-687b-7000-8000-000000000088", ManifestRevision: "sha256:" + strings.Repeat("d", 64)}}
+	protectionOverlap.Protected = []RuntimeProtection{{RuntimeID: id, RuntimeRevision: revision, Reason: RuntimeProtectedByTemplateCurrent, WorkspaceTemplateID: "018bcfe5-687b-7000-8000-000000000088", TemplateRevision: SemanticDigest("sha256:" + strings.Repeat("d", 64))}}
 	protectionOverlap.PlanRef, err = runtimePrunePlanAuthorityRef(protectionOverlap.Candidates, protectionOverlap.Protected, protectionOverlap.Blockers, protectionOverlap.Storage, protectionOverlap.RetirementGenerations)
 	if err != nil {
 		t.Fatal(err)

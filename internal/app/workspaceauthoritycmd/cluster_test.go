@@ -1,0 +1,168 @@
+package workspaceauthoritycmd
+
+import (
+	"context"
+	"errors"
+	"reflect"
+	"testing"
+
+	"github.com/tasuku43/tobari/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/domain/operation"
+	"github.com/tasuku43/tobari/internal/domain/tobari"
+)
+
+type fakeFinalClusterPort struct {
+	plan  tobari.WorkspaceAuthorityClusterReconciliationPlan
+	err   error
+	calls int
+}
+
+func (f *fakeFinalClusterPort) Reconcile(context.Context) (tobari.WorkspaceAuthorityClusterReconciliationPlan, error) {
+	f.calls++
+	return f.plan, f.err
+}
+
+func finalClusterPlanFixture(t *testing.T) tobari.WorkspaceAuthorityClusterReconciliationPlan {
+	t.Helper()
+	snapshot := snapshotFixture(t, false, false)
+	previous, changed, err := tobari.PublishWorkspaceAuthorityCollection(
+		[]tobari.WorkspaceTemplate{snapshot.Template},
+		[]tobari.WorkspaceAuthorityContextRecord{{Context: snapshot.Context, PolicyMemory: snapshot.PolicyMemory}},
+		[]tobari.WorkspaceBinding{}, []tobari.PolicyCandidateAuthority{}, nil, nil,
+	)
+	if err != nil || !changed {
+		t.Fatalf("publish inactive final authority: changed=%t err=%v", changed, err)
+	}
+	transition, err := tobari.PlanWorkspaceAuthorityClusterReconciliation(previous)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return transition.Plan
+}
+
+func finalClusterIntent() operation.Intent {
+	return intent(
+		TaskClusterUp, operation.EffectCreate,
+		operation.TargetRef{Kind: tobari.ClusterTargetKind, ParentID: tobari.ClusterTargetID},
+		FinalClusterUpImpact(),
+	)
+}
+
+func TestFinalClusterServiceBindsFixedTargetAndReturnsExactReceipts(t *testing.T) {
+	port := &fakeFinalClusterPort{plan: finalClusterPlanFixture(t)}
+	result, err := NewFinalClusterService(port).Reconcile(context.Background(), finalClusterIntent())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if port.calls != 1 || result.Task != tobari.TaskClusterUp || result.Generation != port.plan.NextGeneration ||
+		result.CollectionRevision != port.plan.NextRevision || result.ContentDigest != port.plan.Projection.ContentDigest ||
+		result.PlanDigest != port.plan.Projection.PlanDigest || !result.Applied || len(result.Contexts) != 1 {
+		t.Fatalf("final cluster result=%#v calls=%d", result, port.calls)
+	}
+	want := port.plan.Projection.Contexts[0]
+	got := result.Contexts[0]
+	if got.ContextID != want.ContextID || got.WorkspaceTemplateID != want.TemplateID ||
+		got.TemplatePolicy != want.TemplateReceipt || got.PolicyMemory != want.MemoryReceipt {
+		t.Fatalf("independent receipts=%#v want projection=%#v", got, want)
+	}
+	if err := result.Validate(); err != nil {
+		t.Fatalf("validated final cluster result: %v", err)
+	}
+
+	// The task result owns a clone rather than retaining adapter-owned slice
+	// aliases that could relabel a confirmed publication after return.
+	port.plan.Projection.Contexts[0].MemoryReceipt.Revision = digest("9")
+	if err := result.Validate(); err != nil {
+		t.Fatalf("adapter alias changed confirmed result: %v", err)
+	}
+}
+
+func TestFinalClusterServiceRejectsEveryMutationDimensionBeforeAdapter(t *testing.T) {
+	valid := finalClusterIntent()
+	tests := map[string]func(*operation.Intent){
+		"command": func(value *operation.Intent) { value.Command = "cluster down" },
+		"effect": func(value *operation.Intent) {
+			value.Effect = operation.EffectWrite
+			value.Target = operation.TargetRef{Kind: tobari.ClusterTargetKind, ID: tobari.ClusterTargetID}
+		},
+		"kind":   func(value *operation.Intent) { value.Target.Kind = tobari.PolicyDecisionSetKind },
+		"scope":  func(value *operation.Intent) { value.Target.ParentID = "another-cluster" },
+		"impact": func(value *operation.Intent) { value.Impact.AccessChange = operation.DeclarationYes },
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			port := &fakeFinalClusterPort{plan: finalClusterPlanFixture(t)}
+			request := valid
+			mutate(&request)
+			if _, err := NewFinalClusterService(port).Reconcile(context.Background(), request); err == nil || port.calls != 0 {
+				t.Fatalf("invalid %s reached adapter: calls=%d err=%v", name, port.calls, err)
+			}
+		})
+	}
+}
+
+func TestFinalClusterServiceRejectsInvalidAdapterResultAsUnknownConfirmedBoundary(t *testing.T) {
+	plan := finalClusterPlanFixture(t)
+	plan.Projection.Contexts[0].MemoryReceipt.Revision = digest("8")
+	port := &fakeFinalClusterPort{plan: plan}
+	_, err := NewFinalClusterService(port).Reconcile(context.Background(), finalClusterIntent())
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "invalid_cluster_reconciliation_result" ||
+		public.Phase != fault.PhaseVerification || public.ChangeState != fault.ChangeUnknown || port.calls != 1 {
+		t.Fatalf("invalid result fault=%#v ok=%t calls=%d", public, ok, port.calls)
+	}
+}
+
+func TestFinalClusterServicePreservesLegacyAndUnknownMutationClassification(t *testing.T) {
+	t.Run("legacy before effect", func(t *testing.T) {
+		port := &fakeFinalClusterPort{err: tobari.ErrPreReleaseLegacyAuthority}
+		_, err := NewFinalClusterService(port).Reconcile(context.Background(), finalClusterIntent())
+		public, ok := fault.PublicCopy(err)
+		if !ok || public.Code != "legacy_state_present" || public.Phase != fault.PhasePrecondition ||
+			public.ChangeState != fault.ChangeNone || port.calls != 1 {
+			t.Fatalf("legacy fault=%#v ok=%t calls=%d", public, ok, port.calls)
+		}
+	})
+	t.Run("unclassified adapter failure", func(t *testing.T) {
+		port := &fakeFinalClusterPort{err: errors.New("unknown settlement result")}
+		_, err := NewFinalClusterService(port).Reconcile(context.Background(), finalClusterIntent())
+		public, ok := fault.PublicCopy(err)
+		if !ok || public.Code != "unclassified_mutation_outcome" || public.Phase != fault.PhaseMutation ||
+			public.ChangeState != fault.ChangeUnknown || port.calls != 1 {
+			t.Fatalf("unknown fault=%#v ok=%t calls=%d", public, ok, port.calls)
+		}
+	})
+}
+
+func TestFinalClusterReconciliationValidationRejectsRelabeledConsequence(t *testing.T) {
+	result, err := NewFinalClusterReconciliation(finalClusterPlanFixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := map[string]func(*FinalClusterReconciliation){
+		"schema":   func(value *FinalClusterReconciliation) { value.SchemaVersion = 1 },
+		"task":     func(value *FinalClusterReconciliation) { value.Task = tobari.TaskClusterStatus },
+		"revision": func(value *FinalClusterReconciliation) { value.CollectionRevision = digest("8") },
+		"content":  func(value *FinalClusterReconciliation) { value.ContentDigest = digest("8") },
+		"plan":     func(value *FinalClusterReconciliation) { value.PlanDigest = digest("8") },
+		"receipt":  func(value *FinalClusterReconciliation) { value.Contexts[0].PolicyMemory.Revision = digest("8") },
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			copy := result
+			copy.Contexts = append([]FinalClusterContextActivation{}, result.Contexts...)
+			copy.Plan = result.Plan
+			copy.Plan.Projection = result.Plan.Projection.Clone()
+			mutate(&copy)
+			if err := copy.Validate(); err == nil {
+				t.Fatalf("relabeled %s consequence validated: %#v", name, copy)
+			}
+		})
+	}
+
+	copy := result
+	copy.Contexts = []FinalClusterContextActivation{}
+	if reflect.DeepEqual(copy.Contexts, result.Contexts) || copy.Validate() == nil {
+		t.Fatal("missing Context receipt set validated")
+	}
+}

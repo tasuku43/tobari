@@ -140,6 +140,46 @@ func TestWorkspaceTemplateRevisionNoOpAndABAReturn(t *testing.T) {
 	}
 }
 
+func TestWorkspaceTemplateRevisionPublicationBindsExactTargetAndReviewedDelta(t *testing.T) {
+	previous, err := NewWorkspaceTemplateRevision(testTemplateAuthorityID, 1, templateBodyFixture("a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := "xterm-256color"
+	change := WorkspaceTemplateChange{Kind: WorkspaceTemplateChangeShell, Shell: []ManifestShellEnvironmentSetting{{Variable: "TERM", Source: ManifestShellEnvironmentLiteral, Value: &value}}}
+	reviewed, err := ApplyWorkspaceTemplateChange(previous.Body, change, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, changed, err := AdvanceWorkspaceTemplateRevision(previous, reviewed)
+	if err != nil || !changed {
+		t.Fatal(err)
+	}
+	template := WorkspaceTemplate{
+		SchemaVersion: WorkspaceTemplateSchemaVersion, ID: testTemplateAuthorityID, Name: "restricted",
+		Current: current, Retained: []WorkspaceTemplateRevision{previous, current},
+	}
+	ref, _ := WorkspaceTemplateRef(testTemplateAuthorityID)
+	publication := WorkspaceTemplateRevisionPublication{Template: template, Previous: previous, Current: current, Changed: true}
+	if err := publication.ValidateFor(ref, change); err != nil {
+		t.Fatal(err)
+	}
+	other := "screen"
+	wrongChange := WorkspaceTemplateChange{Kind: WorkspaceTemplateChangeShell, Shell: []ManifestShellEnvironmentSetting{{Variable: "TERM", Source: ManifestShellEnvironmentLiteral, Value: &other}}}
+	if err := publication.ValidateFor(ref, wrongChange); err == nil {
+		t.Fatal("publication accepted another reviewed delta")
+	}
+	otherRef, _ := WorkspaceTemplateRef(WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789a4"))
+	if err := publication.ValidateFor(otherRef, change); err == nil {
+		t.Fatal("publication accepted another Template target")
+	}
+	broken := publication
+	broken.Current.Generation++
+	if err := broken.ValidateFor(ref, change); err == nil {
+		t.Fatal("publication accepted an unretained result revision")
+	}
+}
+
 func TestWorkspaceTemplateRequiresExactRetainedCurrentAndCloneIsolation(t *testing.T) {
 	first, err := NewWorkspaceTemplateRevision(testTemplateAuthorityID, 1, templateBodyFixture("a"))
 	if err != nil {
@@ -431,13 +471,35 @@ func TestWorkspaceEntryPlanAndExactContainerReceiptBindCurrentAuthority(t *testi
 		RuntimeRevision: revision.Slices.RuntimeRevision, ResolvedSpec: authorityDigest("7"), ReconciledAt: time.Unix(2, 0).UTC(),
 	}
 	workspace := WorkspaceBinding{SchemaVersion: WorkspaceBindingSchemaVersion, ID: testWorkspaceAuthorityID, ContextID: testContextAuthorityID, ProjectRoot: contextBinding.ProjectRoot, Home: "/workspace/home", CreationDefaults: revision.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied}
-	plan := WorkspaceEntryReconciliationPlan{Workspace: workspace, Applied: applied}
+	authority, err := DeriveWorkspaceTemplateEntryAuthority(template.Current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, network, err := ProjectResourceNames(string(workspace.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := WorkspaceEntryReconciliationPlan{
+		Workspace: workspace, Applied: applied, Authority: authority,
+		CreationDefaults: revision.Body.CreationDefaults.Clone(),
+		Network:          WorkspaceRuntimeNetworkAuthority{Network: network, Subnet: "10.64.0.0/24", DockerGateway: "10.64.0.1", GatewayIP: "10.64.0.2", WorkspaceIP: "10.64.0.3"},
+	}
 	if err := plan.ValidateFor(snapshot); err != nil {
 		t.Fatal(err)
 	}
 	receipt := WorkspaceEntryReconciliationReceipt{WorkspaceID: workspace.ID, ContextID: contextBinding.ID, Applied: applied, ContainerID: strings.Repeat("a", 64)}
 	if err := receipt.ValidateFor(plan); err != nil {
 		t.Fatal(err)
+	}
+	wrongNetwork := plan.Clone()
+	wrongNetwork.Network.WorkspaceIP = wrongNetwork.Network.GatewayIP
+	if err := wrongNetwork.ValidateFor(snapshot); err == nil {
+		t.Fatal("Workspace entry plan accepted colliding Workspace/Gateway addresses")
+	}
+	wrongCreation := plan.Clone()
+	wrongCreation.CreationDefaults.Bootstrap = &ManifestBootstrapSnapshot{}
+	if err := wrongCreation.ValidateFor(snapshot); err == nil {
+		t.Fatal("Workspace entry plan accepted another retained creation authority")
 	}
 
 	for name, containerID := range map[string]string{

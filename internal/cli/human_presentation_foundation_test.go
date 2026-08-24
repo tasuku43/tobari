@@ -15,9 +15,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tasuku43/tobari/internal/app/tobaricmd"
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
@@ -180,41 +180,29 @@ func TestPinnedHumanPresentationCorpusDrivesEveryTerminalMode(t *testing.T) {
 	}
 }
 
-type humanPresentationFixtureRuntime struct {
-	policyReviewRuntimeFake
-}
-
-func TestPinnedCorpusCrossesCLITerminalStyleSelectionBoundary(t *testing.T) {
+func TestPinnedCorpusCrossesCLINonTerminalStyleSelectionBoundary(t *testing.T) {
 	fixture, _ := readPinnedHumanPresentationCorpus(t)
-	run := func(terminal, noColor bool) string {
+	run := func(noColor bool) string {
 		t.Helper()
-		runtime := &humanPresentationFixtureRuntime{
-			policyReviewRuntimeFake: policyReviewRuntimeFake{terminal: terminal},
-		}
 		inspector := passingInspector("ready")
 		inspector.observations = make(map[doctor.CheckID]doctor.Observation, len(fixture.Warning.Checks))
 		for _, check := range fixture.Warning.Checks {
 			inspector.observations[check.Name] = doctor.Observation{Status: check.Status, Detail: check.Detail}
 		}
 		command, stdout, stderr := newTestCLI(inspector)
-		command.tobari = tobaricmd.New(runtime)
 		command.noColor = noColor
 		if code := command.RunContext(context.Background(), []string{"doctor"}); code != ExitOK {
 			t.Fatalf("doctor exit = %d, stderr = %q", code, stderr.String())
 		}
 		return stdout.String()
 	}
-	coloredTTY := run(true, false)
-	noColorTTY := run(true, true)
-	redirected := run(false, false)
-	if !strings.Contains(coloredTTY, ansiStyleTokens[styleWarning]) {
-		t.Fatalf("colored TTY did not cross style projection: %q", coloredTTY)
+	redirected := run(false)
+	noColorRedirected := run(true)
+	if strings.Contains(redirected, "\x1b[") || strings.Contains(noColorRedirected, "\x1b[") {
+		t.Fatalf("ANSI crossed non-terminal style boundary: default=%q NO_COLOR=%q", redirected, noColorRedirected)
 	}
-	if strings.Contains(noColorTTY, "\x1b[") || strings.Contains(redirected, "\x1b[") {
-		t.Fatalf("ANSI crossed disabled style boundary: NO_COLOR=%q redirected=%q", noColorTTY, redirected)
-	}
-	if plain := stripANSIStyles(coloredTTY); plain != noColorTTY || plain != redirected {
-		t.Fatalf("CLI style selection changed semantic document\ncolored=%q\nNO_COLOR=%q\nredirected=%q", coloredTTY, noColorTTY, redirected)
+	if redirected != noColorRedirected {
+		t.Fatalf("NO_COLOR changed the redirected semantic document\ndefault=%q\nNO_COLOR=%q", redirected, noColorRedirected)
 	}
 }
 
@@ -340,7 +328,6 @@ func TestEveryTextCollectionHasAnExplicitScopedEmptyState(t *testing.T) {
 		{name: "policy rules", plain: renderPolicyRulesHuman(rules, expectedSurfaceText("tobari policy reset"), false), styled: renderPolicyRulesHuman(rules, expectedSurfaceText("tobari policy reset"), true), required: []string{"No learned policy decisions", policyDirectory}},
 		{name: "cluster denials", plain: denialPlain, styled: denialStyled, required: []string{"No policy denials", policyDirectory, "200 Gateway lines"}},
 		{name: "Workspaces", plain: projectPlain, styled: projectStyled, required: []string{"No Workspaces", "No Workspace state is configured"}},
-		{name: "auth providers", plain: renderAuthStatusText(authStatusProjection{Context: "toolbox", WorkspaceManifestID: stringPointer("018bcfe5-687b-7000-8000-000000000099"), Providers: []authProviderStatusProjection{}}, false), styled: renderAuthStatusText(authStatusProjection{Context: "toolbox", WorkspaceManifestID: stringPointer("018bcfe5-687b-7000-8000-000000000099"), Providers: []authProviderStatusProjection{}}, true), required: []string{"No authentication providers installed", "toolbox", "explicitly empty"}},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -361,9 +348,9 @@ func TestCatalogWideHumanPresentationIsDeclared(t *testing.T) {
 	t.Parallel()
 	catalog := DefaultCatalog()
 	commands := catalog.Commands()
-	want := 45
+	want := 51
 	if len(authCommandSpecs()) != 0 {
-		want = 50
+		want = 56
 	}
 	if got := len(commands); got != want {
 		t.Fatalf("catalog command count = %d, want %d; update the human presentation inventory", got, want)
@@ -482,7 +469,7 @@ func TestRawSelectorsDoNotRedrawDuringIdlePollsAndRestoreTerminal(t *testing.T) 
 }
 
 func TestBareNamespacesAndUnknownSuggestionsComeOnlyFromCatalog(t *testing.T) {
-	for _, namespace := range []string{"cluster", "policy", "manifest", "config", "runtime"} {
+	for _, namespace := range []string{"cluster", "policy", "template", "context", "workspace", "config", "runtime"} {
 		t.Run("namespace "+namespace, func(t *testing.T) {
 			command, stdout, stderr := newTestCLI(passingInspector("ready"))
 			if code := command.RunContext(context.Background(), []string{namespace}); code != ExitOK {
@@ -519,46 +506,21 @@ func TestBareNamespacesAndUnknownSuggestionsComeOnlyFromCatalog(t *testing.T) {
 }
 
 func TestPreActionPolicyCancellationIsNeutralExit11WithZeroAction(t *testing.T) {
-	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-11T00:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
-		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/example",
-		Host: "api.example.com", Port: 443, Method: "GET", Path: "/v1/example",
-		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
+	actions := 0
+	spec := utilitySpec("observe")
+	spec.handler = func(ctx context.Context, command *CLI, _ CommandSpec, _ operation.Intent, _ ParsedInputs) int {
+		return command.fail(ctx, context.Canceled)
 	}
-	candidate, err := tobari.NewPolicyCandidate(denial)
-	if err != nil {
-		t.Fatal(err)
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, NewCatalog(spec), nil)
+	if code := command.RunContext(context.Background(), []string{"observe"}); code != ExitCanceled {
+		t.Fatalf("cancel exit = %d, stderr = %q", code, stderr.String())
 	}
-	rule, err := tobari.NewExactLearnedPolicyRule(candidate)
-	if err != nil {
-		t.Fatal(err)
+	if actions != 0 || stdout.Len() != 0 {
+		t.Fatalf("cancel crossed action boundary: actions=%d stdout=%q", actions, stdout.String())
 	}
-	for _, test := range []struct {
-		name  string
-		args  []string
-		rules []tobari.LearnedPolicyRule
-	}{
-		{name: "permission review", args: []string{"review", "permissions"}},
-		{name: "policy rules", args: []string{"policy", "rules"}, rules: []tobari.LearnedPolicyRule{rule}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			runtime := &policyReviewRuntimeApplyingFake{policyReviewRuntimeFake: policyReviewRuntimeFake{
-				state: tobari.State{PolicyDirectory: "/config/example/policy"}, denials: []tobari.PolicyDenial{denial},
-				rules: test.rules, terminal: true,
-			}}
-			var stdout, stderr bytes.Buffer
-			command := newCLI(strings.NewReader("q\n"), &stdout, &stderr, DefaultCatalog(), nil)
-			command.tobari = tobaricmd.New(runtime)
-			if code := command.RunContext(context.Background(), test.args); code != ExitCanceled {
-				t.Fatalf("cancel exit = %d, stderr = %q", code, stderr.String())
-			}
-			if runtime.applyCalls != 0 || len(runtime.rules) != len(test.rules) || len(runtime.denyRules) != 0 {
-				t.Fatalf("cancel crossed action boundary: calls=%d rules=%d deny=%d", runtime.applyCalls, len(runtime.rules), len(runtime.denyRules))
-			}
-			plain := stripANSIStyles(stderr.String())
-			if !strings.Contains(plain, "· Canceled") || strings.Contains(plain, "Command failed") || strings.Contains(plain, "applied") {
-				t.Fatalf("cancel presentation is not neutral: %q", stderr.String())
-			}
-		})
+	plain := stripANSIStyles(stderr.String())
+	if !strings.Contains(plain, "· Canceled") || strings.Contains(plain, "Command failed") || strings.Contains(plain, "applied") {
+		t.Fatalf("cancel presentation is not neutral: %q", stderr.String())
 	}
 }

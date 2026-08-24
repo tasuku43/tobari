@@ -1127,7 +1127,7 @@ func runtimePruneItemResultKey(item RuntimePruneItemResult) string {
 }
 
 func runtimeProtectionAuthorityKey(item RuntimeProtection) string {
-	return item.RuntimeID + "\x00" + item.RuntimeRevision + "\x00" + string(item.Reason) + "\x00" + item.WorkspaceManifestID + "\x00" + item.ManifestRevision + "\x00" + item.WorkspaceID
+	return item.RuntimeID + "\x00" + item.RuntimeRevision + "\x00" + string(item.Reason) + "\x00" + string(item.WorkspaceTemplateID) + "\x00" + string(item.TemplateRevision) + "\x00" + string(item.ContextID) + "\x00" + string(item.WorkspaceID)
 }
 
 func runtimeMaterialBlockerKey(blocker RuntimeMaterialBlocker) string {

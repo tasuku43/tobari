@@ -12,17 +12,46 @@ import (
 	"github.com/tasuku43/tobari/internal/app/completioncmd"
 	"github.com/tasuku43/tobari/internal/app/contextcmd"
 	"github.com/tasuku43/tobari/internal/app/doctorcmd"
-	"github.com/tasuku43/tobari/internal/app/migrationcmd"
 	"github.com/tasuku43/tobari/internal/app/permissionwaitcmd"
 	"github.com/tasuku43/tobari/internal/app/runtimecmd"
 	"github.com/tasuku43/tobari/internal/app/serviceexposurecmd"
 	"github.com/tasuku43/tobari/internal/app/tobaricmd"
+	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/infra/dockerruntime"
 	"github.com/tasuku43/tobari/internal/infra/systemdoctor"
 	"github.com/tasuku43/tobari/internal/infra/terminal"
 	"github.com/tasuku43/tobari/internal/infra/terminalstyle"
+	"github.com/tasuku43/tobari/internal/infra/workspaceauthoritydoctor"
+	"github.com/tasuku43/tobari/internal/infra/workspaceauthoritysession"
+	"github.com/tasuku43/tobari/internal/infra/workspaceauthoritystore"
+)
+
+// finalWorkspaceAuthorityAdapter is composition only: each embedded adapter
+// continues to own its task-specific boundary while the application services
+// receive one complete final-authority port. It contains no predecessor reader
+// or fallback selector.
+type finalWorkspaceAuthorityAdapter struct {
+	*workspaceauthoritystore.Store
+	*workspaceauthoritystore.Mutator
+	*workspaceauthoritystore.ContextEntryAdapter
+}
+
+var (
+	_ workspaceauthoritycmd.TemplateReadPort            = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.TemplateCreatePort          = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.TemplateCopyPort            = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.TemplateUpdatePort          = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.TemplateDefaultPort         = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.TemplateDeletePort          = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.ContextReadPort             = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.ContextCreatePort           = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.ContextEnterPort            = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.DefaultPairContextEnterPort = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.ContextDeletePort           = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.WorkspaceReadPort           = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.WorkspaceDeletePort         = (*finalWorkspaceAuthorityAdapter)(nil)
 )
 
 // CLI contains injected streams and application services.
@@ -38,22 +67,29 @@ type CLI struct {
 	tobari                 *tobaricmd.Service
 	context                *contextcmd.Service
 	runtime                *runtimecmd.Service
-	migrate                *migrationcmd.Service
-	auth                   *authcmd.Service
+	finalAuth              *authcmd.FinalContextService
 	completion             *completioncmd.Service
 	serviceExposure        *serviceexposurecmd.Service
 	serviceExposureInitErr error
 	researchCLIState
 	permissionWait        *permissionwaitcmd.Service
 	permissionWaitInitErr error
-	config                contextConfigurationWizard
-	contextCreate         contextCreateWizard
-	firstUse              recommendedFirstUseReviewer
-	runtimeChoice         runtimeChoiceWizard
-	authLogin             authLoginProviderSelector
-	policyReview          func(bool) *policyReviewSelector
-	policyNotify          func(io.Writer, string) error
-	noColor               bool
+	authorityStore        *workspaceauthoritystore.Store
+	finalTemplates        *workspaceauthoritycmd.TemplateService
+	finalContexts         *workspaceauthoritycmd.ContextService
+	finalWorkspaces       *workspaceauthoritycmd.WorkspaceService
+	finalPolicy           *workspaceauthoritycmd.PolicyMemoryService
+	finalDefaultPair      *workspaceauthoritycmd.DefaultPairService
+	finalClusterCLIState
+	finalProjectRoot finalProjectRootAuthority
+	config           contextConfigurationWizard
+	contextCreate    contextCreateWizard
+	firstUse         recommendedFirstUseReviewer
+	runtimeChoice    runtimeChoiceWizard
+	authLogin        authLoginProviderSelector
+	policyReview     func(bool) *policyReviewSelector
+	policyNotify     func(io.Writer, string) error
+	noColor          bool
 }
 
 // New builds the production CLI with the Docker-backed Tobari runtime.
@@ -74,14 +110,74 @@ func New(lifetime context.Context, in io.Reader, out, errOut io.Writer) *CLI {
 		return command
 	}
 	command.doctor = doctorcmd.New(runtime)
-	command.tobari = tobaricmd.NewWithWorkspaceSelector(
-		runtime,
-		newWorkspaceSelectorWithStyle(!command.noColor),
-	)
-	command.context = contextcmd.New(runtime)
+	authorityRoot, err := runtime.FinalWorkspaceAuthorityRoot()
+	if err != nil {
+		command.doctor = doctorcmd.New(systemdoctor.New(err))
+		return command
+	}
+	authorityStore, err := workspaceauthoritystore.NewFinalOnly(authorityRoot, runtime)
+	if err != nil {
+		command.doctor = doctorcmd.New(systemdoctor.New(err))
+		return command
+	}
+	if err := runtime.BindFinalRuntimeProtectionSource(authorityStore); err != nil {
+		command.doctor = doctorcmd.New(systemdoctor.New(err))
+		return command
+	}
+	mutator, err := workspaceauthoritystore.NewMutator(lifetime, authorityStore, runtime, runtime, runtime, runtime, runtime)
+	if err != nil {
+		command.doctor = doctorcmd.New(systemdoctor.New(err))
+		return command
+	}
+	finalAuthDoctor, err := configureFinalContextAuth(command, lifetime, authorityStore, mutator, runtime)
+	if err != nil {
+		command.doctor = doctorcmd.New(systemdoctor.New(err))
+		return command
+	}
+	clusterLifecycle, err := workspaceauthoritystore.NewClusterLifecycleAdapter(authorityStore, mutator, runtime)
+	if err != nil {
+		command.doctor = doctorcmd.New(systemdoctor.New(err))
+		return command
+	}
+	clusterReads, err := workspaceauthoritystore.NewClusterReadAdapter(authorityStore, runtime)
+	if err != nil {
+		command.doctor = doctorcmd.New(systemdoctor.New(err))
+		return command
+	}
+	if err := configureFinalClusterCLI(command, mutator, clusterLifecycle, clusterReads); err != nil {
+		command.doctor = doctorcmd.New(systemdoctor.New(err))
+		return command
+	}
+	finalDoctor, err := workspaceauthoritydoctor.New(authorityStore, clusterLifecycle, runtime, finalAuthDoctor)
+	if err != nil {
+		command.doctor = doctorcmd.New(systemdoctor.New(err))
+		return command
+	}
+	command.doctor = doctorcmd.New(finalDoctor)
+	sessions, err := workspaceauthoritysession.New(runtime)
+	if err != nil {
+		command.doctor = doctorcmd.New(systemdoctor.New(err))
+		return command
+	}
+	entry, err := workspaceauthoritystore.NewContextEntryAdapter(mutator, runtime, runtime, sessions, lifetime)
+	if err != nil {
+		command.doctor = doctorcmd.New(systemdoctor.New(err))
+		return command
+	}
+	finalAuthority := &finalWorkspaceAuthorityAdapter{Store: authorityStore, Mutator: mutator, ContextEntryAdapter: entry}
+	command.authorityStore = authorityStore
+	command.finalTemplates = workspaceauthoritycmd.NewTemplateService(finalAuthority)
+	command.finalContexts = workspaceauthoritycmd.NewContextService(finalAuthority)
+	command.finalWorkspaces = workspaceauthoritycmd.NewWorkspaceService(finalAuthority)
+	command.finalPolicy = workspaceauthoritycmd.NewPolicyMemoryService(finalAuthority)
+	defaultPair, err := workspaceauthoritystore.NewDefaultPairAdapter(authorityStore, runtime)
+	if err != nil {
+		command.doctor = doctorcmd.New(systemdoctor.New(err))
+		return command
+	}
+	command.finalDefaultPair = workspaceauthoritycmd.NewDefaultPairService(defaultPair, mutator, command.finalContexts)
+	command.finalProjectRoot = runtime
 	command.runtime = runtimecmd.New(runtime)
-	command.migrate = migrationcmd.New(runtime)
-	command.auth = authcmd.New(runtime)
 	command.completion = completioncmd.New(runtime)
 	command.serviceExposure = serviceexposurecmd.New(runtime)
 	return command
@@ -160,7 +256,6 @@ func (c *CLI) RunContext(ctx context.Context, args []string) int {
 	}
 	options, commandArgs, err := parseRootOptions(args)
 	ctx = withErrorFormat(ctx, options.ErrorFormat)
-	ctx = withExecutionContext(ctx, options.WorkspaceManifestName)
 	if err != nil {
 		return c.failUsage(ctx, "invalid_root_options", err.Error(), "help", "Correct the global options.")
 	}
@@ -211,7 +306,6 @@ func (c *CLI) RunContext(ctx context.Context, args []string) int {
 	if err := ctx.Err(); err != nil {
 		return c.fail(ctx, err)
 	}
-	rest = normalizeLifecycleContextInput(command, options.WorkspaceManifestName, rest)
 	inputs, err := parseCommandInputs(command, rest)
 	if err != nil {
 		var nextActions []fault.NextAction
@@ -245,17 +339,6 @@ func (c *CLI) RunContext(ctx context.Context, args []string) int {
 		}
 	}
 	return command.handler(ctx, c, command, intent, inputs)
-}
-
-// normalizeLifecycleContextInput makes both accepted lifecycle placements one
-// catalog-owned value before the single typed argv parse. Prefix plus
-// command-local placement intentionally becomes a duplicate parser error.
-func normalizeLifecycleContextInput(command CommandSpec, rootContext string, rest []string) []string {
-	normalized := append([]string{}, rest...)
-	if rootContext == "" || command.Agent.CapabilityID != "tobari.lifecycle" {
-		return normalized
-	}
-	return append([]string{"--manifest", rootContext}, normalized...)
 }
 
 func normalizeTrailingHelpAlias(catalog Catalog, args []string) []string {
@@ -392,25 +475,12 @@ func isHelpFlag(value string) bool {
 }
 
 type rootOptions struct {
-	ErrorFormat           errorFormat
-	WorkspaceManifestName string
-}
-
-type executionContextKey struct{}
-
-func withExecutionContext(ctx context.Context, name string) context.Context {
-	return context.WithValue(ctx, executionContextKey{}, name)
-}
-
-func executionContextName(ctx context.Context) string {
-	value, _ := ctx.Value(executionContextKey{}).(string)
-	return value
+	ErrorFormat errorFormat
 }
 
 func parseRootOptions(args []string) (rootOptions, []string, error) {
 	options := rootOptions{ErrorFormat: errorFormatText}
 	seenErrorFormat := false
-	seenContext := false
 	index := 0
 	for index < len(args) {
 		argument := args[index]
@@ -424,30 +494,13 @@ func parseRootOptions(args []string) (rootOptions, []string, error) {
 			value = args[index]
 		case strings.HasPrefix(argument, "--error-format="):
 			value = strings.TrimPrefix(argument, "--error-format=")
-		case argument == "--manifest":
-			if index+1 >= len(args) || seenContext {
-				return options, nil, fmt.Errorf("--manifest requires one Workspace Manifest name")
-			}
-			index++
-			options.WorkspaceManifestName = args[index]
-			if options.WorkspaceManifestName == "" {
-				return options, nil, fmt.Errorf("--manifest requires one Workspace Manifest name")
-			}
-			seenContext = true
-			index++
-			continue
-		case strings.HasPrefix(argument, "--manifest="):
-			if seenContext {
-				return options, nil, fmt.Errorf("--manifest may be specified only once")
-			}
-			options.WorkspaceManifestName = strings.TrimPrefix(argument, "--manifest=")
-			if options.WorkspaceManifestName == "" {
-				return options, nil, fmt.Errorf("--manifest requires one Workspace Manifest name")
-			}
-			seenContext = true
-			index++
-			continue
 		default:
+			if argument == "--help" || argument == "-h" || argument == "--version" || argument == "-v" {
+				return options, args[index:], nil
+			}
+			if strings.HasPrefix(argument, "--") {
+				return options, nil, fmt.Errorf("unknown global option %q", argument)
+			}
 			return options, args[index:], nil
 		}
 		if seenErrorFormat {

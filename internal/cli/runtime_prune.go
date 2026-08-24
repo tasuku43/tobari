@@ -184,7 +184,7 @@ func renderRuntimePrunePlan(path string, plan tobari.RuntimePrunePlan, format su
 	}
 	projection := runtimePrunePlanProjectionFrom(plan)
 	if format == successFormatJSON {
-		output, err := marshalCommandJSON(path, runtimePrunePlanJSONDocument{SchemaVersion: 1, Plan: projection})
+		output, err := marshalCommandJSON(path, runtimePrunePlanJSONDocument{SchemaVersion: 2, Plan: projection})
 		if err != nil {
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "Runtime prune plan output could not be encoded", false, err)
 		}
@@ -219,9 +219,12 @@ func renderRuntimePrunePlan(path string, plan tobari.RuntimePrunePlan, format su
 		output.WriteString("\n")
 		writeContextCardValue(&output, color, "Authority", protection.RuntimeID+" · "+protection.RuntimeRevision, styleText)
 		writeContextCardValue(&output, color, "Reason", string(protection.Reason), styleWarning)
-		writeContextCardValue(&output, color, "Manifest", protection.WorkspaceManifestID+" · "+protection.ManifestRevision, styleText)
+		writeContextCardValue(&output, color, "Template", string(protection.WorkspaceTemplateID)+" · "+string(protection.TemplateRevision), styleText)
+		if protection.ContextID != "" {
+			writeContextCardValue(&output, color, "Context", string(protection.ContextID), styleText)
+		}
 		if protection.WorkspaceID != "" {
-			writeContextCardValue(&output, color, "Workspace", protection.WorkspaceID, styleText)
+			writeContextCardValue(&output, color, "Workspace", string(protection.WorkspaceID), styleText)
 		}
 	}
 	for _, blocker := range plan.Blockers {
@@ -253,7 +256,7 @@ func renderRuntimePruneResult(path string, result tobari.RuntimePruneResult, for
 	}
 	projection := runtimePruneResultProjectionFrom(result)
 	if format == successFormatJSON {
-		output, err := marshalCommandJSON(path, runtimePruneResultJSONDocument{SchemaVersion: 1, Result: projection})
+		output, err := marshalCommandJSON(path, runtimePruneResultJSONDocument{SchemaVersion: 2, Result: projection})
 		if err != nil {
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "Runtime prune result output could not be encoded", false, err)
 		}
@@ -324,12 +327,14 @@ func runtimePruneProtectionOutputFields() []OutputField {
 		{Name: "runtime_id", Type: OutputFieldTypeString, Description: "Protected stable Runtime authority ID."},
 		{Name: "runtime_revision", Type: OutputFieldTypeString, Description: "Protected semantic Runtime revision digest."},
 		{Name: "reason", Type: OutputFieldTypeString, Description: "Exact authority edge preventing retirement.", Enum: []string{
-			string(tobari.RuntimeProtectedByManifestCurrent), string(tobari.RuntimeProtectedByManifestRetained),
+			string(tobari.RuntimeProtectedByTemplateCurrent), string(tobari.RuntimeProtectedByTemplateRetained),
+			string(tobari.RuntimeProtectedByContextDesired),
 			string(tobari.RuntimeProtectedByWorkspaceApplied), string(tobari.RuntimeProtectedByWorkspacePending),
 			string(tobari.RuntimeProtectedByWorkspaceObserved),
 		}},
-		{Name: "workspace_manifest_id", Type: OutputFieldTypeString, Description: "Owning Workspace Manifest stable ID."},
-		{Name: "manifest_revision", Type: OutputFieldTypeString, Description: "Exact immutable Workspace Manifest revision providing the edge."},
+		{Name: "workspace_template_id", Type: OutputFieldTypeString, Description: "Owning Workspace Template stable ID."},
+		{Name: "workspace_template_revision", Type: OutputFieldTypeString, Description: "Exact immutable Workspace Template revision providing the edge."},
+		{Name: "context_id", Type: OutputFieldTypeString, Description: "Owning Context ID for Workspace-derived evidence.", Optional: true},
 		{Name: "workspace_id", Type: OutputFieldTypeString, Description: "Owning Workspace ID for Workspace-derived evidence.", Optional: true},
 	}
 }
@@ -374,12 +379,12 @@ func runtimePrunePlanOutput() CommandOutput {
 			{Name: "empty", Type: OutputFieldTypeBoolean, Description: "Whether no eligible candidates exist."},
 			{Name: "applicable", Type: OutputFieldTypeBoolean, Description: "Whether every observation is complete and the exact plan can be applied."},
 			{Name: "candidates", Type: OutputFieldTypeArray, Description: "Complete ordered exact image-tag retirement candidates.", SemanticScope: "Every eligible managed Runtime revision or settled failed-build artifact in the installation observation.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One exact prune candidate.", Fields: runtimePruneCandidateOutputFields()}},
-			{Name: "protected", Type: OutputFieldTypeArray, Description: "Complete current Runtime protection graph.", SemanticScope: "Every current or retained Workspace Manifest and applied, pending, or observed Workspace protection edge.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One exact protection edge.", Fields: runtimePruneProtectionOutputFields()}},
+			{Name: "protected", Type: OutputFieldTypeArray, Description: "Complete current Runtime protection graph.", SemanticScope: "Every current or retained Workspace Template, desired Context binding, and applied, pending, or observed Workspace protection edge.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One exact protection edge.", Fields: runtimePruneProtectionOutputFields()}},
 			{Name: "blockers", Type: OutputFieldTypeArray, Description: "Complete material, container-use, migration, observation, and lifecycle blockers.", SemanticScope: "Every fail-closed blocker in the same bounded lifecycle observation.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One exact blocker.", Fields: runtimePruneBlockerOutputFields()}},
 			{Name: "storage", Type: OutputFieldTypeArray, Description: "Complete validated Runtime source and snapshot logical-byte evidence.", SemanticScope: "Every managed Runtime source and retained source snapshot in the installation observation.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One Runtime storage observation.", Fields: runtimePruneStorageOutputFields()}},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-		JSONEnvelope: "runtime_prune_plan", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1,
+		JSONEnvelope: "runtime_prune_plan", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 2,
 	}
 }
 
@@ -405,6 +410,6 @@ func runtimePruneResultOutput() CommandOutput {
 			{Name: "history_preserved", Type: OutputFieldTypeBoolean, Description: "Always true: Runtime revision authority and history were preserved."},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-		JSONEnvelope: "runtime_prune_result", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1,
+		JSONEnvelope: "runtime_prune_result", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 2,
 	}
 }

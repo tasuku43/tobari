@@ -68,7 +68,7 @@ func TestInstallationMigrationPreservesAuthorityAndPromotesLegacyRuntime(t *test
 	}
 
 	observation := runtime.observeDoctorContext(context.Background())
-	if observation.Cause != doctor.ObservationCauseMigrationRequired {
+	if observation.Cause != doctor.ObservationCauseLegacyStatePresent {
 		_, planErr := runtime.planInstallationMigration(context.Background())
 		t.Fatalf("doctor observation = %+v; plan error = %v", observation, planErr)
 	}
@@ -196,7 +196,7 @@ func TestInstallationMigrationRejectsPredecessorStateRecreatedAfterCommit(t *tes
 	if err := writeAtomicBytes(residualPath, legacyPolicy); err != nil {
 		t.Fatal(err)
 	}
-	if observation := runtime.observeDoctorPolicyData(context.Background()); observation.Cause != doctor.ObservationCauseMigrationRequired {
+	if observation := runtime.observeDoctorPolicyData(context.Background()); observation.Cause != doctor.ObservationCauseLegacyStatePresent {
 		t.Fatalf("residual policy doctor observation = %+v", observation)
 	}
 

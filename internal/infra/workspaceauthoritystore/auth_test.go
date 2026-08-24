@@ -27,6 +27,7 @@ type finalAuthBrokerFixture struct {
 	onObserve      func()
 	onInventory    func()
 	afterInventory func()
+	onLogin        func()
 	providers      map[string]authbroker.Provider
 }
 
@@ -147,7 +148,11 @@ func (b *finalAuthBrokerFixture) LoginFinalContextProvider(_ context.Context, ta
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.loginCalls++
-	return b.rotate(target.Context.ContextID, target.Provider.ID), authbroker.StorageBackendXDGFile, b.state, nil
+	status := b.rotate(target.Context.ContextID, target.Provider.ID)
+	if b.onLogin != nil {
+		b.onLogin()
+	}
+	return status, authbroker.StorageBackendXDGFile, b.state, nil
 }
 
 func (b *finalAuthBrokerFixture) ImportFinalContextProvider(_ context.Context, target authbroker.ContextProviderAuthority, _ io.Reader) (authbroker.ProviderStatus, authbroker.StorageBackend, authbroker.BrokerState, error) {
@@ -230,6 +235,16 @@ func TestFinalContextAuthNoEnvelopeDecisionRecoversEveryEffectBoundaryAndRotates
 	imported, err := adapter.ImportFinalContextAuth(context.Background(), authority, authbroker.BuiltinGitHubProviderID, strings.NewReader("synthetic"))
 	if err != nil || imported.Provider.CredentialRevision != "revision-3" || broker.importCalls != 1 {
 		t.Fatalf("import rotation=%#v calls=%d err=%v", imported, broker.importCalls, err)
+	}
+}
+
+func TestFinalContextAuthConfirmedNoEnvelopeEffectSettlesAfterCallerCancellation(t *testing.T) {
+	_, _, adapter, broker, authority := finalAuthAdapterFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	broker.onLogin = cancel
+	result, err := adapter.LoginFinalContextAuth(ctx, authority, authbroker.BuiltinGitHubProviderID, "", strings.NewReader(""), io.Discard)
+	if err != nil || result.Provider.CredentialRevision != "revision-1" || broker.loginCalls != 1 {
+		t.Fatalf("confirmed auth cancellation result=%#v calls=%d err=%v", result, broker.loginCalls, err)
 	}
 }
 

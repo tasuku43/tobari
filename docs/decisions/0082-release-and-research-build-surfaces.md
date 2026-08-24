@@ -5,6 +5,8 @@
 - Deciders: Tobari product owner and maintainers
 - Scope: Product, CLI, Catalog, build, resolver, topology, authentication,
   release, architecture site, schema, migration, and harness
+- Revised by: ADR 0084 retires predecessor Broker migration and keeps only
+  fresh final Context authentication
 - Related: ADR 0044, ADR 0079, ADR 0080
 - Superseded by: None
 
@@ -65,14 +67,13 @@ release architecture-site IA.
 
 Standard authentication is always native and Workspace-owned. Host
 credentials are not inherited. Research Broker authority is distinct from
-inert recovery material: WP01 migration atomically quarantines the complete
-replay-capable research filesystem set (including Linux filesystem root-key
-material and binding/handle/provider state), leaves the macOS Keychain item
-untouched, makes old readers unable to discover or resolve it, and requires a
-fresh explicit research login/import under a new Manifest identity. No
-automatic Keychain cleanup, decrypt, import, or rebind is performed. WP04
-consumes old-reader denial and fresh-login evidence; it does not move this
-authority into Manifest desired/applied state.
+unsupported pre-release development state. Final readers never discover,
+decrypt, import, quarantine, or rebind predecessor ciphertext, root-key,
+binding, handle, provider, or Keychain authority. Declared legacy presence
+fails closed before final initialization with explicit reset-and-recreate
+guidance and zero mutation. A research build creates fresh Context-owned
+authority only through explicit login/import; the release surface remains
+unable to reach Broker behavior.
 
 ## Compatibility and migration
 
@@ -91,9 +92,8 @@ artifacts and use `tobari-research` only in the contributor path.
   get an executable research identity and exact five-path delta.
 - Version, help, Catalog, topology, binary metadata, and archive inspection
   can mechanically prove presence and absence.
-- WP01 Manifest migration and WP03 Runtime lifecycle remain separate seams;
-  WP04 consumes their final schema and Catalog without changing their wires or
-  lifecycle semantics.
+- WP03 Runtime lifecycle and WP04 authentication consume final authority through
+  separate typed seams; neither reads or adopts predecessor state.
 
 ## Mechanical enforcement
 

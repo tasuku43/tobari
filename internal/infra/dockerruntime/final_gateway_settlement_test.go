@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -30,6 +31,11 @@ func finalSettlementComponentFixture(profile tobari.SharedClusterAppliedProfile)
 		},
 		OPANetworks:     []FinalGatewayNetworkAddress{{Name: "tobari-control", Address: "172.28.0.3"}},
 		GatewayArtifact: tobari.SemanticDigest("sha256:" + strings.Repeat("c", 64)),
+	}
+	if brokerRuntimeEnabled {
+		candidate.AuthBrokerImage = "tobari-auth-broker:successor"
+		candidate.AuthBrokerImageID = "sha256:" + strings.Repeat("9", 64)
+		candidate.AuthBrokerNetworks = []FinalGatewayNetworkAddress{{Name: "tobari-control", Address: "172.28.0.4"}}
 	}
 	gateway := appliedClusterComponentObservation{
 		ContainerID: strings.Repeat("d", 64), Owner: ownerValue, Component: "gateway", Role: gatewayRole,
@@ -109,6 +115,58 @@ func TestFinalSettlementEffectClassRequiresExactSelectedComponentClosure(t *test
 	}
 }
 
+func TestFinalResearchClosureDriftForcesFullSettlement(t *testing.T) {
+	if !brokerRuntimeEnabled {
+		t.Skip("research closure exists only on the research surface")
+	}
+	candidate, gateway, opa := finalSettlementComponentFixture(tobari.SharedClusterProfileUnix)
+	principalDigest, err := digestFinalValue(candidate.Principals)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := finalPolicyActivationRecord{
+		Material: FinalWorkspacePolicyProjection{Gateway: FinalGatewayComponentAuthority{Networks: candidate.GatewayNetworks}},
+		Receipt:  FinalAggregatePublicationReceipt{GatewayArtifact: candidate.GatewayArtifact, PrincipalDigest: principalDigest},
+	}
+	registry := projectPrincipalRegistry{SchemaVersion: projectPrincipalRegistrySchema, Bindings: []projectPrincipalBinding{}}
+	exact := appliedClusterComponentObservation{
+		ContainerID: strings.Repeat("7", 64), Owner: ownerValue, Component: "auth-broker",
+		ImageID: candidate.AuthBrokerImageID, State: "running", Health: "healthy",
+		NetworkAddresses: map[string]string{"tobari-control": "172.28.0.4"},
+	}
+	if !selectedFinalResearchClosureExact(candidate, exact, false, "ready", nil) {
+		t.Fatal("same-version healthy research closure is not exact")
+	}
+	if got := classifyFinalSettlementEffect(true, active, candidate, registry, gateway, opa, true); got != finalGatewaySettlementOPA {
+		t.Fatalf("same-version healthy closure class=%q", got)
+	}
+	for _, test := range []struct {
+		name      string
+		broker    appliedClusterComponentObservation
+		missing   bool
+		companion string
+	}{
+		{name: "missing", broker: exact, missing: true, companion: "absent"},
+		{name: "unhealthy", broker: func() appliedClusterComponentObservation { value := exact; value.Health = "unhealthy"; return value }(), companion: "ready"},
+		{name: "wrong image", broker: func() appliedClusterComponentObservation {
+			value := exact
+			value.ImageID = "sha256:" + strings.Repeat("6", 64)
+			return value
+		}(), companion: "ready"},
+		{name: "companion lost", broker: exact, companion: "stopped"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			closureExact := selectedFinalResearchClosureExact(candidate, test.broker, test.missing, test.companion, nil)
+			if closureExact {
+				t.Fatal("drifted research closure classified exact")
+			}
+			if got := classifyFinalSettlementEffect(true, active, candidate, registry, gateway, opa, closureExact); got != finalGatewaySettlementFull {
+				t.Fatalf("drifted research closure class=%q", got)
+			}
+		})
+	}
+}
+
 func cloneStringMap(source map[string]string) map[string]string {
 	result := make(map[string]string, len(source))
 	for key, value := range source {
@@ -163,6 +221,144 @@ func TestFinalSettlementReplaysJournaledManagedEnvironmentAcrossProcessAmbientDr
 	}
 }
 
+func TestFinalResearchRestartUsesJournaledSuccessorBrokerImage(t *testing.T) {
+	if !brokerRuntimeEnabled {
+		t.Skip("Auth Broker successor authority exists only on the research surface")
+	}
+	runtime, _, _ := finalGatewayCoordinatorFixture(t)
+	journal, present, err := runtime.readFinalGatewaySettlementJournal()
+	if err != nil || !present {
+		t.Fatalf("read interrupted restart journal: present=%t err=%v", present, err)
+	}
+	predecessorImageID := "sha256:" + strings.Repeat("8", 64)
+	if journal.Candidate.AuthBrokerImageID == predecessorImageID {
+		t.Fatal("fixture did not select a distinct successor Broker image")
+	}
+	environment := finalGatewayReplacementEnvironment(
+		[]string{"TOBARI_AUTH_BROKER_IMAGE=" + predecessorImageID}, journal.Candidate,
+	)
+	if got := environmentValue(environment, "TOBARI_AUTH_BROKER_IMAGE"); got != journal.Candidate.AuthBrokerImageID {
+		t.Fatalf("upgrade restart image=%q want journaled successor %q", got, journal.Candidate.AuthBrokerImageID)
+	}
+	for _, entry := range environment {
+		if entry == "TOBARI_AUTH_BROKER_IMAGE="+predecessorImageID {
+			t.Fatal("upgrade restart reused predecessor Broker identity")
+		}
+	}
+
+	sameVersion := journal.Candidate
+	sameVersion.AuthBrokerImageID = predecessorImageID
+	environment = finalGatewayReplacementEnvironment(nil, sameVersion)
+	if got := environmentValue(environment, "TOBARI_AUTH_BROKER_IMAGE"); got != predecessorImageID {
+		t.Fatalf("same-version restart image=%q want %q", got, predecessorImageID)
+	}
+}
+
+func TestFinalStoppedClusterRestartReplaysOneReplacementAndRetiresReceiptAfterActiveConfirmation(t *testing.T) {
+	runtime, runner, initial := finalGatewayCoordinatorFixture(t)
+	if brokerRuntimeEnabled {
+		component, componentErr := runtime.inspectContainer(context.Background(), "auth-broker", authBrokerContainer)
+		state, err := runtime.brokerState(context.Background())
+		if err != nil || state != "ready" {
+			t.Fatalf("research Broker fixture component=%#v componentErr=%v state=%v err=%v", component, componentErr, state, err)
+		}
+	}
+	if err := runtime.resumeFinalGatewaySettlement(context.Background(), initial); err != nil {
+		t.Fatalf("activate predecessor: %v", err)
+	}
+	active, err := runtime.readFinalPolicyActivation(runtime.finalPolicyActiveReceiptPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopped := finalClusterStoppedReceipt{
+		SchemaVersion: finalClusterStoppedSchema, Operation: "cluster-down", DecisionRef: "down-decision",
+		Phase: finalClusterDownAuthority, PreviousGeneration: initial.PreviousGeneration, PreviousRevision: initial.PreviousRevision,
+		NextGeneration: initial.NextGeneration, NextRevision: initial.NextRevision,
+		Active: active, Gateway: runner.component(gatewayContainer), OPA: runner.component(opaContainer),
+	}
+	if brokerRuntimeEnabled {
+		stopped.AuthBroker = &appliedClusterComponentObservation{
+			ContainerID: strings.Repeat("7", 64), Owner: ownerValue, Component: "auth-broker",
+			ImageID: "sha256:" + strings.Repeat("8", 64), State: "running", Health: "healthy",
+			NetworkAddresses: map[string]string{"tobari-control": "172.28.0.4"},
+		}
+		stopped.CompanionState = "ready"
+	}
+	if err := runtime.writeFinalClusterStopped(runtime.finalClusterStoppedReceiptPath(), stopped); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(runtime.finalPolicyActiveReceiptPath()); err != nil {
+		t.Fatal(err)
+	}
+
+	restart := initial
+	restart.Operation, restart.DecisionRef = "cluster-up", "restart-decision"
+	restart.Phase, restart.Applied = finalGatewayPhasePrincipals, nil
+	if err := runtime.writeFinalGatewaySettlementJournal(restart); err != nil {
+		t.Fatal(err)
+	}
+	runner.selected = false
+	replacements := 0
+	runtime.finalGatewayReplaceComponents = func(_ context.Context, selected finalGatewaySettlementCandidate) error {
+		replacements++
+		if selected.AuthBrokerImageID != restart.Candidate.AuthBrokerImageID {
+			t.Fatal("replacement escaped the journaled Broker successor")
+		}
+		runner.selected = true
+		return nil
+	}
+	injected := errors.New("interrupt after physical restart")
+	runtime.finalGatewayAfterEffect = func(boundary string) error {
+		if boundary == "components_replaced" {
+			return injected
+		}
+		return nil
+	}
+	if err := runtime.resumeFinalGatewaySettlement(context.Background(), restart); !errors.Is(err, injected) {
+		t.Fatalf("restart interruption=%v", err)
+	}
+	if replacements != 1 {
+		t.Fatalf("physical replacements=%d", replacements)
+	}
+	if _, present, err := runtime.readFinalClusterStopped(runtime.finalClusterStoppedReceiptPath()); err != nil || !present {
+		t.Fatalf("interruption lost stopped receipt: present=%t err=%v", present, err)
+	}
+	if _, err := runtime.readFinalPolicyActivation(runtime.finalPolicyActiveReceiptPath()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("interruption published active authority early: %v", err)
+	}
+
+	runtime.finalGatewayAfterEffect = nil
+	recovered, present, err := runtime.readFinalGatewaySettlementJournal()
+	if err != nil || !present {
+		t.Fatalf("read restart recovery: present=%t err=%v", present, err)
+	}
+	if err := runtime.resumeFinalGatewaySettlement(context.Background(), recovered); err != nil {
+		t.Fatalf("same-action restart recovery: %v", err)
+	}
+	if replacements != 1 {
+		t.Fatalf("recovery repeated physical replacement: %d", replacements)
+	}
+	if _, err := runtime.readFinalPolicyActivation(runtime.finalPolicyActiveReceiptPath()); err != nil {
+		t.Fatalf("restart omitted active receipt: %v", err)
+	}
+	if _, present, err := runtime.readFinalClusterStopped(runtime.finalClusterStoppedReceiptPath()); err != nil || present {
+		t.Fatalf("confirmed active restart retained stopped receipt: present=%t err=%v", present, err)
+	}
+	if runner.composeCalls != 1 {
+		t.Fatalf("mocked restart unexpectedly changed predecessor Compose count: %d", runner.composeCalls)
+	}
+}
+
+func environmentValue(environment []string, key string) string {
+	for _, entry := range environment {
+		name, value, ok := strings.Cut(entry, "=")
+		if ok && name == key {
+			return value
+		}
+	}
+	return ""
+}
+
 type finalSettlementReadinessRunner struct {
 	candidate finalGatewaySettlementCandidate
 	starting  bool
@@ -170,6 +366,10 @@ type finalSettlementReadinessRunner struct {
 }
 
 func (r *finalSettlementReadinessRunner) Run(_ context.Context, args, _ []string, _ io.Reader, out, _ io.Writer) error {
+	if slices.Contains(args, "authbroker.control") {
+		_, _ = io.WriteString(out, `{"schema_version":1,"ok":true,"state":"ready","epoch_id":"companion-e1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}`+"\n")
+		return nil
+	}
 	if len(args) < 2 || args[0] != "inspect" {
 		return nil
 	}
@@ -189,6 +389,10 @@ func (r *finalSettlementReadinessRunner) Run(_ context.Context, args, _ []string
 		environment = []string{"PATH=/usr/bin"}
 		mounts = finalOPAMountDestinations()
 		networks = map[string]json.RawMessage{"tobari-control": json.RawMessage(`{"IPAddress":"172.28.0.3"}`)}
+	} else if args[len(args)-1] == authBrokerContainer {
+		component, containerID, imageID, role = "auth-broker", strings.Repeat("7", 64), r.candidate.AuthBrokerImageID, ""
+		environment, mounts = nil, nil
+		networks = map[string]json.RawMessage{"tobari-control": json.RawMessage(`{"IPAddress":"172.28.0.4"}`)}
 	}
 	health := "healthy"
 	if r.starting {
@@ -301,13 +505,14 @@ func TestClusterAndFinalSettlementDurableDecisionsExcludeEachOtherBeforeEffects(
 }
 
 type finalGatewaySettlementRunner struct {
-	candidate     finalGatewaySettlementCandidate
-	workspaces    map[tobari.WorkspaceID]*tobari.WorkspacePolicyPrincipalAuthority
-	workspaceNets map[tobari.WorkspaceID]string
-	onCompose     func()
-	selected      bool
-	composeCalls  int
-	policyEffects int
+	candidate      finalGatewaySettlementCandidate
+	workspaces     map[tobari.WorkspaceID]*tobari.WorkspacePolicyPrincipalAuthority
+	workspaceNets  map[tobari.WorkspaceID]string
+	onCompose      func()
+	selected       bool
+	composeCalls   int
+	policyEffects  int
+	companionEpoch string
 }
 
 func (r *finalGatewaySettlementRunner) workspaceResource(name string) (*tobari.WorkspacePolicyPrincipalAuthority, string) {
@@ -329,6 +534,17 @@ func finalWorkspaceFixtureAddresses(id tobari.WorkspaceID) (string, string) {
 
 func (r *finalGatewaySettlementRunner) component(container string) appliedClusterComponentObservation {
 	candidate := r.candidate
+	if container == authBrokerContainer {
+		networks := map[string]json.RawMessage{}
+		for _, network := range candidate.AuthBrokerNetworks {
+			payload, _ := json.Marshal(map[string]string{"IPAddress": network.Address})
+			networks[network.Name] = payload
+		}
+		return appliedClusterComponentObservation{
+			ContainerID: strings.Repeat("7", 64), Owner: ownerValue, Component: "auth-broker",
+			ImageID: candidate.AuthBrokerImageID, State: "running", Health: "healthy", Networks: networks,
+		}
+	}
 	if container == opaContainer {
 		image := candidate.OPAImageID
 		return appliedClusterComponentObservation{
@@ -357,7 +573,11 @@ func (r *finalGatewaySettlementRunner) component(container string) appliedCluste
 
 func (r *finalGatewaySettlementRunner) Run(_ context.Context, args, _ []string, _ io.Reader, out, _ io.Writer) error {
 	if len(args) >= 2 && args[0] == "image" && args[1] == "inspect" {
-		_, _ = io.WriteString(out, r.candidate.OPAImageID+"\n")
+		imageID := r.candidate.OPAImageID
+		if r.candidate.AuthBrokerImage != "" && args[len(args)-1] == r.candidate.AuthBrokerImage {
+			imageID = r.candidate.AuthBrokerImageID
+		}
+		_, _ = io.WriteString(out, imageID+"\n")
 		return nil
 	}
 	if len(args) > 0 && args[0] == "compose" {
@@ -366,6 +586,25 @@ func (r *finalGatewaySettlementRunner) Run(_ context.Context, args, _ []string, 
 		}
 		r.selected = true
 		r.composeCalls++
+		return nil
+	}
+	if slices.Contains(args, "authbroker.control") {
+		operation := args[slices.Index(args, "authbroker.control")+1]
+		state, epoch := "ready", r.companionEpoch
+		switch operation {
+		case "health":
+			state = "unlocked"
+			_, _ = fmt.Fprintf(out, `{"schema_version":1,"ok":true,"state":%q}`+"\n", state)
+			return nil
+		case "companion_prepare":
+			state = "prepared"
+			index := slices.Index(args, "--epoch-id")
+			if index >= 0 && index+1 < len(args) {
+				r.companionEpoch = args[index+1]
+				epoch = r.companionEpoch
+			}
+		}
+		_, _ = fmt.Fprintf(out, `{"schema_version":1,"ok":true,"state":%q,"epoch_id":%q}`+"\n", state, epoch)
 		return nil
 	}
 	if len(args) >= 2 && args[0] == "inspect" {
@@ -393,17 +632,27 @@ func (r *finalGatewaySettlementRunner) Run(_ context.Context, args, _ []string, 
 
 func (r *finalGatewaySettlementRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
 	if len(args) > 0 && args[0] == "image" {
+		if len(args) > 0 && r.candidate.AuthBrokerImage != "" && args[len(args)-1] == r.candidate.AuthBrokerImage {
+			return []byte(authBrokerMetadata("amd64", "")), nil
+		}
 		metadata := strings.Replace(gatewayMetadata("amd64", ""), testGatewayDigest, r.candidate.GatewayImageID, 1)
 		return []byte(metadata), nil
 	}
 	if len(args) > 0 && args[0] == "version" {
 		return []byte(`{"Os":"linux","Arch":"amd64"}`), nil
 	}
+	if len(args) >= 4 && args[0] == "inspect" && args[len(args)-1] == authBrokerContainer && strings.Contains(args[2], ".State.Status") {
+		return []byte(`{"state":"running","health":"healthy"}`), nil
+	}
+	if len(args) >= 4 && args[0] == "inspect" && args[len(args)-1] == authBrokerContainer && strings.Contains(args[2], `"user"`) {
+		uid, gid := currentIDs()
+		return []byte(fmt.Sprintf(`{"id":"%s","owner":"%s","component":"auth-broker","user":"%d:%d"}`, strings.Repeat("7", 64), ownerValue, uid, gid)), nil
+	}
 	if len(args) >= 3 && args[0] == "exec" && args[1] == opaContainer {
 		return []byte("true"), nil
 	}
 	if len(args) >= 4 && args[0] == "inspect" && args[2] == "{{json .NetworkSettings.Networks}}" &&
-		(args[len(args)-1] == gatewayContainer || args[len(args)-1] == opaContainer) {
+		(args[len(args)-1] == gatewayContainer || args[len(args)-1] == opaContainer || args[len(args)-1] == authBrokerContainer) {
 		payload, _ := json.Marshal(r.component(args[len(args)-1]).Networks)
 		return payload, nil
 	}
@@ -481,6 +730,18 @@ func finalGatewayCoordinatorPlanFixture(
 		t.Fatal(err)
 	}
 	runtime.images = testImageResolver{gateway: sharedImageSelection{Image: "tobari-gateway:test", RequireDigest: false}}
+	if brokerRuntimeEnabled {
+		runtime.images = testImageResolver{
+			gateway:    sharedImageSelection{Image: "tobari-gateway:test", RequireDigest: false},
+			authBroker: sharedImageSelection{Image: "tobari-auth-broker:successor", RequireDigest: false},
+		}
+		launcher := &fakeCredentialCompanionLauncher{}
+		runtime.companion = launcher
+		runtime.companionEntropy = bytes.NewReader(bytes.Repeat([]byte{0x23}, 64))
+		runtime.rootKeyLoader = func(context.Context) ([]byte, error) {
+			return bytes.Repeat([]byte{0x51}, 32), nil
+		}
+	}
 	if err := runtime.ensureProjectPrincipalRegistry(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -536,6 +797,11 @@ func finalGatewayCoordinatorPlanFixture(
 		GatewayImageID:  "sha256:" + strings.Repeat("a", 64), OPAImageID: "sha256:" + strings.Repeat("b", 64),
 		ReviewedGateway: strings.Repeat("d", 64), GatewayEnv: selectedFinalGatewayEnvironment(profile), Profile: profile,
 		Compose: compose, Aggregate: aggregate, PolicyArtifact: policyDigest, GatewayArtifact: gatewayDigest,
+	}
+	if brokerRuntimeEnabled {
+		candidate.AuthBrokerImage = "tobari-auth-broker:successor"
+		candidate.AuthBrokerImageID = "sha256:" + strings.Repeat("9", 64)
+		candidate.AuthBrokerNetworks = []FinalGatewayNetworkAddress{{Name: "tobari-control", Address: "172.28.0.4"}}
 	}
 	runner.candidate = candidate
 	journal := finalGatewaySettlementJournal{
@@ -1192,6 +1458,11 @@ func TestFinalGatewaySettlementContextDeleteRemovesActiveAxisInOneAction(t *test
 		GatewayImageID:  initial.Candidate.GatewayImageID, OPAImageID: initial.Candidate.OPAImageID,
 		ReviewedGateway: initial.Candidate.ReviewedGateway, GatewayEnv: selectedFinalGatewayEnvironment(profile), Profile: profile,
 		Compose: compose, Aggregate: aggregate, PolicyArtifact: policyDigest, GatewayArtifact: gatewayDigest,
+	}
+	if brokerRuntimeEnabled {
+		candidate.AuthBrokerImage = initial.Candidate.AuthBrokerImage
+		candidate.AuthBrokerImageID = initial.Candidate.AuthBrokerImageID
+		candidate.AuthBrokerNetworks = append([]FinalGatewayNetworkAddress(nil), initial.Candidate.AuthBrokerNetworks...)
 	}
 	runner.candidate = candidate
 	decision := finalGatewaySettlementJournal{

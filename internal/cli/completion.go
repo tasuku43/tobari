@@ -65,7 +65,7 @@ func completionCommandSpecs() []CommandSpec {
 				},
 				Prerequisites: []string{"Dynamic candidates require readable owner-local Workspace Manifest and Runtime manifests; no Docker daemon or network is used."},
 				Errors: readCommandErrors("completion candidates", true,
-					declaredCommandError(fault.KindInternal, "completion_manifest_read_failed", false, "manifest list", "Inspect the local Workspace Manifest catalog."),
+					declaredCommandError(fault.KindInternal, "completion_template_read_failed", false, "template list", "Inspect the final Workspace Template catalog."),
 					declaredCommandError(fault.KindInternal, "completion_runtime_read_failed", false, "runtime list", "Inspect the local Runtime catalog."),
 					declaredCommandError(fault.KindContract, "invalid_completion_candidates", false, "doctor", "Repair the local candidate source contract."),
 					declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
@@ -145,14 +145,11 @@ func (c *CLI) planCompletion(ctx context.Context, current int, words []string) (
 	if activeRoot != nil {
 		return c.recordsForInput(ctx, *activeRoot, partial, "")
 	}
-	if strings.HasPrefix(partial, "--manifest=") && len(commandWords) == 0 {
-		return c.recordsForInput(ctx, rootContextCompletionInput(), strings.TrimPrefix(partial, "--manifest="), "--manifest=")
-	}
 	if strings.HasPrefix(partial, "--error-format=") && len(commandWords) == 0 {
 		return c.recordsForInput(ctx, rootErrorFormatCompletionInput(), strings.TrimPrefix(partial, "--error-format="), "--error-format=")
 	}
 	if len(commandWords) == 0 && strings.HasPrefix(partial, "--") {
-		return candidateRecords(filterPrefix([]string{"--manifest", "--error-format"}, partial)), nil
+		return candidateRecords(filterPrefix([]string{"--error-format"}, partial)), nil
 	}
 
 	selected, consumed := completionCommand(c.catalog, commandWords)
@@ -167,12 +164,10 @@ func parseCompletionRoot(words []string) ([]string, *CommandInput, bool) {
 		word := words[index]
 		var input CommandInput
 		switch word {
-		case "--manifest":
-			input = rootContextCompletionInput()
 		case "--error-format":
 			input = rootErrorFormatCompletionInput()
 		default:
-			if strings.HasPrefix(word, "--manifest=") || strings.HasPrefix(word, "--error-format=") {
+			if strings.HasPrefix(word, "--error-format=") {
 				index++
 				continue
 			}
@@ -184,10 +179,6 @@ func parseCompletionRoot(words []string) ([]string, *CommandInput, bool) {
 		index += 2
 	}
 	return []string{}, nil, true
-}
-
-func rootContextCompletionInput() CommandInput {
-	return CommandInput{Name: "--manifest", Source: InputSourceFlag, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, AllowedValues: []string{}, Completion: InputCompletionContextName}
 }
 
 func rootErrorFormatCompletionInput() CommandInput {

@@ -74,6 +74,10 @@ func (r *lifecycleObservationRunner) Run(_ context.Context, args, _ []string, _ 
 		return err
 	}
 	if len(args) >= 5 && args[0] == "image" && args[1] == "inspect" {
+		if strings.Contains(args[3], tobari.RuntimeImageAPILabel) {
+			_, err := stdout.Write(compatibleImageInspection())
+			return err
+		}
 		fixture, ok := r.images[args[4]]
 		if !ok || fixture.missing {
 			_, _ = io.WriteString(stderr, "Error response from daemon: No such image: "+args[4])
@@ -148,6 +152,9 @@ func runtimeLifecycleFixtureRevision(t *testing.T, content string) string {
 
 func installRuntimeLifecycleRevision(t *testing.T, runtime *Runtime, id, name, imageDigest, content string) tobari.RuntimeManifest {
 	t.Helper()
+	if runtime.finalRuntimeProtectionSource == nil {
+		bindEmptyFinalRuntimeProtection(t, runtime)
+	}
 	revision := runtimeLifecycleFixtureRevision(t, content)
 	image := managedLibraryRuntimeImage(name, id, revision)
 	root := runtime.runtimeDirectory(name)
@@ -181,6 +188,7 @@ func TestRuntimeLifecycleSnapshotIsZeroWriteAndRequiresStableDockerEvidence(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
+	bindEmptyFinalRuntimeProtection(t, runtime)
 	snapshot, observedAt, err := runtime.ReadRuntimeLifecycleSnapshot(context.Background())
 	if err != nil || observedAt.IsZero() || observedAt.Location() != time.UTC || !snapshot.CatalogComplete || len(snapshot.Runtimes) != 1 || snapshot.Runtimes[0].ID != tobari.StandardRuntimeID {
 		t.Fatalf("fresh lifecycle snapshot = %+v/%v", snapshot, err)
@@ -745,6 +753,7 @@ func TestRuntimeLifecycleSnapshotKeepsEveryBuildRecoveryPhaseAsBlocker(t *testin
 			if err != nil {
 				t.Fatal(err)
 			}
+			bindEmptyFinalRuntimeProtection(t, runtime)
 			created, err := runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
 			if err != nil {
 				t.Fatal(err)
@@ -826,6 +835,7 @@ func TestRuntimeLifecycleSnapshotRepresentsPartialSnapshottingRecovery(t *testin
 				if err != nil {
 					t.Fatal(err)
 				}
+				bindEmptyFinalRuntimeProtection(t, runtime)
 				created, err := runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
 				if err != nil {
 					t.Fatal(err)
@@ -880,6 +890,7 @@ func TestRuntimeLifecycleSnapshotRejectsInvalidPartialSnapshottingInventory(t *t
 			if err != nil {
 				t.Fatal(err)
 			}
+			bindEmptyFinalRuntimeProtection(t, runtime)
 			created, err := runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
 			if err != nil {
 				t.Fatal(err)

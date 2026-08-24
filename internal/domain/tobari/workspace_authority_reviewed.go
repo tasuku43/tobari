@@ -383,14 +383,68 @@ type PolicyMemoryReviewedAppliedDecision struct {
 	RuleID                string               `json:"rule_id"`
 	Decision              PolicyMemoryDecision `json:"decision"`
 	Match                 string               `json:"match"`
-	ContextRef            string               `json:"context_ref"`
-	TemplateRef           string               `json:"template_ref"`
-	ObservingWorkspaceRef string               `json:"observing_workspace_ref"`
+	ContextRef            string               `json:"-"`
+	TemplateRef           string               `json:"-"`
+	ObservingWorkspaceRef string               `json:"-"`
 	ContextID             ContextID            `json:"-"`
 	TemplateID            WorkspaceTemplateID  `json:"-"`
 	ObservingWorkspaceID  WorkspaceID          `json:"-"`
 	ConsumedCandidates    []string             `json:"-"`
 	ReplacedSourceRules   []string             `json:"-"`
+}
+
+// PolicyMemoryReviewedResult is the route-independent public consequence.
+// Complete collections, owner refs, Docker settlement evidence, and consumed
+// source authority remain private in PolicyMemoryReviewedSetPublication.
+type PolicyMemoryReviewedResult struct {
+	SchemaVersion  int                                  `json:"schema_version"`
+	Task           string                               `json:"task"`
+	AllowCount     int                                  `json:"allow_count"`
+	DenyCount      int                                  `json:"deny_count"`
+	Applied        bool                                 `json:"applied"`
+	ActiveRevision string                               `json:"active_revision"`
+	Decisions      []PolicyMemoryReviewedResultDecision `json:"decisions"`
+}
+
+type PolicyMemoryReviewedResultDecision struct {
+	ReviewItemID string               `json:"review_item_id"`
+	RuleID       string               `json:"rule_id"`
+	Decision     PolicyMemoryDecision `json:"decision"`
+	Match        string               `json:"match"`
+}
+
+func NewPolicyMemoryReviewedResult(publication PolicyMemoryReviewedSetPublication) (PolicyMemoryReviewedResult, error) {
+	if err := publication.Validate(); err != nil {
+		return PolicyMemoryReviewedResult{}, err
+	}
+	result := PolicyMemoryReviewedResult{SchemaVersion: WorkspaceAuthorityPolicyReadSchemaVersion, Task: TaskPolicyReviewApply, AllowCount: publication.AllowCount, DenyCount: publication.DenyCount, Applied: publication.Applied, ActiveRevision: publication.ActiveRevision, Decisions: make([]PolicyMemoryReviewedResultDecision, len(publication.AppliedDecisions))}
+	for index, decision := range publication.AppliedDecisions {
+		result.Decisions[index] = PolicyMemoryReviewedResultDecision{ReviewItemID: decision.ReviewItemID, RuleID: decision.RuleID, Decision: decision.Decision, Match: decision.Match}
+	}
+	return result, result.Validate()
+}
+
+func (r PolicyMemoryReviewedResult) Validate() error {
+	if r.SchemaVersion != WorkspaceAuthorityPolicyReadSchemaVersion || r.Task != TaskPolicyReviewApply || !r.Applied || !aggregateRevisionPattern.MatchString(r.ActiveRevision) || r.Decisions == nil || r.AllowCount < 0 || r.DenyCount < 0 || r.AllowCount+r.DenyCount != len(r.Decisions) {
+		return fmt.Errorf("reviewed Policy Memory result metadata is invalid")
+	}
+	allow, deny := 0, 0
+	previous := ""
+	for _, decision := range r.Decisions {
+		if ValidatePolicyReviewItemID(decision.ReviewItemID) != nil || ValidatePolicyMemoryRuleID(decision.RuleID) != nil || decision.Decision.Validate() != nil || (decision.Match != PolicyMatchExact && decision.Match != PolicyMatchPathTemplate) || previous != "" && decision.ReviewItemID <= previous {
+			return fmt.Errorf("reviewed Policy Memory result decision is invalid")
+		}
+		if decision.Decision == PolicyMemoryAllow {
+			allow++
+		} else {
+			deny++
+		}
+		previous = decision.ReviewItemID
+	}
+	if allow != r.AllowCount || deny != r.DenyCount {
+		return fmt.Errorf("reviewed Policy Memory result counts are inconsistent")
+	}
+	return nil
 }
 
 func (d PolicyMemoryReviewedAppliedDecision) Clone() PolicyMemoryReviewedAppliedDecision {

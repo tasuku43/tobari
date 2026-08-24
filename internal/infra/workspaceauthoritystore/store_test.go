@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -59,6 +60,29 @@ const (
 	storeContextID   tobari.ContextID           = "01912345-6789-7abc-8def-0123456789a2"
 	storeWorkspaceID tobari.WorkspaceID         = "01912345-6789-7abc-8def-0123456789a3"
 )
+
+type legacyGuardFake struct {
+	errors      []error
+	after       func(int)
+	calls       int
+	initialized []bool
+}
+
+func (f *legacyGuardFake) ConfirmNoPreReleaseLegacyAuthority(_ context.Context, finalInitialized bool) error {
+	f.calls++
+	f.initialized = append(f.initialized, finalInitialized)
+	if f.after != nil {
+		f.after(f.calls)
+	}
+	if len(f.errors) == 0 {
+		return nil
+	}
+	err := f.errors[0]
+	if len(f.errors) > 1 {
+		f.errors = f.errors[1:]
+	}
+	return err
+}
 
 func storeCollectionFixture(t *testing.T) tobari.WorkspaceAuthorityCollection {
 	t.Helper()
@@ -227,6 +251,118 @@ func TestStoreAbsentObservationCreatesNothing(t *testing.T) {
 	if _, err := os.Lstat(root); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("read-only observation created final store: %v", err)
 	}
+}
+
+func TestStoreProjectsExactFinalRuntimeProtectionAuthorityWithoutCreatingState(t *testing.T) {
+	t.Run("absent", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "final-authority")
+		store, err := New(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		authority, err := store.ReadFinalRuntimeProtectionAuthority(context.Background())
+		if err != nil || authority.Present || authority.Templates == nil || authority.Contexts == nil || authority.Workspaces == nil {
+			t.Fatalf("absent protection authority = %+v/%v", authority, err)
+		}
+		if _, err := os.Lstat(root); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("protection read created final store: %v", err)
+		}
+	})
+	t.Run("complete", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "final-authority")
+		collection := storeCollectionFixture(t)
+		materializeCollection(t, root, collection)
+		store, err := New(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		authority, err := store.ReadFinalRuntimeProtectionAuthority(context.Background())
+		if err != nil || !authority.Present || authority.CollectionGeneration != collection.Generation || authority.CollectionRevision != collection.Revision || len(authority.Templates) != 1 || len(authority.Contexts) != 1 || len(authority.Workspaces) != 1 {
+			t.Fatalf("complete protection authority = %+v/%v", authority, err)
+		}
+	})
+}
+
+func TestFinalOnlyStoreAcceptsFreshOrCompleteFinalOnlyWhenLegacyIsAbsent(t *testing.T) {
+	ctx := context.Background()
+	t.Run("fresh empty", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "final-authority")
+		guard := &legacyGuardFake{}
+		store, err := NewFinalOnly(root, guard)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, present, err := store.ReadComplete(ctx); err != nil || present {
+			t.Fatalf("fresh present=%t err=%v", present, err)
+		}
+		if _, err := os.Lstat(root); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("fresh observation created state: %v", err)
+		}
+		if !reflect.DeepEqual(guard.initialized, []bool{false, false}) {
+			t.Fatalf("fresh guard dimensions = %v", guard.initialized)
+		}
+	})
+
+	t.Run("final", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "final-authority")
+		want := storeCollectionFixture(t)
+		materializeCollection(t, root, want)
+		guard := &legacyGuardFake{}
+		store, err := NewFinalOnly(root, guard)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, present, err := store.ReadComplete(ctx)
+		if err != nil || !present || got.Revision != want.Revision {
+			t.Fatalf("final present=%t revision=%q err=%v", present, got.Revision, err)
+		}
+		if !reflect.DeepEqual(guard.initialized, []bool{true, true}) {
+			t.Fatalf("final guard dimensions = %v", guard.initialized)
+		}
+	})
+
+	t.Run("legacy present", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "final-authority")
+		store, _ := NewFinalOnly(root, &legacyGuardFake{errors: []error{errors.New("legacy Context root is present")}})
+		if _, _, err := store.ReadComplete(ctx); err == nil || !errors.Is(err, tobari.ErrPreReleaseLegacyAuthority) || !strings.Contains(err.Error(), "reset or recreate") {
+			t.Fatalf("legacy error=%v", err)
+		}
+		if _, err := os.Lstat(root); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("legacy rejection created final state: %v", err)
+		}
+	})
+
+	t.Run("final envelope changes between observations", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "final-authority")
+		want := storeCollectionFixture(t)
+		guard := &legacyGuardFake{
+			after: func(call int) {
+				if call == 1 {
+					materializeCollection(t, root, want)
+				}
+			},
+		}
+		store, err := NewFinalOnly(root, guard)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := store.ReadComplete(ctx); err == nil || !strings.Contains(err.Error(), "changed") {
+			t.Fatalf("envelope drift error=%v", err)
+		}
+	})
+
+	t.Run("legacy appears between observations", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "final-authority")
+		want := storeCollectionFixture(t)
+		materializeCollection(t, root, want)
+		store, err := NewFinalOnly(root, &legacyGuardFake{errors: []error{nil, errors.New("legacy root appeared")}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := store.ReadComplete(ctx); err == nil || !errors.Is(err, tobari.ErrPreReleaseLegacyAuthority) {
+			t.Fatalf("legacy drift error=%v", err)
+		}
+	})
 }
 
 func TestStoreReturnsOneCoherentFinalAuthorityEnvelope(t *testing.T) {

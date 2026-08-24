@@ -116,45 +116,55 @@ func TestExitCodesAreStable(t *testing.T) {
 }
 
 func TestNoArgsDispatchesThePrimaryRootOutcome(t *testing.T) {
-	command, stdout, stderr := newTestCLI(passingInspector("unused"))
-	if code := runCLI(command, nil); code != ExitInternal {
-		t.Fatalf("Run(nil) code = %d, want %d", code, ExitInternal)
+	root, found := DefaultCatalog().Lookup(WorkspaceEntryCommandPath)
+	if !found {
+		t.Fatal("final root command is absent")
 	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q", stdout.String())
+	calls := 0
+	root.handler = func(_ context.Context, _ *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
+		calls++
+		if command.Path != WorkspaceEntryCommandPath || len(inputs.Values("command")) != 0 {
+			t.Fatalf("root dispatch = path:%q inputs:%+v", command.Path, inputs)
+		}
+		return ExitOK
 	}
-	if !humanOutputHasRow(stderr.String(), "Kind", "internal") || !humanOutputHasRow(stderr.String(), "Code", "missing_runtime") {
-		t.Fatalf("stderr = %q", stderr.String())
+	command := newCLI(strings.NewReader(""), io.Discard, io.Discard, catalogWithProjectSpec(root), nil)
+	if code := runCLI(command, nil); code != ExitOK || calls != 1 {
+		t.Fatalf("Run(nil) code = %d calls = %d", code, calls)
 	}
 }
 
-func TestDelimiterLedRootInvocationDispatchesExactChildArgv(t *testing.T) {
+func TestExplicitRootInvocationDispatchesExactChildArgv(t *testing.T) {
 	t.Parallel()
 	var calls int
 	var got []string
-	var gotContext string
-	spec := projectEnterSpec()
+	spec, found := DefaultCatalog().Lookup(WorkspaceEntryCommandPath)
+	if !found {
+		t.Fatal("final root command is absent")
+	}
 	spec.handler = func(_ context.Context, _ *CLI, _ CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
 		calls++
 		got = inputs.Values("command")
-		gotContext = inputs.One("--manifest")
 		return 37
 	}
 	command := newCLI(strings.NewReader(""), io.Discard, io.Discard, catalogWithProjectSpec(spec), nil)
-	argv := []string{"--manifest", "toolbox", "--", "claude", "--model", "", "--model", "-value"}
+	argv := []string{WorkspaceEntryCommandPath, "--", "claude", "--model", "", "--model", "-value"}
 	if code := command.RunContext(context.Background(), argv); code != 37 {
 		t.Fatalf("delimiter-led root exit = %d, want child 37", code)
 	}
 	want := []string{"claude", "--model", "", "--model", "-value"}
-	if calls != 1 || gotContext != "toolbox" || !reflect.DeepEqual(got, want) {
-		t.Fatalf("handler calls=%d Workspace Manifest=%q argv=%q, want toolbox and exact %q", calls, gotContext, got, want)
+	if calls != 1 || !reflect.DeepEqual(got, want) {
+		t.Fatalf("handler calls=%d argv=%q, want exact %q", calls, got, want)
 	}
 }
 
 func TestDirectRootCommandInvalidFormsFailBeforeHandler(t *testing.T) {
 	t.Parallel()
 	var calls int
-	spec := projectEnterSpec()
+	spec, found := DefaultCatalog().Lookup(WorkspaceEntryCommandPath)
+	if !found {
+		t.Fatal("final root command is absent")
+	}
 	spec.handler = func(context.Context, *CLI, CommandSpec, operation.Intent, ParsedInputs) int {
 		calls++
 		return ExitOK
@@ -197,106 +207,6 @@ func TestUnknownCommandUsesUsageExitCode(t *testing.T) {
 	}
 }
 
-func TestLifecycleInvocationContextNormalizesPrefixAndRejectsDuplicates(t *testing.T) {
-	t.Parallel()
-	for _, path := range []string{"tobari", "status", "delete"} {
-		command, found := DefaultCatalog().Lookup(path)
-		if !found {
-			t.Fatalf("%s command is absent", path)
-		}
-		t.Run(path, func(t *testing.T) {
-			for _, test := range []struct {
-				name string
-				root string
-				rest []string
-				want string
-			}{
-				{name: "omitted"},
-				{name: "prefix", root: "toolbox", want: "toolbox"},
-				{name: "command local", rest: []string{"--manifest", "toolbox"}, want: "toolbox"},
-			} {
-				t.Run(test.name, func(t *testing.T) {
-					normalized := normalizeLifecycleContextInput(command, test.root, test.rest)
-					inputs, err := parseCommandInputs(command, normalized)
-					if err != nil {
-						t.Fatal(err)
-					}
-					if got := inputs.One("--manifest"); got != test.want {
-						t.Fatalf("normalized Workspace Manifest = %q, want %q (argv=%v)", got, test.want, normalized)
-					}
-				})
-			}
-
-			duplicates := normalizeLifecycleContextInput(command, "toolbox", []string{"--manifest", "default"})
-			if _, err := parseCommandInputs(command, duplicates); err == nil || !strings.Contains(err.Error(), "may be specified only once") {
-				t.Fatalf("duplicate normalized Workspace Manifest error = %v (argv=%v)", err, duplicates)
-			}
-		})
-	}
-}
-
-func TestInvocationContextPrefixRemainsOutsideNonLifecycleCommands(t *testing.T) {
-	t.Parallel()
-	command := utilitySpec("probe")
-	rest := []string{"--manifest", "default"}
-	got := normalizeLifecycleContextInput(command, "fallback", rest)
-	if strings.Join(got, "\x00") != strings.Join(rest, "\x00") {
-		t.Fatalf("non-lifecycle argv = %v, want %v", got, rest)
-	}
-}
-
-func TestLifecyclePrefixAndCommandLocalPlacementReachHandlerIdentically(t *testing.T) {
-	t.Parallel()
-	var seen []string
-	spec := utilitySpec("probe")
-	spec.Args = "[--manifest <name>]"
-	spec.Agent.CapabilityID = "tobari.lifecycle"
-	spec.Agent.Inputs = []CommandInput{lifecycleContextInput()}
-	spec.handler = func(_ context.Context, _ *CLI, _ CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
-		seen = append(seen, inputs.One("--manifest"))
-		return ExitOK
-	}
-	command := newCLI(strings.NewReader(""), io.Discard, io.Discard, NewCatalog(spec), nil)
-	if code := command.RunContext(context.Background(), []string{"--manifest", "toolbox", "probe"}); code != ExitOK {
-		t.Fatalf("prefix code = %d", code)
-	}
-	if code := command.RunContext(context.Background(), []string{"probe", "--manifest", "toolbox"}); code != ExitOK {
-		t.Fatalf("command-local code = %d", code)
-	}
-	if strings.Join(seen, ",") != "toolbox,toolbox" {
-		t.Fatalf("handler Workspace Manifests = %v", seen)
-	}
-}
-
-func TestLifecycleContextDuplicateAndEmptyFailBeforeHandler(t *testing.T) {
-	t.Parallel()
-	calls := 0
-	spec := utilitySpec("probe")
-	spec.Args = "[--manifest <name>]"
-	spec.Agent.CapabilityID = "tobari.lifecycle"
-	spec.Agent.Inputs = []CommandInput{lifecycleContextInput()}
-	spec.handler = func(context.Context, *CLI, CommandSpec, operation.Intent, ParsedInputs) int {
-		calls++
-		return ExitOK
-	}
-	for _, args := range [][]string{
-		{"probe", "--manifest="},
-		{"probe", "--manifest", ""},
-		{"--manifest=", "probe"},
-		{"--manifest", "", "probe"},
-		{"--manifest", "toolbox", "probe", "--manifest", "default"},
-	} {
-		var stderr bytes.Buffer
-		command := newCLI(strings.NewReader(""), io.Discard, &stderr, NewCatalog(spec), nil)
-		if code := command.RunContext(context.Background(), args); code != ExitUsage {
-			t.Fatalf("args=%v code=%d stderr=%q", args, code, stderr.String())
-		}
-	}
-	if calls != 0 {
-		t.Fatalf("invalid Workspace Manifest reached handler %d times", calls)
-	}
-}
-
 func TestRemovedSampleNamespaceIsUnknown(t *testing.T) {
 	command, stdout, stderr := newTestCLI(passingInspector("unused"))
 	if code := runCLI(command, []string{"sample", "list"}); code != ExitUsage {
@@ -309,7 +219,7 @@ func TestRemovedSampleNamespaceIsUnknown(t *testing.T) {
 
 func TestHumanRootRecoveryActionIsExecutable(t *testing.T) {
 	command, stdout, stderr := newTestCLI(passingInspector("unused"))
-	ctx := withCommandPath(context.Background(), "delete")
+	ctx := context.Background()
 	err := fault.New(
 		fault.KindNotFound,
 		"project_not_found",

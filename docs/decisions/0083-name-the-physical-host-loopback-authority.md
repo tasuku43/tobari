@@ -6,6 +6,8 @@
 - Scope: Product, DNS, Gateway TLS classification, attachment policy,
   migration, public boundary, and harness
 - Revises: ADR 0049
+- Revised by: ADR 0084 replaces predecessor registry migration with a
+  pre-release clean break
 - Related: ADR 0074, ADR 0079, ADR 0081, and ADR 0082
 - Superseded by: None
 
@@ -95,32 +97,22 @@ ingestion endpoint, nonce, lease, acknowledgment, wait registry, and
 Gateway-only transport/profile state. They also remain separate from ADR
 0074's opposite-direction service-exposure owner.
 
-### Migration and concurrency
+### Pre-release clean break and concurrency
 
-Existing `migrate apply` is the only cutover owner. It adds no command and no
-ordinary compatibility reader. Under the installation lifecycle lock it must:
+No migration translates or removes retired route, grant, relay-token,
+candidate, or opaque-reference state. A bounded fixed-path presence guard may
+observe only the owner/type/mode/stability facts required to distinguish a
+fresh final installation from unsupported predecessor registry presence.
+Legacy, unsafe, or ambiguous presence blocks final initialization with zero
+mutation and explicit reset-and-recreate guidance; attachment startup,
+`cluster up`, status, list, show, and doctor do not clean it.
 
-1. prove the cluster is stopped;
-2. acquire the canonical interactive-attachment lock and prove zero live
-   canonical attachment owners;
-3. keep that lock held while acquiring the Host Loopback lock;
-4. accept only exact owner-only regular schema-V1 route and grant registries
-   whose complete contents use `host.tobari.test`;
-5. atomically replace them with empty schema-V2 registries; and
-6. require explicit `cluster up` and a fresh Workspace entry, Attachment
-   Epoch, denial, review, and grant.
-
-The lock order is always `lifecycle -> interactive-attachment ->
-host-loopback`. Entry creates the canonical session before Host Loopback, so
-holding the interactive lock continuously from zero-owner proof through the
-private registry cutover fences a concurrent entry. Host Loopback migration
-must not read or interpret the WP07 permission-ingestion fields.
-
-Routes, grants, relay tokens, candidates, and old opaque references are dropped,
-not translated. Attachment startup, `cluster up`, status, list, show, and
-doctor do not clean predecessor state. Manifest copy, Manifest revision
-publication, Runtime lifecycle, learned policy, AppliedEntry, and observed
-state neither own nor inherit attachment authority.
+Fresh final entry and teardown retain the lock order `lifecycle ->
+interactive-attachment -> host-loopback`. Entry publishes its canonical
+session before Host Loopback, so one final session owner fences concurrent
+route/grant creation and cleanup. Manifest/Template publication, Runtime
+lifecycle, learned policy, AppliedEntry, and observed state neither own nor
+inherit attachment authority.
 
 ### TLS and CA
 
@@ -130,9 +122,9 @@ cache insertion and before passthrough, upstream, relay, or HTTP request hooks.
 Absence of SNI, malformed SNI, encrypted/unobservable ClientHello authority,
 and CONNECT/SNI drift fail closed.
 
-The shared root CA is not rotated. A cached leaf is not authority. Only if an
-exact owner-verified retired-host cache entry is actually observed may
-`migrate apply` remove that one entry; broad cache deletion is forbidden.
+The shared root CA is not rotated. A cached leaf is not authority. Retired-host
+cache entries are unsupported predecessor presence and are not removed by the
+final binary; broad or automatic cache deletion is forbidden.
 
 ## Considered alternatives
 
@@ -159,8 +151,8 @@ exact owner-verified retired-host cache entry is actually observed may
   `127.0.0.1`, and infrastructure-only `host.docker.internal`.
 - No public command, flag, resource, reference kind, policy lifetime, or trust
   boundary is added.
-- Pre-public development state requires explicit migration and fresh review;
-  stale references do not work.
+- Pre-public development state requires explicit reset/recreation and fresh
+  review; stale references do not work.
 - The permanent retired-name guard is deliberate negative compatibility and
   remains implementation surface throughout V1.
 
@@ -169,10 +161,9 @@ exact owner-verified retired-host cache entry is actually observed may
 - Domain tests fix the exact hostname, public capability schema V1, private
   registry schema V2, hostname-bound route/grant IDs, sibling and spelling
   rejection, and stale reference behavior.
-- Migration tests fix the lock order, a deterministic competing-entry fence,
-  stopped-cluster and zero-owner checks, exact schema/owner/hostname matching,
-  empty V2 publication, crash recovery, no implicit cleanup, and secret-free
-  output.
+- Final-state tests fix the lock order and deterministic competing-entry fence;
+  clean absence, legacy/unsafe presence, zero implicit cleanup, zero mutation,
+  fresh schema-V2 publication, and secret-free reset guidance.
 - Gateway and OPA tests fix exact branch separation, retired-name terminal
   handling, zero external-DNS/upstream/Broker/relay/retry calls, exact Host
   preservation, and no suffix/private-ceiling generalization.

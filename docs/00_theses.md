@@ -436,10 +436,15 @@ exist only when the research surface is compiled.
   and Workspace Manifest ID as authenticated data.
 - All Tobari-owned schemas and component APIs are V1 before first publication.
   Readers accept exactly V1 and reject every other version; there is no legacy
-  compatibility path or implicit migration. One explicit fixed-target command
-  may migrate only the enumerated unpublished Workspace Manifest-policy/Runtime
-  predecessor in ADR 0070; it is not a reader fallback or generic migration
-  framework. Owner manifests and the normalized
+  compatibility path or implicit migration. Before the first public release,
+  incompatible development state is neither interpreted, adopted, transformed,
+  nor automatically deleted. One bounded fixed-path presence guard distinguishes
+  a genuinely fresh installation from retained legacy authority; legacy or
+  ambiguous presence fails closed with explicit reset-and-recreate guidance and
+  zero mutation. This clean-break exception expires at the first public release:
+  any later persistent-state incompatibility requires an explicit release-policy
+  and migration/compatibility decision based on actual user obligations. Owner
+  manifests and the normalized
   projection share that version while reviewed built-ins use typed closed
   plans within it. Owner manifests still contain no secrets, executable shell,
   refresh logic, or signer and remain single-secret protected-stdin imports.

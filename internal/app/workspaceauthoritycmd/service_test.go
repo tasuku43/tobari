@@ -3,6 +3,7 @@ package workspaceauthoritycmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"strings"
@@ -76,21 +77,26 @@ func ptrMemory(value tobari.PolicyMemoryRevision) *tobari.PolicyMemoryRevision {
 }
 
 type fakePort struct {
-	template         tobari.WorkspaceTemplate
-	snapshot         tobari.ContextAuthoritySnapshot
-	copyPublication  tobari.WorkspaceTemplateCopyPublication
-	policy           tobari.PolicyCandidatePublication
-	reset            tobari.PolicyRuleResetPublication
-	reviewed         tobari.PolicyMemoryReviewedSetPublication
-	reviewedSet      tobari.PolicyMemoryReviewedDecisionSet
-	lastRef          string
-	calls            int
-	entryErr         error
-	createContextErr error
-	deleteContextErr error
+	template          tobari.WorkspaceTemplate
+	snapshot          tobari.ContextAuthoritySnapshot
+	copyPublication   tobari.WorkspaceTemplateCopyPublication
+	updatePublication tobari.WorkspaceTemplateRevisionPublication
+	policy            tobari.PolicyCandidatePublication
+	reset             tobari.PolicyRuleResetPublication
+	reviewed          tobari.PolicyMemoryReviewedSetPublication
+	reviewedSet       tobari.PolicyMemoryReviewedDecisionSet
+	lastRef           string
+	calls             int
+	entryErr          error
+	createContextErr  error
+	deleteContextErr  error
+	readErr           error
 }
 
 func (f *fakePort) ListWorkspaceTemplates(context.Context) ([]tobari.WorkspaceTemplate, error) {
+	if f.readErr != nil {
+		return nil, f.readErr
+	}
 	return []tobari.WorkspaceTemplate{f.template}, nil
 }
 func (f *fakePort) DiscoverWorkspaceTemplate(context.Context, string) (tobari.WorkspaceTemplate, error) {
@@ -104,6 +110,11 @@ func (f *fakePort) CopyWorkspaceTemplateByRevisionReference(_ context.Context, r
 	f.calls++
 	f.lastRef = ref
 	return f.copyPublication, nil
+}
+func (f *fakePort) UpdateWorkspaceTemplateByReference(_ context.Context, ref string, _ tobari.WorkspaceTemplateChange) (tobari.WorkspaceTemplateRevisionPublication, error) {
+	f.calls++
+	f.lastRef = ref
+	return f.updatePublication, nil
 }
 func (f *fakePort) SetDefaultWorkspaceTemplateByReference(_ context.Context, ref string) (tobari.WorkspaceTemplateSelectionResult, error) {
 	f.calls++
@@ -205,6 +216,81 @@ func TestTemplateActionsKeepExactReferenceAndValidateFreshCopy(t *testing.T) {
 	if _, err := service.Copy(context.Background(), intent(TaskTemplateCopy, operation.EffectCreate, target, TemplateCreateImpact()), "restricted", "copied"); err == nil || fake.calls != before {
 		t.Fatal("name-selected copy reached port")
 	}
+}
+
+func TestTemplateConfigurationBindsCommandToTypedDeltaAndRuntimeParent(t *testing.T) {
+	template := templateFixture(t)
+	templateRef, _ := tobari.WorkspaceTemplateRef(template.ID)
+	value := "xterm-256color"
+	shell := tobari.WorkspaceTemplateChange{Kind: tobari.WorkspaceTemplateChangeShell, Shell: []tobari.ManifestShellEnvironmentSetting{{Variable: "TERM", Source: tobari.ManifestShellEnvironmentLiteral, Value: &value}}}
+	nextBody, err := tobari.ApplyWorkspaceTemplateChange(template.Current.Body, shell, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, changed, err := tobari.AdvanceWorkspaceTemplateRevision(template.Current, nextBody)
+	if err != nil || !changed {
+		t.Fatal(err)
+	}
+	updatedTemplate := template.Clone()
+	updatedTemplate.Current = next
+	updatedTemplate.Retained = append(updatedTemplate.Retained, next)
+	fake := &fakePort{updatePublication: tobari.WorkspaceTemplateRevisionPublication{Template: updatedTemplate, Previous: template.Current, Current: next, Changed: true}}
+	service := NewTemplateService(fake)
+	target := operation.TargetRef{Kind: tobari.WorkspaceTemplateReferenceKind, ID: templateRef}
+	publication, err := service.UpdateConfiguration(
+		context.Background(), intent(TaskTemplateConfigShell, operation.EffectWrite, target, mustTemplateConfigurationImpact(t, TaskTemplateConfigShell)), templateRef, shell,
+	)
+	if err != nil || !publication.Changed || fake.calls != 1 || fake.lastRef != templateRef {
+		t.Fatalf("shell publication=%#v calls=%d ref=%q err=%v", publication, fake.calls, fake.lastRef, err)
+	}
+
+	before := fake.calls
+	if _, err := service.UpdateConfiguration(
+		context.Background(), intent(TaskTemplateConfigGit, operation.EffectWrite, target, mustTemplateConfigurationImpact(t, TaskTemplateConfigGit)), templateRef, shell,
+	); err == nil || fake.calls != before {
+		t.Fatalf("command/change mismatch reached adapter: calls=%d err=%v", fake.calls, err)
+	}
+
+	runtimeID := "01912345-6789-7abc-8def-0123456789b7"
+	revision := string(digest("b"))
+	revisionRef := tobari.RuntimeRevisionRef(runtimeID, revision)
+	resolved := tobari.RuntimeBinding{RuntimeID: runtimeID, Name: "managed", Revision: revision, Ordinal: 3, Image: "tobari-runtime-managed:bbbbbbbbbbbb"}
+	runtimeChange := tobari.WorkspaceTemplateChange{Kind: tobari.WorkspaceTemplateChangeRuntime, RuntimeRevisionRef: revisionRef}
+	runtimeBody, err := tobari.ApplyWorkspaceTemplateChange(template.Current.Body, runtimeChange, &resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeRevision, runtimeChanged, err := tobari.AdvanceWorkspaceTemplateRevision(template.Current, runtimeBody)
+	if err != nil || !runtimeChanged {
+		t.Fatal(err)
+	}
+	runtimeTemplate := template.Clone()
+	runtimeTemplate.Current = runtimeRevision
+	runtimeTemplate.Retained = append(runtimeTemplate.Retained, runtimeRevision)
+	fake.updatePublication = tobari.WorkspaceTemplateRevisionPublication{
+		Template: runtimeTemplate, Previous: template.Current, Current: runtimeRevision, ResolvedRuntime: &resolved, Changed: true,
+	}
+	target.ParentID = revisionRef
+	if _, err := service.UpdateConfiguration(
+		context.Background(), intent(TaskTemplateRuntimeSet, operation.EffectWrite, target, mustTemplateConfigurationImpact(t, TaskTemplateRuntimeSet)), templateRef, runtimeChange,
+	); err != nil || fake.calls != before+1 {
+		t.Fatalf("Runtime exact-parent update calls=%d err=%v", fake.calls, err)
+	}
+	target.ParentID = ""
+	if _, err := service.UpdateConfiguration(
+		context.Background(), intent(TaskTemplateRuntimeSet, operation.EffectWrite, target, mustTemplateConfigurationImpact(t, TaskTemplateRuntimeSet)), templateRef, runtimeChange,
+	); err == nil || fake.calls != before+1 {
+		t.Fatalf("Runtime update without exact parent reached adapter: calls=%d err=%v", fake.calls, err)
+	}
+}
+
+func mustTemplateConfigurationImpact(t *testing.T, command string) operation.Impact {
+	t.Helper()
+	impact, err := TemplateConfigurationImpact(command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return impact
 }
 
 func TestContextAndWorkspaceActionsUseOnlyExactRefs(t *testing.T) {
@@ -416,9 +502,9 @@ func TestApplyReviewedConsumesOneExplicitCompleteSetAndReturnsExhaustiveResult(t
 	set, publication := reviewedApplicationFixture(t)
 	fake := &fakePort{reviewed: publication}
 	service := NewPolicyMemoryService(fake)
-	target := operation.TargetRef{Kind: tobari.PolicyDecisionSetKind, ID: tobari.PolicyDecisionSetID}
+	target := operation.TargetRef{Kind: tobari.PolicyDecisionSetKind, ParentID: tobari.PolicyDecisionSetID}
 	result, err := service.ApplyReviewed(
-		context.Background(), intent(TaskPolicyApply, operation.EffectWrite, target, PolicyMemoryImpact()), set,
+		context.Background(), intent(TaskPolicyApply, operation.EffectCreate, target, PolicyMemoryImpact()), set,
 	)
 	if err != nil || fake.calls != 1 || !reflect.DeepEqual(fake.reviewedSet, set) ||
 		len(result.AppliedDecisions) != 1 || result.AppliedDecisions[0].ReviewItemID != set.Decisions[0].ReviewItemID {
@@ -439,9 +525,9 @@ func TestApplyReviewedRejectsInvalidOrSubstitutedSetBeforeSemanticSuccess(t *tes
 	set, publication := reviewedApplicationFixture(t)
 	fake := &fakePort{reviewed: publication}
 	service := NewPolicyMemoryService(fake)
-	target := operation.TargetRef{Kind: tobari.PolicyDecisionSetKind, ID: tobari.PolicyDecisionSetID}
+	target := operation.TargetRef{Kind: tobari.PolicyDecisionSetKind, ParentID: tobari.PolicyDecisionSetID}
 	_, err := service.ApplyReviewed(
-		context.Background(), intent(TaskPolicyApply, operation.EffectWrite, target, PolicyMemoryImpact()), tobari.PolicyMemoryReviewedDecisionSet{},
+		context.Background(), intent(TaskPolicyApply, operation.EffectCreate, target, PolicyMemoryImpact()), tobari.PolicyMemoryReviewedDecisionSet{},
 	)
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Code != "invalid_policy_review_set" || fake.calls != 0 {
@@ -462,7 +548,7 @@ func TestApplyReviewedRejectsInvalidOrSubstitutedSetBeforeSemanticSuccess(t *tes
 	}
 	fake.reviewed.DecisionSet = otherSet
 	_, err = service.ApplyReviewed(
-		context.Background(), intent(TaskPolicyApply, operation.EffectWrite, target, PolicyMemoryImpact()), set,
+		context.Background(), intent(TaskPolicyApply, operation.EffectCreate, target, PolicyMemoryImpact()), set,
 	)
 	public, ok = fault.PublicCopy(err)
 	if !ok || public.Code != "invalid_policy_memory_result" || fake.calls != 1 {
@@ -741,5 +827,27 @@ func TestInvalidMutationIntentFailsBeforePort(t *testing.T) {
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Code != "invalid_mutation_contract" || fake.calls != 0 {
 		t.Fatalf("fault=%#v ok=%v calls=%d", public, ok, fake.calls)
+	}
+}
+
+func TestPreReleaseLegacyAuthorityHasOneZeroMutationGuidanceFault(t *testing.T) {
+	legacy := fmt.Errorf("%w: synthetic legacy root", tobari.ErrPreReleaseLegacyAuthority)
+	readService := NewTemplateService(&fakePort{template: templateFixture(t), readErr: legacy})
+	_, err := readService.List(context.Background())
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "legacy_state_present" || public.Phase != fault.PhaseObservation || public.ChangeState != fault.ChangeNotApplicable ||
+		len(public.NextActions) != 1 || public.NextActions[0].Command != "help" || !strings.Contains(public.NextActions[0].Reason, "reset/recreate") {
+		t.Fatalf("read legacy fault = %#v, ok=%t", public, ok)
+	}
+
+	template := templateFixture(t)
+	ref, _ := tobari.WorkspaceTemplateRef(template.ID)
+	mutationPort := &fakePort{template: template, createContextErr: legacy}
+	contextService := NewContextService(mutationPort)
+	intent := intent(TaskContextCreate, operation.EffectCreate, operation.TargetRef{Kind: tobari.ContextReferenceKind, ParentID: ref}, ContextCreateImpact())
+	_, err = contextService.Create(context.Background(), intent, ref, "/workspace/example")
+	public, ok = fault.PublicCopy(err)
+	if !ok || public.Code != "legacy_state_present" || public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone || mutationPort.calls != 1 {
+		t.Fatalf("mutation legacy fault = %#v ok=%t calls=%d", public, ok, mutationPort.calls)
 	}
 }

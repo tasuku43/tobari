@@ -330,39 +330,43 @@ The public commands are:
 |---|---|---|---|
 | `help [<command>...] [--format text|agent]` | utility | read | Discover exact command contracts |
 | `completion zsh` | utility | read | Generate a thin zsh adapter that asks the current Tobari executable for typed candidates on every completion request |
-| `completion candidates --current INDEX WORD...` | utility | read | Return bounded TSV command, flag, finite-value, Workspace Manifest, Runtime, or directory completion records without mutation, Docker, or network access |
+| `completion candidates --current <index> <word>...` | utility | read | Return bounded catalog-derived or validated local-state candidates for the current command word without mutation, Docker, or network access |
 | `version [--format text|json]` | utility | read | Print source version/commit, resolver channel, required and selected standard component APIs, and compatibility |
 | `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Report read-only host, Docker, configuration, policy, Gateway, port, and residue diagnostics without repairing state |
-| `migrate apply [--format text|json]` | act, fixed target | write | Validate and migrate only the enumerated unpublished predecessor, retaining Manifest/Workspace/Runtime identities and standard Workspace homes while quarantining predecessor research authentication for explicit reauthentication |
-| `cluster up` | act, fixed target | create | Validate all Workspace Manifest policy inputs and image contracts, reconcile Gateway and OPA, and confirm the exact aggregate policy is active |
-| `tobari [--manifest <name>] [-- <command>...]` | act, fixed target plus TTY workflow | create | On first use, review one complete recommended Workspace Manifest draft or choose Customize, compose the exact Manifest/cluster/runtime actions under their own catalog contracts, then choose or create the current directory's Workspace for the explicit or default Manifest, reconcile runtime, and either enter Bash or run one exact foreground child argv; child exit returns to the host with its exact status while the Workspace remains reusable and any attachment-owned route and grant close |
-| `status [--manifest NAME] [--format text|json]` | utility | read | Inspect the nearest current-directory Workspace for the explicit or default Manifest, including desired, last-successful applied, observed, adoption, and failure facts; human text leads with Current and Next entry |
-| `list [--format text|json]` | utility | read | List local Workspaces with Workspace Manifest, runtime diagnostics, and diagnostic IDs |
-| `delete [--manifest NAME] [--force]` | act, fixed target | write | Delete the nearest current-directory Workspace for the explicit or default Manifest, its owned runtime, persistent home, and tool-owned authentication state while preserving project files; `--force` overrides only the attached-session guard |
-| `cluster status [--format text|json]` | utility | read | Inspect Gateway/OPA health, required live shared-network joins, registered Workspace/Gateway endpoint agreement, loaded Workspace Manifest count, aggregate revision, current-binary policy/Gateway projection integrity, and recent errors |
-| `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, exact-rule learnability, policy path, and review command |
-| `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence, without credential output |
-| `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every Workspace is deleted; `--purge` additionally removes shared CA and active policy-bundle volumes |
-| `policy candidates [--tail N] [--format text|json]` | discover | read | Discover Workspace Manifest/project-scoped pending exact HTTP or GraphQL-root candidates and opaque IDs across the installation |
-| `review permissions [--tail N] [--format text|json] [--watch] [--notify auto|osc9|bel|off]` | discover plus TTY fixed-target apply | read, or one confirmed write | Review the installation-wide Permission Inbox; a raw TTY can stage exact decisions from the list, inspect template scope, and apply the reviewed set; `--watch` refreshes bounded snapshots and remains open after Apply, while `--notify` selects its terminal-emulator cue and redirected or JSON output remain read-only |
+| `cluster up [--format text|json]` | act | create | Activate the exact final collection's current Template-policy and Policy-Memory axes and reconcile the selected shared component closure |
+| `cluster status [--format text|json]` | utility | read | Observe one bounded final collection, its active or stopped receipt consequence, and the selected shared component closure without repair |
+| `cluster denials [--tail <lines>] [--format text|json]` | utility | read | Inspect one bounded Gateway denial window correlated to exact final Context, Template, and Workspace authority |
+| `cluster logs [--component gateway\|opa\|all] [--tail <lines>]` | utility | read | Inspect one bounded redacted window from the surface-selected final shared components |
+| `cluster down [--format text|json]` | act | write | Stop the exact final shared component closure and clear every active Context receipt while preserving Templates, Contexts, current Policy Memory, and the final envelope |
+| `policy candidates [--format text|json]` | discover | read | Return every exact pending candidate from one coherent final authority envelope |
+| `review permissions [--format text|json]` | discover | read | Inspect the coherent final pending set without rediscovering predecessor denial logs |
+| `policy rules [--format text|json]` | discover | read | Return every current Context-owned remembered decision from one coherent final authority envelope |
+| `policy allow --id <policy-candidate-ref> [--format text|json]` | act | write | Remember and activate one exact Allow |
+| `policy deny --id <policy-candidate-ref> [--format text|json]` | act | write | Remember and activate one exact Deny |
+| `policy reset --id <policy-rule-ref> [--format text|json]` | act | write | Remove one exact current remembered decision and activate the resulting Policy Memory |
+| `template list [--format text|json]` | discover | read | Return the exhaustive final Workspace Template collection |
+| `template show [--name <name>] [--format text|json]` | discover | read | Return one final Template and its exact current immutable revision |
+| `template create --name <name> [--format text|json]` | act | create | Create one fresh Template from the reviewed built-in standard body |
+| `template copy --from <template-revision-ref> --name <name> [--format text|json]` | act | create | Create one independent Template from one exact retained revision |
+| `template default set --id <template-ref> [--format text|json]` | act | write | Select the default Workspace Template |
+| `template delete --id <template-ref> --confirm=delete [--format text|json]` | act | write | Delete one unused Workspace Template |
+| `config shell --id <template-ref> --variable COLORTERM\|NO_COLOR\|PS1\|TERM --source default\|inherit\|literal [--value <value>] [--format text|json]` | act | write | Update exact Template shell defaults from the current body under the lifecycle lock |
+| `config git --id <template-ref> --source default\|inherit\|literal [--name <name> --email <email>] [--format text|json]` | act | write | Update exact Template Git defaults from the current body under the lifecycle lock |
+| `config bootstrap aws --id <template-ref> [--profile <name>] [--refresh] [--remove] [--format text|json]` | act | write | Update exact Template AWS creation defaults from the current body under the lifecycle lock |
+| `config bootstrap kubernetes eks --id <template-ref> [--kube-context <name>] [--refresh] [--remove] [--format text|json]` | act | write | Update exact Template EKS creation defaults from the current body under the lifecycle lock |
+| `template runtime set --id <template-ref> --runtime <runtime-revision-ref> [--format text|json]` | act | write | Replace exact Template Runtime binding from the current body under the lifecycle lock |
+| `context list [--format text|json]` | discover | read | Return every final Context with exact Project and Template scope |
+| `context show --id <context-ref> [--format text|json]` | discover | read | Return one exact Context with desired and independently active authority |
+| `context create --template <template-ref> [--format text|json]` | act | create | Create one empty Context from one unchanged Template reference and canonical CWD |
+| `context enter --id <context-ref> [--format text|json] [-- <command>...]` | act | create | Reconcile and enter one exact Context Workspace |
+| `context delete --id <context-ref> --confirm=delete [--format text|json]` | act | write | Delete one exact Context, its Policy Memory, and unresolved candidates |
+| `workspace list [--format text|json]` | discover | read | Return every final Workspace and its exact owner binding |
+| `workspace status --id <workspace-ref> [--format text|json]` | discover | read | Return one exact Workspace and its applied authority |
+| `workspace delete --id <workspace-ref> --confirm=delete [--force] [--format text|json]` | act | write | Retire one exact Workspace, home, native authentication state, and owned runtime resources while preserving Context Policy Memory |
 | `review services` | discover plus TTY reference-bound actions | read, or one confirmed create/write | In a separate trusted-host terminal, review a fresh live Service request; Allow once or Deny is immediate and attachment-local, while redirected output is read-only |
 | `service requests` | discover | read | Return one fresh exhaustive snapshot of pending service requests from live attachment owners with opaque request references |
 | `service allow --id ID` | act, reference bound | create | Revalidate one pending request and create one attachment-owned random IPv4-loopback exposure |
 | `service deny --id ID` | act, reference bound | write | Resolve one pending request without creating host access |
-| `policy allow --id ID` | act, reference bound | write | Test, record, and activate one exact observed permission |
-| `policy deny --id ID` | act, reference bound | write | Test, record, and activate one exact project-bound rejection |
-| `policy rules [--format text|json]` | discover | read | List every Workspace Manifest-scoped CLI-owned learned Allow and exact Deny decision; on a TTY, reset one explicitly |
-| `policy reset --id ID` | act, reference bound | write | Remove one learned decision and leave its effect at default deny |
-| `manifest list [--format text|json]` | utility | read | List persisted Workspace Manifests and identify the installation default; human text summarizes effective Access, exact Runtime selection, and any action marker |
-| `manifest show [--name NAME] [--details] [--format text|json]` | utility | read | Inspect one Workspace Manifest's immutable Boundary, complete desired revision, exact Runtime binding, activation slices, stores, and native Workspace-owned authentication mode |
-| `config shell [--variable COLORTERM\|NO_COLOR\|PS1\|TERM] [--source default\|inherit\|literal] [--value VALUE] [--manifest NAME] [--format text\|json]` | act, fixed target | write | Publish one complete desired Manifest revision containing the updated shell-session defaults; later child sessions resolve it without rewriting Workspace home |
-| `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--manifest NAME] [--format text\|json]` | act, fixed target | write | Publish one complete desired Manifest revision containing an atomic Git commit-identity session fallback; later Workspace entry resolves it without rewriting Workspace home |
-| `config bootstrap aws [--profile NAME] [--refresh] [--remove] [--manifest NAME] [--format text\|json]` | act, fixed target | write | Normalize one strict secret-free host AWS IAM Identity Center profile for future Workspaces, refresh it after a semantic diff, or remove the future recipe; existing Workspace homes never change |
-| `config bootstrap kubernetes eks [--kube-context NAME] [--refresh] [--remove] [--manifest NAME] [--format text\|json]` | act, fixed target | write | Compose one strict AWS CLI-generated host EKS context with the Manifest AWS profile, refresh it, or remove only EKS; no credential, arbitrary exec, network authority, or existing Workspace home changes |
-| `manifest create [--copy-from NAME] [--name NAME] [--runtime RUNTIME] [--mode guided\|advanced] [--source-access read-only\|read-write] [--native-readiness enabled\|disabled] [--bootstrap-aws-profile NAME] [--bootstrap-eks-context NAME] [--format text\|json]` | act, fixed target | create | Create a fresh generation-1 Workspace Manifest from complete direct input or a reviewed exact immutable current Manifest revision; copy is one-time, independent, and records no lineage or lower-lifetime state |
-| `manifest delete --name NAME [--format text\|json]` | act, fixed target | write | Delete one unused non-default Workspace Manifest and its exact owner stores while preserving Workspaces, project files, and shared runtime images |
-| `manifest default set --name NAME [--format text\|json]` | act, fixed target | write | Change only the installation default Manifest used when a later invocation omits `--manifest`; do not mutate existing Workspaces or reconcile Docker |
-| `manifest runtime set [--runtime RUNTIME] [--manifest NAME] [--format text\|json]` | act, fixed target | write | Publish one complete desired Manifest revision with an exact `standard` or ready `NAME@ORDINAL` Runtime binding; bound Workspaces adopt it only at their next explicit entry |
 | `runtime list [--format text\|json]` | discover | read | List the exhaustive installation-wide Runtime catalog, stable Runtime references, and each ready head revision |
 | `runtime show --name NAME [--format text\|json]` | discover | read | Inspect one Runtime's stable reference, managed source path, and complete successful revisions |
 | `runtime history --name NAME [--format text\|json]` | discover | read | Show one Runtime's stable reference and ordered immutable successful revision history |
@@ -373,6 +377,8 @@ The public commands are:
 | `runtime delete --id RUNTIME_REF --confirm=delete [--format text\|json]` | act, reference bound | write | Delete one exact unused managed Runtime as a whole—editable source, immutable snapshots, revision history, and exact owned image tags—only after complete protection and use observation, while preserving Workspace Manifests, Workspaces, IDs, homes, applied receipts, Project roots, credentials, and shared resources |
 | `runtime prune dry-run [--format text\|json]` | discover | read | Produce one exact opaque prune-plan reference from a complete coherent installation observation, listing every eligible unused owned image tag, protection, blocker, preserved source/snapshot byte count, and bounded Docker observation without creating state or changing Docker |
 | `runtime prune apply --plan RUNTIME_PRUNE_PLAN_REF --confirm=prune [--format text\|json]` | act, reference bound | write | Revalidate and apply one unchanged reviewed plan, removing only exact Tobari-owned unused image tags while preserving Runtime source, immutable snapshots, revision history, Workspace Manifests, Workspaces, homes, IDs, and shared image content |
+| `tobari [-- <command>...]` | act | create | Atomically initialize a fresh default Template and Context when required, then reconcile and enter their exact Workspace |
+| `status [--format text|json]` | discover | read | Return desired, independently active, and applied authority for the exact final default Template and canonical Project Context |
 
 Bare `tobari review` is a pure Catalog namespace listing with exactly the
 public task leaves `permissions`, `runtimes`, and `services`; it performs no task read or
@@ -822,24 +828,29 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Agent help (`view: index` and input-selected `view: scope`) | `commands` | 1 |
 | Version | `build_identity` | 1 |
 | Doctor report | `report` | 1 |
-| Installation migration | `migration` | 2 |
-| Workspace Manifest list | `workspace_manifests` | 2 |
-| Workspace Manifest report (show/create/default/config/runtime results) | `workspace_manifest` | 2 |
+| Cluster activation result | `cluster_up` | 2 |
+| Cluster status | `cluster` | 2 |
+| Cluster denial window | `denials` | 3 |
+| Cluster stop result | `cluster_down` | 2 |
+| Policy candidates | `policy_candidates` | 2 |
+| Policy review | `policy_review` | 2 |
+| Policy rules | `policy_rules` | 2 |
+| Policy mutation result | `result` | 2 |
+| Workspace Template list | `templates` | 1 |
+| Workspace Template report | `template` | 1 |
+| Template, Context, or Workspace selection/deletion result | `result` | 1 |
+| Context list | `contexts` | 1 |
+| Context report | `context` | 1 |
+| Context entry result | `entry` | 1 |
+| Workspace list | `workspaces` | 1 |
+| Workspace report | `workspace` | 1 |
+| Default-pair status | `status` | 3 |
 | Runtime list | `runtimes` | 1 |
 | Runtime report (show/create/history/build results) | `runtime` | 1 |
 | Runtime restore result | `runtime_restore` | 1 |
 | Runtime delete result | `runtime_delete` | 1 |
-| Runtime prune plan | `runtime_prune_plan` | 1 |
-| Runtime prune result | `runtime_prune_result` | 1 |
-| Workspace Manifest deletion | `workspace_manifest_deletion` | 2 |
-| Cluster status | `cluster` | 1 |
-| Cluster denials | `denials` | 1 |
-| Policy candidates | `policy_candidates` | 1 |
-| Policy review | `policy_review` | 1 |
-| Policy rules | `policy_rules` | 1 |
-| Workspace list | `workspaces` | 2 |
-| Workspace status | `status` | 2 |
-| Permission wait result | `result` | 1 |
+| Runtime prune plan | `runtime_prune_plan` | 2 |
+| Runtime prune result | `runtime_prune_result` | 2 |
 <!-- public-cli-json-schemas:end -->
 
 Workspace status JSON always reports the selected Workspace Manifest ID/name, logical
@@ -1561,39 +1572,34 @@ availability uncertainty rather than inferring absence from an unreadable vault.
 
 ## Pre-public V1 boundary
 
-Workspace Manifest reports, Workspace status/list, and migration output use
-their Catalog-declared schema 2. Unchanged public and internal boundaries keep
-their independently owned versions; a shared numeral is not cross-surface
-compatibility. Ordinary readers accept only their exact declared version and
-fail closed on every other version. Tobari provides no retired command alias,
-implicit old-state interpretation, or general compatibility shim. The sole exception is
-`migrate apply`: an explicit installation-local write that accepts only the
-strict unpublished predecessor named by ADR 0070. It creates an owner-only
-content-addressed backup, retains predecessor Manifest and Workspace UUID
-bytes, converts desired/applied state, and promotes an exact legacy custom
-Dockerfile through the managed Runtime build boundary. Standard
-Workspace-native home/auth bytes are preserved without reading or converting
-them.
+Each final Workspace Template, Context, Workspace, Policy, and authentication
+reader accepts only its exact declared schema. Unchanged public and internal
+boundaries keep their independently owned versions; a shared numeral is not
+cross-surface compatibility. Tobari provides no retired command alias, implicit
+old-state interpretation, migration fallback, or general compatibility shim.
 
-Predecessor research Broker authority is not rebound. Migration enumerates
-the complete filesystem-side ciphertext, bindings, handles, lookups,
-projections, registries, and provider/config records and atomically moves them
-to owner-only private quarantine. Unknown, mixed, partial, corrupt, unsafe,
-symlinked, or drifted state fails before mutation. macOS Keychain recovery
-material is neither read nor changed; Linux filesystem root-key material moves
-with the set. Ordinary old/new readers cannot discover quarantined content,
-and public JSON reveals no secret path or Keychain fact. Rollback restores the
-byte-identical set only when no fresh canonical auth state exists. The only
-public disposition is the bounded non-secret
-`research_auth_disposition: reauthentication_required`; later research use
-requires explicit fresh login/import.
-The same explicit migration requires the cluster stopped and continuously
-fences canonical attachment creation while proving zero live owners and
-replacing only exact retired-host schema-v1 route/grant registries with empty
-schema-v2 registries. It translates no route, grant, relay token, candidate,
-or opaque reference. Ordinary readers, entry, `cluster up`, status, and doctor
-do not perform this cleanup.
-Every other development snapshot must be removed and recreated.
+Before the first public release, a genuinely fresh installation is one where
+the final owner store is absent and a bounded fixed-path presence guard proves
+that no predecessor Manifest, Workspace, Policy, Broker, principal, or private
+session authority is present. That state is exact empty final authority and may
+create its first Template and Context. A complete final store is the only
+ordinary authority source. Predecessor bytes never contribute identity,
+policy, Runtime protection, principal/session state, or credentials.
+
+Any declared legacy presence, unsafe path, or ambiguous observation fails
+closed before final initialization or mutation and returns explicit
+reset-and-recreate guidance. The guard observes only bounded path/type/owner
+facts needed to establish presence; it does not decode, decrypt, transform,
+quarantine, rename, delete, or adopt predecessor content. Destructive reset is
+an explicit user action outside this cutover. Research use creates fresh
+Context-owned credentials only through explicit login/import; matching legacy
+IDs or bytes are never rebound.
+
+This clean-break rule is valid only because Tobari has no public release. It is
+not precedent for changing released persistent state. Compatibility and
+migration requirements after the first public release remain undecided and
+must be fixed by an explicit future release-policy decision before an
+incompatible change.
 
 The canonical Gateway source label is API V1. Source does not record any owned
 image release output. The release workflow builds its multi-architecture index

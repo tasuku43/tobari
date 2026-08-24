@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -74,6 +75,125 @@ func (r *Runtime) ConfirmNoFinalWorkspaceSessions(ctx context.Context) error {
 		}
 		return nil
 	})
+}
+
+// observeFinalWorkspaceSessionOwner is the persistent-identity deletion fence.
+// It deliberately does not require a current principal projection: absence is
+// decided from the canonical registry first, while a present owner is proved
+// by its exact lease and authenticated liveness channel.
+func (r *Runtime) observeFinalWorkspaceSessionOwner(ctx context.Context, contextID tobari.ContextID, workspaceID tobari.WorkspaceID) (FinalWorkspaceSessionState, *tobari.InteractiveAttachmentSession, error) {
+	if err := contextID.Validate(); err != nil {
+		return "", nil, err
+	}
+	if err := workspaceID.Validate(); err != nil {
+		return "", nil, err
+	}
+	var observed *tobari.InteractiveAttachmentSession
+	err := r.withInteractiveAttachmentLock(ctx, func() error {
+		if err := requirePrivateDirectory(r.interactiveAttachmentDirectory()); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		if err := requireOwnerOnlyRegularFile(r.interactiveAttachmentSessionRegistryPath()); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		var registry tobari.InteractiveAttachmentSessionRegistry
+		if err := readStrictJSON(r.interactiveAttachmentSessionRegistryPath(), &registry); err != nil {
+			return err
+		}
+		if err := registry.Validate(); err != nil {
+			return err
+		}
+		current := findInteractiveSession(registry, string(contextID), string(workspaceID))
+		if current != nil {
+			copy := *current
+			observed = &copy
+		}
+		return nil
+	})
+	if err != nil || observed == nil {
+		if err != nil {
+			return "", nil, err
+		}
+		return FinalWorkspaceSessionAbsent, nil, nil
+	}
+	active := r.permissionSessionActive(*observed)
+	if active {
+		return FinalWorkspaceSessionLive, observed, nil
+	}
+	if permissionSessionLeaseCurrent(*observed, time.Now()) {
+		return "", nil, fmt.Errorf("canonical interactive attachment liveness is ambiguous")
+	}
+	return FinalWorkspaceSessionAbsent, observed, nil
+}
+
+// compactExactExpiredFinalWorkspaceSession removes only one exact expired,
+// socket-absent target after the container-owning exec has ended. It never
+// removes a current, live, changed, foreign, or ambiguous owner.
+func (r *Runtime) compactExactExpiredFinalWorkspaceSession(ctx context.Context, contextID tobari.ContextID, workspaceID tobari.WorkspaceID, observed *tobari.InteractiveAttachmentSession) error {
+	return r.withInteractiveAttachmentLock(ctx, func() error {
+		if err := requireOwnerOnlyRegularFile(r.interactiveAttachmentSessionRegistryPath()); err != nil {
+			if errors.Is(err, os.ErrNotExist) && observed == nil {
+				return nil
+			}
+			return err
+		}
+		var registry tobari.InteractiveAttachmentSessionRegistry
+		if err := readStrictJSON(r.interactiveAttachmentSessionRegistryPath(), &registry); err != nil {
+			return err
+		}
+		if err := registry.Validate(); err != nil {
+			return err
+		}
+		current := findInteractiveSession(registry, string(contextID), string(workspaceID))
+		if current == nil {
+			return nil
+		}
+		if observed == nil || !sameInteractiveSessionAuthority(*current, *observed) {
+			return fmt.Errorf("canonical interactive attachment changed during retirement")
+		}
+		if permissionSessionLeaseCurrent(*current, time.Now()) || r.permissionSessionActive(*current) {
+			return fmt.Errorf("canonical interactive attachment is not exactly expired and absent")
+		}
+		filtered := make([]tobari.InteractiveAttachmentSession, 0, len(registry.Sessions)-1)
+		for _, session := range registry.Sessions {
+			if session.WorkspaceManifestID == string(contextID) && session.WorkspaceID == string(workspaceID) {
+				continue
+			}
+			filtered = append(filtered, session)
+		}
+		registry.Sessions = filtered
+		return writeAtomicJSON(r.interactiveAttachmentSessionRegistryPath(), registry)
+	})
+}
+
+func (r *Runtime) waitFinalWorkspaceSessionOwnerAbsent(ctx context.Context, contextID tobari.ContextID, workspaceID tobari.WorkspaceID) error {
+	deadline := time.Now().Add(tobari.PermissionSessionLease + permissionSessionHeartbeat + permissionSessionCleanup)
+	for time.Now().Before(deadline) {
+		state, observed, err := r.observeFinalWorkspaceSessionOwner(ctx, contextID, workspaceID)
+		if err == nil && state == FinalWorkspaceSessionAbsent {
+			if observed == nil {
+				return nil
+			}
+			if err := r.compactExactExpiredFinalWorkspaceSession(ctx, contextID, workspaceID, observed); err == nil {
+				return nil
+			}
+		}
+		if err != nil && !strings.Contains(err.Error(), "liveness is ambiguous") {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("selected canonical interactive attachment did not become absent after its container stopped")
 }
 
 // FinalWorkspaceSessionOwner is the narrow host-runtime owner returned to the

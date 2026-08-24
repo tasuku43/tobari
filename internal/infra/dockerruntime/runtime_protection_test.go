@@ -23,6 +23,43 @@ type runtimeProtectionRunner struct {
 	fail        bool
 }
 
+type finalRuntimeProtectionSourceFixture struct {
+	authority   tobari.FinalRuntimeProtectionAuthority
+	authorities []tobari.FinalRuntimeProtectionAuthority
+	err         error
+	calls       int
+}
+
+func (s *finalRuntimeProtectionSourceFixture) ReadFinalRuntimeProtectionAuthority(context.Context) (tobari.FinalRuntimeProtectionAuthority, error) {
+	s.calls++
+	if len(s.authorities) != 0 {
+		index := s.calls - 1
+		if index >= len(s.authorities) {
+			index = len(s.authorities) - 1
+		}
+		return s.authorities[index].Clone(), s.err
+	}
+	return s.authority.Clone(), s.err
+}
+
+func bindFinalRuntimeProtectionCollection(t *testing.T, runtime *Runtime, collection tobari.WorkspaceAuthorityCollection, present bool) *finalRuntimeProtectionSourceFixture {
+	t.Helper()
+	authority, err := tobari.NewFinalRuntimeProtectionAuthority(collection, present)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := &finalRuntimeProtectionSourceFixture{authority: authority}
+	if err := runtime.BindFinalRuntimeProtectionSource(source); err != nil {
+		t.Fatal(err)
+	}
+	return source
+}
+
+func bindEmptyFinalRuntimeProtection(t *testing.T, runtime *Runtime) *finalRuntimeProtectionSourceFixture {
+	t.Helper()
+	return bindFinalRuntimeProtectionCollection(t, runtime, tobari.WorkspaceAuthorityCollection{}, false)
+}
+
 func (r *runtimeProtectionRunner) Run(_ context.Context, args, _ []string, _ io.Reader, stdout, stderr io.Writer) error {
 	r.calls = append(r.calls, slices.Clone(args))
 	if r.fail {
@@ -66,6 +103,7 @@ func newRuntimeProtectionFixture(t *testing.T, runner *runtimeProtectionRunner) 
 	if err := os.WriteFile(filepath.Join(runtime.stateDirectory, "lifecycle.lock"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	bindEmptyFinalRuntimeProtection(t, runtime)
 	return runtime, workspace, manifest
 }
 
@@ -77,6 +115,7 @@ func TestRuntimeProtectionFreshObservationIsZeroWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	bindEmptyFinalRuntimeProtection(t, runtime)
 	inventory, err := runtime.ReadRuntimeProtectionInventory(context.Background())
 	if err != nil || !inventory.Complete || len(inventory.Items) != 0 {
 		t.Fatalf("ReadRuntimeProtectionInventory() = %+v, %v", inventory, err)
@@ -211,39 +250,116 @@ func TestRuntimeProtectionOmitsStandardBindings(t *testing.T) {
 	}
 }
 
-func TestRuntimeProtectionCollapsesAppliedAndObservedExclusively(t *testing.T) {
-	runner := &runtimeProtectionRunner{}
-	runtime, workspace, manifest := newRuntimeProtectionFixture(t, runner)
+func finalManagedRuntimeProtectionCollection(t *testing.T) (tobari.WorkspaceAuthorityCollection, string, tobari.SemanticDigest) {
+	t.Helper()
+	base := finalProjectionCollectionFixture(t, "")
+	template := base.Templates[0]
 	managedID := "018bcfe5-687b-7000-8000-000000000077"
-	revision := "sha256:" + strings.Repeat("b", 64)
-	spec := "sha256:" + strings.Repeat("c", 64)
-	containerID := strings.Repeat("d", 64)
-	manifest.RuntimeBinding = &tobari.RuntimeBinding{RuntimeID: managedID, Name: "tools", Revision: revision, Ordinal: 1, Image: "tobari-runtime-tools:bbbbbbbbbbbb"}
-	workspace.Runtime.ContainerID = containerID
-	workspace.LastSuccessfulEntry = &tobari.AppliedEntry{
-		ManifestGeneration: manifest.Desired.Generation, ManifestRevision: manifest.Desired.Revision,
-		EntryRevision: manifest.Desired.EntryRevision, RuntimeID: managedID, RuntimeRevision: revision,
-		ResolvedSpec: spec, ReconciledAt: time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC),
-	}
-	if err := runtime.writeProjectInstance(workspace); err != nil {
+	firstRuntimeRevision := tobari.SemanticDigest("sha256:" + strings.Repeat("b", 64))
+	body := template.Current.Body.Clone()
+	body.EntryDefaults.Runtime = tobari.RuntimeBinding{RuntimeID: managedID, Name: "tools", Revision: string(firstRuntimeRevision), Ordinal: 1, Image: "tobari-runtime-tools:bbbbbbbbbbbb"}
+	first, err := tobari.NewWorkspaceTemplateRevision(template.ID, 1, body)
+	if err != nil {
 		t.Fatal(err)
 	}
-	runner.containerID, runner.workspaceID, runner.spec = containerID, workspace.ID, spec
-	observed, err := runtime.observeWorkspaceRuntimeProtection(context.Background(), workspace, lifecycleTestBudget())
-	if err != nil || !observed {
-		t.Fatalf("observeWorkspaceRuntimeProtection() = %t, %v", observed, err)
+	body.EntryDefaults.Runtime.Revision = "sha256:" + strings.Repeat("c", 64)
+	body.EntryDefaults.Runtime.Ordinal = 2
+	body.EntryDefaults.Runtime.Image = "tobari-runtime-tools:cccccccccccc"
+	current, changed, err := tobari.AdvanceWorkspaceTemplateRevision(first, body)
+	if err != nil || !changed {
+		t.Fatalf("advance managed Template = %+v/%t/%v", current, changed, err)
 	}
-	protection, ok := runtimeWorkspaceProtection(workspace, observed)
-	if !ok || protection.Reason != tobari.RuntimeProtectedByWorkspaceObserved {
-		t.Fatalf("observed protection = %+v, present=%t", protection, ok)
+	template.Current = current
+	template.Retained = []tobari.WorkspaceTemplateRevision{first.Clone(), current.Clone()}
+	binding := base.Contexts[0].Context
+	spec := tobari.SemanticDigest("sha256:" + strings.Repeat("d", 64))
+	entry := tobari.WorkspaceAppliedEntry{
+		ContextID: binding.ID, TemplateID: template.ID, TemplateRevision: first.Revision,
+		EntrySliceDigest: first.Slices.EntrySliceDigest, RuntimeID: first.Slices.RuntimeID,
+		RuntimeRevision: first.Slices.RuntimeRevision, ResolvedSpec: spec, ReconciledAt: time.Unix(4, 0).UTC(),
 	}
-	applied, ok := runtimeWorkspaceProtection(workspace, false)
-	if !ok || applied.Reason != tobari.RuntimeProtectedByWorkspaceApplied {
-		t.Fatalf("applied protection = %+v, present=%t", applied, ok)
+	workspace := tobari.WorkspaceBinding{
+		SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: finalProjectionWorkspaceA, ContextID: binding.ID,
+		ProjectRoot: binding.ProjectRoot, Home: "/workspace/runtime-protection-home", CreationDefaults: first.Slices.CreationDefaultsDigest,
+		LastSuccessfulEntry: &entry,
 	}
-	if protection.RuntimeID != applied.RuntimeID || protection.RuntimeRevision != applied.RuntimeRevision ||
-		protection.WorkspaceID != applied.WorkspaceID {
-		t.Fatalf("exclusive reasons changed protection identity: observed=%+v applied=%+v", protection, applied)
+	collection, _, err := tobari.PublishWorkspaceAuthorityCollection(
+		[]tobari.WorkspaceTemplate{template}, base.Contexts, []tobari.WorkspaceBinding{workspace}, []tobari.PolicyCandidateAuthority{}, nil, nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return collection, strings.Repeat("e", 64), spec
+}
+
+func TestRuntimeProtectionUsesOnlyFinalTemplateContextWorkspaceAuthority(t *testing.T) {
+	runner := &runtimeProtectionRunner{}
+	root := t.TempDir()
+	runtime, err := newRuntimeWithData(filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection, containerID, spec := finalManagedRuntimeProtectionCollection(t)
+	bindFinalRuntimeProtectionCollection(t, runtime, collection, true)
+	runner.containerID, runner.workspaceID, runner.spec = containerID, string(finalProjectionWorkspaceA), string(spec)
+	inventory, err := runtime.ReadRuntimeProtectionInventory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantReasons := []tobari.RuntimeProtectionReason{
+		tobari.RuntimeProtectedByTemplateCurrent, tobari.RuntimeProtectedByTemplateRetained,
+		tobari.RuntimeProtectedByContextDesired,
+		tobari.RuntimeProtectedByWorkspaceObserved, tobari.RuntimeProtectedByWorkspacePending,
+	}
+	for _, reason := range wantReasons {
+		if !slices.ContainsFunc(inventory.Items, func(item tobari.RuntimeProtection) bool { return item.Reason == reason }) {
+			t.Fatalf("final Runtime protection omitted %q: %+v", reason, inventory.Items)
+		}
+	}
+	for _, item := range inventory.Items {
+		if item.WorkspaceTemplateID != finalProjectionTemplateID || item.TemplateRevision == "" {
+			t.Fatalf("protection did not retain exact final Template authority: %+v", item)
+		}
+		if item.Reason == tobari.RuntimeProtectedByContextDesired && (item.ContextID != finalProjectionContextID || item.WorkspaceID != "") {
+			t.Fatalf("Context protection crossed final owner: %+v", item)
+		}
+		if item.Reason == tobari.RuntimeProtectedByWorkspaceObserved || item.Reason == tobari.RuntimeProtectedByWorkspacePending {
+			if item.ContextID != finalProjectionContextID || item.WorkspaceID != finalProjectionWorkspaceA {
+				t.Fatalf("Workspace protection crossed final owner: %+v", item)
+			}
+		}
+	}
+}
+
+func TestRuntimeLifecycleRejectsFinalCollectionReceiptDriftWithSameProtectionContent(t *testing.T) {
+	runner := &runtimeProtectionRunner{}
+	root := t.TempDir()
+	runtime, err := newRuntimeWithData(filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection, containerID, spec := finalManagedRuntimeProtectionCollection(t)
+	defaultID := collection.Templates[0].ID
+	next, changed, err := tobari.PublishWorkspaceAuthorityCollection(
+		collection.Templates, collection.Contexts, collection.Workspaces, collection.PendingCandidates, &defaultID, &collection,
+	)
+	if err != nil || !changed {
+		t.Fatalf("publish protection-equivalent collection = %+v/%t/%v", next, changed, err)
+	}
+	first, err := tobari.NewFinalRuntimeProtectionAuthority(collection, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := tobari.NewFinalRuntimeProtectionAuthority(next, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.finalRuntimeProtectionSource = &finalRuntimeProtectionSourceFixture{authorities: []tobari.FinalRuntimeProtectionAuthority{first, second}}
+	runner.containerID, runner.workspaceID, runner.spec = containerID, string(finalProjectionWorkspaceA), string(spec)
+	_, _, err = runtime.ReadRuntimeLifecycleSnapshot(context.Background())
+	var fault tobari.RuntimeProtectionInventoryError
+	if !errors.As(err, &fault) || fault.Reason != tobari.RuntimeProtectionInventoryObservationUnknown {
+		t.Fatalf("collection receipt drift error = %v", err)
 	}
 }
 
@@ -270,155 +386,37 @@ func TestMissingRuntimeContainerInspectRequiresExactDiagnostic(t *testing.T) {
 	}
 }
 
-func TestRuntimeProtectionPartialWorkspaceRuntimeIsMigrationUnverified(t *testing.T) {
-	for name, mutate := range map[string]func(*tobari.Workspace){
-		"network without container": func(workspace *tobari.Workspace) { workspace.Runtime.NetworkID = strings.Repeat("e", 64) },
-		"container without applied": func(workspace *tobari.Workspace) { workspace.Runtime.ContainerID = strings.Repeat("f", 64) },
-	} {
-		t.Run(name, func(t *testing.T) {
-			runtime, workspace, _ := newRuntimeProtectionFixture(t, &runtimeProtectionRunner{})
-			mutate(&workspace)
-			if err := runtime.writeProjectInstance(workspace); err != nil {
-				t.Fatal(err)
-			}
-			_, err := runtime.ReadRuntimeProtectionInventory(context.Background())
-			var fault tobari.RuntimeProtectionInventoryError
-			if !errors.As(err, &fault) || fault.Reason != tobari.RuntimeProtectionInventoryMigrationUnverified {
-				t.Fatalf("ReadRuntimeProtectionInventory() error = %v", err)
-			}
-		})
+func TestRuntimeProtectionIgnoresPredecessorManifestWorkspaceFiles(t *testing.T) {
+	runtime, _, _ := newRuntimeProtectionFixture(t, &runtimeProtectionRunner{})
+	before, err := runtime.ReadRuntimeProtectionInventory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runtime.contextsDirectory(), "predecessor-only"), []byte("not final authority"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runtime.stateDirectory, "project-journal.json"), []byte("not final authority"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	after, err := runtime.ReadRuntimeProtectionInventory(context.Background())
+	if err != nil || !slices.Equal(before.Items, after.Items) {
+		t.Fatalf("predecessor files influenced final Runtime protection: before=%+v after=%+v err=%v", before, after, err)
 	}
 }
 
-func TestRuntimeProtectionIncompleteOrUnsafeInventoryFailsClosed(t *testing.T) {
-	tests := map[string]func(*testing.T, *Runtime, tobari.Workspace){
-		"unsafe Manifest entry": func(t *testing.T, runtime *Runtime, _ tobari.Workspace) {
-			target := filepath.Join(t.TempDir(), "target")
-			if err := os.Mkdir(target, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.Symlink(target, filepath.Join(runtime.contextsDirectory(), "unsafe")); err != nil {
-				t.Fatal(err)
-			}
-		},
-		"missing Workspace state": func(t *testing.T, runtime *Runtime, workspace tobari.Workspace) {
-			directory, err := runtime.projectDirectory(workspace.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.RemoveAll(directory); err != nil {
-				t.Fatal(err)
-			}
-		},
-		"pending Workspace journal": func(t *testing.T, runtime *Runtime, workspace tobari.Workspace) {
-			journal := projectJournal{
-				SchemaVersion: projectJournalSchema, Operation: projectOpCreate, ProjectID: workspace.ID,
-				Root: workspace.Root, WorkspaceManifestID: workspace.WorkspaceManifestID, Phase: projectPhaseStarted,
-			}
-			if err := runtime.writeProjectJournal(journal); err != nil {
-				t.Fatal(err)
-			}
-		},
-	}
-	for name, mutate := range tests {
-		t.Run(name, func(t *testing.T) {
-			runtime, workspace, _ := newRuntimeProtectionFixture(t, &runtimeProtectionRunner{})
-			mutate(t, runtime, workspace)
-			inventory, err := runtime.ReadRuntimeProtectionInventory(context.Background())
-			var fault tobari.RuntimeProtectionInventoryError
-			if !errors.As(err, &fault) || fault.Reason != tobari.RuntimeProtectionInventoryIncomplete {
-				t.Fatalf("ReadRuntimeProtectionInventory() = %+v, %v", inventory, err)
-			}
-			if inventory.Complete {
-				t.Fatalf("incomplete inventory remained complete: %+v", inventory)
-			}
-		})
-	}
-}
-
-func TestRuntimeProtectionRejectsSubstitutedAuthorityDirectories(t *testing.T) {
-	tests := map[string]func(*testing.T, *Runtime, tobari.Workspace, tobari.WorkspaceManifest) string{
-		"contexts": func(_ *testing.T, runtime *Runtime, _ tobari.Workspace, _ tobari.WorkspaceManifest) string {
-			return runtime.contextsDirectory()
-		},
-		"current Manifest": func(_ *testing.T, runtime *Runtime, _ tobari.Workspace, manifest tobari.WorkspaceManifest) string {
-			return runtime.contextDirectory(manifest.Name)
-		},
-		"retained Manifest revisions": func(_ *testing.T, runtime *Runtime, _ tobari.Workspace, manifest tobari.WorkspaceManifest) string {
-			return runtime.manifestRevisionsDirectory(manifest.Name)
-		},
-		"root indexes": func(_ *testing.T, runtime *Runtime, _ tobari.Workspace, _ tobari.WorkspaceManifest) string {
-			return runtime.rootsDirectory()
-		},
-		"Workspace instances": func(_ *testing.T, runtime *Runtime, _ tobari.Workspace, _ tobari.WorkspaceManifest) string {
-			return runtime.instancesDirectory()
-		},
-		"Workspace instance": func(t *testing.T, runtime *Runtime, workspace tobari.Workspace, _ tobari.WorkspaceManifest) string {
-			directory, err := runtime.projectDirectory(workspace.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			return directory
-		},
-	}
-	for name, target := range tests {
-		t.Run(name, func(t *testing.T) {
-			runtime, workspace, manifest := newRuntimeProtectionFixture(t, &runtimeProtectionRunner{})
-			path := target(t, runtime, workspace, manifest)
-			backup := filepath.Join(t.TempDir(), "authority-backup")
-			if err := os.Rename(path, backup); err != nil {
-				t.Fatal(err)
-			}
-			empty := t.TempDir()
-			if err := os.Chmod(empty, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.Symlink(empty, path); err != nil {
-				t.Fatal(err)
-			}
-			inventory, err := runtime.ReadRuntimeProtectionInventory(context.Background())
-			if err == nil || inventory.Complete {
-				t.Fatalf("substituted %s authorized complete protection = %+v/%v", path, inventory, err)
-			}
-		})
-	}
-}
-
-func TestRuntimeProtectionRequiresOwnerOnlyAuthorityDirectories(t *testing.T) {
-	for name, target := range map[string]func(*Runtime, tobari.WorkspaceManifest) string{
-		"contexts": func(runtime *Runtime, _ tobari.WorkspaceManifest) string { return runtime.contextsDirectory() },
-		"retained revisions": func(runtime *Runtime, manifest tobari.WorkspaceManifest) string {
-			return runtime.manifestRevisionsDirectory(manifest.Name)
-		},
-		"root indexes":        func(runtime *Runtime, _ tobari.WorkspaceManifest) string { return runtime.rootsDirectory() },
-		"Workspace instances": func(runtime *Runtime, _ tobari.WorkspaceManifest) string { return runtime.instancesDirectory() },
-	} {
-		t.Run(name, func(t *testing.T) {
-			runtime, _, manifest := newRuntimeProtectionFixture(t, &runtimeProtectionRunner{})
-			if err := os.Chmod(target(runtime, manifest), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			inventory, err := runtime.ReadRuntimeProtectionInventory(context.Background())
-			if err == nil || inventory.Complete {
-				t.Fatalf("non-private authority authorized complete protection = %+v/%v", inventory, err)
-			}
-		})
-	}
-}
-
-func TestRuntimeProtectionOrderingIncludesRetainedManifestRevision(t *testing.T) {
+func TestRuntimeProtectionOrderingIncludesRetainedTemplateRevision(t *testing.T) {
 	base := tobari.RuntimeProtection{
 		RuntimeID: "018bcfe5-687b-7000-8000-000000000077", RuntimeRevision: "sha256:" + strings.Repeat("d", 64),
-		Reason: tobari.RuntimeProtectedByManifestRetained, WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad",
+		Reason: tobari.RuntimeProtectedByTemplateRetained, WorkspaceTemplateID: "01912345-6789-7abc-8def-0123456789ad",
 	}
 	first, second := base, base
-	first.ManifestRevision = "sha256:" + strings.Repeat("a", 64)
-	second.ManifestRevision = "sha256:" + strings.Repeat("b", 64)
+	first.TemplateRevision = tobari.SemanticDigest("sha256:" + strings.Repeat("a", 64))
+	second.TemplateRevision = tobari.SemanticDigest("sha256:" + strings.Repeat("b", 64))
 	items := []tobari.RuntimeProtection{second, first}
 	slices.SortFunc(items, func(left, right tobari.RuntimeProtection) int {
 		return strings.Compare(runtimeProtectionSortKey(left), runtimeProtectionSortKey(right))
 	})
-	if items[0].ManifestRevision != first.ManifestRevision || items[1].ManifestRevision != second.ManifestRevision {
+	if items[0].TemplateRevision != first.TemplateRevision || items[1].TemplateRevision != second.TemplateRevision {
 		t.Fatalf("retained protection ordering = %+v", items)
 	}
 }
@@ -426,11 +424,11 @@ func TestRuntimeProtectionOrderingIncludesRetainedManifestRevision(t *testing.T)
 func TestRuntimeProtectionCanonicalizesRepeatedRetainedHistory(t *testing.T) {
 	base := tobari.RuntimeProtection{
 		RuntimeID: "018bcfe5-687b-7000-8000-000000000077", RuntimeRevision: "sha256:" + strings.Repeat("d", 64),
-		Reason: tobari.RuntimeProtectedByManifestRetained, WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad",
+		Reason: tobari.RuntimeProtectedByTemplateRetained, WorkspaceTemplateID: "01912345-6789-7abc-8def-0123456789ad",
 	}
 	a, b := base, base
-	a.ManifestRevision = "sha256:" + strings.Repeat("a", 64)
-	b.ManifestRevision = "sha256:" + strings.Repeat("b", 64)
+	a.TemplateRevision = tobari.SemanticDigest("sha256:" + strings.Repeat("a", 64))
+	b.TemplateRevision = tobari.SemanticDigest("sha256:" + strings.Repeat("b", 64))
 	items := []tobari.RuntimeProtection{a, a, b, b}
 	slices.SortFunc(items, func(left, right tobari.RuntimeProtection) int {
 		return strings.Compare(runtimeProtectionSortKey(left), runtimeProtectionSortKey(right))

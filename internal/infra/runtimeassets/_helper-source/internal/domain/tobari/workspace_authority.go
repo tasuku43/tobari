@@ -7,6 +7,7 @@ import (
 	"io"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -35,6 +36,8 @@ var (
 	ErrWorkspaceTemplateNotFound             = errors.New("Workspace Template does not exist")
 	ErrWorkspaceTemplateRevisionNotFound     = errors.New("Workspace Template revision does not exist")
 	ErrWorkspaceTemplateProtected            = errors.New("Workspace Template is still referenced")
+	ErrDefaultTemplateSelectionRequired      = errors.New("default Workspace Template selection is required")
+	ErrPreReleaseLegacyAuthority             = errors.New("pre-release legacy authority is present or unsafe")
 	ErrContextBindingExists                  = errors.New("Context already exists")
 	ErrContextBindingNotFound                = errors.New("Context does not exist")
 	ErrContextBindingProtected               = errors.New("Context still owns live authority")
@@ -763,6 +766,8 @@ type WorkspaceTemplateEntryAuthority struct {
 	TemplateID       WorkspaceTemplateID               `json:"workspace_template_id"`
 	TemplateRevision SemanticDigest                    `json:"workspace_template_revision"`
 	EntrySliceDigest SemanticDigest                    `json:"entry_slice_digest"`
+	SourceAccess     ManifestSourceAccess              `json:"source_access"`
+	AgentProfile     string                            `json:"agent_profile"`
 	Runtime          RuntimeBinding                    `json:"runtime"`
 	SessionDefaults  WorkspaceTemplateSessionDefaults  `json:"session_defaults"`
 	CreationDefaults WorkspaceTemplateCreationDefaults `json:"creation_defaults"`
@@ -772,8 +777,15 @@ func (a WorkspaceTemplateEntryAuthority) ValidateFor(revision WorkspaceTemplateR
 	if err := revision.Validate(); err != nil {
 		return err
 	}
-	if a.TemplateID != revision.TemplateID || a.TemplateRevision != revision.Revision || a.EntrySliceDigest != revision.Slices.EntrySliceDigest || a.Runtime != revision.Body.EntryDefaults.Runtime {
+	if a.TemplateID != revision.TemplateID || a.TemplateRevision != revision.Revision || a.EntrySliceDigest != revision.Slices.EntrySliceDigest ||
+		a.SourceAccess != revision.Body.Boundary.SourceAccess || a.AgentProfile != revision.Body.Policy.AgentProfile || a.Runtime != revision.Body.EntryDefaults.Runtime {
 		return fmt.Errorf("Template entry authority does not bind its exact revision")
+	}
+	if err := a.SourceAccess.Validate(); err != nil {
+		return err
+	}
+	if err := ValidateName(a.AgentProfile); err != nil {
+		return fmt.Errorf("Template entry authority agent profile: %w", err)
 	}
 	if err := a.SessionDefaults.Validate(); err != nil {
 		return err
@@ -798,7 +810,8 @@ func DeriveWorkspaceTemplateEntryAuthority(revision WorkspaceTemplateRevision) (
 	}
 	result := WorkspaceTemplateEntryAuthority{
 		TemplateID: revision.TemplateID, TemplateRevision: revision.Revision,
-		EntrySliceDigest: revision.Slices.EntrySliceDigest, Runtime: revision.Body.EntryDefaults.Runtime,
+		EntrySliceDigest: revision.Slices.EntrySliceDigest, SourceAccess: revision.Body.Boundary.SourceAccess,
+		AgentProfile: revision.Body.Policy.AgentProfile, Runtime: revision.Body.EntryDefaults.Runtime,
 		SessionDefaults: revision.Body.SessionDefaults.Clone(), CreationDefaults: revision.Body.CreationDefaults.Clone(),
 	}
 	return result, result.ValidateFor(revision)
@@ -1134,8 +1147,76 @@ type WorkspaceAppliedEntry struct {
 // may resolve image and container details, but it cannot change the Context,
 // Template, Workspace, Runtime, or creation-default authority selected here.
 type WorkspaceEntryReconciliationPlan struct {
-	Workspace WorkspaceBinding      `json:"workspace"`
-	Applied   WorkspaceAppliedEntry `json:"applied_entry"`
+	Workspace        WorkspaceBinding                  `json:"workspace"`
+	Applied          WorkspaceAppliedEntry             `json:"applied_entry"`
+	Authority        WorkspaceTemplateEntryAuthority   `json:"entry_authority"`
+	CreationDefaults WorkspaceTemplateCreationDefaults `json:"creation_defaults"`
+	Network          WorkspaceRuntimeNetworkAuthority  `json:"network_authority"`
+}
+
+// WorkspaceRuntimeNetworkAuthority is the exact decision-bound private
+// topology for one final Workspace. The Docker bridge owns .1, the shared
+// Gateway owns .2, and the Workspace owns .3. Binding these distinct addresses
+// before container creation prevents Docker's dynamic allocator from assigning
+// the future Gateway address to the first Workspace.
+type WorkspaceRuntimeNetworkAuthority struct {
+	Network       string `json:"network"`
+	Subnet        string `json:"subnet"`
+	DockerGateway string `json:"docker_gateway"`
+	GatewayIP     string `json:"gateway_ip"`
+	WorkspaceIP   string `json:"workspace_ip"`
+}
+
+func (a WorkspaceRuntimeNetworkAuthority) ValidateFor(id WorkspaceID) error {
+	_, network, err := ProjectResourceNames(string(id))
+	if err != nil || a.Network != network {
+		return fmt.Errorf("Workspace network authority has another owner: %w", err)
+	}
+	base, ok := parseWorkspaceRuntimeSubnet(a.Subnet)
+	if !ok {
+		return fmt.Errorf("Workspace network authority subnet is invalid")
+	}
+	dockerGateway, dockerOK := parseCanonicalIPv4(a.DockerGateway)
+	gateway, gatewayOK := parseCanonicalIPv4(a.GatewayIP)
+	workspace, workspaceOK := parseCanonicalIPv4(a.WorkspaceIP)
+	if !dockerOK || !gatewayOK || !workspaceOK ||
+		dockerGateway != [4]byte{base[0], base[1], base[2], 1} ||
+		gateway != [4]byte{base[0], base[1], base[2], 2} ||
+		workspace != [4]byte{base[0], base[1], base[2], 3} {
+		return fmt.Errorf("Workspace network authority endpoints are invalid")
+	}
+	return nil
+}
+
+func parseWorkspaceRuntimeSubnet(value string) ([4]byte, bool) {
+	address, suffix, found := strings.Cut(value, "/")
+	if !found || suffix != "24" {
+		return [4]byte{}, false
+	}
+	parsed, ok := parseCanonicalIPv4(address)
+	if !ok || parsed[0] != 10 || parsed[1] < 64 || parsed[1] > 127 || parsed[3] != 0 {
+		return [4]byte{}, false
+	}
+	return parsed, true
+}
+
+func parseCanonicalIPv4(value string) ([4]byte, bool) {
+	parts := strings.Split(value, ".")
+	if len(parts) != 4 {
+		return [4]byte{}, false
+	}
+	var parsed [4]byte
+	for index, part := range parts {
+		if part == "" || len(part) > 1 && part[0] == '0' {
+			return [4]byte{}, false
+		}
+		number, err := strconv.Atoi(part)
+		if err != nil || number < 0 || number > 255 {
+			return [4]byte{}, false
+		}
+		parsed[index] = byte(number)
+	}
+	return parsed, true
 }
 
 func (p WorkspaceEntryReconciliationPlan) ValidateFor(snapshot ContextAuthoritySnapshot) error {
@@ -1146,6 +1227,31 @@ func (p WorkspaceEntryReconciliationPlan) ValidateFor(snapshot ContextAuthorityS
 		return err
 	}
 	if err := p.Applied.ValidateForRevision(snapshot.Context, snapshot.Template.Current); err != nil {
+		return err
+	}
+	if err := p.Authority.ValidateFor(snapshot.Template.Current); err != nil {
+		return fmt.Errorf("Workspace entry plan authority: %w", err)
+	}
+	if err := p.CreationDefaults.Validate(); err != nil {
+		return fmt.Errorf("Workspace entry retained creation authority: %w", err)
+	}
+	creationDigest, err := semanticIdentity(p.CreationDefaults)
+	if err != nil || creationDigest != p.Workspace.CreationDefaults {
+		return fmt.Errorf("Workspace entry retained creation authority is inconsistent")
+	}
+	retained := false
+	for _, revision := range snapshot.Template.Retained {
+		if revision.Slices.CreationDefaultsDigest == p.Workspace.CreationDefaults && revision.Body.CreationDefaults.Validate() == nil {
+			if !reflectWorkspaceTemplateCreationDefaults(revision.Body.CreationDefaults, p.CreationDefaults) {
+				return fmt.Errorf("Workspace entry retained creation authority is ambiguous")
+			}
+			retained = true
+		}
+	}
+	if !retained {
+		return fmt.Errorf("Workspace entry retained creation authority is unavailable")
+	}
+	if err := p.Network.ValidateFor(p.Workspace.ID); err != nil {
 		return err
 	}
 	if p.Workspace.LastSuccessfulEntry == nil || *p.Workspace.LastSuccessfulEntry != p.Applied {
@@ -1163,11 +1269,20 @@ func (p WorkspaceEntryReconciliationPlan) ValidateFor(snapshot ContextAuthorityS
 
 func (p WorkspaceEntryReconciliationPlan) Clone() WorkspaceEntryReconciliationPlan {
 	result := p
+	result.Authority.SessionDefaults = p.Authority.SessionDefaults.Clone()
+	result.Authority.CreationDefaults = p.Authority.CreationDefaults.Clone()
+	result.CreationDefaults = p.CreationDefaults.Clone()
 	if p.Workspace.LastSuccessfulEntry != nil {
 		entry := *p.Workspace.LastSuccessfulEntry
 		result.Workspace.LastSuccessfulEntry = &entry
 	}
 	return result
+}
+
+func reflectWorkspaceTemplateCreationDefaults(left, right WorkspaceTemplateCreationDefaults) bool {
+	leftEncoded, leftErr := semanticIdentity(left)
+	rightEncoded, rightErr := semanticIdentity(right)
+	return leftErr == nil && rightErr == nil && leftEncoded == rightEncoded
 }
 
 // WorkspaceEntryReconciliationReceipt is bounded observed evidence returned
@@ -1653,6 +1768,94 @@ type WorkspaceTemplateCopyPublication struct {
 	Source  WorkspaceTemplateRevision
 	Created WorkspaceTemplate
 }
+
+// WorkspaceTemplateRevisionPublication is the complete task-owned result of
+// one exact-reference Template configuration write. The caller supplies one
+// closed delta; the owner mutator derives the complete next body from the exact
+// predecessor while holding the installation lifecycle authority.
+type WorkspaceTemplateRevisionPublication struct {
+	Template        WorkspaceTemplate
+	Previous        WorkspaceTemplateRevision
+	Current         WorkspaceTemplateRevision
+	ResolvedRuntime *RuntimeBinding `json:"-"`
+	Changed         bool
+}
+
+func (p WorkspaceTemplateRevisionPublication) ValidateFor(
+	templateRef string,
+	change WorkspaceTemplateChange,
+) error {
+	id, err := ParseWorkspaceTemplateRef(templateRef)
+	if err != nil {
+		return err
+	}
+	if err := change.Validate(); err != nil {
+		return err
+	}
+	if change.Kind == WorkspaceTemplateChangeRuntime {
+		if p.ResolvedRuntime == nil {
+			return fmt.Errorf("Template Runtime publication lacks exact resolved revision authority")
+		}
+	} else if p.ResolvedRuntime != nil {
+		return fmt.Errorf("non-Runtime Template publication contains Runtime revision authority")
+	}
+	if err := p.Template.Validate(); err != nil {
+		return err
+	}
+	if err := p.Previous.Validate(); err != nil {
+		return err
+	}
+	if err := p.Current.Validate(); err != nil {
+		return err
+	}
+	if p.Template.ID != id || p.Previous.TemplateID != id || p.Current.TemplateID != id ||
+		p.Template.Current.Generation != p.Current.Generation || p.Template.Current.Revision != p.Current.Revision {
+		return fmt.Errorf("Template revision publication crosses its exact target")
+	}
+	expectedBody, err := ApplyWorkspaceTemplateChange(p.Previous.Body, change, p.ResolvedRuntime)
+	if err != nil {
+		return err
+	}
+	expected, expectedChanged, err := AdvanceWorkspaceTemplateRevision(p.Previous, expectedBody)
+	if err != nil {
+		return err
+	}
+	expectedDigest, err := semanticIdentity(expected)
+	if err != nil {
+		return err
+	}
+	currentDigest, err := semanticIdentity(p.Current)
+	if err != nil || currentDigest != expectedDigest || p.Changed != expectedChanged {
+		return fmt.Errorf("Template revision publication does not bind the exact reviewed delta transition")
+	}
+	previousFound := false
+	currentFound := false
+	for _, retained := range p.Template.Retained {
+		if retained.Generation == p.Previous.Generation && retained.Revision == p.Previous.Revision {
+			previousDigest, digestErr := semanticIdentity(retained)
+			wantDigest, wantErr := semanticIdentity(p.Previous)
+			if digestErr != nil || wantErr != nil || previousDigest != wantDigest {
+				return fmt.Errorf("Template predecessor revision authority differs from retained history")
+			}
+			previousFound = true
+		}
+		if retained.Generation == p.Current.Generation && retained.Revision == p.Current.Revision {
+			currentFound = true
+		}
+	}
+	if !previousFound || !currentFound {
+		return fmt.Errorf("Template revision publication is not retained completely")
+	}
+	if p.Changed {
+		if p.Current.Generation != p.Previous.Generation+1 || p.Current.Revision == p.Previous.Revision {
+			return fmt.Errorf("changed Template publication has an invalid revision transition")
+		}
+	} else if p.Current.Generation != p.Previous.Generation || p.Current.Revision != p.Previous.Revision {
+		return fmt.Errorf("no-op Template publication changed revision authority")
+	}
+	return nil
+}
+
 type WorkspaceTemplateSelectionResult struct {
 	TemplateID WorkspaceTemplateID
 	Selected   bool

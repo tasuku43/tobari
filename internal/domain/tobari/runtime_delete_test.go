@@ -92,16 +92,17 @@ func TestRuntimeDeleteTargetFailsClosedOnProtectionUseAndUnknownEvidence(t *test
 	manifest := lifecycleRuntime(id, "frontend", revision)
 	available := RuntimeMaterialObservation{RuntimeID: id, Revision: revision, TagRole: RuntimeMaterialTagPublishedRevision, Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, OwnershipVerified: true, ObservationComplete: true}
 	base := lifecycleSnapshot([]RuntimeManifest{manifest}, []RuntimeProtection{}, []RuntimeMaterialObservation{available})
-	protection := RuntimeProtection{RuntimeID: id, RuntimeRevision: revision, Reason: RuntimeProtectedByManifestCurrent, WorkspaceManifestID: "018bcfe5-687b-7000-8000-000000000088", ManifestRevision: "sha256:" + strings.Repeat("d", 64)}
+	protection := RuntimeProtection{RuntimeID: id, RuntimeRevision: revision, Reason: RuntimeProtectedByTemplateCurrent, WorkspaceTemplateID: "018bcfe5-687b-7000-8000-000000000088", TemplateRevision: SemanticDigest("sha256:" + strings.Repeat("d", 64))}
 
 	tests := []struct {
 		name string
 		edit func(*RuntimeLifecycleSnapshot)
 		want error
 	}{
-		{name: "current Manifest protection", edit: func(snapshot *RuntimeLifecycleSnapshot) { snapshot.Protection.Items = []RuntimeProtection{protection} }, want: ErrRuntimeDeleteProtected},
+		{name: "current Template protection", edit: func(snapshot *RuntimeLifecycleSnapshot) { snapshot.Protection.Items = []RuntimeProtection{protection} }, want: ErrRuntimeDeleteProtected},
 		{name: "Workspace applied protection", edit: func(snapshot *RuntimeLifecycleSnapshot) {
 			protection.Reason = RuntimeProtectedByWorkspaceApplied
+			protection.ContextID = "018bcfe5-687b-7000-8000-000000000098"
 			protection.WorkspaceID = "018bcfe5-687b-7000-8000-000000000099"
 			snapshot.Protection.Items = []RuntimeProtection{protection}
 		}, want: ErrRuntimeDeleteProtected},
@@ -142,21 +143,26 @@ func TestRuntimeDeleteTargetFailsClosedOnProtectionUseAndUnknownEvidence(t *test
 func TestRuntimeDeleteTargetRejectsEveryProtectionOwnerKind(t *testing.T) {
 	id := "018bcfe5-687b-7000-8000-000000000077"
 	revision := "sha256:" + strings.Repeat("a", 64)
-	manifestRevision := "sha256:" + strings.Repeat("d", 64)
-	manifestID := "018bcfe5-687b-7000-8000-000000000088"
-	workspaceID := "018bcfe5-687b-7000-8000-000000000099"
+	templateRevision := SemanticDigest("sha256:" + strings.Repeat("d", 64))
+	templateID := WorkspaceTemplateID("018bcfe5-687b-7000-8000-000000000088")
+	contextID := ContextID("018bcfe5-687b-7000-8000-000000000098")
+	workspaceID := WorkspaceID("018bcfe5-687b-7000-8000-000000000099")
 	manifest := lifecycleRuntime(id, "frontend", revision)
 	material := RuntimeMaterialObservation{RuntimeID: id, Revision: revision, TagRole: RuntimeMaterialTagPublishedRevision, Availability: RuntimeAvailabilityMissing, ObservationComplete: true}
 
 	for _, reason := range []RuntimeProtectionReason{
-		RuntimeProtectedByManifestCurrent,
-		RuntimeProtectedByManifestRetained,
+		RuntimeProtectedByTemplateCurrent,
+		RuntimeProtectedByTemplateRetained,
+		RuntimeProtectedByContextDesired,
 		RuntimeProtectedByWorkspaceApplied,
 		RuntimeProtectedByWorkspacePending,
 		RuntimeProtectedByWorkspaceObserved,
 	} {
 		t.Run(string(reason), func(t *testing.T) {
-			protection := RuntimeProtection{RuntimeID: id, RuntimeRevision: revision, Reason: reason, WorkspaceManifestID: manifestID, ManifestRevision: manifestRevision}
+			protection := RuntimeProtection{RuntimeID: id, RuntimeRevision: revision, Reason: reason, WorkspaceTemplateID: templateID, TemplateRevision: templateRevision}
+			if reason == RuntimeProtectedByContextDesired || reason == RuntimeProtectedByWorkspaceApplied || reason == RuntimeProtectedByWorkspacePending || reason == RuntimeProtectedByWorkspaceObserved {
+				protection.ContextID = contextID
+			}
 			if reason == RuntimeProtectedByWorkspaceApplied || reason == RuntimeProtectedByWorkspacePending || reason == RuntimeProtectedByWorkspaceObserved {
 				protection.WorkspaceID = workspaceID
 			}

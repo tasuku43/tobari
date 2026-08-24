@@ -102,24 +102,32 @@ All Tobari-owned command outputs, persisted state, configuration, OPA input and
 decisions, audits, and Gateway component API use V1. Research Broker state and
 protocols also use V1. Readers accept exactly V1 and reject every other
 version. Before the first public release, development snapshots receive no
-deprecation window, compatibility reader, retired command alias, or implicit
-old-state interpretation. The explicit `migrate apply` command is the sole
-exception: it accepts only ADR 0070's enumerated unpublished
-Context-policy/Runtime predecessor and emits current V1 state. Every other
-development snapshot must be removed and recreated when the contract changes.
+deprecation window, compatibility reader, retired command alias, implicit
+old-state interpretation, or public compatibility migration. A bounded
+presence-only guard must prove the closed predecessor-authority inventory
+absent before a fresh final store is initialized. Present, unsafe, or ambiguous
+legacy evidence fails closed before final mutation with explicit
+reset-and-recreate guidance; it is never decoded, adopted, transformed,
+quarantined, renamed, or deleted by an ordinary final command. Destructive
+reset remains a separate explicit user action. The retained predecessor
+migration engine is dormant implementation history and is unreachable from
+the public command graph.
 
 The release V1 boundaries include command paths, exit meanings, Docker labels,
 configuration keys, and preservation of each Workspace home by default. Broker
 root-key identifiers, handles, sockets, and vault preservation belong only to
-the unpublished research surface. Research predecessor authority is not
-in-place migrated: the complete replay-capable filesystem set is atomically
-quarantined, Keychain material is left untouched and inert, and a research user
-must explicitly login/import under a fresh Manifest identity.
+the unpublished research surface. Pre-release research predecessor authority
+is neither migrated nor quarantined. A research user must reset or recreate the
+development installation and then explicitly login or import under fresh final
+Context authority. This clean-break exception is limited to the period before
+the first public release; compatibility and migration policy for any later
+released persistent state requires a new explicit release decision.
 
-Every public JSON envelope uses schema 1 and exact catalog-owned recursive
-fields. Explicit `null`, empty collections, zero, false, and finite unavailable
-states retain their declared meaning; presentation must not replace them with
-sentinels or infer missing authority.
+Every public JSON envelope uses its exact Catalog-declared schema version and
+recursive fields. A version is authority for that one envelope, not a global
+compatibility level. Explicit `null`, empty collections, zero, false, and
+finite unavailable states retain their declared meaning; presentation must not
+replace them with sentinels or infer missing authority.
 
 ## Publication
 

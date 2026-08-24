@@ -1,0 +1,196 @@
+package workspaceauthoritystore
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"reflect"
+	"testing"
+
+	"github.com/tasuku43/tobari/internal/domain/tobari"
+)
+
+type clusterSettlementFixture struct {
+	*finalSettlementFixture
+	calls       int
+	confirms    int
+	onSettle    func()
+	previous    tobari.WorkspaceAuthorityCollection
+	settled     tobari.WorkspaceAuthorityCollection
+	operation   string
+	decisionRef string
+}
+
+func (s *clusterSettlementFixture) ReconcileFinalClusterAuthority(
+	_ context.Context,
+	previous, next tobari.WorkspaceAuthorityCollection,
+	operation, decisionRef string,
+) error {
+	transition, err := tobari.PlanWorkspaceAuthorityClusterReconciliation(previous)
+	if err != nil {
+		return err
+	}
+	if err := transition.Plan.ValidateTransition(previous, next); err != nil {
+		return err
+	}
+	s.calls++
+	s.previous = previous.Clone()
+	s.settled = next.Clone()
+	s.operation = operation
+	s.decisionRef = decisionRef
+	if s.onSettle != nil {
+		s.onSettle()
+	}
+	return nil
+}
+
+func (s *clusterSettlementFixture) ConfirmFinalClusterAuthoritySettled(
+	_ context.Context,
+	current tobari.WorkspaceAuthorityCollection,
+) error {
+	s.confirms++
+	if !reflect.DeepEqual(current, s.settled) {
+		return fmt.Errorf("live final cluster authority differs from settlement")
+	}
+	transition, err := tobari.PlanWorkspaceAuthorityClusterReconciliation(current)
+	if err != nil {
+		return err
+	}
+	return transition.Plan.ValidateCurrent(current)
+}
+
+func inactiveClusterCollection(t *testing.T) tobari.WorkspaceAuthorityCollection {
+	t.Helper()
+	base := storeCollectionFixture(t)
+	contexts := make([]tobari.WorkspaceAuthorityContextRecord, len(base.Contexts))
+	for index := range base.Contexts {
+		contexts[index] = base.Contexts[index].Clone()
+		contexts[index].ActiveTemplatePolicy = nil
+		contexts[index].ActivePolicyMemory = nil
+		contexts[index].ActivePolicyMemoryRef = nil
+	}
+	previous, changed, err := tobari.PublishWorkspaceAuthorityCollection(
+		base.Templates, contexts, base.Workspaces, base.PendingCandidates, base.DefaultTemplateID, &base,
+	)
+	if err != nil || !changed {
+		t.Fatalf("publish inactive final collection: changed=%t err=%v", changed, err)
+	}
+	return previous
+}
+
+func newClusterAdapterFixture(t *testing.T, existing tobari.WorkspaceAuthorityCollection) (*Store, *Mutator, *ClusterAdapter, *clusterSettlementFixture) {
+	t.Helper()
+	store, mutator, _, _, _ := newMutationFixture(t, &existing)
+	base := mutator.settlement.(*finalSettlementFixture)
+	settlement := &clusterSettlementFixture{finalSettlementFixture: base}
+	mutator.settlement = settlement
+	adapter, err := NewClusterAdapter(mutator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store, mutator, adapter, settlement
+}
+
+func TestClusterAdapterPersistsCurrentAxisReceiptsAndReplaysTerminalConfirmation(t *testing.T) {
+	previous := inactiveClusterCollection(t)
+	store, _, adapter, settlement := newClusterAdapterFixture(t, previous)
+
+	plan, err := adapter.Reconcile(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present {
+		t.Fatalf("read reconciled final authority: present=%t err=%v", present, err)
+	}
+	if err := plan.ValidateTransition(previous, current); err != nil {
+		t.Fatalf("validate persisted cluster transition: %v", err)
+	}
+	if len(current.Contexts) == 0 || current.Contexts[0].ActiveTemplatePolicy == nil ||
+		current.Contexts[0].ActivePolicyMemory == nil || current.Contexts[0].ActivePolicyMemoryRef == nil {
+		t.Fatalf("reconciled envelope omitted independent receipts: %#v", current.Contexts)
+	}
+	if settlement.calls != 1 || settlement.operation != finalClusterReconciliationOperation ||
+		settlement.decisionRef != clusterReconciliationDecisionRef(current.Revision) {
+		t.Fatalf("cluster settlement evidence calls=%d operation=%q ref=%q", settlement.calls, settlement.operation, settlement.decisionRef)
+	}
+
+	replayed, err := adapter.Reconcile(context.Background())
+	if err != nil || !reflect.DeepEqual(replayed, plan) || settlement.calls != 1 || settlement.confirms != 1 {
+		t.Fatalf("terminal replay plan=%#v calls=%d confirms=%d err=%v", replayed, settlement.calls, settlement.confirms, err)
+	}
+}
+
+func TestClusterAdapterRecoversPostEffectPreEnvelopeAndBlocksUnrelatedMutation(t *testing.T) {
+	previous := inactiveClusterCollection(t)
+	store, mutator, adapter, settlement := newClusterAdapterFixture(t, previous)
+	realRename := mutator.rename
+	interrupted := false
+	mutator.rename = func(source, target string) error {
+		if source == store.root+".wp11-mutation-stage" && target == store.root+"/"+authorityFileName && !interrupted {
+			interrupted = true
+			return fmt.Errorf("injected post-effect publication interruption")
+		}
+		return realRename(source, target)
+	}
+
+	if _, err := adapter.Reconcile(context.Background()); err == nil {
+		t.Fatal("post-effect/pre-envelope interruption was reported as complete")
+	}
+	current, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present || !reflect.DeepEqual(current, previous) || settlement.calls != 1 {
+		t.Fatalf("interrupted authority current=%#v present=%t calls=%d err=%v", current, present, settlement.calls, err)
+	}
+	if _, active, err := mutator.readEffectDecision(); err != nil || !active {
+		t.Fatalf("durable cluster decision active=%t err=%v", active, err)
+	}
+	if _, err := os.Lstat(store.root + ".wp11-mutation-stage"); err != nil {
+		t.Fatalf("durable cluster stage is unavailable: %v", err)
+	}
+	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "blocked", current.Templates[0].Current.Body); err == nil {
+		t.Fatal("unrelated final-authority mutation entered while cluster decision was active")
+	}
+
+	mutator.rename = realRename
+	plan, err := adapter.Reconcile(context.Background())
+	if err != nil || settlement.calls != 2 {
+		t.Fatalf("cluster recovery plan=%#v calls=%d err=%v", plan, settlement.calls, err)
+	}
+	current, present, err = store.ReadComplete(context.Background())
+	if err != nil || !present || plan.ValidateTransition(previous, current) != nil {
+		t.Fatalf("recovered final authority present=%t current=%#v err=%v", present, current, err)
+	}
+	if _, err := os.Lstat(store.root + ".wp11-mutation-stage"); !os.IsNotExist(err) {
+		t.Fatalf("cluster stage remained after recovery: %v", err)
+	}
+}
+
+func TestClusterAdapterPublishesConfirmedEffectAfterCallerCancellation(t *testing.T) {
+	previous := inactiveClusterCollection(t)
+	store, _, adapter, settlement := newClusterAdapterFixture(t, previous)
+	ctx, cancel := context.WithCancel(context.Background())
+	settlement.onSettle = cancel
+
+	plan, err := adapter.Reconcile(ctx)
+	if err != nil {
+		t.Fatalf("confirmed cluster effect became replay permission: %v", err)
+	}
+	current, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present {
+		t.Fatalf("read post-cancellation final authority: present=%t err=%v", present, err)
+	}
+	if err := plan.ValidateTransition(previous, current); err != nil {
+		t.Fatalf("post-cancellation final publication is invalid: %v", err)
+	}
+	if settlement.calls != 1 {
+		t.Fatalf("confirmed cluster effect was repeated: calls=%d", settlement.calls)
+	}
+}
+
+func TestNewClusterAdapterRequiresClusterSettlementAuthority(t *testing.T) {
+	current := storeCollectionFixture(t)
+	_, mutator, _, _, _ := newMutationFixture(t, &current)
+	if _, err := NewClusterAdapter(mutator); err == nil {
+		t.Fatal("adapter accepted settlement without exact cluster recovery authority")
+	}
+}

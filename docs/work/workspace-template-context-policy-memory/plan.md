@@ -187,6 +187,13 @@ The Catalog must derive this exact producer/consumer inventory:
 | `runtime-revision` | unchanged WP03 `runtime history/show` revision fields | unchanged `runtime restore --id` and exact Template Runtime-selection input |
 | `runtime-prune-plan` | unchanged `runtime prune dry-run` plan field | unchanged `runtime prune apply --plan` |
 
+The internal fixed-target `policy apply-reviewed` operation is an
+`EffectCreate`: the non-empty confirmed decision set is the fixed creation
+scope and each reviewed decision creates one resulting active policy-rule
+child reference. Exact source-rule compaction remains part of the same atomic
+create transition. Terminal replay returns the original confirmed result and
+does not repeat the external or envelope effect.
+
 No action accepts a display name, root, generation, ordinal, image, container,
 or reconstructed ID in place of these references. The only acts without an
 input ref are complete command-owned fixed targets such as direct Template
@@ -225,14 +232,14 @@ combined Context revision.
 | `workspace list/status/delete` JSON | predecessor root list/status/delete schema 2/1 | new family-local schema 1 with workspace refs |
 | `cluster status` JSON | schema 1 | schema 2 with Template count and separate active Template-policy/Policy-Memory receipts |
 | policy candidates/review/rules JSON | schema 1 | schema 2 with Context, Template, and observing Workspace dimensions |
-| `migrate apply` JSON | schema 2 | schema 3 |
 | Gateway denial/wait record | WP07 schema 2 | schema 3 with ContextID, WorkspaceID, and TemplateID projection |
 | permission helper result | schema 1 | unchanged schema 1 |
 | research auth command JSON | schema 1 with Manifest owner | schema 2 with exact Context owner/ref correlation |
-| research Broker vault/handle state | schema 1 with Manifest owner | schema 2 created fresh for Context owner; predecessor is quarantined, not read |
+| research Broker vault/handle state | schema 1 with Manifest owner | schema 2 created fresh for Context owner; predecessor is unsupported and not read |
 | Host Loopback capability projection | schema 1 | unchanged schema 1 |
 | Host Loopback private route/grant registry | ADR 0083 schema 2 | unchanged schema 2, now binds ContextID + WorkspaceID |
-| Runtime public schemas and refs | WP03 schema 1 | unchanged schema 1 |
+| Runtime list/show/history/build/restore/delete schemas and Runtime/Runtime-revision refs | WP03 schema 1 | unchanged schema 1 and unchanged refs |
+| Runtime prune plan JSON and runtime-prune-plan ref | schema 1 with Manifest protection edges | schema 2 with final Template/Context/Workspace protection edges; reference kind unchanged |
 | version, error, help, build-surface schemas | WP04/current | unchanged shapes and versions |
 
 Only contracts whose keys or field semantics change advance. A renamed command
@@ -265,9 +272,10 @@ mutation.
 - Application: keep Template copy, Context creation/default selection, Workspace
   entry/deletion, policy learning/reset, and cluster activation as separate
   use cases with smallest owned ports.
-- Infrastructure: separate Template revision store from Context/Policy Memory
-  stores; migrate exact existing authority; update principal and aggregate
-  projection production; retain atomic activation and owner-only storage.
+- Infrastructure: publish one final Template/Context/Workspace/Policy envelope;
+  reject bounded legacy presence without decoding it; update principal and
+  aggregate projection production; retain atomic activation and owner-only
+  storage.
 - CLI and catalog: perform one reviewed hard vocabulary/schema cutover only
   after the parent schedules it; derive all help, completion, roles, reference
   flow, human/JSON output, recovery, site, and examples from the final Catalog.
@@ -320,7 +328,7 @@ Policy review/apply
   one complete Context Policy Memory semantic revision. `policy
   apply-reviewed`, `policy allow`, `policy deny`, and `policy reset` retain their
   existing explicit atomic hot-activation boundary; `cluster up` can reconcile
-  the complete aggregate after migration or cluster absence. The authoritative
+  the complete aggregate after fresh initialization or cluster absence. The authoritative
   receipt is independently `(ContextID, active Policy Memory digest)`. Neither
   operation publishes a Template revision or AppliedEntry.
 
@@ -380,12 +388,11 @@ with empty Policy Memory.
   state enters Context or Policy Memory.
 - ADR 0083 Host Loopback remains exact attachment authority at
   `host.tobari.internal`. Its final route/grant identity binds ContextID +
-  WorkspaceID + Attachment Epoch + exact effect; hostname, migration lock order,
+  WorkspaceID + Attachment Epoch + exact effect; hostname, final lock order,
   HTTP-only rule, terminal retired-name guard, and schema split are unchanged.
-- Migration and rollback must be exclusive, journaled, content-checked, and
-  atomic across Template, Context, Workspace, principal, and policy projection
-  state. Old/new readers must never concurrently authorize the same bytes under
-  different identity meanings.
+- Final readers must never interpret predecessor bytes. Exact final absence plus
+  bounded legacy absence is fresh empty authority; legacy, unsafe, or ambiguous
+  presence fails closed before initialization or mutation.
 - No external destination, dependency, daemon, or arbitrary
   Template file authority are added by this design.
 
@@ -393,8 +400,8 @@ with empty Policy Memory.
 
 1. Owner sequencing, vocabulary decision, revised thesis/ADR, public contract,
    identity/reference graph, and failing contract tests.
-2. Template revision and Context/Policy Memory domain invariants plus pure
-   migration model. The final Template revision stores the complete typed
+2. Template revision and Context/Policy Memory domain invariants. The final
+   Template revision stores the complete typed
    static body and recomputes all slice/overall digests from it; copy and entry
    derivation consume no predecessor or parallel body.
 3. Application use cases and typed read/mutation ports for Template copy,
@@ -403,7 +410,7 @@ with empty Policy Memory.
    authority, bounded stage/read-back publication, one durable active effect
    decision, and one latest terminal receipt; it remains absent from current
    composition and public routing.
-4. Owner-only stores, atomic migration/rollback, principal projection, and
+4. Owner-only final stores, legacy-presence guard, principal projection, and
    desired/applied/observed reconciliation adapters. Context entry reuses the
    installation lifecycle authority and the one final-envelope effect decision,
    confirms exact runtime/container plus independent activation receipts before
@@ -419,10 +426,10 @@ with empty Policy Memory.
    public identity, and shares the installation lifecycle plus durable effect
    decision with Context deletion. Its exhaustive Broker inventory is the sole
    research credential-absence authority; standard Workspace-home auth and
-   quarantined predecessor Broker state remain outside the adapter.
+   unsupported predecessor Broker state remains outside the adapter.
 5. Catalog hard cutover, CLI/human/JSON/status/default-selection behavior,
    completion/help/examples/site, and generated snapshots.
-6. Security, migration, public-boundary, agent-readiness, and isolated runtime
+6. Security, clean-break, public-boundary, agent-readiness, and isolated runtime
    integration gates; durable promotion and temporary packet cleanup.
 
 Each slice should remain buildable and reviewable. The parent may split delivery
@@ -439,9 +446,9 @@ only where transaction and authority boundaries remain coherent.
   extra, incomplete, and oversized sources fail before authority publication.
 - Negative side-effect tests: stale/different Template authority, name reuse,
   cross-Context rule reuse, policy beyond Boundary, attached unsafe adoption,
-  read-triggered mutation, and partial/mixed migration.
+  read-triggered mutation, and legacy/unsafe presence.
 - Opaque-reference and complete-pagination tests: Catalog-wide Template,
-  Context, Workspace, `policy-candidate`, `policy-rule`, and migration-plan
+  Context, Workspace, `policy-candidate`, and `policy-rule`
   producer/consumer graph.
 - Catalog construction must validate the final command set and its derived exact
   producer/consumer inventory; no RoleUtility command may declare any reference
@@ -463,93 +470,64 @@ only where transaction and authority boundaries remain coherent.
   source snapshots, architecture site routes/links, and public-vocabulary
   negative guards.
 
-## Rollout and rollback
+## Pre-release rollout and clean break
 
-This is a pre-public hard-cutover from exact predecessor `0bbd9deb`; it is not a
-published compatibility migration. Existing `migrate apply` remains the sole
-writer and adds exact source kind `workspace_manifest_v1` at the atomic public
-cutover. The journal engine remains dormant until the same concern switches
-every ordinary reader to final authority; an intermediate binary must not move
-predecessor authority away from still-current Manifest readers.
+This is a pre-release hard cutover with no development-state compatibility
+promise. Ordinary composition selects only the final owner store. When that
+store is absent, a bounded fixed-path guard must also prove that no declared
+predecessor Manifest, Workspace, Policy, Broker, principal, route/grant, or
+session authority is present before returning exact empty final authority and
+permitting first Template/Context creation.
 
-Under the installation lifecycle lock, stopped cluster, zero canonical
-attachments, and the existing research-quarantine/Host-Loopback lock order, the
-transaction must:
+The implementation declares one closed two-lifetime inventory. `contexts`,
+`roots`, `instances`, predecessor auth-projects, `state.json`,
+`project-journal.json`, `cluster-reconcile.json`, and config/state `migrations`
+are legacy-only and remain absent. Cluster projections, principal registry,
+config/state auth, Workspace profiles/homes, Host Loopback,
+interactive-attachments, and service-exposure are final-reused: they must be
+absent before the first final envelope and thereafter are accepted only by the
+exact final adapter that owns their schema. WP03 `runtimes`, runtime material,
+and runtime-lifecycle authority are preserved and excluded.
 
-1. enumerate every schema-2 Workspace Manifest/revision, logical Workspace,
-   AppliedEntry/pending/failure record, default selection, learned Allow/exact
-   Deny, pending candidate, principal projection, Runtime protection edge,
-   standard Workspace home, and research Broker filesystem authority;
-2. validate owner/type/mode/symlink/schema/digest/reference closure and one exact
-   `(ProjectRoot, WorkspaceManifestID)` pair per Workspace before mutation;
-3. preserve each WorkspaceManifestID byte sequence as WorkspaceTemplateID and
-   each WorkspaceID byte sequence as WorkspaceID;
-4. generate and journal one fresh ContextID for each exact pair, rejecting
-   duplicate, dangling, ambiguous, name-only, or observation-only association;
-5. verify that every retained immutable Manifest revision for one preserved ID
-   carries the same source/network Boundary fingerprint and one exact complete
-   typed predecessor body. Any differing, missing, corrupt, or ambiguous body
-   fails closed before mutation; the migration neither splits authority nor
-   invents a replacement ID. Transform each validated body into one complete
-   static Template revision, preserve generation as correlation, recompute every
-   slice/overall semantic digest after dynamic learned decisions are excluded,
-   and preserve every exact Runtime reference required by WP03 protection;
-6. publish one Context schema-1 binding and one complete Policy Memory schema-1
-   revision from the exact predecessor decisions. Learned authority drops the
-   predecessor WorkspaceID dimension and binds ContextID so it survives a later
-   Workspace replacement; pending observations retain both ContextID and the
-   observing WorkspaceID;
-7. rewrite Workspace state to schema 3 with the fresh ContextID and preserved
-   WorkspaceID/home bytes. Synthesize or preserve AppliedEntry only when an
-   exact predecessor receipt and bounded `exact_owned` Docker observation agree
-   on WorkspaceID, Template generation/digest, RuntimeID/revision, and resolved
-   spec. Missing, mismatched, or unknown observation publishes no AppliedEntry
-   and becomes explicit unverified state;
-8. convert DefaultManifestSelection to DefaultTemplateSelection with the exact
-   preserved TemplateID;
-9. quarantine rather than rebind any replay-capable research Broker authority,
-   leaving macOS Keychain recovery material untouched and moving Linux
-   filesystem root-key material with the exact set; standard Workspace-home
-   bytes are neither read nor transformed;
-10. atomically publish final stores and require `cluster up` followed by explicit
-    Workspace entry. Ordinary final readers accept only Template/Context/
-    Workspace schemas and cannot discover predecessor authority.
+The presence guard is not a reader or migration preflight. It observes only
+path, owner, type, mode, and stability facts needed to classify presence.
+Legacy, unsafe, partial, or changing presence returns a typed reset-and-recreate
+fault with zero state-directory, lock, final-envelope, Docker, OPA, Gateway,
+principal-registry, or Broker mutation. The final binary does not decode,
+transform, back up, quarantine, restore, rename, delete, or adopt predecessor
+content. No predecessor ID, learned rule, pending candidate, Workspace home,
+Runtime protection edge, principal/session record, Broker credential, or
+Keychain/root-key relationship becomes final authority.
 
-The migration journal contains the exact predecessor digests, TemplateID byte
-preservation, generated ContextID mapping, preserved WorkspaceIDs, transformed
-revision receipts, and private backup identity. A second apply returns
-`changed:false` and never regenerates ContextIDs or overwrites backup. Rollback
-restores the complete byte-identical predecessor only when no fresh Template,
-Context, Workspace, Policy Memory, home/auth, principal, or cluster authority
-exists at canonical final paths; it never merges. Crash recovery exposes either
-the complete predecessor reader set or the complete final reader set, never a
-partially resolvable policy/principal combination.
+The WP11 migration/rollback engine is not selected from public `migrate apply`;
+the ADR 0070 public predecessor capability is retired. Previously accepted
+dormant migration code may remain unreachable, but dirty production preflight,
+reader-selector, cutoff, rollback, and source-quarantine composition is removed.
+Destructive reset remains an explicit user action outside this concern.
 
-The physical order is monotonic: publish and read back the complete final
-envelope while predecessor readers remain selected; move one exact cutoff as
-the atomic reader selector; then quarantine subordinate predecessor sources.
-Rollback restores subordinate sources first while final remains selected,
-restores the cutoff last, and only then atomically retires the final envelope.
-Every source backup is a same-parent private sibling so separate XDG config and
-state filesystems never require a cross-filesystem rename. Process exclusion
-uses a safely validated kernel-released advisory lock, so a stale lock pathname
-cannot deadlock journal recovery. A rolled-back transaction is terminal rather
-than implicitly reusable; a separately reviewed new transaction is required.
+Final owner-store reads remain owner-only, bounded, strict, and zero-create.
+Final mutations retain lifecycle serialization, durable task recovery, atomic
+complete-envelope publication, exact read-back, and coherent Gateway/OPA/
+principal/authentication settlement. Removing predecessor migration weakens
+none of those post-cut guarantees.
 
-Manifest/`--manifest` aliases, dual schema readers, post-release deprecation,
-and fallback reconstruction are explicitly excluded.
+Manifest/`--manifest` aliases, dual schema readers, migration fallback,
+post-release deprecation, and reconstruction are explicitly excluded. The
+clean-break exception expires at the first public release; any later
+incompatible persistent-state change requires an explicit release-policy and
+migration/compatibility decision based on supported user data.
 
 ## Documentation promotion
 
-- Revise or supersede ADR 0079 with Template/Context/Policy Memory ownership,
-  identities, activation axes, deletion, and migration.
+- Supersede ADR 0079 and ADR 0070 with Template/Context/Policy Memory ownership,
+  identities, activation axes, deletion, and the pre-release clean break.
 - Revise Thesis 9 and propagate consequences through Thesis 0, Thesis 4, and
   Thesis 8.
 - Update product public vocabulary, command table, selection/default/deletion,
-  status, JSON, faults, and migration contracts.
+  status, JSON, faults, and clean-break contracts.
 - Update architecture aggregate/store/principal/reconciliation and Runtime
   protection graph contracts.
 - Update security learned-policy ownership, terminal Boundary precedence,
-  cross-Context isolation, trust boundaries, and rollback.
-- Update harness claims, Catalog/reference guards, migration fixtures,
+  cross-Context isolation, trust boundaries, and legacy-state rejection.
+- Update harness claims, Catalog/reference guards, clean-break fixtures,
   agent-readiness scenarios, site/help/examples, and relevant repository Skill.

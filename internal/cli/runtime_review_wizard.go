@@ -384,7 +384,7 @@ func chooseContextRuntime(ctx context.Context, c *CLI, inputs ParsedInputs) (str
 	if err != nil {
 		return "", "", err
 	}
-	contextLocked := inputs.Provided("--manifest") || executionContextName(ctx) != ""
+	contextLocked := false
 	selected := contextRuntimeSelection(current)
 	chooser := runtimeReviewChooser(c)
 	for {

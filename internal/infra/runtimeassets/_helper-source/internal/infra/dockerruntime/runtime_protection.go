@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -22,8 +21,30 @@ type runtimeWorkspaceContainerAuthority struct {
 }
 
 type runtimeProtectionObservation struct {
-	Inventory  tobari.RuntimeProtectionInventory
-	Containers map[string]runtimeWorkspaceContainerAuthority
+	AuthorityDigest tobari.SemanticDigest
+	Inventory       tobari.RuntimeProtectionInventory
+	Containers      map[string]runtimeWorkspaceContainerAuthority
+}
+
+// FinalRuntimeProtectionSource is the narrow final-authority observation seam
+// owned by WP03. A host-side Store adapter satisfies it structurally without
+// making dockerruntime import or rediscover the final authority store.
+type FinalRuntimeProtectionSource interface {
+	ReadFinalRuntimeProtectionAuthority(context.Context) (tobari.FinalRuntimeProtectionAuthority, error)
+}
+
+// BindFinalRuntimeProtectionSource installs the final-only protection source
+// during composition. Rebinding would let a later caller replace authority
+// underneath lifecycle observation, so it is rejected.
+func (r *Runtime) BindFinalRuntimeProtectionSource(source FinalRuntimeProtectionSource) error {
+	if r == nil || source == nil {
+		return fmt.Errorf("final Runtime protection source is required")
+	}
+	if r.finalRuntimeProtectionSource != nil {
+		return fmt.Errorf("final Runtime protection source is already bound")
+	}
+	r.finalRuntimeProtectionSource = source
+	return nil
 }
 
 // ReadRuntimeProtectionInventory returns the complete, lock-consistent graph
@@ -51,81 +72,70 @@ func (r *Runtime) ReadRuntimeProtectionInventory(ctx context.Context) (tobari.Ru
 // one coherent zero-write snapshot.
 func (r *Runtime) readRuntimeProtectionInventoryObserved(ctx context.Context, budget *runtimeLifecycleBudget) (runtimeProtectionObservation, error) {
 	result := runtimeProtectionObservation{Inventory: tobari.RuntimeProtectionInventory{Complete: true, Items: []tobari.RuntimeProtection{}}, Containers: make(map[string]runtimeWorkspaceContainerAuthority)}
-	entries, _, err := readPrivateDirectoryIfPresent(r.contextsDirectory())
-	if err != nil {
+	if r == nil || r.finalRuntimeProtectionSource == nil {
 		return runtimeProtectionObservation{}, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
 	}
-	manifestByID := map[string]tobari.WorkspaceManifest{}
-	for _, entry := range entries {
-		if entry.Name() == "default.json" && entry.Type().IsRegular() {
-			continue
-		}
-		if entry.Name() == "active.json" {
-			return runtimeProtectionObservation{}, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryMigrationUnverified}
-		}
-		if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
-			return runtimeProtectionObservation{}, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
-		}
-		if err := requirePrivateDirectory(r.contextDirectory(entry.Name())); err != nil {
-			return runtimeProtectionObservation{}, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
-		}
-		manifest, err := r.readContextManifest(entry.Name())
-		if err != nil {
-			return runtimeProtectionObservation{}, err
-		}
-		manifestByID[manifest.ID] = manifest
-		if manifest.RuntimeBinding != nil && manifest.RuntimeBinding.RuntimeID != tobari.StandardRuntimeID {
-			result.Inventory.Items = append(result.Inventory.Items, runtimeManifestProtection(manifest, tobari.RuntimeProtectedByManifestCurrent))
-		}
-		retained, err := r.readRetainedManifestRevisions(manifest)
-		if err != nil {
-			return runtimeProtectionObservation{}, err
-		}
-		for _, revision := range retained {
-			if revision.Desired.Revision == manifest.Desired.Revision || revision.RuntimeBinding == nil || revision.RuntimeBinding.RuntimeID == tobari.StandardRuntimeID {
-				continue
-			}
-			result.Inventory.Items = append(result.Inventory.Items, runtimeManifestProtection(revision, tobari.RuntimeProtectedByManifestRetained))
-		}
-	}
-	workspaces, err := r.listProjectsForRuntimeProtection(ctx)
+	authority, err := r.finalRuntimeProtectionSource.ReadFinalRuntimeProtectionAuthority(ctx)
 	if err != nil {
 		return runtimeProtectionObservation{}, err
 	}
-	for _, workspace := range workspaces {
-		if workspace.Incomplete {
-			return runtimeProtectionObservation{}, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
+	if err := authority.Validate(); err != nil {
+		return runtimeProtectionObservation{}, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
+	}
+	result.AuthorityDigest = authority.AuthorityDigest
+	if !authority.Present {
+		return result, result.Inventory.Validate()
+	}
+	templates := make(map[tobari.WorkspaceTemplateID]tobari.WorkspaceTemplate, len(authority.Templates))
+	for _, template := range authority.Templates {
+		templates[template.ID] = template
+		if template.Current.Slices.RuntimeID != tobari.StandardRuntimeID {
+			result.Inventory.Items = append(result.Inventory.Items, finalTemplateRuntimeProtection(template.ID, template.Current, tobari.RuntimeProtectedByTemplateCurrent))
 		}
-		manifest, ok := manifestByID[workspace.WorkspaceManifestID]
-		if !ok {
-			return runtimeProtectionObservation{}, fmt.Errorf("Workspace references an unavailable Manifest")
+		for _, revision := range template.Retained {
+			if revision.Revision == template.Current.Revision || revision.Slices.RuntimeID == tobari.StandardRuntimeID {
+				continue
+			}
+			result.Inventory.Items = append(result.Inventory.Items, finalTemplateRuntimeProtection(template.ID, revision, tobari.RuntimeProtectedByTemplateRetained))
 		}
-		if workspace.Runtime.NetworkID != "" && workspace.Runtime.ContainerID == "" {
-			return runtimeProtectionObservation{}, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryMigrationUnverified}
+	}
+	contexts := make(map[tobari.ContextID]tobari.ContextBinding, len(authority.Contexts))
+	for _, binding := range authority.Contexts {
+		contexts[binding.ID] = binding
+		template := templates[binding.TemplateID]
+		if template.Current.Slices.RuntimeID != tobari.StandardRuntimeID {
+			result.Inventory.Items = append(result.Inventory.Items, tobari.RuntimeProtection{
+				RuntimeID: template.Current.Slices.RuntimeID, RuntimeRevision: string(template.Current.Slices.RuntimeRevision),
+				Reason: tobari.RuntimeProtectedByContextDesired, WorkspaceTemplateID: template.ID,
+				TemplateRevision: template.Current.Revision, ContextID: binding.ID,
+			})
 		}
+	}
+	for _, workspace := range authority.Workspaces {
+		binding := contexts[workspace.ContextID]
+		template := templates[binding.TemplateID]
 		if workspace.LastSuccessfulEntry != nil {
-			observed, observeErr := r.observeWorkspaceRuntimeProtection(ctx, workspace, budget)
+			observed, containerID, observeErr := r.observeFinalWorkspaceRuntimeProtection(ctx, workspace, budget)
 			if observeErr != nil {
 				return runtimeProtectionObservation{}, observeErr
 			}
-			if protection, ok := runtimeWorkspaceProtection(workspace, observed); ok {
+			if protection, ok := finalWorkspaceRuntimeProtection(workspace, *workspace.LastSuccessfulEntry, observed); ok {
 				result.Inventory.Items = append(result.Inventory.Items, protection)
 				if observed {
-					if _, exists := result.Containers[workspace.Runtime.ContainerID]; exists {
+					if _, exists := result.Containers[containerID]; exists {
 						return runtimeProtectionObservation{}, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
 					}
-					result.Containers[workspace.Runtime.ContainerID] = runtimeWorkspaceContainerAuthority{ContainerID: workspace.Runtime.ContainerID, WorkspaceID: workspace.ID, ResolvedSpec: workspace.LastSuccessfulEntry.ResolvedSpec, RuntimeID: workspace.LastSuccessfulEntry.RuntimeID, Revision: workspace.LastSuccessfulEntry.RuntimeRevision}
+					entry := *workspace.LastSuccessfulEntry
+					result.Containers[containerID] = runtimeWorkspaceContainerAuthority{ContainerID: containerID, WorkspaceID: string(workspace.ID), ResolvedSpec: string(entry.ResolvedSpec), RuntimeID: entry.RuntimeID, Revision: string(entry.RuntimeRevision)}
 				}
 			}
-		} else if workspace.Runtime.ContainerID != "" || workspace.Runtime.NetworkID != "" {
-			return runtimeProtectionObservation{}, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryMigrationUnverified}
 		}
-		if manifest.RuntimeBinding != nil && manifest.RuntimeBinding.RuntimeID != tobari.StandardRuntimeID &&
-			(workspace.LastSuccessfulEntry == nil || workspace.LastSuccessfulEntry.EntryRevision != manifest.Desired.EntryRevision) {
+		if template.Current.Slices.RuntimeID != tobari.StandardRuntimeID &&
+			(workspace.LastSuccessfulEntry == nil || workspace.LastSuccessfulEntry.EntrySliceDigest != template.Current.Slices.EntrySliceDigest) {
 			result.Inventory.Items = append(result.Inventory.Items, tobari.RuntimeProtection{
-				RuntimeID: manifest.RuntimeBinding.RuntimeID, RuntimeRevision: manifest.RuntimeBinding.Revision,
-				Reason: tobari.RuntimeProtectedByWorkspacePending, WorkspaceManifestID: workspace.WorkspaceManifestID,
-				ManifestRevision: manifest.Desired.Revision, WorkspaceID: workspace.ID,
+				RuntimeID: template.Current.Slices.RuntimeID, RuntimeRevision: string(template.Current.Slices.RuntimeRevision),
+				Reason: tobari.RuntimeProtectedByWorkspacePending, WorkspaceTemplateID: template.ID,
+				TemplateRevision: template.Current.Revision, ContextID: workspace.ContextID, WorkspaceID: workspace.ID,
 			})
 		}
 	}
@@ -139,9 +149,65 @@ func (r *Runtime) readRuntimeProtectionInventoryObserved(ctx context.Context, bu
 	return result, result.Inventory.Validate()
 }
 
+func finalTemplateRuntimeProtection(templateID tobari.WorkspaceTemplateID, revision tobari.WorkspaceTemplateRevision, reason tobari.RuntimeProtectionReason) tobari.RuntimeProtection {
+	return tobari.RuntimeProtection{
+		RuntimeID: revision.Slices.RuntimeID, RuntimeRevision: string(revision.Slices.RuntimeRevision), Reason: reason,
+		WorkspaceTemplateID: templateID, TemplateRevision: revision.Revision,
+	}
+}
+
+func finalWorkspaceRuntimeProtection(workspace tobari.WorkspaceBinding, entry tobari.WorkspaceAppliedEntry, observed bool) (tobari.RuntimeProtection, bool) {
+	if entry.RuntimeID == tobari.StandardRuntimeID {
+		return tobari.RuntimeProtection{}, false
+	}
+	reason := tobari.RuntimeProtectedByWorkspaceApplied
+	if observed {
+		reason = tobari.RuntimeProtectedByWorkspaceObserved
+	}
+	return tobari.RuntimeProtection{
+		RuntimeID: entry.RuntimeID, RuntimeRevision: string(entry.RuntimeRevision), Reason: reason,
+		WorkspaceTemplateID: entry.TemplateID, TemplateRevision: entry.TemplateRevision, ContextID: workspace.ContextID, WorkspaceID: workspace.ID,
+	}, true
+}
+
+func (r *Runtime) observeFinalWorkspaceRuntimeProtection(ctx context.Context, workspace tobari.WorkspaceBinding, budget *runtimeLifecycleBudget) (bool, string, error) {
+	if workspace.LastSuccessfulEntry == nil {
+		return false, "", nil
+	}
+	container, _, err := tobari.ProjectResourceNames(string(workspace.ID))
+	if err != nil {
+		return false, "", err
+	}
+	format := `{"id":{{json .Id}},"owner":{{json (index .Config.Labels "` + ownerLabel + `")}},` +
+		`"component":{{json (index .Config.Labels "` + componentLabel + `")}},` +
+		`"workspace":{{json (index .Config.Labels "` + projectIDLabel + `")}},` +
+		`"role":{{json (index .Config.Labels "` + projectRoleLabel + `")}},` +
+		`"spec":{{json (index .Config.Labels "` + projectSpecLabel + `")}}}`
+	output, diagnostic, err := budget.run(ctx, r.runner, []string{"container", "inspect", "--format", format, container}, os.Environ(), 4096)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return false, "", err
+		}
+		if isMissingRuntimeContainerInspect(err, diagnostic, container) {
+			return false, "", nil
+		}
+		return false, "", tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
+	}
+	var observed workspaceRuntimeObservation
+	if err := decodeStrictJSON(output, &observed); err != nil {
+		return false, "", tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
+	}
+	entry := workspace.LastSuccessfulEntry
+	if observed.ID == "" || !runtimeLifecycleContainerID.MatchString(observed.ID) || observed.Owner != ownerValue || observed.Component != "tobari" ||
+		observed.Workspace != string(workspace.ID) || observed.Role != projectWorkRole || observed.Spec != string(entry.ResolvedSpec) {
+		return false, "", tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
+	}
+	return true, observed.ID, nil
+}
+
 func runtimeProtectionSortKey(item tobari.RuntimeProtection) string {
 	return item.RuntimeID + "\x00" + item.RuntimeRevision + "\x00" + string(item.Reason) + "\x00" +
-		item.WorkspaceManifestID + "\x00" + item.ManifestRevision + "\x00" + item.WorkspaceID
+		string(item.WorkspaceTemplateID) + "\x00" + string(item.TemplateRevision) + "\x00" + string(item.ContextID) + "\x00" + string(item.WorkspaceID)
 }
 
 func canonicalRuntimeProtectionItems(items []tobari.RuntimeProtection) ([]tobari.RuntimeProtection, error) {
@@ -149,7 +215,7 @@ func canonicalRuntimeProtectionItems(items []tobari.RuntimeProtection) ([]tobari
 	owners := make(map[string]string, len(items))
 	for _, item := range items {
 		authority := runtimeProtectionSortKey(item)
-		owner := string(item.Reason) + "\x00" + item.WorkspaceManifestID + "\x00" + item.ManifestRevision + "\x00" + item.WorkspaceID
+		owner := string(item.Reason) + "\x00" + string(item.WorkspaceTemplateID) + "\x00" + string(item.TemplateRevision) + "\x00" + string(item.ContextID) + "\x00" + string(item.WorkspaceID)
 		target := item.RuntimeID + "\x00" + item.RuntimeRevision
 		if previous, exists := owners[owner]; exists && previous != target {
 			return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
@@ -161,28 +227,6 @@ func canonicalRuntimeProtectionItems(items []tobari.RuntimeProtection) ([]tobari
 		result = append(result, item)
 	}
 	return result, nil
-}
-
-func runtimeWorkspaceProtection(workspace tobari.Workspace, observed bool) (tobari.RuntimeProtection, bool) {
-	if workspace.LastSuccessfulEntry == nil || workspace.LastSuccessfulEntry.RuntimeID == tobari.StandardRuntimeID {
-		return tobari.RuntimeProtection{}, false
-	}
-	reason := tobari.RuntimeProtectedByWorkspaceApplied
-	if observed {
-		reason = tobari.RuntimeProtectedByWorkspaceObserved
-	}
-	return tobari.RuntimeProtection{
-		RuntimeID: workspace.LastSuccessfulEntry.RuntimeID, RuntimeRevision: workspace.LastSuccessfulEntry.RuntimeRevision,
-		Reason: reason, WorkspaceManifestID: workspace.WorkspaceManifestID,
-		ManifestRevision: workspace.LastSuccessfulEntry.ManifestRevision, WorkspaceID: workspace.ID,
-	}, true
-}
-
-func runtimeManifestProtection(manifest tobari.WorkspaceManifest, reason tobari.RuntimeProtectionReason) tobari.RuntimeProtection {
-	return tobari.RuntimeProtection{
-		RuntimeID: manifest.RuntimeBinding.RuntimeID, RuntimeRevision: manifest.RuntimeBinding.Revision,
-		Reason: reason, WorkspaceManifestID: manifest.ID, ManifestRevision: manifest.Desired.Revision,
-	}
 }
 
 type workspaceRuntimeObservation struct {
@@ -226,7 +270,7 @@ func (r *Runtime) observeWorkspaceRuntimeProtection(ctx context.Context, workspa
 }
 
 func isMissingRuntimeContainerInspect(err error, diagnostic []byte, containerID string) bool {
-	if err == nil || !runtimeLifecycleContainerID.MatchString(containerID) {
+	if err == nil || !validRuntimeProtectionContainerSelector(containerID) {
 		return false
 	}
 	message := strings.TrimSuffix(string(diagnostic), "\n")
@@ -240,33 +284,20 @@ func isMissingRuntimeContainerInspect(err error, diagnostic []byte, containerID 
 	return slices.Contains(accepted, message)
 }
 
-func (r *Runtime) readRetainedManifestRevisions(current tobari.WorkspaceManifest) ([]tobari.WorkspaceManifest, error) {
-	directory := r.manifestRevisionsDirectory(current.Name)
-	if err := requirePrivateDirectory(directory); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("Manifest retained revision inventory is unavailable")
-		}
-		return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
+func validRuntimeProtectionContainerSelector(value string) bool {
+	if runtimeLifecycleContainerID.MatchString(value) {
+		return true
 	}
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		return nil, err
+	const prefix, suffix = "tobari-", "-work"
+	if len(value) != len(prefix)+12+len(suffix) || !strings.HasPrefix(value, prefix) || !strings.HasSuffix(value, suffix) {
+		return false
 	}
-	result := make([]tobari.WorkspaceManifest, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
-			return nil, fmt.Errorf("Manifest revision store contains an unsafe entry")
+	for _, character := range value[len(prefix) : len(prefix)+12] {
+		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')) {
+			return false
 		}
-		manifest, err := readWorkspaceManifestRevision(filepath.Join(directory, entry.Name()))
-		if err != nil {
-			return nil, err
-		}
-		if manifest.ID != current.ID || manifest.Name != current.Name || manifest.Desired.BoundaryRevision != current.Desired.BoundaryRevision {
-			return nil, fmt.Errorf("retained Manifest revision ownership is invalid")
-		}
-		result = append(result, manifest)
 	}
-	return result, nil
+	return true
 }
 
 func readPrivateDirectoryIfPresent(path string) ([]os.DirEntry, bool, error) {

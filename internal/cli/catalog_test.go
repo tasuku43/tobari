@@ -13,6 +13,7 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
+	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 func noOpHandler(context.Context, *CLI, CommandSpec, operation.Intent, ParsedInputs) int {
@@ -175,10 +176,28 @@ func TestDefaultCatalogIsValidAndUnique(t *testing.T) {
 	for _, required := range []string{
 		"doctor", "help", "version",
 		"cluster up", "cluster status", "cluster denials", "cluster logs", "cluster down",
-		"tobari", "status", "list", "delete",
+		"tobari", "status",
+		"template list", "template show", "context list", "context show",
+		"workspace list", "workspace status", "workspace delete",
 	} {
 		if !seen[required] {
 			t.Errorf("catalog is missing %q", required)
+		}
+	}
+	for _, removed := range []string{"list", "delete", "manifest show", "manifest list", "manifest create"} {
+		if seen[removed] {
+			t.Errorf("catalog retained predecessor path %q", removed)
+		}
+	}
+	for _, path := range []string{WorkspaceEntryCommandPath, "status"} {
+		command, found := catalog.Lookup(path)
+		if !found {
+			continue
+		}
+		for _, input := range command.Agent.Inputs {
+			if input.Name == "--manifest" {
+				t.Errorf("final root-owned path %q retained predecessor --manifest input", path)
+			}
 		}
 	}
 }
@@ -275,18 +294,23 @@ func TestCatalogRejectsInvalidCompletionMetadata(t *testing.T) {
 
 func TestDefaultCatalogSeparatesDeliveryFromCollectionCoverage(t *testing.T) {
 	wantCoverage := map[string]CollectionCoverage{
-		"doctor":          CollectionCoverageExhaustive,
-		"help":            CollectionCoverageExhaustive,
-		"version":         CollectionCoverageNotApplicable,
-		"cluster up":      CollectionCoverageNotApplicable,
-		"cluster status":  CollectionCoverageExhaustive,
-		"cluster denials": CollectionCoverageBoundedWindow,
-		"cluster logs":    CollectionCoverageBoundedWindow,
-		"cluster down":    CollectionCoverageNotApplicable,
-		"tobari":          CollectionCoverageNotApplicable,
-		"status":          CollectionCoverageNotApplicable,
-		"list":            CollectionCoverageExhaustive,
-		"delete":          CollectionCoverageNotApplicable,
+		"doctor":           CollectionCoverageExhaustive,
+		"help":             CollectionCoverageExhaustive,
+		"version":          CollectionCoverageNotApplicable,
+		"cluster up":       CollectionCoverageNotApplicable,
+		"cluster status":   CollectionCoverageNotApplicable,
+		"cluster denials":  CollectionCoverageBoundedWindow,
+		"cluster logs":     CollectionCoverageBoundedWindow,
+		"cluster down":     CollectionCoverageNotApplicable,
+		"tobari":           CollectionCoverageNotApplicable,
+		"status":           CollectionCoverageNotApplicable,
+		"template list":    CollectionCoverageExhaustive,
+		"template show":    CollectionCoverageNotApplicable,
+		"context list":     CollectionCoverageExhaustive,
+		"context show":     CollectionCoverageNotApplicable,
+		"workspace list":   CollectionCoverageExhaustive,
+		"workspace status": CollectionCoverageNotApplicable,
+		"workspace delete": CollectionCoverageNotApplicable,
 	}
 	for path, coverage := range wantCoverage {
 		command, found := DefaultCatalog().Lookup(path)
@@ -310,25 +334,8 @@ func TestSharedClusterCatalogDeclaresAuthBrokerLifecycle(t *testing.T) {
 	if !found {
 		t.Fatal("default catalog lacks cluster up")
 	}
-	wantImageFaults := map[string]bool{
-		"auth_broker_image_unavailable":   false,
-		"auth_broker_image_incompatible":  false,
-		"auth_broker_unlock_failed":       false,
-		"root_key_unavailable":            false,
-		"root_key_missing_with_vault":     false,
-		"keychain_denied":                 false,
-		"invalid_provider_manifest":       false,
-		"ambiguous_provider_http_binding": false,
-	}
-	for _, commandError := range up.Agent.Errors {
-		if _, tracked := wantImageFaults[commandError.Code]; tracked {
-			wantImageFaults[commandError.Code] = true
-		}
-	}
-	for code, found := range wantImageFaults {
-		if !found {
-			t.Errorf("cluster up does not declare %s", code)
-		}
+	if up.Agent.FixedTarget == nil || up.Agent.FixedTarget.Kind != tobari.ClusterTargetKind || up.Agent.FixedTarget.Scope != FixedTargetScopeToolLocal {
+		t.Fatalf("cluster up final fixed target = %+v", up.Agent.FixedTarget)
 	}
 
 	logs, found := catalog.Lookup("cluster logs")
@@ -344,16 +351,35 @@ func TestSharedClusterCatalogDeclaresAuthBrokerLifecycle(t *testing.T) {
 	if !found {
 		t.Fatal("default catalog lacks cluster status")
 	}
-	if status.Agent.Output.JSONSchemaVersion != 1 {
-		t.Fatalf("cluster status schema version = %d, want 6", status.Agent.Output.JSONSchemaVersion)
+	if status.Agent.Output.JSONSchemaVersion != tobari.FinalClusterLifecycleSchemaVersion {
+		t.Fatalf("cluster status schema version = %d, want %d", status.Agent.Output.JSONSchemaVersion, tobari.FinalClusterLifecycleSchemaVersion)
 	}
 	fieldNames := make([]string, 0, len(status.Agent.Output.Fields))
+	var components *OutputField
 	for _, field := range status.Agent.Output.Fields {
 		fieldNames = append(fieldNames, field.Name)
+		if field.Name == "components" {
+			fieldCopy := field
+			components = &fieldCopy
+		}
 	}
-	for _, required := range []string{"auth_provider_projection", "auth_broker_state", "root_key_backend"} {
+	for _, required := range []string{"authority", "contexts", "components"} {
 		if !slices.Contains(fieldNames, required) {
 			t.Errorf("cluster status output fields %v lack %q", fieldNames, required)
+		}
+	}
+	if components == nil || components.Items == nil {
+		t.Fatalf("cluster status components field = %+v", components)
+	}
+	var componentNames []string
+	for _, field := range components.Items.Fields {
+		if field.Name == "name" {
+			componentNames = field.Enum
+		}
+	}
+	for _, required := range []string{"gateway", "opa", "auth-broker", "credential-companion"} {
+		if !slices.Contains(componentNames, required) {
+			t.Errorf("cluster status component names %v lack %q", componentNames, required)
 		}
 	}
 }
@@ -403,32 +429,33 @@ func TestReleaseCatalogDoesNotPublishResearchAuthorityVocabulary(t *testing.T) {
 	}
 }
 
-func TestResearchManifestCatalogPublishesResearchAuthenticationFields(t *testing.T) {
+func TestResearchCatalogPublishesOnlyFinalContextAuthenticationSurface(t *testing.T) {
 	if !buildIdentityHasBroker() {
 		t.Skip("research-surface catalog assertion")
 	}
-	command, found := DefaultCatalog().Lookup("manifest show")
-	if !found {
-		t.Fatal("default catalog lacks manifest show")
-	}
-	var authentication *OutputField
-	for index := range command.Agent.Output.Fields {
-		if command.Agent.Output.Fields[index].Name == "authentication" {
-			authentication = &command.Agent.Output.Fields[index]
-			break
+	catalog := DefaultCatalog()
+	for _, path := range []string{"auth login", "auth import", "auth status", "auth logout"} {
+		command, found := catalog.Lookup(path)
+		if !found || command.Agent.Output.JSONSchemaVersion != 2 {
+			t.Fatalf("final research auth command %q = found:%t schema:%d", path, found, command.Agent.Output.JSONSchemaVersion)
+		}
+		encoded, err := json.Marshal(command.Agent.Output)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, forbidden := range []string{"manifest", "workspace_manifest_id", "template_ref"} {
+			if strings.Contains(string(encoded), forbidden) {
+				t.Fatalf("final research auth command %q exposes predecessor owner %q: %s", path, forbidden, encoded)
+			}
 		}
 	}
-	if authentication == nil {
-		t.Fatal("manifest show lacks authentication output field")
+	if _, found := catalog.Lookup("manifest show"); found {
+		t.Fatal("research Catalog retained predecessor manifest show")
 	}
-	fieldNames := make(map[string]bool, len(authentication.Fields))
-	for _, field := range authentication.Fields {
-		fieldNames[field.Name] = true
-	}
-	for _, name := range []string{"mode", "broker_state", "declared_bindings", "undeclared_bindings", "providers"} {
-		if !fieldNames[name] {
-			t.Fatalf("research authentication fields = %v, missing %q", fieldNames, name)
-		}
+	status, _ := catalog.Lookup("auth status")
+	produced := status.ProducedRefs()
+	if len(produced) != 1 || produced[0].Kind != tobari.ContextReferenceKind {
+		t.Fatalf("auth status produced refs = %v", produced)
 	}
 }
 

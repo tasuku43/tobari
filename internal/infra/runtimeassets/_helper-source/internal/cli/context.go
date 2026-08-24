@@ -194,20 +194,9 @@ func runConfigGit(
 }
 
 func selectedConfigurationContext(ctx context.Context, inputs ParsedInputs) (string, error) {
-	if inputs.Provided("--manifest") {
-		name := inputs.One("--manifest")
-		if name == "" {
-			return "", fault.New(
-				fault.KindInvalidInput,
-				"invalid_manifest_name",
-				"Workspace Manifest name is invalid.",
-				false,
-				fault.NextAction{Command: "manifest list", Reason: "Choose an existing Workspace Manifest name."},
-			)
-		}
-		return name, nil
-	}
-	return executionContextName(ctx), nil
+	_ = ctx
+	_ = inputs
+	return "", fault.New(fault.KindContract, "legacy_context_unavailable", "Legacy Context selection is unavailable.", false)
 }
 
 func runConfigBootstrapAWS(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {

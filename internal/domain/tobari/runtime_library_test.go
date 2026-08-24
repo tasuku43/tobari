@@ -67,11 +67,9 @@ func TestRuntimeBindingRequiresStableIDAndSemanticRevision(t *testing.T) {
 
 func TestRuntimeProtectionRejectsBuiltinAndRequiresExactOwnerIdentity(t *testing.T) {
 	protection := RuntimeProtection{
-		RuntimeID:           "018bcfe5-687b-7000-8000-000000000077",
-		RuntimeRevision:     "sha256:" + strings.Repeat("b", 64),
-		Reason:              RuntimeProtectedByManifestCurrent,
-		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad",
-		ManifestRevision:    "sha256:" + strings.Repeat("a", 64),
+		RuntimeID: "018bcfe5-687b-7000-8000-000000000077", RuntimeRevision: "sha256:" + strings.Repeat("b", 64),
+		Reason: RuntimeProtectedByTemplateCurrent, WorkspaceTemplateID: "01912345-6789-7abc-8def-0123456789ad",
+		TemplateRevision: SemanticDigest("sha256:" + strings.Repeat("a", 64)),
 	}
 	if err := protection.Validate(); err != nil {
 		t.Fatalf("managed Runtime protection rejected: %v", err)
@@ -79,8 +77,8 @@ func TestRuntimeProtectionRejectsBuiltinAndRequiresExactOwnerIdentity(t *testing
 	tests := map[string]func(*RuntimeProtection){
 		"builtin Runtime":      func(value *RuntimeProtection) { value.RuntimeID = StandardRuntimeID },
 		"malformed Runtime":    func(value *RuntimeProtection) { value.RuntimeID = "standard" },
-		"missing Manifest":     func(value *RuntimeProtection) { value.WorkspaceManifestID = "" },
-		"missing revision":     func(value *RuntimeProtection) { value.ManifestRevision = "" },
+		"missing Template":     func(value *RuntimeProtection) { value.WorkspaceTemplateID = "" },
+		"missing revision":     func(value *RuntimeProtection) { value.TemplateRevision = "" },
 		"unexpected Workspace": func(value *RuntimeProtection) { value.WorkspaceID = "01912345-6789-7abc-8def-0123456789ab" },
 	}
 	for name, mutate := range tests {
@@ -107,19 +105,19 @@ func TestRuntimeProtectionInventoryFaultReasonsRemainDistinct(t *testing.T) {
 	}
 }
 
-func TestRuntimeProtectionInventoryRejectsExactDuplicateButKeepsManifestRevisionsDistinct(t *testing.T) {
+func TestRuntimeProtectionInventoryRejectsExactDuplicateButKeepsTemplateRevisionsDistinct(t *testing.T) {
 	item := RuntimeProtection{
 		RuntimeID: "018bcfe5-687b-7000-8000-000000000077", RuntimeRevision: "sha256:" + strings.Repeat("b", 64),
-		Reason: RuntimeProtectedByManifestRetained, WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad",
-		ManifestRevision: "sha256:" + strings.Repeat("a", 64),
+		Reason: RuntimeProtectedByTemplateRetained, WorkspaceTemplateID: "01912345-6789-7abc-8def-0123456789ad",
+		TemplateRevision: SemanticDigest("sha256:" + strings.Repeat("a", 64)),
 	}
 	duplicate := RuntimeProtectionInventory{Complete: true, Items: []RuntimeProtection{item, item}}
 	if err := duplicate.Validate(); err == nil {
 		t.Fatal("duplicate Runtime protection evidence was accepted")
 	}
 	distinct := item
-	distinct.ManifestRevision = "sha256:" + strings.Repeat("c", 64)
+	distinct.TemplateRevision = SemanticDigest("sha256:" + strings.Repeat("c", 64))
 	if err := (RuntimeProtectionInventory{Complete: true, Items: []RuntimeProtection{item, distinct}}).Validate(); err != nil {
-		t.Fatalf("distinct retained Manifest revisions rejected: %v", err)
+		t.Fatalf("distinct retained Template revisions rejected: %v", err)
 	}
 }

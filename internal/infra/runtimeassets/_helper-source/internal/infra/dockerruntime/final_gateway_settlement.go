@@ -42,20 +42,23 @@ const (
 // Docker allocates it during the effect and it enters Candidate only after an
 // exact post-replacement observation has been journaled.
 type finalGatewaySettlementCandidate struct {
-	Plan              tobari.WorkspacePolicyProjection   `json:"plan"`
-	ReviewedSetDigest tobari.SemanticDigest              `json:"reviewed_set_digest,omitempty"`
-	Principals        []FinalWorkspacePrincipalRow       `json:"principals"`
-	GatewayNetworks   []FinalGatewayNetworkAddress       `json:"gateway_networks"`
-	OPANetworks       []FinalGatewayNetworkAddress       `json:"opa_networks"`
-	GatewayImageID    string                             `json:"gateway_image_id"`
-	OPAImageID        string                             `json:"opa_image_id"`
-	ReviewedGateway   string                             `json:"reviewed_gateway_container_id"`
-	GatewayEnv        []string                           `json:"gateway_environment"`
-	Profile           tobari.SharedClusterAppliedProfile `json:"profile"`
-	Compose           candidateComposeClosureReceipt     `json:"compose"`
-	Aggregate         FinalAggregateProjection           `json:"aggregate"`
-	PolicyArtifact    tobari.SemanticDigest              `json:"policy_artifact_digest"`
-	GatewayArtifact   tobari.SemanticDigest              `json:"gateway_artifact_digest"`
+	Plan               tobari.WorkspacePolicyProjection   `json:"plan"`
+	ReviewedSetDigest  tobari.SemanticDigest              `json:"reviewed_set_digest,omitempty"`
+	Principals         []FinalWorkspacePrincipalRow       `json:"principals"`
+	GatewayNetworks    []FinalGatewayNetworkAddress       `json:"gateway_networks"`
+	OPANetworks        []FinalGatewayNetworkAddress       `json:"opa_networks"`
+	GatewayImageID     string                             `json:"gateway_image_id"`
+	OPAImageID         string                             `json:"opa_image_id"`
+	AuthBrokerImage    string                             `json:"auth_broker_image,omitempty"`
+	AuthBrokerImageID  string                             `json:"auth_broker_image_id,omitempty"`
+	AuthBrokerNetworks []FinalGatewayNetworkAddress       `json:"auth_broker_networks,omitempty"`
+	ReviewedGateway    string                             `json:"reviewed_gateway_container_id"`
+	GatewayEnv         []string                           `json:"gateway_environment"`
+	Profile            tobari.SharedClusterAppliedProfile `json:"profile"`
+	Compose            candidateComposeClosureReceipt     `json:"compose"`
+	Aggregate          FinalAggregateProjection           `json:"aggregate"`
+	PolicyArtifact     tobari.SemanticDigest              `json:"policy_artifact_digest"`
+	GatewayArtifact    tobari.SemanticDigest              `json:"gateway_artifact_digest"`
 }
 
 func (c finalGatewaySettlementCandidate) validate(runtime *Runtime) error {
@@ -72,6 +75,16 @@ func (c finalGatewaySettlementCandidate) validate(runtime *Runtime) error {
 		}
 	} else if c.ReviewedSetDigest != "" {
 		return fmt.Errorf("final Gateway settlement carries reviewed-set identity outside reviewed mode")
+	}
+	if brokerRuntimeEnabled {
+		if c.AuthBrokerImage == "" || !imageIDPattern.MatchString(c.AuthBrokerImageID) || len(c.AuthBrokerNetworks) != 1 || c.AuthBrokerNetworks[0].Name != "tobari-control" {
+			return fmt.Errorf("final Gateway settlement Auth Broker successor authority is incomplete")
+		}
+		if address, err := netip.ParseAddr(c.AuthBrokerNetworks[0].Address); err != nil || !address.Is4() || !address.IsGlobalUnicast() {
+			return fmt.Errorf("final Gateway settlement Auth Broker topology is invalid")
+		}
+	} else if c.AuthBrokerImage != "" || c.AuthBrokerImageID != "" || len(c.AuthBrokerNetworks) != 0 {
+		return fmt.Errorf("release final Gateway settlement contains Auth Broker authority")
 	}
 	if c.Aggregate.MaterializedDigest != c.Plan.ContentDigest {
 		return fmt.Errorf("final Gateway settlement candidate aggregate crosses its plan")
@@ -360,6 +373,11 @@ func (r *Runtime) settleFinalAuthority(
 		plan.Mode != tobari.WorkspacePolicyProjectionReviewed && setDigest != "" {
 		return fmt.Errorf("final Gateway settlement request is invalid")
 	}
+	if _, present, err := r.readFinalClusterStopped(r.finalClusterDownJournalPath()); err != nil {
+		return fmt.Errorf("read interrupted final cluster down: %w", err)
+	} else if present {
+		return fmt.Errorf("final cluster down is interrupted; resume its exact initiating action")
+	}
 	if err := r.requireNoInterruptedClusterReconcile(ctx); err != nil {
 		return err
 	}
@@ -407,6 +425,9 @@ func (r *Runtime) prepareFinalGatewaySettlement(
 	operation, decisionRef string,
 	reviewedSetDigest tobari.SemanticDigest,
 ) (finalGatewaySettlementJournal, error) {
+	if err := r.ensureFinalClusterBaseComponents(ctx, plan, operation, decisionRef); err != nil {
+		return finalGatewaySettlementJournal{}, err
+	}
 	if err := r.ensurePrivateDirectory(r.finalGatewaySettlementRoot()); err != nil {
 		return finalGatewaySettlementJournal{}, err
 	}
@@ -455,6 +476,37 @@ func (r *Runtime) prepareFinalGatewaySettlement(
 		GatewayEnv: selectedFinalGatewayEnvironment(profile), Profile: profile,
 		Compose: compose, Aggregate: aggregate, PolicyArtifact: policyDigest, GatewayArtifact: gatewayDigest,
 	}
+	if brokerRuntimeEnabled {
+		selection, selectErr := r.selectAuthBrokerImage(ctx)
+		if selectErr != nil {
+			return finalGatewaySettlementJournal{}, selectErr
+		}
+		if err := r.verifyAuthBrokerImage(ctx, selection.Image, selection.RequireDigest); err != nil {
+			return finalGatewaySettlementJournal{}, err
+		}
+		candidate.AuthBrokerImage = selection.Image
+		candidate.AuthBrokerImageID, err = r.resolveCandidateImageID(ctx, selection.Image)
+		if err != nil {
+			return finalGatewaySettlementJournal{}, err
+		}
+		broker, missing, observeErr := r.observeAppliedClusterComponent(ctx, "auth-broker", authBrokerContainer)
+		if observeErr != nil {
+			return finalGatewaySettlementJournal{}, observeErr
+		}
+		if !missing && broker.NetworkAddresses["tobari-control"] != "" {
+			candidate.AuthBrokerNetworks = []FinalGatewayNetworkAddress{{Name: "tobari-control", Address: broker.NetworkAddresses["tobari-control"]}}
+		} else if stopped, stoppedPresent, stoppedErr := r.readFinalClusterStopped(r.finalClusterStoppedReceiptPath()); stoppedErr != nil {
+			return finalGatewaySettlementJournal{}, stoppedErr
+		} else if stoppedPresent && stopped.AuthBroker != nil {
+			candidate.AuthBrokerNetworks = componentNetworkRows(*stopped.AuthBroker)
+		} else {
+			address, selectErr := r.selectFinalGatewayNetworkAddress(ctx, "tobari-control", "")
+			if selectErr != nil {
+				return finalGatewaySettlementJournal{}, selectErr
+			}
+			candidate.AuthBrokerNetworks = []FinalGatewayNetworkAddress{{Name: "tobari-control", Address: address}}
+		}
+	}
 	opaControl := opa.NetworkAddresses["tobari-control"]
 	if opaControl == "" {
 		opaControl, err = r.selectFinalGatewayNetworkAddress(ctx, "tobari-control", "")
@@ -478,6 +530,9 @@ func (r *Runtime) prepareFinalGatewaySettlement(
 				liveGatewayArtifactExact = true
 			}
 		}
+	}
+	if brokerRuntimeEnabled && r.confirmSelectedFinalResearchClosure(ctx, candidate) != nil {
+		liveGatewayArtifactExact = false
 	}
 	effectClass := classifyFinalSettlementEffect(activePresent, previousActive, candidate, registry, gateway, opa, liveGatewayArtifactExact)
 	journal := finalGatewaySettlementJournal{
@@ -721,7 +776,35 @@ func (r *Runtime) confirmSelectedFinalComponentClosure(ctx context.Context, cand
 	if !sameAppliedClusterComponent(firstGateway, secondGateway) || !sameAppliedClusterComponent(firstOPA, secondOPA) {
 		return fmt.Errorf("selected final component closure changed during confirmation")
 	}
-	return verifySelectedFinalComponentClosure(secondGateway, secondOPA, candidate)
+	if err := verifySelectedFinalComponentClosure(secondGateway, secondOPA, candidate); err != nil {
+		return err
+	}
+	return r.confirmSelectedFinalResearchClosure(ctx, candidate)
+}
+
+func (r *Runtime) confirmSelectedFinalResearchClosure(ctx context.Context, candidate finalGatewaySettlementCandidate) error {
+	if !brokerRuntimeEnabled {
+		return nil
+	}
+	first, missing, err := r.observeAppliedClusterComponent(ctx, "auth-broker", authBrokerContainer)
+	if err != nil || missing {
+		return fmt.Errorf("observe selected final Auth Broker: %w", err)
+	}
+	second, missing, err := r.observeAppliedClusterComponent(ctx, "auth-broker", authBrokerContainer)
+	if err != nil || missing || !sameAppliedClusterComponent(first, second) {
+		return fmt.Errorf("selected final Auth Broker changed during confirmation: %w", err)
+	}
+	state, _, err := r.credentialCompanionStatus(ctx)
+	if !selectedFinalResearchClosureExact(candidate, second, false, state, err) {
+		return fmt.Errorf("selected final Auth Broker/companion closure is unhealthy or drifted: %w", err)
+	}
+	return nil
+}
+
+func selectedFinalResearchClosureExact(candidate finalGatewaySettlementCandidate, broker appliedClusterComponentObservation, missing bool, companionState string, err error) bool {
+	return brokerRuntimeEnabled && err == nil && !missing && companionState == "ready" &&
+		broker.Owner == ownerValue && broker.Component == "auth-broker" && broker.State == "running" && broker.Health == "healthy" &&
+		broker.ImageID == candidate.AuthBrokerImageID && reflect.DeepEqual(componentNetworkRows(broker), candidate.AuthBrokerNetworks)
 }
 
 func (r *Runtime) validateFinalGatewayComposeCandidate(candidate finalGatewaySettlementCandidate) error {
@@ -771,6 +854,13 @@ func (r *Runtime) resumeFinalGatewaySettlement(ctx context.Context, journal fina
 	if err := journal.validate(r); err != nil {
 		return err
 	}
+	if bootstrap, present, err := r.readFinalClusterBootstrap(); err != nil {
+		return err
+	} else if present {
+		if bootstrap.Operation != journal.Operation || bootstrap.DecisionRef != journal.DecisionRef {
+			return fmt.Errorf("final cluster bootstrap crosses Gateway settlement recovery")
+		}
+	}
 	if err := r.validateFinalGatewayComposeCandidate(journal.Candidate); err != nil {
 		return err
 	}
@@ -782,6 +872,12 @@ func (r *Runtime) resumeFinalGatewaySettlement(ctx context.Context, journal fina
 			return fmt.Errorf("terminal final Gateway settlement omits its applied receipt")
 		}
 		if err := r.confirmFinalPolicyRecord(ctx, *journal.Applied); err != nil {
+			return err
+		}
+		if err := r.removeFinalClusterStopped(r.finalClusterStoppedReceiptPath()); err != nil {
+			return err
+		}
+		if err := r.removeFinalClusterBootstrap(); err != nil {
 			return err
 		}
 		return r.removeFinalGatewaySettlementJournal()
@@ -873,6 +969,12 @@ func (r *Runtime) resumeFinalGatewaySettlement(ctx context.Context, journal fina
 		if err := r.writeFinalGatewaySettlementJournal(journal); err != nil {
 			return err
 		}
+	}
+	if err := r.removeFinalClusterStopped(r.finalClusterStoppedReceiptPath()); err != nil {
+		return err
+	}
+	if err := r.removeFinalClusterBootstrap(); err != nil {
+		return err
 	}
 	return r.removeFinalGatewaySettlementJournal()
 }
@@ -989,6 +1091,9 @@ func (r *Runtime) publishFinalSettlementPrincipals(ctx context.Context, journal 
 }
 
 func (r *Runtime) replaceFinalGateway(ctx context.Context, candidate finalGatewaySettlementCandidate) error {
+	if r.finalGatewayReplaceComponents != nil {
+		return r.finalGatewayReplaceComponents(ctx, candidate)
+	}
 	state := tobari.State{
 		SchemaVersion: 1, RuntimeDirectory: candidate.Compose.RuntimeDirectory,
 		AggregateRevision: candidate.Aggregate.AggregateRevision, ManifestCount: finalComposeProjectionCount(len(candidate.Plan.Contexts)),
@@ -1009,9 +1114,7 @@ func (r *Runtime) replaceFinalGateway(ctx context.Context, candidate finalGatewa
 	if err != nil {
 		return err
 	}
-	environment = replaceEnvironmentValue(environment, "TOBARI_GATEWAY_IMAGE", candidate.GatewayImageID)
-	environment = replaceEnvironmentValue(environment, "TOBARI_OPA_IMAGE", candidate.OPAImageID)
-	environment = applyFinalGatewayEnvironment(environment, candidate.GatewayEnv)
+	environment = finalGatewayReplacementEnvironment(environment, candidate)
 	args := []string{"compose", "--project-directory", state.RuntimeDirectory}
 	args = append(args, composeFileArgs(state.RuntimeDirectory)...)
 	profileArgs, err := permissionSessionComposeFileArgsForTransport(state.RuntimeDirectory, transport)
@@ -1020,6 +1123,9 @@ func (r *Runtime) replaceFinalGateway(ctx context.Context, candidate finalGatewa
 	}
 	args = append(args, profileArgs...)
 	args = append(args, "up", "-d", "--no-build", "--no-deps", "--force-recreate", "opa", "gateway")
+	if brokerRuntimeEnabled {
+		args = append(args, "auth-broker")
+	}
 	var output bytes.Buffer
 	if err := r.runner.Run(ctx, args, environment, nil, &output, &output); err != nil {
 		return fmt.Errorf("replace final Gateway: %w: %s", err, boundedDiagnostic(output.Bytes()))
@@ -1030,7 +1136,39 @@ func (r *Runtime) replaceFinalGateway(ctx context.Context, candidate finalGatewa
 	if err := r.reconcileFinalComponentTopology(ctx, opaContainer, "opa", candidate.OPANetworks); err != nil {
 		return err
 	}
-	return r.waitForFinalSelectedComponents(ctx, candidate)
+	if brokerRuntimeEnabled {
+		if err := r.reconcileFinalComponentTopology(ctx, authBrokerContainer, "auth-broker", candidate.AuthBrokerNetworks); err != nil {
+			return err
+		}
+		rootKey, err := r.unlockAuthBroker(ctx)
+		if err != nil {
+			return err
+		}
+		defer clear(rootKey)
+		if err := r.startCredentialCompanion(ctx, rootKey); err != nil {
+			return err
+		}
+	}
+	if err := r.waitForFinalSelectedComponents(ctx, candidate); err != nil {
+		return err
+	}
+	if brokerRuntimeEnabled {
+		broker, missing, err := r.observeAppliedClusterComponent(ctx, "auth-broker", authBrokerContainer)
+		state, _, companionErr := r.credentialCompanionStatus(ctx)
+		if err != nil || missing || broker.ImageID != candidate.AuthBrokerImageID || !reflect.DeepEqual(componentNetworkRows(broker), candidate.AuthBrokerNetworks) || companionErr != nil || state != "ready" {
+			return fmt.Errorf("restored final research cluster closure is not exactly ready")
+		}
+	}
+	return nil
+}
+
+func finalGatewayReplacementEnvironment(environment []string, candidate finalGatewaySettlementCandidate) []string {
+	result := replaceEnvironmentValue(environment, "TOBARI_GATEWAY_IMAGE", candidate.GatewayImageID)
+	result = replaceEnvironmentValue(result, "TOBARI_OPA_IMAGE", candidate.OPAImageID)
+	if brokerRuntimeEnabled {
+		result = replaceEnvironmentValue(result, "TOBARI_AUTH_BROKER_IMAGE", candidate.AuthBrokerImageID)
+	}
+	return applyFinalGatewayEnvironment(result, candidate.GatewayEnv)
 }
 
 func applyFinalGatewayEnvironment(environment, selected []string) []string {
@@ -1096,6 +1234,20 @@ func (r *Runtime) observeFinalGatewaySettlementCandidatePass(
 	ctx context.Context, plan tobari.WorkspacePolicyProjection,
 ) ([]FinalWorkspacePrincipalRow, []FinalGatewayNetworkAddress, appliedClusterComponentObservation, appliedClusterComponentObservation, error) {
 	gateway, missing, err := r.observeAppliedClusterComponent(ctx, "gateway", gatewayContainer)
+	if missing && err == nil {
+		stopped, stoppedPresent, stoppedErr := r.readFinalClusterStopped(r.finalClusterStoppedReceiptPath())
+		if stoppedErr != nil {
+			return nil, nil, gateway, appliedClusterComponentObservation{}, stoppedErr
+		}
+		if stoppedPresent {
+			for _, item := range plan.Contexts {
+				if item.Principal != nil {
+					return nil, nil, gateway, appliedClusterComponentObservation{}, fmt.Errorf("stopped final cluster cannot recover a live Workspace principal")
+				}
+			}
+			return []FinalWorkspacePrincipalRow{}, componentNetworkRows(stopped.Gateway), stopped.Gateway, stopped.OPA, nil
+		}
+	}
 	if err != nil || missing || gateway.State != "running" || gateway.Health != "healthy" {
 		return nil, nil, gateway, appliedClusterComponentObservation{}, fmt.Errorf("observe selected healthy Gateway: %w", err)
 	}

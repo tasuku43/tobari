@@ -8,9 +8,9 @@ public CLI report, persisted manifest, Gateway policy input, and
 audit line are separate contracts even when they
 describe related objects.
 
-Each schema belongs to one specific surface. Before first publication every
-Tobari-owned surface except the structured error contract is V1; structured
-errors are V2. The owning parser, Catalog entry, or protocol
+Each schema belongs to one specific surface. Schema numbers are local to that
+surface: the current public CLI includes V1, V2, and V3 envelopes, while
+structured errors are V2. The owning parser, Catalog entry, or protocol
 implementation is the source of truth for each surface below.
 
 ## “Schema” does not always mean JSON Schema
@@ -30,30 +30,36 @@ owning domain or infrastructure reader defines exact validation.
 
 {/* public-cli-json-schemas:start */}
 
-| Surface                                                     | Envelope                      | Current schema |
-| ----------------------------------------------------------- | ----------------------------- | -------------: |
-| Structured error                                            | `error`                       |              2 |
-| Agent help (`view: index` and input-selected `view: scope`) | `commands`                    |              1 |
-| Version                                                     | `build_identity`              |              1 |
-| Doctor report                                               | `report`                      |              1 |
-| Installation migration                                      | `migration`                   |              2 |
-| Workspace Manifest list                                     | `workspace_manifests`         |              2 |
-| Workspace Manifest report                                   | `workspace_manifest`          |              2 |
-| Runtime list                                                | `runtimes`                    |              1 |
-| Runtime report (`runtime show/create/history/build`)        | `runtime`                     |              1 |
-| Runtime restore result                                      | `runtime_restore`             |              1 |
-| Runtime delete result                                       | `runtime_delete`              |              1 |
-| Runtime prune plan                                          | `runtime_prune_plan`          |              1 |
-| Runtime prune result                                        | `runtime_prune_result`        |              1 |
-| Workspace Manifest deletion                                 | `workspace_manifest_deletion` |              2 |
-| Cluster status                                              | `cluster`                     |              1 |
-| Cluster denials                                             | `denials`                     |              1 |
-| Policy candidates                                           | `policy_candidates`           |              1 |
-| Policy review                                               | `policy_review`               |              1 |
-| Policy rules                                                | `policy_rules`                |              1 |
-| Workspace list                                              | `workspaces`                  |              2 |
-| Workspace status                                            | `status`                      |              2 |
-| Permission wait result                                      | `result`                      |              1 |
+| Surface                                                     | Envelope               | Current schema |
+| ----------------------------------------------------------- | ---------------------- | -------------: |
+| Structured error                                            | `error`                |              2 |
+| Agent help (`view: index` and input-selected `view: scope`) | `commands`             |              1 |
+| Version                                                     | `build_identity`       |              1 |
+| Doctor report                                               | `report`               |              1 |
+| Final Template list                                         | `templates`            |              1 |
+| Final Template report and mutation result                   | `template`             |              1 |
+| Final Context list                                          | `contexts`             |              1 |
+| Final Context report and creation result                    | `context`              |              1 |
+| Final Context entry result                                  | `entry`                |              1 |
+| Final Workspace list                                        | `workspaces`           |              1 |
+| Final Workspace report                                      | `workspace`            |              1 |
+| Final authority mutation result                             | `result`               |              1 |
+| Root default-pair status                                    | `status`               |              3 |
+| Cluster-up result                                           | `cluster_up`           |              2 |
+| Cluster status                                              | `cluster`              |              2 |
+| Cluster denials                                             | `denials`              |              3 |
+| Cluster-down result                                         | `cluster_down`         |              2 |
+| Policy candidates                                           | `policy_candidates`    |              2 |
+| Policy review                                               | `policy_review`        |              2 |
+| Policy rules                                                | `policy_rules`         |              2 |
+| Policy mutation result                                      | `result`               |              2 |
+| Runtime list                                                | `runtimes`             |              1 |
+| Runtime report (`runtime show/create/history/build`)        | `runtime`              |              1 |
+| Runtime restore result                                      | `runtime_restore`      |              1 |
+| Runtime delete result                                       | `runtime_delete`       |              1 |
+| Runtime prune plan                                          | `runtime_prune_plan`   |              2 |
+| Runtime prune result                                        | `runtime_prune_result` |              2 |
+| Permission wait result                                      | `result`               |              1 |
 
 {/* public-cli-json-schemas:end */}
 
@@ -61,54 +67,50 @@ Exact fields, optionality, collection coverage, and output formats are
 generated on the [CLI reference](/reference/cli/). Do not infer a field from
 another envelope merely because the two objects share a name.
 
-### Workspace Manifest contract boundary
+### Final authority contract boundary
 
-The version is V1 on both surfaces, but the contracts remain distinct:
+The persisted owner envelope and public task projections remain distinct:
 
 ```text
-Host configuration
-  contexts/<name>/context.json
-  Workspace Manifest manifest schema 1
+Persisted final authority
+  workspace-authority/authority.json
+  complete atomic collection schema 1
 
 CLI presentation
-  {"schema_version": 1, "context": ...}
-  public Workspace Manifest report schema 1
+  {"schema_version": 1, "template": ...}
+  task-owned final Template report schema 1
 ```
 
-The report adds task-owned runtime, cluster, complete shell-setting, and
-secret-free authentication interpretation. It is not the bytes
-stored in `context.json`.
+Public Template, Context, Workspace, and entry results are task-owned
+projections, not the complete bytes stored in the atomic final-authority
+envelope.
 
 ## Persisted host contracts
 
-| State                                           | Current contract   |
-| ----------------------------------------------- | ------------------ |
-| Workspace Manifest manifest                     | Schema 1           |
-| Root index and Workspace instance               | Schema 1           |
-| Shared cluster state                            | Schema 1           |
-| Project principal registry                      | Schema 1           |
-| Domain policy `allow.json` / `deny.json` source | `schema_version` 1 |
-| Aggregate policy projection marker              | Schema 1           |
-| Workspace-owned agent state                     | Schema 1           |
-| Base runtime metadata                           | Schema 1           |
+| State                                       | Current contract  |
+| ------------------------------------------- | ----------------- |
+| Atomic final-authority collection           | Schema 1          |
+| Managed Runtime library and lifecycle state | Schema 1          |
+| Workspace-owned agent state                 | Tool-owned format |
+| Base Runtime metadata                       | Schema 1          |
 
 Readers reject malformed, oversized, unsafe, or unsupported state according to
 the owning contract. Strictness is surface-specific: do not assume that every
-JSON reader accepts or rejects an unknown field in the same way. Principal
-state and critical runtime state use explicit fail-closed validation.
+JSON reader accepts or rejects an unknown field in the same way. Final
+authority and critical Runtime state use explicit fail-closed validation.
 
-There is no pre-public compatibility reader or implicit migration. The sole
-exception is the explicit `tobari migrate apply` command for ADR 0070's exact
-unpublished Workspace Manifest-policy/Runtime predecessor. Every non-V1 or other old value
-is unsupported, and that development state must be removed and recreated.
+This pre-release clean break has no predecessor compatibility reader and no
+implicit or public migration. A bounded presence-only guard classifies legacy
+authority without decoding or adopting it, then fails read-only with
+reset-and-recreate guidance.
 
 ## Gateway, OPA, audit, and authentication contracts
 
 | Boundary                                     | Current contract | Important content rule                                                                        |
 | -------------------------------------------- | ---------------: | --------------------------------------------------------------------------------------------- |
-| Gateway request metadata                     |         Schema 1 | Workspace Manifest-aware projection; contains paths/metadata, not policy authority.           |
+| Gateway request metadata                     |         Schema 1 | Final Context/Workspace projection; contains paths/metadata, not policy authority.            |
 | Gateway → OPA decision input                 |         Schema 1 | Host-derived principal plus normalized HTTP attributes. No body and no client secret headers. |
-| Guided/Advanced source policy input          |         Schema 1 | Aggregate generation validates the exact V1 source before activation.                         |
+| Template-policy and Policy Memory input      |         Schema 1 | Activation validates the exact final Context-owned source before publication.                 |
 | Gateway audit line                           |         Schema 1 | Secret-free normalized decision evidence.                                                     |
 | Gateway learnable-denial navigation response |         Schema 1 | Fixed host review guidance; no candidate ID, query, body, or secret.                          |
 
@@ -119,7 +121,7 @@ upstream connection.
 Runtime control uses bounded newline-delimited JSON frames. Credential-bearing
 values remain agent-owned request data and are not JSON metadata.
 
-## Exact V1 rules for consumers
+## Exact version rules for consumers
 
 - Select behavior by the exact envelope and `schema_version`.
 - Treat unknown versions as unsupported. Do not silently coerce them to the
@@ -148,7 +150,7 @@ external contracts are supported public boundaries.
 
 - Public output contracts:
   <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/runtime_catalog.go`}
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/catalog.go`}
   >
     Catalog output schemas
   </a>
@@ -158,17 +160,17 @@ external contracts are supported public boundaries.
   >
     renderer agreement tests
   </a>
-- Workspace Manifest contracts:
+- Final authority contracts:
   <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/context.go`}
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/workspace_authority_collection.go`}
   >
-    manifest schema 1
+    atomic collection schema 1
   </a>
   and
   <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/context.go`}
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/final_workspace_authority_catalog.go`}
   >
-    report schema 1
+    public final-authority projections
   </a>
 - Gateway input and audit:
   <a
@@ -184,13 +186,13 @@ external contracts are supported public boundaries.
   </a>
 - Policy source and transformation:
   <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/aggregate.go`}
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/workspace_authority_policy_read.go`}
   >
-    aggregate projection
+    final Policy read contract
   </a>
 - CLI report projection:
   <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/runtime_catalog.go`}
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/final_workspace_authority_catalog.go`}
   >
     Catalog projection
   </a>
@@ -203,9 +205,9 @@ external contracts are supported public boundaries.
 
 ## Summary
 
-Schema identities remain local to a boundary even though every Tobari-owned
-surface is V1 before first publication. Exact readers and tests define each
-contract; the shared number does not make distinct documents interchangeable.
+Schema identities remain local to a boundary. Exact readers and tests define
+each contract; a shared number does not make distinct documents
+interchangeable.
 
 ## Check your understanding
 
@@ -215,8 +217,8 @@ its surface.
 <details>
   <summary>Can an Advanced policy use a schema other than V1?</summary>
 
-No. Aggregate generation requires exact V1 source and runtime input, then tests
-the complete Workspace Manifest-isolated candidate before activation.
+No. Activation requires the exact Template-policy and Context-owned Policy
+Memory inputs, then tests the complete candidate before publication.
 
 </details>
 

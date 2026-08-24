@@ -6,6 +6,8 @@
 - Scope: Product, architecture, security, Runtime, Workspace Manifest,
   Workspace, catalog, state, Docker, harness, and public boundary
 - Revises: ADR 0067
+- Revised by: ADR 0084 replaces predecessor migration protection with final-only
+  protection input
 - Related: ADR 0069, ADR 0070, ADR 0071, ADR 0077, ADR 0078, ADR 0079
 - Superseded by: None
 
@@ -143,11 +145,12 @@ availability, storage, last-used certainty, and snapshot state separately.
 storage. The public schema has no `revision` alias, Docker `image` or
 `image_digest`, or private `snapshot_path`.
 
-ADR 0079's pre-public UUID preservation and Workspace Manifest revision
-retention remain unchanged. Migration may synthesize an applied entry only
-from sufficient state plus bounded read-only Docker evidence; otherwise
-Runtime cleanup remains migration-unverified and fails closed. Migration and
-Manifest deletion perform no Runtime cleanup.
+ADR 0084's pre-release clean break preserves no predecessor UUID or Workspace
+Manifest revision. Runtime protection receives one coherent final-authority
+inventory through its existing lifecycle observation; predecessor files,
+containers, and migration artifacts cannot protect or unprotect material.
+Incomplete final protection remains unknown and fails closed. Unsupported
+development state is explicitly reset and recreated outside Runtime cleanup.
 
 ## Security and public-boundary impact
 

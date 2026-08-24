@@ -3,8 +3,9 @@
 - Goal: [goal.md](goal.md)
 - Plan: [plan.md](plan.md)
 
-This packet records a design direction for parent sequencing. No production
-implementation is authorized by creating it.
+This packet records the accepted final-only cutover and its executable closure
+evidence. Production implementation was authorized by the product-owner and
+root decisions recorded in `context.md`.
 
 ## Understand
 
@@ -29,20 +30,22 @@ implementation is authorized by creating it.
 - [x] Name the downstream packet owners that must pause, rebase, or consume a
       stable WP11 interface. Evidence: WP05/WP09/WP06/WP10 are paused; completed
       WP03/WP04/WP07 are stable capability inputs with affected seams only.
-- [x] Confirm whether the existing WP01+02 implementation remains an intentional
-      intermediate state or should be treated as the migration predecessor for
-      WP11. Evidence: exact predecessor is `0bbd9deb`.
-- [ ] Assign an implementation owner and target only after the above ordering is
-      explicit.
+- [x] Decide the disposition of existing WP01+02 development state. Evidence:
+      the later product-owner clean-break decision supersedes the earlier exact-
+      predecessor plan; it is unsupported state to reset and recreate, not a
+      migration target.
+- [x] Assign an implementation owner and target only after the above ordering is
+      explicit. Evidence: the root task owns the atomic final-only cutover;
+      shared production files were frozen and edited by one owner per batch.
 
 ## Decide
 
 - [x] Replace the open-choice list with one owner-decision target covering
       vocabulary, identity, uniqueness, defaults, deletion, authentication,
-      activation, CLI/references/schemas, and migration/rollback.
-- [x] Record the recommended ID mapping: predecessor WorkspaceManifestID ->
-      WorkspaceTemplateID, predecessor WorkspaceID -> WorkspaceID, and one fresh
-      journaled ContextID per exact Project/Template pair.
+      activation, CLI/references/schemas, and the pre-release clean break.
+- [x] Supersede the earlier predecessor ID-mapping decision. Final
+      WorkspaceTemplateID, ContextID, and WorkspaceID are created only by final
+      tasks; no predecessor identity is converted or adopted.
 - [x] Record the recommended V1 uniqueness and selection: at most one Context
       per canonical Project/Template pair, no Context name/default/use, one
       installation default Template, bare root/status default-pair selection,
@@ -71,22 +74,28 @@ implementation is authorized by creating it.
       Template show, Context show, bare status, Workspace status, and research
       auth status; each exact-input read re-emits the unchanged reference.
 
-- [ ] Approve the Workspace Template / Context / Policy Memory / Workspace
-      aggregate split.
-- [ ] Finalize public and internal vocabulary, including the remaining role of
-      `Manifest` and the final name for Policy Memory.
-- [ ] Decide Context authority identity, uniqueness, naming, and whether same
-      Project + same Template can have multiple Contexts.
-- [ ] Decide default Template versus per-Project Context selection semantics.
-- [ ] Fix Template follow-current, AppliedEntry, pending adoption, failure,
+- [x] Approve the Workspace Template / Context / Policy Memory / Workspace
+      aggregate split. Evidence: ADR 0084 and the promoted governing contracts.
+- [x] Finalize public and internal vocabulary, retiring public `Manifest` and
+      retaining `Policy Memory` as Context-owned authority.
+- [x] Decide Context identity and uniqueness: one opaque ContextID per canonical
+      ProjectRoot/TemplateID pair, with no mutable Context name selector.
+- [x] Decide default Template versus per-Project Context selection semantics.
+      Evidence: one installation default Template plus an exact canonical-root
+      Context, initialized atomically by the bare first-use task.
+- [x] Fix Template follow-current, AppliedEntry, pending adoption, failure,
       retry/recovery, policy activation, and read-only observation contracts.
-- [ ] Fix Template, Context, Policy Memory, Workspace, home, and authentication
+- [x] Fix Template, Context, Policy Memory, Workspace, home, and authentication
       deletion/preservation behavior.
-- [ ] Fix public commands, roles, effects, reference kinds, producer/consumer
+- [x] Fix public commands, roles, effects, reference kinds, producer/consumer
       graph, output/schema versions, faults, confirmations, and next actions.
-- [ ] Fix exact migration/rollback/compatibility and first-public-release timing.
-- [ ] Revise or supersede ADR 0079 and obtain product/security/architecture
-      approval.
+- [x] Fix pre-release compatibility and first-public-release timing. Evidence:
+      final-only clean break, bounded legacy-presence rejection, explicit
+      reset/recreation, no migration/rollback selection, and no post-release
+      precedent.
+- [x] Revise or supersede ADR 0079 and obtain product/security/architecture
+      approval. Evidence: accepted ADR 0084, superseded ADRs 0070/0079, and the
+      propagated theses, product, architecture, and security contracts.
 
 ## Cross-packet audit
 
@@ -99,31 +108,34 @@ implementation is authorized by creating it.
       Workspace-owned, research Broker state remains outside Template desired,
       and no build-surface mechanism changes. Evidence: reread final `cc5d14b`
       and ADR 0082; the packet recommends Context-owned fresh research login and
-      quarantine rather than migration rebind.
+      rejects predecessor authority rather than rebinding it.
 - [x] WP05 Host Loopback: retain attachment-local authority and bind its final
       principal to Context/Workspace without changing hostname, retirement,
       route/grant lifetime, or lock order. Evidence: reread `0bbd9deb` and ADR
       0083 before paused mechanism work.
-- [ ] WP06 status home: redesign routine Current/Next around Context, separate
-      Template and Policy Memory revision axes, and keep reads non-reconciling.
+- [x] WP06 status home handoff: publish independent desired/current and active
+      Template-policy, Policy-Memory, and AppliedEntry axes without reconciling
+      from reads. The broader WP06 presentation packet remains future work.
 - [x] WP07 permission resume/handoff: move candidate/rule ownership and exact
       references to Context Policy Memory while preserving Workspace observation
       correlation and same-session retry semantics. Evidence: reread final
       `77c5607` and ADR 0081; helper/transport/wait lifecycle remains unchanged.
-- [ ] WP08 Catalog/domain/output conformance: rebuild reference producers,
-      consumers, JSON fields, and negative vocabulary guards from the final
-      Catalog.
-- [ ] WP09 service exposure UX: retain attachment-local service authority rather
-      than placing it in Template or Policy Memory.
-- [ ] WP10 first-use progress/recovery: split Template selection/copy from Context
-      creation and explicit Workspace entry without adding discovery burden.
+- [x] WP08 Catalog/domain/output conformance handoff: rebuild reference
+      producers, consumers, JSON fields, and negative vocabulary guards from the
+      final Catalog. Evidence: the exhaustive Batch D evaluator.
+- [x] WP09 service exposure handoff: retain attachment-local service authority;
+      no WP11 authority owns it. The broader WP09 packet remains future work.
+- [x] WP10 first-use handoff: atomically initialize the default Template/Context
+      pair and enter through the explicit Workspace reconciliation contract.
+      The broader WP10 progress presentation remains future work.
 
 ## Implement
 
-- [ ] Add failing domain, Catalog, output, migration, and security contract tests.
-- [ ] Add a Catalog-construction test proving the proposed final Catalog
+- [x] Add domain, Catalog, output, clean-break, and security contract tests.
+- [x] Add a Catalog-construction test proving the proposed final Catalog
       validates and its exact derived producer/consumer sets contain no
-      RoleUtility reference input or output.
+      RoleUtility reference input or output. Evidence:
+      `TestADR0084WholeCatalogReferenceGraphIsExact` in Batch D.
 - [x] Implement dormant pure Template revision/history with one complete typed
       static body, body-derived Boundary/slice/overall digests, exact copy and
       entry derivation, immutable Boundary, Context uniqueness, Policy Memory
@@ -132,16 +144,11 @@ implementation is authorized by creating it.
       ordinary reader or writer.
 - [x] Preserve the closed Advanced executable-source boundary as exactly one
       bounded `tobari.rego`/`tobari_test.rego` pair; reject missing, renamed,
-      duplicate, extra, incomplete, or oversized sources and migrate only the
-      exact pair.
-- [x] Implement the pure exact-predecessor migration input/plan/output and
-      rollback-eligibility model with preserved Template/Workspace bytes, fresh
-      journaled Context IDs, exact predecessor-body transformation, retained
-      revision/policy/default/candidate mapping, research quarantine disposition,
-      and no I/O.
-- [x] Require bounded exact-owned Docker evidence before retaining a predecessor
-      AppliedEntry; map missing, mismatched, and unknown material to explicit
-      unverified state.
+      duplicate, extra, incomplete, or oversized sources.
+- [x] Historical evidence only: the dormant pure exact-predecessor
+      migration/rollback model and bounded Docker mapping were implemented and
+      reviewed before the clean-break decision. They are no longer WP11
+      acceptance authority and no final task may select them.
 - [x] Implement dormant separate Template, Context, Workspace, and Policy Memory
       application use cases with task-owned smallest ports, exact unchanged ref
       consumption/re-emission, coherent domain-owned receipts, one mutation
@@ -149,8 +156,8 @@ implementation is authorized by creating it.
 - [x] Bind direct Allow/Deny/Reset results to exact changed authority: complete
       candidate Context/observing-Workspace/effect evidence, expected decision,
       exact previous revision, and plus-one/minus-one full rule-set
-      reconstruction; carry actionable candidates through migration without a
-      predecessor read.
+      reconstruction; final candidates require complete final authority without
+      a predecessor read.
 - [x] Validate exhaustive Context and Workspace collections as aggregate
       authority: unique ProjectRoot+TemplateID Context pairs, unique optional
       Workspace IDs, at most one Workspace per Context, exact equality for a
@@ -167,12 +174,10 @@ implementation is authorized by creating it.
       read-back, durably bind external effects before execution, exclude
       different mutations during recovery, and retain one bounded terminal
       receipt for zero-repeat same-ref result replay.
-- [x] Implement the dormant journaled migration engine and internal rollback
-      seam: exact owner-only preflight facts, one final-envelope publication,
-      atomic cutoff selection, same-filesystem predecessor quarantine,
-      research disposition, byte-untouched standard homes, idempotent committed
-      apply, terminal rollback, crash recovery, and kernel-released exclusion.
-      No current reader or invocable migration route selects it yet.
+- [x] Historical evidence only: a dormant journaled migration engine and
+      internal rollback seam were implemented and reviewed before the clean-
+      break decision. They remain unreachable and are not selected by current or
+      final readers, Catalog, or public migration composition.
 - [x] Implement dormant explicit Context-entry reconciliation. Consume one
       unchanged Context ref; derive desired authority from the final Template;
       require independent current Template-policy and Policy-Memory receipts;
@@ -204,9 +209,11 @@ implementation is authorized by creating it.
       task-owned codec, same-content confirmation survives unrelated collection
       changes, and Docker/Gateway/artifact drift fails before mutation. Cluster
       current/current projection is prepared as a dormant candidate only.
-- [ ] Wire the exact predecessor adapter and migration selection only with the
-      atomic final-reader cutover; implement principal/policy projection and
-      reconciliation adapters without changing WP03/04/07 mechanisms.
+- [x] Wire one final-only reader composition and bounded legacy-presence guard
+      with the atomic Catalog cutover. A genuinely fresh installation is exact
+      empty authority; any legacy/unsafe/ambiguous presence is zero-mutation
+      reset guidance. Inject final protection/principal/policy/auth authority
+      without changing WP03/04/07 mechanisms or selecting migration.
 - [x] Implement one dormant lifecycle-owned final settlement coordinator for
       first entry, existing Workspace AppliedEntry/creation-authority changes,
       Workspace retirement/re-entry, Context deletion, direct Policy
@@ -227,7 +234,9 @@ implementation is authorized by creating it.
       partial active axes fail closed, and Context deletion can produce an exact
       empty active projection. No current composition exposes these adapters.
 - [x] Implement fixed-target `policy apply-reviewed` as one complete reviewed-set
-      settlement: advance every reviewed target Policy Memory together, preserve
+      settlement and `EffectCreate` whose fixed decision-set scope produces only
+      resulting active policy-rule child references: advance every reviewed
+      target Policy Memory together, preserve
       all non-target memories and all active Template-policy axes, and publish
       one global Gateway/OPA/principal receipt. It must not sequence one
       settlement per Context or use cluster current/current selection. Add
@@ -255,7 +264,7 @@ implementation is authorized by creating it.
       providers, and never treats locked/incomplete/unsafe state as absence.
       Container-backed acquisition resolves an exact immutable Runtime image
       from stable final Runtime authority; standard providers do not inspect a
-      Runtime image. Predecessor/quarantined credentials are never adopted or
+      Runtime image. Predecessor credentials are never read, adopted, or
       rebound, release remains unavailable, and the five research paths remain
       unchanged and still unwired in this concern.
       The strict read-only status path uses the existing non-creating lifecycle
@@ -264,11 +273,38 @@ implementation is authorized by creating it.
       observation failure. Active recovery retains the complete normalized
       reviewed Provider body; a same-ID owner-manifest change cannot substitute
       another acquisition/projection plan after the durable decision.
-- [ ] Perform one public Catalog hard cutover with no accidental aliases.
-- [ ] Update human output, JSON schemas, completion, help, examples, site,
+- [x] Perform one public Catalog hard cutover with no accidental aliases.
+- [x] Remove the ADR 0070 `migrate apply` predecessor capability and prove no
+      WP11 migration/rollback engine, preflight, cutoff selector, quarantine, or
+      predecessor decoder is reachable from public composition.
+- [x] Prove predecessor files cannot influence final Runtime protection, policy,
+      principal/session, or authentication; legacy-only and legacy-plus-final
+      presence return typed reset guidance with zero mutation.
+- [x] Prove clean installation -> exact final-empty -> first Template, Context,
+      Workspace entry, and final recovery without a migration prerequisite.
+- [x] Update human output, JSON schemas, completion, help, examples, site,
       embedded/generated snapshots, and agent-readiness fixtures.
-- [ ] Promote durable conclusions to theses, product, architecture, security,
-      harness, ADR, and relevant Skill.
+- [x] Promote durable conclusions to theses, product, architecture, security,
+      harness, and ADR 0084. No separate Skill contract required a semantic
+      change; the repository capability and schema ledgers are synchronized.
+
+## Atomic-cutover closure ledger
+
+This ledger is the closed implementation backlog. A later observation extends
+one representative fixture unless it proves a supported P0/P1 transition that
+cannot fit any listed root.
+
+| Batch | Root | Frozen invariant and representative proof | Status |
+| --- | --- | --- | --- |
+| A | B1+B5 default pair, first entry, Context axes | One final snapshot exposes desired Template revision/policy digest, independently nullable active Template-policy digest, current and independently nullable active Policy-Memory revisions, and independently nullable Workspace AppliedEntry. Fresh default Template+Context publish in one envelope without name selection. Entry settles inactive/stale current axes in its existing parent protocol. Cover fresh, exact no-op, A-active/B-desired, selection drift, decision/effect/envelope/terminal interruption, and cancellation after confirmed effect in domain, Store/runtime, app, and public schema tests. One evaluator: `sh docs/work/workspace-template-context-policy-memory/check_batch_a.sh`. | Complete: evaluator passes standard and race across domain, Store, application, and CLI; final review found no remaining production divergence in this frozen bundle. |
+| B | B2 Template mutations | Every shell, Git, AWS, EKS, and Runtime change is one typed delta derived from current authority under the lifecycle lock. Unrelated fields and retained revisions survive concurrency; only Runtime change binds the distinct Runtime-revision parent. Cover normal, same-field last success, different-field serialization, stale Runtime authority, cancellation, and exact outputs. One evaluator: `sh docs/work/workspace-template-context-policy-memory/check_batch_b.sh`. | Complete: evaluator passes standard and race across domain, final Store, fixed host-source adapters, application, and CLI; bounded review found no remaining Batch B matrix cell. |
+| C | B3 reviewed Permission Inbox | One coherent final snapshot owns pending candidates, exact source rules, and immutable reviewed set. TTY and research serve submit the same unchanged set once to the accepted global ApplyReviewed protocol. Cover refresh invalidation, multi-Context selection, stale snapshot, every durable recovery branch, and result delivery. One evaluator: `sh docs/work/workspace-template-context-policy-memory/check_batch_c.sh`. | Complete: evaluator passes standard and race across domain, final Store, application, CLI, and the research operator-console HTTP boundary. Exact/template multi-Context sets, refresh invalidation, stale zero-effect, one unchanged Apply, public schema/ref projection, same-set recovery, and terminal delivery are green; bounded frozen review found zero remaining B3 matrix cells. |
+| D | B4+B6+C1 public composition | Registered root/status/cluster/policy/auth paths use only final services. One whole-Catalog test fixes exact reference producers/consumers and zero RoleUtility edges; repository negatives reject Manifest commands, flags, keys, predecessor readers, and public WP11 migration. Release/research path sets and schemas are exact. | Complete: `check_batch_d.sh` passes standard, race, research, and research-race across CLI, final Store, and runtime. Root/status, cluster lifecycle/log/denial, policy, and research-auth paths reach final task-owned services; bounded cluster reads use final Store selection plus before/after final component receipts. Exact Catalog refs, schemas, RoleUtility zero edges, legacy flag/path/key and migration absence, closed legacy guard, and the exact research +5 path delta are green. One frozen read-only review found zero remaining D matrix cells. |
+
+Only the primary implementation owner edits shared production state-machine or
+composition files within an active batch. Parallel work is limited to fixtures
+and read-only audits. Each batch freezes only after focused standard and race
+gates pass for its complete vertical proof bundle.
 
 ## Verify
 
@@ -280,7 +316,9 @@ implementation is authorized by creating it.
       ./internal/app/workspaceauthoritycmd ./internal/domain/tobari`, `go test
       ./internal/app/... ./internal/domain/...`, and `task check:fast` with the
       pinned toolchains.
-- [x] Dormant journal engine and owner-store focused tests pass. Evidence:
+- [x] Historical dormant journal-engine and owner-store focused tests pass; the
+      engine evidence predates the clean-break decision and is not a current
+      cutover acceptance requirement. Evidence:
       `go test ./internal/infra/workspaceauthoritymigration` and `go test -race
       ./internal/domain/... ./internal/app/...
       ./internal/infra/workspaceauthoritystore
@@ -315,10 +353,18 @@ implementation is authorized by creating it.
       two-pass status observation, stable complete Provider recovery,
       immutable Runtime image execution, no-envelope interruption/terminal
       recovery, consecutive credential rotation, release absence, and
-      predecessor/quarantine non-adoption. `task authbroker:test` passes all
+      predecessor non-adoption. `task authbroker:test` passes all
       123 tests; canonical/helper sources are byte-identical.
-- [x] `task check` passes. Evidence: full pinned Go 1.26.6/Node 24.18.0 gate
-      passes on the stable dormant final-Context research-auth snapshot.
+- [x] All four closure evaluators pass on one snapshot. Evidence: Batch A and B
+      standard/race, Batch C standard/race/research/research-race, and Batch D
+      standard/race/research/research-race.
+- [x] `task check:fast` passes. Evidence: pinned Go 1.26.6, Node 24.18.0,
+      npm 11.16.0; final CLI/runtime release and research suites, site generation,
+      site typecheck/build, helper snapshots, contract/architecture guards, and
+      repository tests all pass.
+- [x] `task check` passes on the final cutover snapshot. Evidence: pinned Go
+      1.26.6, Node 24.18.0, and npm 11.16.0 full profile, including release and
+      research surfaces, site static/browser checks, all packages, and race.
 - [ ] `task security` passes. Evidence:
 - [ ] `task public:check` passes. Evidence:
 - [ ] `task release:check` passes when the release surface is affected. Evidence:
@@ -327,7 +373,11 @@ implementation is authorized by creating it.
 - [ ] Agent-readiness covers Template creation/copy, Context creation/selection,
       Workspace entry/recreation, and retained policy learning with zero
       undeclared external processing. Evidence:
-- [ ] Generated diff and repository status are understood. Evidence:
+- [x] Generated diff and repository status are understood. Evidence: changes
+      are limited to the accepted harness/docs/domain/app/infra/CLI/sitegen
+      cutover graph and its helper snapshot; `git diff --check` and exposure
+      helper equality pass. The commit-fixed site source snapshot and temporary
+      packet retirement are intentionally the next mechanical concern.
 
 ## Hand off
 
@@ -339,4 +389,5 @@ implementation is authorized by creating it.
 - [ ] Durable decisions were promoted out of the work packet.
 - [ ] Temporary diagnostics and sensitive artifacts were removed.
 - [ ] Follow-up work is explicit and does not block this goal.
-- [ ] Final handoff explains outcome, why, checks, migration, and risks.
+- [ ] Final handoff explains outcome, why, checks, pre-release clean-break
+      disposition, and risks.

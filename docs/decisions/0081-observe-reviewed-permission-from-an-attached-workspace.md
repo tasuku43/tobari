@@ -4,6 +4,8 @@
 - Date: 2026-08-23
 - Deciders: Tobari product owner and maintainers
 - Scope: Product, CLI, architecture, security, Gateway denial output, attachment runtime, and harness
+- Revised by: ADR 0084 replaces migration sequencing with final-only clean
+  attachment authority
 - Related: ADR 0024, ADR 0061, ADR 0073, ADR 0074, and ADR 0079
 - Superseded by: None
 
@@ -224,9 +226,11 @@ into the schema-2 denial/wait record; it does not widen sibling readers.
 
 This pre-public surface has no alias. Unsupported or mismatched components omit
 resume or return a typed unavailable fault; they do not infer a candidate or
-read policy from the Workspace. No wait state is migrated. ADR 0079 migration
-requires zero live attachments, so post-migration waits are issued only after a
-fresh attachment. Frozen schema-v1 sibling wires remain unchanged.
+read policy from the Workspace. No wait state is migrated or adopted. A clean
+final installation issues waits only after a fresh canonical attachment;
+declared predecessor registry presence blocks initialization with zero mutation
+and reset-and-recreate guidance. Frozen schema-v1 sibling wires remain
+unchanged.
 
 ## Validation
 

@@ -180,13 +180,13 @@ func ReadinessChecks(profile ReadinessProfile) ([]CheckID, error) {
 type ObservationCause string
 
 const (
-	ObservationCauseNone              ObservationCause = ""
-	ObservationCauseMigrationRequired ObservationCause = "migration_required"
+	ObservationCauseNone               ObservationCause = ""
+	ObservationCauseLegacyStatePresent ObservationCause = "legacy_state_present"
 )
 
 func (c ObservationCause) Validate() error {
 	switch c {
-	case ObservationCauseNone, ObservationCauseMigrationRequired:
+	case ObservationCauseNone, ObservationCauseLegacyStatePresent:
 		return nil
 	default:
 		return fmt.Errorf("unsupported doctor observation cause %q", c)

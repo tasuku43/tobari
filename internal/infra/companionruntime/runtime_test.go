@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -183,5 +184,44 @@ func TestLifetimeLockPreventsOverlapAndWaitsForRelease(t *testing.T) {
 	}
 	if ownerInfo.Mode().Perm() != 0o700 {
 		t.Fatalf("owner mode=%v", ownerInfo.Mode().Perm())
+	}
+}
+
+func TestObserveStoppedDoesNotCreateCompanionState(t *testing.T) {
+	t.Parallel()
+	stateDirectory := filepath.Join(t.TempDir(), "missing-state")
+	stopped, err := ObserveStopped(stateDirectory)
+	if err != nil || !stopped {
+		t.Fatalf("fresh stopped=%t err=%v", stopped, err)
+	}
+	if _, err := os.Lstat(stateDirectory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("read-only observation created state: %v", err)
+	}
+}
+
+func TestObserveStoppedDistinguishesHeldLifetimeLock(t *testing.T) {
+	t.Parallel()
+	stateDirectory := t.TempDir()
+	if err := os.Chmod(stateDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(stateDirectory, "auth"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareCompanionDirectory(stateDirectory); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := tryAcquireLifetimeLock(lifetimeLockPath(stateDirectory))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stopped, err := ObserveStopped(stateDirectory); err != nil || stopped {
+		t.Fatalf("held stopped=%t err=%v", stopped, err)
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if stopped, err := ObserveStopped(stateDirectory); err != nil || !stopped {
+		t.Fatalf("released stopped=%t err=%v", stopped, err)
 	}
 }

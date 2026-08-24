@@ -7,9 +7,9 @@ description: 公開 JSON エンベロープ、永続文書、内部プロトコ�
 レポート、永続化するマニフェスト、Gateway のポリシー入力、監査行は、関連するオブジェクトを
 記述していても別の契約です。agent CLI のログイン形式は Tobari の公開契約ではありません。
 
-各スキーマは一つの公開面に属します。初回公開前の Tobari 所有の公開面は構造化エラー
-契約を除いて V1 で、構造化エラーは V2 です。それぞれの公開面では、担当するパーサー、Catalog の項目、プロトコルの実装が
-正本です。
+各スキーマは一つの公開面に属します。スキーマ番号はその公開面にだけ属し、現在の公開 CLI
+には V1、V2、V3 のエンベロープがあります。構造化エラーは V2 です。それぞれの公開面では、
+担当するパーサー、Catalog の項目、プロトコルの実装が正本です。
 
 ## 「スキーマ」が必ずしも JSON Schema を意味しない
 
@@ -28,30 +28,36 @@ Tobari は多くの JSON 契約で、明示的な `schema_version` フィール�
 
 {/* public-cli-json-schemas:start */}
 
-| 対象                                                               | エンベロープ                  | 現在のスキーマ |
-| ------------------------------------------------------------------ | ----------------------------- | -------------: |
-| 構造化エラー                                                       | `error`                       |              2 |
-| エージェント向けヘルプ（`view: index` と入力で選ぶ `view: scope`） | `commands`                    |              1 |
-| バージョン                                                         | `build_identity`              |              1 |
-| doctor レポート                                                    | `report`                      |              1 |
-| インストール状態の移行                                             | `migration`                   |              2 |
-| Workspace Manifest 一覧                                            | `workspace_manifests`         |              2 |
-| Workspace Manifest レポート                                        | `workspace_manifest`          |              2 |
-| Runtime 一覧                                                       | `runtimes`                    |              1 |
-| Runtime レポート（`runtime show/create/history/build` の結果）     | `runtime`                     |              1 |
-| Runtime restore result                                             | `runtime_restore`             |              1 |
-| Runtime delete result                                              | `runtime_delete`              |              1 |
-| Runtime prune plan                                                 | `runtime_prune_plan`          |              1 |
-| Runtime prune result                                               | `runtime_prune_result`        |              1 |
-| Workspace Manifest の削除                                          | `workspace_manifest_deletion` |              2 |
-| クラスター状態                                                     | `cluster`                     |              1 |
-| クラスターの拒否                                                   | `denials`                     |              1 |
-| ポリシー候補                                                       | `policy_candidates`           |              1 |
-| ポリシーレビュー                                                   | `policy_review`               |              1 |
-| ポリシー規則                                                       | `policy_rules`                |              1 |
-| Workspace の一覧                                                   | `workspaces`                  |              2 |
-| Workspace の状態                                                   | `status`                      |              2 |
-| Permission wait の結果                                             | `result`                      |              1 |
+| 対象                                                               | エンベロープ           | 現在のスキーマ |
+| ------------------------------------------------------------------ | ---------------------- | -------------: |
+| 構造化エラー                                                       | `error`                |              2 |
+| エージェント向けヘルプ（`view: index` と入力で選ぶ `view: scope`） | `commands`             |              1 |
+| バージョン                                                         | `build_identity`       |              1 |
+| doctor レポート                                                    | `report`               |              1 |
+| final Template 一覧                                                | `templates`            |              1 |
+| final Template レポート／変更結果                                  | `template`             |              1 |
+| final Context 一覧                                                 | `contexts`             |              1 |
+| final Context レポート／作成結果                                   | `context`              |              1 |
+| final Context enter 結果                                           | `entry`                |              1 |
+| final Workspace 一覧                                               | `workspaces`           |              1 |
+| final Workspace レポート                                           | `workspace`            |              1 |
+| final authority 変更結果                                           | `result`               |              1 |
+| root の default pair 状態                                          | `status`               |              3 |
+| cluster up 結果                                                    | `cluster_up`           |              2 |
+| クラスター状態                                                     | `cluster`              |              2 |
+| クラスターの拒否                                                   | `denials`              |              3 |
+| cluster down 結果                                                  | `cluster_down`         |              2 |
+| ポリシー候補                                                       | `policy_candidates`    |              2 |
+| ポリシーレビュー                                                   | `policy_review`        |              2 |
+| ポリシー規則                                                       | `policy_rules`         |              2 |
+| ポリシー変更結果                                                   | `result`               |              2 |
+| Runtime 一覧                                                       | `runtimes`             |              1 |
+| Runtime レポート（`runtime show/create/history/build` の結果）     | `runtime`              |              1 |
+| Runtime restore result                                             | `runtime_restore`      |              1 |
+| Runtime delete result                                              | `runtime_delete`       |              1 |
+| Runtime prune plan                                                 | `runtime_prune_plan`   |              2 |
+| Runtime prune result                                               | `runtime_prune_result` |              2 |
+| Permission wait の結果                                             | `result`               |              1 |
 
 {/* public-cli-json-schemas:end */}
 
@@ -59,55 +65,48 @@ Tobari は多くの JSON 契約で、明示的な `schema_version` フィール�
 [CLI リファレンス](../cli/)で生成します。オブジェクトの名前が同じでも、別のエンベロープの
 フィールドを推測してはいけません。
 
-### Workspace Manifest の契約境界
+### final authority の契約境界
 
-どちらも V1 ですが、契約は別です。
+永続化する owner envelope と公開する task projection は別の契約です。
 
 ```text
-Host configuration
-  contexts/<name>/context.json
-  Workspace Manifest manifest schema 1
+Persisted final authority
+  workspace-authority/authority.json
+  complete atomic collection schema 1
 
 CLI presentation
-  {"schema_version": 1, "context": ...}
-  public Workspace Manifest report schema 1
+  {"schema_version": 1, "template": ...}
+  task-owned final Template report schema 1
 ```
 
-レポートには、タスクが管理するランタイム、クラスター、完全なシェル設定、秘密情報を
-除いたログイン境界の解釈が加わります。`context.json` に保存するバイト列そのものでは
-ありません。
+公開する Template、Context、Workspace、entry の結果は task-owned projection であり、
+atomic final-authority envelope に保存する完全なバイト列ではありません。
 
 ## ホストに永続化する契約
 
-| 状態                                               | 現在の契約         |
-| -------------------------------------------------- | ------------------ |
-| Workspace Manifest マニフェスト                    | スキーマ 1         |
-| ルートインデックス／Workspace インスタンス         | スキーマ 1         |
-| 共有クラスター状態                                 | スキーマ 1         |
-| プロジェクトプリンシパル登録簿                     | スキーマ 1         |
-| domain policy の `allow.json` / `deny.json` source | `schema_version` 1 |
-| 集約ポリシー投影のマーカー                         | スキーマ 1         |
-| agent CLI の Workspace home                        | ツール固有の形式   |
-| ホストのランタイム状態                             | スキーマ 1         |
-| ベースランタイムメタデータ                         | スキーマ 1         |
+| 状態                                     | 現在の契約       |
+| ---------------------------------------- | ---------------- |
+| atomic final-authority collection        | スキーマ 1       |
+| managed Runtime library／lifecycle state | スキーマ 1       |
+| agent CLI の Workspace home              | ツール固有の形式 |
+| ベース Runtime メタデータ                | スキーマ 1       |
 
 読み取り処理は、担当する契約に従って、形式不正、上限超過、安全でない状態、未対応の状態を
 拒否します。厳密さは公開面ごとに異なります。すべての JSON 読み取り処理が未知のフィールド
-を同じように扱うとは限りません。プリンシパルの状態、CLI フレーム、重要なランタイム状態では、
-明示的な fail-closed 検証を使います。
+を同じように扱うとは限りません。final authority と重要な Runtime 状態では、明示的な
+fail-closed 検証を使います。
 
-初回公開前の互換読み取りや暗黙の移行処理はありません。唯一の例外は、ADR 0070 が定める
-未公開の Workspace Manifest ポリシー／Runtime の厳密な旧形式だけを対象にした明示的な
-`tobari migrate apply` コマンドです。V1 以外やその他の旧形式は未対応として拒否し、
-開発中の状態を削除して作り直します。
+この初回公開前の clean break には、旧形式の互換 reader、暗黙または公開の migration は
+ありません。bounded presence-only guard は旧 authority を decode／adopt せずに存在だけを
+分類し、read-only で失敗して reset／recreate を案内します。
 
 ## Gateway、OPA、監査の契約
 
 | 境界                                            |       現在の契約 | 重要な内容規則                                                                                     |
 | ----------------------------------------------- | ---------------: | -------------------------------------------------------------------------------------------------- |
-| Gateway のリクエスト境界                        |       スキーマ 1 | Workspace Manifest とホスト由来の principal、正規化した HTTP 属性。認証情報の値は含まない          |
+| Gateway のリクエスト境界                        |       スキーマ 1 | final Context／Workspace とホスト由来の principal、正規化した HTTP 属性。認証情報の値は含まない    |
 | Gateway → OPA の判断入力                        |       スキーマ 1 | ホストから導出したプリンシパルと、正規化した HTTP 属性。本文とクライアントの秘密ヘッダーは含まない |
-| Guided/Advanced のソースポリシー入力            |       スキーマ 1 | 集約生成処理が、アクティベーション前に厳密な V1 ソースを検証                                       |
+| Template policy／Policy Memory 入力             |       スキーマ 1 | 公開前に、final Context が所有する厳密な source を検証                                             |
 | Gateway の監査行                                |       スキーマ 1 | 秘密情報を含まない、正規化済みの判断根拠                                                           |
 | 学習可能な拒否に対する Gateway の案内レスポンス |       スキーマ 1 | 固定したホストレビュー案内。候補 ID、クエリー、本文、秘密情報は含まない                            |
 | agent CLI のログイン値                          | ツール固有の形式 | Workspace home に保存され、Gateway が許可後に転送する。OPA と監査には含まれない                    |
@@ -118,7 +117,7 @@ OPA の出力は Gateway が受け取る判断結果です。OPA 自身は接続
 agent CLI のログイン形式は各ツールが管理し、Tobari の公開 JSON 契約には含めません。
 Gateway と OPA の公開境界は、正規化した非秘密の判断入力と監査行です。
 
-## 読み取り側の厳密な V1 規則
+## 読み取り側の厳密な version 規則
 
 - 完全一致のエンベロープと `schema_version` で動作を選ぶ
 - 未知のバージョンは未対応として扱い、既知の最新形式へ黙って変換しない
@@ -142,18 +141,17 @@ Gateway と OPA の公開境界は、正規化した非秘密の判断入力と�
 
 ## 根拠
 
-- 公開出力の契約：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/runtime_catalog.go`}>Catalog の出力スキーマ</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/output_schema_contract_test.go`}>レンダラー整合テスト</a>
-- Workspace Manifest の契約：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/context.go`}>マニフェストスキーマ 1</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/context.go`}>レポートスキーマ 1</a>
+- 公開出力の契約：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/catalog.go`}>Catalog の出力スキーマ</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/output_schema_contract_test.go`}>レンダラー整合テスト</a>
+- final authority の契約：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/workspace_authority_collection.go`}>atomic collection schema 1</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/final_workspace_authority_catalog.go`}>公開 final-authority projection</a>
 - Gateway の入力と監査：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/addon/tobari_gateway.py`}>Gateway addon の正本</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/test_tobari_gateway.py`}>Gateway 契約テスト</a>
-- ポリシーの正本と変換：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/aggregate.go`}>集約した投影</a>
+- ポリシーの正本と変換：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/workspace_authority_policy_read.go`}>final Policy read contract</a>
 - agent CLI ログインと Gateway の転送境界：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/03_security_model.md`}>セキュリティモデル</a>
 - フィクスチャ台帳：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/.harness/schemas.json`}><code>.harness/schemas.json</code></a>
 
 ## まとめ
 
-初回公開前の Tobari 所有の公開面はすべて V1 ですが、契約の識別は境界ごとに独立して
-います。別の文書を規定するのは、共有する番号ではなく、対象に対応した読み取り処理と
-テストです。
+スキーマの識別は境界ごとに独立しています。別の文書を規定するのは、共有する番号ではなく、
+対象に対応した読み取り処理とテストです。
 
 ## 理解を確認する
 
@@ -161,8 +159,8 @@ Gateway と OPA の公開境界は、正規化した非秘密の判断入力と�
 
 <details>
   <summary>Advanced ポリシーで V1 以外のスキーマを使えますか？</summary>
-  いいえ。集約生成処理はソースとランタイム入力の両方に厳密な V1
-  を要求し、Workspace Manifest ごとに分離した候補全体を有効化前にテストします。
+  いいえ。activation は厳密な Template policy と Context-owned Policy Memory
+  の入力を要求し、 公開前に候補全体をテストします。
 </details>
 
 <details>

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/tasuku43/tobari/internal/infra/terminal"
 )
 
 // humanOutput is the small presentation vocabulary shared by human-facing
@@ -114,7 +116,7 @@ func humanStyleAllowed(ctx context.Context, c *CLI, writer io.Writer) bool {
 	if c == nil || writer == nil || c.noColor || invocationErrorFormat(ctx) == errorFormatJSON {
 		return false
 	}
-	return c.tobari != nil && c.tobari.IsTerminal(writer)
+	return terminal.IsTerminal(writer)
 }
 
 func humanStatusToken(status string) styleToken {

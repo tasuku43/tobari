@@ -227,19 +227,19 @@ func TestHumanHelpAndEmptyStateKeepMachineProjectionUnstyled(t *testing.T) {
 		t.Fatalf("human help is not styled: %q", output)
 	}
 
-	empty := tobari.PolicyCandidateReport{
-		Task: tobari.TaskPolicyCandidates, PolicyDirectory: "/tmp/config/tobari/policy",
-		WindowLines: 200, Items: []tobari.PolicyCandidate{},
-	}
-	human, err := renderPolicyCandidatesWithColor(empty, expectedSurfaceText("tobari policy allow"), successFormatText, true)
+	empty, err := tobari.NewPolicyCandidateAuthorityList(tobari.WorkspaceAuthorityCollection{}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(human), "No policy candidates") || !strings.Contains(string(human), expectedSurfaceText("tobari cluster denials")) {
+	human, err := finalPolicyOutput("policy candidates", "policy_candidates", empty.Items, successFormatText, []byte("No final Policy Memory candidates.\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(human), "No final Policy Memory candidates") {
 		t.Fatalf("empty human state = %q", human)
 	}
 
-	jsonOutput, err := renderPolicyCandidatesWithColor(empty, expectedSurfaceText("tobari policy allow"), successFormatJSON, true)
+	jsonOutput, err := finalPolicyOutput("policy candidates", "policy_candidates", empty.Items, successFormatJSON, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

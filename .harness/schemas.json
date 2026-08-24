@@ -21,24 +21,6 @@
     "license": "MIT"
   },
   {
-    "id": "catalog-domain-output-conformance.fixture.v1",
-    "path": "internal/cli/testdata/catalog-domain-output-conformance-fixture.json",
-    "sha256": "3a723375337abad42b910d1d4a5d852b9cfef7d0461e6d48b058944daec72f6d",
-    "bytes": 620,
-    "cases": 1,
-    "provenance": "Repository-authored synthetic constructor input for Catalog/domain output conformance across policy templates and Workspace identities.",
-    "license": "MIT"
-  },
-  {
-    "id": "catalog-domain-output-conformance.answer-key.v1",
-    "path": "internal/cli/testdata/catalog-domain-output-conformance-answer-key.json",
-    "sha256": "e3bcdaaded4d7e51fd1a7db672e39c0b705bdb0efd1606356e3fa9ce28f3ee40",
-    "bytes": 1578,
-    "cases": 1,
-    "provenance": "Repository-authored presentation-independent answer key for domain-owned policy vocabularies, recursive produced-reference paths, and no-lineage copy schemas.",
-    "license": "MIT"
-  },
-  {
     "id": "human-presentation-foundation.fixture.v1",
     "path": "internal/cli/testdata/human-presentation-foundation-fixture.json",
     "sha256": "79dfd541de46f7bd44d459bac01524929287b40537a7a4e17c9f95eae82ad88e",
@@ -54,24 +36,6 @@
     "bytes": 1671,
     "cases": 5,
     "provenance": "Repository-authored presentation-independent answer key for human CLI structure, exact recovery, and negative-inference canaries.",
-    "license": "MIT"
-  },
-  {
-    "id": "truthful-auth-state.fixture.v1",
-    "path": "internal/cli/testdata/truthful-auth-state-fixture.json",
-    "sha256": "f16a3245b2b49232e41b8d080a360d3b70426d65a75ffcba469181c8b9a62f86",
-    "bytes": 13514,
-    "cases": 10,
-    "provenance": "Repository-authored synthetic typed fixture for Workspace Manifest-scoped provider status, Workspace activation truth, exact re-entry actions, and confirmed auth mutation receipts.",
-    "license": "MIT"
-  },
-  {
-    "id": "truthful-auth-state.answer-key.v1",
-    "path": "internal/cli/testdata/truthful-auth-state-answer-key.json",
-    "sha256": "286367473b2010ce9944d121df5747e919e55cd47335db88e64cd01cb03255d7",
-    "bytes": 2729,
-    "cases": 10,
-    "provenance": "Repository-authored presentation-independent answer key for auth activation state, collection coverage, exact recovery, receipts, and negative-inference canaries.",
     "license": "MIT"
   },
   {

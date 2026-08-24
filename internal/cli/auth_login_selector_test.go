@@ -26,8 +26,8 @@ func TestAuthLoginProviderSelectorUsesNumberedFallback(t *testing.T) {
 		t.Fatalf("selected provider = %q", provider)
 	}
 	for _, want := range []string{
-		"Tobari · Provider login", "Workspace Manifest: default", "Choose a provider first", "Choose a provider",
-		"GitHub (configured)", "GitHub CLI (gh)", "rotates the Workspace Manifest grant", "revokes previous Workspace handles",
+		"Tobari · Provider login", "Context: default", "Choose a provider first", "Choose a provider",
+		"GitHub (configured)", "GitHub CLI (gh)", "rotates the final Context credential", "revokes previous Workspace handles",
 	} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("selector output = %q, want %q", output.String(), want)

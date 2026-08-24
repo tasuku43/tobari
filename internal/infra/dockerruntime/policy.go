@@ -54,6 +54,13 @@ func (r *Runtime) ClusterDenials(
 	if err := state.Validate(); err != nil {
 		return tobari.DenialRead{}, err
 	}
+	return r.ReadFinalClusterDenials(ctx, tail)
+}
+
+// ReadFinalClusterDenials reads the bounded Gateway audit window without
+// loading predecessor installation state. The final Store adapter correlates
+// every item to the selected complete authority envelope.
+func (r *Runtime) ReadFinalClusterDenials(ctx context.Context, tail int) (tobari.DenialRead, error) {
 	request := tobari.LogRequest{Component: "gateway", Tail: tail}
 	if err := request.ValidateCluster(); err != nil {
 		return tobari.DenialRead{}, err

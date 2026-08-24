@@ -5,6 +5,7 @@ package doctorcmd
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/doctor"
@@ -249,13 +250,13 @@ func TestEveryObservedFailureReceivesTaskOwnedRecovery(t *testing.T) {
 	}
 }
 
-func TestMigrationRequiredCauseUsesExactMigrationRecovery(t *testing.T) {
+func TestPreReleaseLegacyCauseUsesOnlyResetRecreateGuidance(t *testing.T) {
 	for _, id := range []doctor.CheckID{doctor.CheckIDContext, doctor.CheckIDPolicyData} {
 		t.Run(string(id), func(t *testing.T) {
 			inspector := &fakeInspector{observations: map[doctor.CheckID]doctor.Observation{
 				id: {
 					Status: doctor.CheckStatusFail, Detail: "supported predecessor",
-					Cause: doctor.ObservationCauseMigrationRequired,
+					Cause: doctor.ObservationCauseLegacyStatePresent,
 				},
 			}}
 			report, err := New(inspector).Run(context.Background(), doctorReadIntent(), ".")
@@ -263,8 +264,13 @@ func TestMigrationRequiredCauseUsesExactMigrationRecovery(t *testing.T) {
 				t.Fatal(err)
 			}
 			check := findDoctorCheck(t, report, id)
-			if check.Recovery == nil || check.Recovery.NextCommand != "migrate apply" {
+			if check.Recovery == nil || check.Recovery.NextCommand != "help" ||
+				!strings.Contains(check.Recovery.Action, "legacy_state_present") ||
+				!strings.Contains(check.Recovery.Action, "reset or recreate") {
 				t.Fatalf("%s recovery = %+v", id, check.Recovery)
+			}
+			if strings.Contains(check.Recovery.Action, "Migrate") || strings.Contains(check.Recovery.NextCommand, "migrate") {
+				t.Fatalf("%s recovery advertises retired migration: %+v", id, check.Recovery)
 			}
 		})
 	}

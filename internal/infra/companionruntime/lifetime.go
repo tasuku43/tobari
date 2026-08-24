@@ -69,3 +69,22 @@ func WaitForStopped(ctx context.Context, stateDirectory string) error {
 		}
 	}
 }
+
+// ObserveStopped is the non-creating status seam. Missing owner directories or
+// a missing lock are exact absence; unsafe state and lock errors are unknown.
+func ObserveStopped(stateDirectory string) (bool, error) {
+	if stateDirectory == "" || !filepath.IsAbs(stateDirectory) || filepath.Clean(stateDirectory) != stateDirectory {
+		return false, ErrInvalidBootstrap
+	}
+	for _, path := range []string{stateDirectory, filepath.Join(stateDirectory, "auth"), companionDirectory(stateDirectory)} {
+		if err := requireOwnerDirectory(path); err != nil {
+			if errors.Is(err, os.ErrNotExist) || errors.Is(err, ErrUnavailable) {
+				if _, statErr := os.Lstat(path); errors.Is(statErr, os.ErrNotExist) {
+					return true, nil
+				}
+			}
+			return false, err
+		}
+	}
+	return observeLifetimeLock(lifetimeLockPath(stateDirectory))
+}

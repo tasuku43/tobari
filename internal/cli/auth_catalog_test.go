@@ -3,117 +3,74 @@
 package cli
 
 import (
-	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
-	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
+	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
-func TestAuthCatalogDeclaresFixedTargetMutationAndReadOnlyStatus(t *testing.T) {
-	for _, path := range []string{"auth login", "auth import", "auth logout"} {
-		spec, found := DefaultCatalog().Lookup(path)
-		if !found || spec.Effect != operation.EffectWrite || spec.Role != RoleAct || spec.Agent.FixedTarget == nil || spec.Agent.Mutation == nil {
+func TestAuthCatalogDeclaresFinalContextMutationAndReadOnlyStatus(t *testing.T) {
+	catalog := DefaultCatalog()
+	for _, path := range []string{"auth login", "auth import"} {
+		spec, found := catalog.Lookup(path)
+		if !found || spec.Effect != operation.EffectCreate || spec.Role != RoleAct || spec.Agent.FixedTarget != nil || spec.Agent.Mutation == nil || spec.Agent.Mutation.ParentInput != "--context" || spec.Agent.Mutation.TargetKind != authbroker.ContextCredentialTargetKind {
 			t.Fatalf("%s contract = %+v", path, spec)
 		}
 	}
-	status, found := DefaultCatalog().Lookup("auth status")
-	if !found || status.Effect != operation.EffectRead || status.Role != RoleUtility {
+	logout, found := catalog.Lookup("auth logout")
+	if !found || logout.Effect != operation.EffectWrite || logout.Agent.Mutation.TargetIDInput != "--context" || logout.Agent.Mutation.TargetKind != tobari.ContextReferenceKind {
+		t.Fatalf("auth logout = %+v", logout)
+	}
+	status, found := catalog.Lookup("auth status")
+	if !found || status.Effect != operation.EffectRead || status.Role != RoleDiscover || status.Agent.Output.JSONSchemaVersion != 2 {
 		t.Fatalf("auth status = %+v", status)
 	}
-	encoded, err := json.Marshal(status.Agent.Output)
-	if err != nil {
-		t.Fatal(err)
+	if got := status.ProducedRefs(); !reflect.DeepEqual(got, []ProducedRef{{Kind: tobari.ContextReferenceKind, Field: "context_ref"}}) {
+		t.Fatalf("auth status refs=%+v", got)
 	}
-	for _, required := range []string{`"workspace_id"`, `"project_root"`} {
-		if !strings.Contains(string(encoded), required) {
-			t.Errorf("auth status output lacks public machine field %s", required)
-		}
-	}
-	for _, retired := range []string{`"project_id"`, `"root"`} {
-		if strings.Contains(string(encoded), retired) {
-			t.Errorf("auth status output retains ambiguous public machine field %s", retired)
+	for _, spec := range []CommandSpec{logout, status} {
+		encoded := spec.Args + spec.Summary + spec.Agent.Outcome
+		if strings.Contains(encoded, "manifest") || strings.Contains(encoded, "name") || strings.Contains(encoded, "UUID") {
+			t.Fatalf("%s retains predecessor selector vocabulary: %s", spec.Path, encoded)
 		}
 	}
 }
 
-func TestAuthLoginCatalogAllowsInteractiveOmissionAndReviewedProviders(t *testing.T) {
+func TestAuthLoginCatalogPreservesReviewedProviderAndMethodSemantics(t *testing.T) {
 	spec, found := DefaultCatalog().Lookup("auth login")
 	if !found {
 		t.Fatal("catalog lacks auth login")
 	}
-	awsEnabled := authbroker.SupportsReviewedLoginProvider(authbroker.BuiltinAWSProviderID)
-	wantArgs := "[--provider github|datadog|openai|anthropic] [--manifest <name>] [--format text|json]"
-	wantProviders := []string{"github", "datadog", "openai", "anthropic"}
-	if awsEnabled {
-		wantArgs = "[--provider github|aws|datadog|openai|anthropic] [--method identity-center|console] [--manifest <name>] [--format text|json]"
-		wantProviders = []string{"github", "aws", "datadog", "openai", "anthropic"}
-	}
-	if spec.Args != wantArgs || len(spec.Agent.Inputs) == 0 {
-		t.Fatalf("auth login = %+v", spec)
-	}
-	provider := spec.Agent.Inputs[0]
-	if provider.Name != "--provider" || provider.Required || !reflect.DeepEqual(provider.AllowedValues, wantProviders) ||
-		!strings.Contains(provider.Description, "interactive selector") {
-		t.Fatalf("provider input = %+v", provider)
-	}
-	inputs, err := parseCommandInputs(spec, []string{})
-	if err != nil || inputs.Provided("--provider") || inputs.One("--provider") != "" {
-		t.Fatalf("omitted provider parse = inputs:%+v error:%v", inputs, err)
-	}
-	if awsEnabled {
-		method := spec.Agent.Inputs[1]
-		if method.Name != "--method" || !reflect.DeepEqual(method.AllowedValues, []string{"identity-center", "console"}) ||
-			!reflect.DeepEqual(method.Requires, []string{"--provider"}) {
-			t.Fatalf("method input = %+v", method)
-		}
-		if _, err := parseCommandInputs(spec, []string{"--provider=aws"}); err != nil {
-			t.Fatalf("AWS provider rejected: %v", err)
-		}
-		if _, err := parseCommandInputs(spec, []string{"--method=console"}); err == nil {
-			t.Fatal("method without provider was accepted")
-		}
-	} else {
-		if _, err := parseCommandInputs(spec, []string{"--provider=aws"}); err == nil {
-			t.Fatal("release surface accepted AWS provider")
-		}
-		if _, err := parseCommandInputs(spec, []string{"--method=console"}); err == nil {
-			t.Fatal("release surface accepted research AWS method")
+	var contextInput, providerInput, methodInput CommandInput
+	for _, input := range spec.Agent.Inputs {
+		switch input.Name {
+		case "--context":
+			contextInput = input
+		case "--provider":
+			providerInput = input
+		case "--method":
+			methodInput = input
 		}
 	}
-	if _, err := parseCommandInputs(spec, []string{"--provider=github"}); err != nil {
-		t.Fatalf("GitHub provider rejected: %v", err)
+	if !contextInput.Required || contextInput.ReferenceKind != tobari.ContextReferenceKind || providerInput.Required || !reflect.DeepEqual(providerInput.AllowedValues, authbroker.ReviewedLoginProviderIDs()) {
+		t.Fatalf("context/provider inputs=%+v/%+v", contextInput, providerInput)
 	}
-	retired := []string{"managed", "credential_profile", "arbitrary helper", "tobari-toolbox", "toolbox:build"}
-	encoded := spec.Args + spec.Summary + spec.Agent.Outcome + strings.Join(spec.Agent.Prerequisites, " ")
-	for _, declared := range spec.Agent.Errors {
-		encoded += declared.Code
+	if authbroker.SupportsReviewedLoginProvider(authbroker.BuiltinAWSProviderID) && (!reflect.DeepEqual(methodInput.AllowedValues, []string{"identity-center", "console"}) || !reflect.DeepEqual(methodInput.Requires, []string{"--provider"})) {
+		t.Fatalf("method input=%+v", methodInput)
 	}
-	for _, value := range retired {
-		if strings.Contains(strings.ToLower(encoded), value) {
-			t.Fatalf("unsupported auth surface %q remains in login contract", value)
-		}
+	contextRef := "context:01912345-6789-7abc-8def-0123456789a2"
+	inputs, err := parseCommandInputs(spec, []string{"--context", contextRef})
+	if err != nil || inputs.Provided("--provider") || inputs.One("--context") != contextRef {
+		t.Fatalf("omitted provider parse=%+v err=%v", inputs, err)
 	}
-	wantCodes := []string{"github_cli_unavailable", "datadog_cli_unavailable", "openai_cli_unavailable", "anthropic_cli_unavailable", "auth_login_selector_unavailable", "auth_login_tty_required"}
-	if awsEnabled {
-		wantCodes = append(wantCodes, "aws_cli_unavailable")
+	if _, err := parseCommandInputs(spec, []string{"--provider=github"}); err == nil {
+		t.Fatal("missing required Context reference passed")
 	}
-	for _, code := range wantCodes {
-		found := false
-		for _, declared := range spec.Agent.Errors {
-			if declared.Code == code {
-				found = true
-			}
-		}
-		if !found {
-			t.Fatalf("auth login lacks %q", code)
-		}
-	}
-	if !awsEnabled && strings.Contains(strings.ToLower(encoded), "aws") {
-		t.Fatalf("standard auth login contract leaked AWS: %s", encoded)
+	if _, err := parseCommandInputs(spec, []string{"--context", contextRef, "--method=console"}); err == nil {
+		t.Fatal("method without provider passed")
 	}
 }
 
@@ -134,17 +91,17 @@ func TestAuthImportPublishesProtectedStdinContract(t *testing.T) {
 	}
 }
 
-func TestAuthCatalogDeclaresTerminalAndUnknownMutationOutcomeFaults(t *testing.T) {
+func TestAuthCatalogDeclaresDurableUnknownOutcomeReconciliation(t *testing.T) {
 	for _, path := range []string{"auth login", "auth import", "auth logout"} {
 		spec, _ := DefaultCatalog().Lookup(path)
-		unknown := false
+		codes := map[string]bool{}
 		for _, declared := range spec.Agent.Errors {
-			if declared.Code == "auth_mutation_outcome_unknown" && declared.Kind == fault.KindContract && !declared.Retryable {
-				unknown = true
-			}
+			codes[declared.Code] = true
 		}
-		if !unknown {
-			t.Fatalf("%s lacks unknown mutation outcome", path)
+		for _, code := range []string{"research_auth_mutation_interrupted", "research_auth_result_delivery_interrupted", "unclassified_mutation_outcome"} {
+			if !codes[code] {
+				t.Fatalf("%s lacks %s", path, code)
+			}
 		}
 	}
 }

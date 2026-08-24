@@ -184,6 +184,22 @@ type Runtime struct {
 	// Gateway-settlement effect boundaries while leaving the durable decision
 	// available to the same initiating action.
 	finalGatewayAfterEffect func(string) error
+	// finalGatewayReplaceComponents is nil in production. Lifecycle tests use it
+	// to model one exact Compose replacement while retaining the concrete
+	// settlement journal, receipt publication, and recovery phases.
+	finalGatewayReplaceComponents func(context.Context, finalGatewaySettlementCandidate) error
+	// The final Workspace hooks are nil in production. Focused tests replace
+	// only the exact WP03 material and Docker effect/observation boundaries;
+	// filesystem decisions and durable receipts remain the concrete code path.
+	finalWorkspaceRuntimeMaterial          func(context.Context, tobari.RuntimeBinding) (tobari.RuntimeBinding, string, string, error)
+	finalWorkspaceDockerReconcile          func(context.Context, tobari.WorkspaceEntryReconciliationPlan, finalWorkspaceRuntimeSpec) (string, error)
+	finalWorkspaceDockerObserve            func(context.Context, tobari.WorkspaceEntryReconciliationPlan) (finalWorkspaceContainerObservation, error)
+	finalWorkspaceAfterContainerRetirement func() error
+	finalWorkspaceAfterHomeRetirement      func() error
+	// finalRuntimeProtectionSource is injected by the host composition root.
+	// It exposes only a domain-validated final-owner projection; dockerruntime
+	// never receives or rediscovers the final Store path.
+	finalRuntimeProtectionSource FinalRuntimeProtectionSource
 }
 
 // New resolves XDG paths without creating them.
@@ -211,6 +227,17 @@ func New(lifetime context.Context) (*Runtime, error) {
 	runtime.permissionIngestionTransport = permissionSessionTransportForGOOS(goruntime.GOOS)
 	runtime.lifetimeContext = lifetime
 	return runtime, nil
+}
+
+// FinalWorkspaceAuthorityRoot returns the configured owner root for the final
+// Workspace authority envelope. The composition root uses this path to
+// construct and inject the final-only Store; Runtime never opens or
+// rediscovers the Store itself.
+func (r *Runtime) FinalWorkspaceAuthorityRoot() (string, error) {
+	if r == nil || r.stateDirectory == "" || !filepath.IsAbs(r.stateDirectory) || filepath.Clean(r.stateDirectory) != r.stateDirectory {
+		return "", fmt.Errorf("runtime state directory is unavailable")
+	}
+	return filepath.Join(r.stateDirectory, "workspace-authority"), nil
 }
 
 // lifetimeParent selects the process-lifetime context supplied by the command

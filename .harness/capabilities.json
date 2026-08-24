@@ -56,8 +56,8 @@
   },
   {
     "id": "tobari.lifecycle",
-    "status": "public",
-    "reason": "Includes reviewed root-only recommended first use and exact Bash or child entry."
+    "status": "excluded",
+    "reason": "The final-only cutover retires the predecessor Tobari lifecycle capability; root first use and entry are owned by workspace.authority."
   },
   {
     "id": "system.diagnostics",
@@ -66,16 +66,21 @@
   },
   {
     "id": "state.migration",
-    "status": "public",
-    "reason": ""
+    "status": "deferred",
+    "reason": "The pre-release clean break does not expose predecessor migration; post-first-release compatibility requires a future release-policy decision."
   },
   {
     "id": "manifest.composition",
-    "status": "public",
-    "reason": ""
+    "status": "excluded",
+    "reason": "Workspace Manifest composition is retired by the final Template, Context, Workspace, and Policy authority model."
   },
   {
     "id": "manifest.workspace-bootstrap",
+    "status": "excluded",
+    "reason": "Workspace Manifest bootstrap is retired; typed Template mutations and atomic final default-pair initialization own the supported outcomes."
+  },
+  {
+    "id": "workspace.authority",
     "status": "public",
     "reason": ""
   },

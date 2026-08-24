@@ -1,23 +1,23 @@
 # ADR 0084: Separate Workspace Templates, Contexts, and Policy Memory
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-08-24
 - Deciders: Tobari product owner and maintainers
 - Scope: Product, domain, CLI, architecture, security, state, migration,
   harness, and public boundary
-- Supersedes: ADR 0079 upon acceptance
-- Revises: ADR 0080, ADR 0081, ADR 0082, and ADR 0083 only at their typed
-  identity, protection, authentication-owner, and policy-owner seams
-- Related: ADR 0066, ADR 0070, and WP11
+- Supersedes: ADR 0079 and ADR 0070
+- Revises: ADR 0027, ADR 0080, ADR 0081, ADR 0082, and ADR 0083 at their
+  pre-release compatibility, typed identity, protection,
+  authentication-owner, and policy-owner seams
+- Related: ADR 0066 and WP11
 - Superseded by: None
 
 ## Implementation-authority status
 
-This Proposed ADR authorizes implementation and tests on the WP11 branch. It
-does not claim that current public commands, JSON, persisted state, or ordinary
-readers have cut over. ADR 0079 remains the current behavior until this decision
-is implemented atomically, its governing documents are promoted, required gates
-pass, and this ADR is accepted.
+This Accepted ADR authorizes implementation and tests on the WP11 branch. The
+public vocabulary, Catalog, JSON, persisted state, and ordinary readers still
+move together in one atomic product commit; an intermediate dirty snapshot or
+partial commit is not a supported composition.
 
 ## Context
 
@@ -222,6 +222,12 @@ policy rules / apply-reviewed -> policy-rule
   -> policy reset
 ```
 
+The internal fixed-target `policy apply-reviewed` action is an `EffectCreate`:
+one non-empty confirmed set is the fixed creation scope and every reviewed
+decision creates one resulting active `policy-rule` child reference, even when
+the same atomic transition compacts exact source rules. A same-set terminal
+replay returns that original confirmed create result without repeating effects.
+
 `template show`, `context show`, bare `status`, `workspace status`, and research
 `auth status` are `RoleDiscover` when they produce or consume references; an
 exact-input read re-emits the unchanged reference. No `RoleUtility` command has
@@ -241,10 +247,15 @@ Only contracts whose keys or semantics change advance. Template, Context,
 Policy Memory, and the new family command results start at schema 1. Workspace
 state advances from predecessor schema 2 to schema 3. Bare status advances to
 schema 3; cluster status and policy projections advance to schema 2; migration
-advances to schema 3; denial/wait projections advance to schema 3; research auth
-advances to schema 2. Unchanged Runtime, helper, Host Loopback public capability,
-version, error, help, and build-surface contracts do not receive a ceremonial
-bump.
+is outside the pre-release clean-break surface; denial/wait projections advance
+to schema 3; research auth advances to schema 2. Runtime
+list/show/history/build/restore/delete schemas and the Runtime,
+Runtime-revision, and Runtime-prune-plan reference kinds remain unchanged. The
+Runtime prune plan JSON alone advances to schema 2 because its protection-edge
+keys and reasons identify final Template, Context, and Workspace authority and
+reject every predecessor Manifest spelling. Unchanged helper, Host Loopback
+public capability, version, error, help, and build-surface contracts do not
+receive a ceremonial bump.
 
 Frozen private Gateway/OPA/Broker/Host Loopback compatibility spellings
 `context_id`, `project_id`, and `context` remain versioned wire tokens, not
@@ -269,18 +280,19 @@ hostname, retirement guard, lock order, and attachment lifetime do not change.
 ### Negative
 
 - The pre-public implementation receives another complete vocabulary, schema,
-  state, principal, policy, help, fixture, and migration cutover.
+  state, principal, policy, help, fixture, and clean-break cutover.
 - Context and Workspace acquire separate inventory and deletion lifecycles.
-- Policy learning must be rebound from predecessor Workspace dimensions to the
-  fresh Context identity.
-- Intermediate branch commits may contain dormant final domain types while ADR
-  0079 remains the only ordinary reader/writer contract.
+- Existing development state is not retained; users explicitly reset and
+  recreate under the final model.
+- Intermediate branch commits may contain dormant final domain types but may not
+  expose a partial public composition.
 
 ### Risks and mitigations
 
 - Partial cutover could allow old and new readers to interpret the same bytes
-  as different authorities. Only `migrate apply` may publish final stores, and
-  ordinary readers never dual-read.
+  as different authorities. Ordinary composition selects only the final owner
+  store, never dual-reads, and rejects bounded legacy presence before final
+  initialization or mutation.
 - Mutable name reuse could redirect a reviewed action. Every explicit action
   consumes one unchanged opaque ref; names remain discovery-only.
 - A Boundary edit could reactivate old learned authority. TemplateID fixes the
@@ -298,64 +310,56 @@ hostname, retirement guard, lock order, and attachment lifetime do not change.
 - Opaque-reference parsers are kind-specific and reject names, roots,
   generations, ordinals, images, containers, reconstructed IDs, and cross-kind
   values.
-- Pure migration tests fix byte-preserved Template/Workspace IDs, fresh stable
-  journaled Context IDs, retained-revision transformation, exact policy-memory
-  mapping, default conversion, quarantine disposition, rollback eligibility,
-  idempotence, and fail-closed mixed/ambiguous sources before I/O exists.
+- Clean-break tests fix genuinely fresh final-empty authority, bounded legacy
+  presence and ambiguity rejection, zero predecessor influence, zero mutation,
+  and explicit reset-and-recreate guidance.
 - Catalog construction must validate and its derived ProducedRefs/ConsumedRefs
   must contain the exact graph above with zero RoleUtility reference edges.
-- Security, migration, public-vocabulary, source/snapshot equality, and isolated
-  Docker integration guards become required before acceptance.
+- Security, clean-break, public-vocabulary, source/snapshot equality, and
+  isolated Docker integration guards are required before completion.
 
-## Compatibility and migration
+## Pre-release compatibility and clean break
 
-This is one pre-public hard cutover from exact predecessor commit
-`0bbd9deb424814ab92eed0b816e2c565e4b8f6d3`. `migrate apply` remains the sole
-writer and accepts one exact `workspace_manifest_v1` source. It requires the
-installation lifecycle lock, stopped cluster, zero canonical attachments, and
-the established research-quarantine and Host Loopback lock order.
+Tobari has no public release, so this cutover deliberately carries no
+development-state compatibility obligation. Ordinary readers select only the
+bounded owner-only final authority envelope. When that envelope is absent, a
+bounded fixed-path presence guard must also prove no declared predecessor
+Manifest, Workspace, Policy, Broker, principal, route/grant, or session
+authority before reporting exact empty final state and permitting first
+Template/Context creation.
 
-Preflight enumerates all schema-2 Manifests/revisions, Workspaces,
-AppliedEntry/pending/failure state, default selection, learned Allows/exact
-Denies, pending candidates, principal projection, Runtime protection edge,
-standard home, and research Broker filesystem authority. It validates exact
-owner/type/mode/symlink/schema/digest/reference closure before mutation.
+The closed inventory has two lifetimes. Legacy-only roots are `contexts`,
+`roots`, `instances`, the predecessor auth-project registry, `state.json`,
+`project-journal.json`, `cluster-reconcile.json`, and the config/state
+`migrations` roots; they remain absent for the life of a final installation.
+Roots reused by final adapters are the cluster projection and principal
+registry roots, config/state auth roots, Workspace profile/home root, Host
+Loopback and interactive-attachment registries, and service-exposure state;
+they must be absent at first final-envelope creation, after which only their
+owning final adapters may accept their exact final schemas. WP03 Runtime
+catalog, material, and runtime-lifecycle roots are preserved final authority
+and are deliberately outside this inventory.
 
-The transaction preserves each WorkspaceManifestID byte sequence as
-WorkspaceTemplateID and each WorkspaceID byte sequence as WorkspaceID. It
-generates and journals one fresh ContextID per exact `(canonical ProjectRoot,
-WorkspaceTemplateID)` pair. Every retained revision under one preserved ID must
-carry the same Boundary fingerprint; any different, missing, corrupt, or
-ambiguous fingerprint fails before mutation. Each retained predecessor revision
-supplies its exact immutable typed body, which becomes one complete static
-Template body. Generation is retained as correlation and every slice/overall
-semantic digest is recomputed from that body after dynamic learned decisions
-are excluded.
+The guard is not a compatibility reader. It observes only path, owner, type,
+mode, and stability facts needed to classify presence. Legacy, unsafe, partial,
+or changing presence returns a typed reset-and-recreate fault with zero
+mutation. The final binary does not decode, transform, back up, quarantine,
+restore, rename, delete, or adopt that content. It preserves no predecessor ID,
+learned rule, pending candidate, Runtime protection edge, Workspace home,
+principal, attachment, Broker credential, or Keychain/root-key relationship.
+Destructive reset remains a separate explicit user action.
 
-Each exact predecessor policy set becomes one complete Context-owned Policy
-Memory revision. Confirmed authority drops the predecessor WorkspaceID
-dimension; pending observations retain ContextID plus observing WorkspaceID.
-Workspace state advances with the fresh ContextID and preserved WorkspaceID/home
-bytes. AppliedEntry is retained or synthesized only when an exact predecessor
-receipt and a bounded `exact_owned` Docker observation agree on WorkspaceID,
-Template generation/digest, RuntimeID/revision, and resolved spec. Missing,
-mismatched, or unknown Docker observation retains no AppliedEntry and records
-explicit unverified state. DefaultManifestSelection becomes
-DefaultTemplateSelection with the preserved ID.
+The public `migrate apply` predecessor capability from ADR 0070 is retired and
+the WP11 migration/rollback engine is not selected by public composition. Fresh
+final operations retain owner-only bounded reads, lifecycle serialization,
+durable task recovery, atomic whole-envelope publication, and coherent
+principal/policy/authentication settlement; removing predecessor migration does
+not weaken those final-state guarantees.
 
-Replay-capable predecessor research Broker filesystem authority is quarantined,
-never rebound. macOS Keychain recovery material remains untouched; Linux
-filesystem root-key material moves with the exact set. Standard Workspace homes
-and native auth bytes are not read or transformed.
-
-The journal records predecessor digests, preserved IDs, fresh Context mappings,
-transformed revision receipts, and private backup identity. A second apply is
-`changed:false` and cannot regenerate Context IDs or overwrite backup. Rollback
-restores the byte-identical predecessor only when no fresh final authority
-exists at canonical paths and never merges. Crash recovery exposes either the
-complete predecessor reader set or complete final reader set, never a partial
-policy/principal authority. Final ordinary readers accept only final schemas;
-predecessor readers accept only predecessor schemas.
+This exception ends at the first public release. It neither decides nor waives
+future compatibility obligations. Any incompatible released-state change must
+first receive an explicit release-policy and migration/compatibility decision
+based on supported user data.
 
 ## Security and public-boundary impact
 
@@ -373,8 +377,9 @@ change.
 
 ## Validation
 
-- focused pure domain and migration tests, including clone isolation and every
-  invalid identity, cross-owner, Boundary, revision, receipt, and rollback case
+- focused pure domain and clean-break tests, including clone isolation and every
+  invalid identity, cross-owner, Boundary, revision, receipt, legacy-presence,
+  and final recovery case
 - application/infrastructure/Catalog/public cutover tests in later concerns
 - `task check`
 - `task security`

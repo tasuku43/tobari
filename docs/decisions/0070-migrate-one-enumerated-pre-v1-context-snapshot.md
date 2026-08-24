@@ -1,14 +1,15 @@
 # ADR 0070: Migrate one enumerated pre-V1 Context snapshot explicitly
 
-- Status: Accepted
+- Status: Superseded
 - Date: 2026-08-20
 - Deciders: Tobari maintainers
 - Scope: Product, CLI, architecture, security, state, Runtime, Context, harness,
   and public boundary
 - Revises: ADR 0027, ADR 0066, and ADR 0067
 - Related: ADR 0069
-- Revised by: None
-- Superseded by: None
+- Revised by: ADR 0084 retires the capability before first publication
+- Superseded by: ADR 0084, which restores the pre-release clean break and
+  removes this predecessor from public migration scope
 
 ## Context
 

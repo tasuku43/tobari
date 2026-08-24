@@ -34,11 +34,12 @@ func (s *terminalAuthLoginProviderSelector) Select(
 		options = append(options, authLoginProviderOption(provider))
 	}
 	index, err := s.wizard.choose(ctx, in, out, configurationWizardMenu{
-		title:       "Tobari · Provider login",
-		contextName: contextName,
-		current:     "Choose a provider first. A configured provider will rotate its Workspace Manifest grant after successful login.",
-		prompt:      "Choose a provider",
-		options:     options,
+		title:        "Tobari · Provider login",
+		contextName:  contextName,
+		contextLabel: "Context",
+		current:      "Choose a provider first. A configured provider will rotate its final Context credential after successful login.",
+		prompt:       "Choose a provider",
+		options:      options,
 	})
 	if err != nil {
 		return "", err
@@ -56,7 +57,7 @@ func authLoginProviderOption(status authbroker.ProviderStatus) configurationWiza
 	}
 	if status.State == authbroker.ProviderCredentialConfigured {
 		option.label += " (configured)"
-		option.description += " Selecting it rotates the Workspace Manifest grant and revokes previous Workspace handles after login succeeds."
+		option.description += " Selecting it rotates the final Context credential and revokes previous Workspace handles after login succeeds."
 	}
 	return option
 }

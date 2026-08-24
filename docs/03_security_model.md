@@ -930,37 +930,34 @@ project recovery lock only to serialize cleanup, but a read never creates the
 journal itself. Fresh and ordinary reads create no lock. First durable
 initialization remains behind a fully validated create/write intent.
 
-`migrate apply` is the only predecessor-state authority. It is a fixed-target
-`EffectWrite` over the installation-local Manifest/Runtime/Workspace collection
-and uses strict JSON decoding, duplicate-key rejection, bounded owner-only
-regular-file checks, exact digests, fixed predecessor identities,
-source-drift revalidation, an exclusive lock, and atomic journals. It requires
-the cluster stopped and zero live attachments. Unknown, partial, ambiguous,
-symlinked, corrupt, mixed, or concurrently changed input fails before
-mutation. Context UUID bytes become WorkspaceManifestID and ProjectInstance
-UUID bytes become WorkspaceID; standard Workspace home and native-auth bytes
-are retained without being read, moved, or transformed.
-For Host Loopback cutover, migration holds locks in exact order `lifecycle ->
-interactive-attachment -> host-loopback` and keeps the interactive lock from
-the zero-live-owner proof through exact route/grant replacement. This prevents
-normal entry from publishing a new canonical owner between proof and cutover.
-The migration consumes no permission-ingestion endpoint, nonce, lease,
-acknowledgment, wait registry, or Gateway-only transport/profile field.
+Before the first public release, predecessor development state is unsupported
+rather than migration input. A bounded guard observes only fixed path, owner,
+type, mode, and stability facts needed to distinguish genuinely fresh absence
+from legacy or ambiguous presence. It never decodes a predecessor Manifest,
+Workspace, policy source, Broker record, principal, route/grant registry, or
+credential and never treats their names, IDs, or bytes as final authority.
+The inventory distinguishes legacy-only Context/Workspace/journal/migration
+roots, which remain absent, from projection, principal, auth, Workspace-home,
+Host Loopback, attachment, and service-exposure roots that final adapters may
+create only after a clean first envelope. WP03 Runtime authority is explicitly
+excluded and remains protected by its existing lifecycle validation.
 
-Predecessor research authentication is a distinct replay-capable authority
-set: ciphertext plus every filesystem binding, handle, lookup, projection,
-Runtime/project registry, and provider/config record that makes it reachable.
-The complete filesystem set is enumerated and atomically moved to an owner-only
-private quarantine that ordinary old and new readers cannot discover. The
-central ciphertext/lookup tree moves first; therefore crash ordering exposes
-either the complete predecessor set before that move or zero old-reader
-resolvable authority afterwards. macOS Keychain root-key material is unchanged
-recovery material and is never read, copied, rotated, renamed, or deleted by
-migration. Linux filesystem root-key material moves/restores with the set.
-Public output contains neither secret paths nor Keychain facts. Rollback
-restores byte-identical state and fails closed instead of merging or
-overwriting fresh canonical auth state. No automatic decrypt, import, rebind,
-standard fallback, or cleanup is permitted.
+Only exact fresh absence may initialize an empty final owner store. Any legacy,
+unsafe, partial, symlinked, mixed, or changing presence fails closed with typed
+reset-and-recreate guidance before lifecycle-lock creation, final-envelope,
+Docker, OPA, Gateway, principal-registry, or Broker mutation. The cutover does
+not back up, quarantine, restore, decrypt, import, rebind, rename, or delete the
+observed content. Destructive reset is a separate explicit user action.
+
+Ordinary readers and mutation recovery consume only one complete bounded final
+envelope and its task-owned journals/receipts. Final Template, Context,
+Workspace, Policy, Runtime-protection, principal/session, and authentication
+authority can never be reconstructed from predecessor bytes. Research
+credentials are created only by explicit final Context login/import; standard
+credentials remain final Workspace-home owned. This clean-break exception ends
+at the first public release, after which an incompatible persistent-state
+change requires its own explicit release-policy and migration/compatibility
+decision.
 
 `runtime create` is a host-only create in the installation Runtime catalog.
 `--copy-source-from` exposes only the selected current owner-only editable source to the same
@@ -1463,7 +1460,7 @@ treats a failed read as no candidates, never as shell source or authority.
 | Claim | Enforcement |
 |---|---|
 | Manifest history storage cannot replace semantic authority | Domain no-op and A→B→A tests, WorkspaceManifestID+digest action validation, generation-as-correlation invariants, and retained-receipt exact-ID/body collision rejection |
-| Domain migration cannot implicitly inherit predecessor research authentication | Complete-set preflight, stopped/zero-attachment checks, owner/type/mode/symlink/digest guards, macOS zero-Keychain-call tests, Linux root-key move/restore tests, phase-ordered full-or-zero old-reader resolution canaries, secret-free output, byte-exact rollback, fresh-state rollback refusal, crash resume, and idempotent second apply |
+| Final authority cannot inherit unsupported development state | Final-only reader injection, bounded non-decoding legacy-presence guards, fresh-empty and legacy-plus-final classification, zero-mutation rejection, no predecessor ID/policy/principal/credential influence, explicit reset-and-recreate guidance, and release/research surface canaries |
 | Shell completion cannot become startup mutation, command-registry drift, or structural injection | Public read-only completion commands, catalog-owned typed sources, narrow validated Workspace Manifest/Runtime read port, fresh-XDG zero-write canary, bounded request/output tests, hostile TSV candidate rejection, and a static adapter with no embedded registry |
 | Operator Console cannot become remote control or alternate policy authority | TCP4 `127.0.0.1:0` binding, exact peer/Host/Origin/bearer/method/path/content-type checks, fragment-to-sessionStorage bootstrap, no cookies/external assets, CSP/no-store headers, bounded strict bodies/timeouts, cancellation shutdown, inert staging, and one canonical reviewed-apply delegation with zero automatic retries |
 | No direct Workspace egress | Per-Workspace internal topology, forwarding-off sysctls, forward-drop and namespace-guard inspection, Gateway raw-protocol/UDP/QUIC call-count tests, and Docker integration canaries for raw TCP, control-API reachability, and Gateway/OPA outage paths |

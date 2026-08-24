@@ -26,7 +26,7 @@ func serviceRequestFields() []OutputField {
 	return []OutputField{
 		{Name: "id", Type: OutputFieldTypeString, Description: "Opaque live service-request reference.", ReferenceKind: tobari.ServiceRequestKind},
 		{Name: "workspace", Type: OutputFieldTypeString, Description: "Canonical Workspace project root."},
-		{Name: "workspace_manifest_id", Type: OutputFieldTypeString, Description: "Stable Workspace Manifest authority identity."},
+		{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable final Context authority identity."},
 		{Name: "workspace_id", Type: OutputFieldTypeString, Description: "Stable Workspace identity."},
 		{Name: "attachment_id", Type: OutputFieldTypeString, Description: "Live attachment epoch identity."},
 		{Name: "target_port", Type: OutputFieldTypeInteger, Description: "Exact requested Workspace-loopback port."},

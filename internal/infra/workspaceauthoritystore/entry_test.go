@@ -53,8 +53,21 @@ func (r *entryRuntimeFixture) PlanWorkspaceEntry(_ context.Context, snapshot tob
 			workspace.LastSuccessfulEntry = &previous
 		}
 	}
+	creationDefaults := authority.CreationDefaults.Clone()
+	if snapshot.Workspace != nil {
+		for _, revision := range snapshot.Template.Retained {
+			if revision.Slices.CreationDefaultsDigest == snapshot.Workspace.CreationDefaults {
+				creationDefaults = revision.Body.CreationDefaults.Clone()
+			}
+		}
+	}
+	_, network, err := tobari.ProjectResourceNames(string(workspaceID))
+	if err != nil {
+		return tobari.WorkspaceEntryReconciliationPlan{}, err
+	}
+	networkAuthority := tobari.WorkspaceRuntimeNetworkAuthority{Network: network, Subnet: "10.64.0.0/24", DockerGateway: "10.64.0.1", GatewayIP: "10.64.0.2", WorkspaceIP: "10.64.0.3"}
 	if r.reuseApplied && snapshot.Workspace != nil && snapshot.Workspace.LastSuccessfulEntry != nil {
-		return tobari.WorkspaceEntryReconciliationPlan{Workspace: workspace, Applied: *workspace.LastSuccessfulEntry}, nil
+		return tobari.WorkspaceEntryReconciliationPlan{Workspace: workspace, Applied: *workspace.LastSuccessfulEntry, Authority: authority, CreationDefaults: creationDefaults, Network: networkAuthority}, nil
 	}
 	resolved := r.resolvedSpec
 	if resolved == "" {
@@ -66,7 +79,7 @@ func (r *entryRuntimeFixture) PlanWorkspaceEntry(_ context.Context, snapshot tob
 		RuntimeRevision: snapshot.Template.Current.Slices.RuntimeRevision, ResolvedSpec: resolved, ReconciledAt: reconciledAt,
 	}
 	workspace.LastSuccessfulEntry = &applied
-	return tobari.WorkspaceEntryReconciliationPlan{Workspace: workspace, Applied: applied}, nil
+	return tobari.WorkspaceEntryReconciliationPlan{Workspace: workspace, Applied: applied, Authority: authority, CreationDefaults: creationDefaults, Network: networkAuthority}, nil
 }
 
 func (r *entryRuntimeFixture) ReconcileWorkspaceEntry(_ context.Context, plan tobari.WorkspaceEntryReconciliationPlan, _ string) (tobari.WorkspaceEntryReconciliationReceipt, error) {
@@ -138,6 +151,10 @@ type entrySessionFixture struct {
 	outcome   tobari.WorkspaceSessionOutcome
 }
 
+type defaultPairContextEntryPort interface {
+	EnterFinalDefaultPair(context.Context, tobari.FinalDefaultPairObservation, tobari.WorkspaceSessionRequest, io.Reader, io.Writer, io.Writer) (tobari.ContextEntryPublication, error)
+}
+
 func (s *entrySessionFixture) BeginWorkspaceSession(_ context.Context, binding tobari.WorkspaceSessionBinding) (WorkspaceSessionOwner, error) {
 	s.begin++
 	if s.lifecycle == nil || !s.lifecycle.held.Load() {
@@ -202,7 +219,7 @@ func TestContextEntryConfirmsIndependentAxesBeforePublishingAppliedEntryAndRunsO
 	if err != nil || !present || current.Generation != previous.Generation+1 || current.Workspaces[0].LastSuccessfulEntry == nil || current.Workspaces[0].LastSuccessfulEntry.ReconciledAt != adapter.mutator.clock().UTC() {
 		t.Fatalf("current=%#v present=%t err=%v", current, present, err)
 	}
-	if runtime.planCalls != 1 || runtime.reconcileCalls != 1 || runtime.confirmCalls != 1 || templatePolicy.calls != 2 || memory.confirmCalls != 2 {
+	if runtime.planCalls != 1 || runtime.reconcileCalls != 1 || runtime.confirmCalls != 1 || templatePolicy.calls != 1 || memory.confirmCalls != 1 {
 		t.Fatalf("runtime=%d/%d/%d activation=%d/%d", runtime.planCalls, runtime.reconcileCalls, runtime.confirmCalls, templatePolicy.calls, memory.confirmCalls)
 	}
 	if sessions.begin != 1 || sessions.run != 1 || sessions.close != 1 || lifecycle.held.Load() {
@@ -210,7 +227,41 @@ func TestContextEntryConfirmsIndependentAxesBeforePublishingAppliedEntryAndRunsO
 	}
 }
 
-func TestContextEntryStaleActivationMakesZeroRuntimeAndEnvelopeMutation(t *testing.T) {
+func TestDefaultPairEntryRechecksExactReceiptInsideLifecycleLockBeforeRuntimeEffect(t *testing.T) {
+	previous := storeCollectionFixture(t)
+	store, _, adapter, lifecycle, runtime, templatePolicy, memory, sessions := newEntryFixture(t, previous)
+	expected, err := tobari.NewFinalDefaultPairObservation(previous, true, previous.Contexts[0].Context.ProjectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, ok := any(adapter).(defaultPairContextEntryPort)
+	if !ok {
+		t.Fatalf("ContextEntryAdapter is missing the task-owned default-pair receipt entry seam")
+	}
+	lifecycle.before = func() {
+		drifted, changed, publishErr := tobari.PublishWorkspaceAuthorityCollection(
+			previous.Templates, previous.Contexts, previous.Workspaces, previous.PendingCandidates, nil, &previous,
+		)
+		if publishErr != nil || !changed {
+			t.Fatalf("prepare default-selection drift: changed=%t err=%v", changed, publishErr)
+		}
+		encoded, encodeErr := EncodeComplete(drifted)
+		if encodeErr != nil {
+			t.Fatal(encodeErr)
+		}
+		writeAuthorityBytes(t, store.root, encoded)
+		lifecycle.before = nil
+	}
+	if _, err := entry.EnterFinalDefaultPair(context.Background(), expected, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); err == nil {
+		t.Fatal("default-pair entry accepted collection/default drift inside the lifecycle lock")
+	}
+	if runtime.planCalls != 0 || runtime.reconcileCalls != 0 || runtime.confirmCalls != 0 || templatePolicy.calls != 0 || memory.confirmCalls != 0 || sessions.begin != 0 || sessions.run != 0 || sessions.close != 0 {
+		t.Fatalf("drift performed runtime/session effect: runtime=%d/%d/%d activation=%d/%d session=%d/%d/%d",
+			runtime.planCalls, runtime.reconcileCalls, runtime.confirmCalls, templatePolicy.calls, memory.confirmCalls, sessions.begin, sessions.run, sessions.close)
+	}
+}
+
+func TestContextEntryInactiveActivationSettlesWithinParentAction(t *testing.T) {
 	collection := storeCollectionFixture(t)
 	collection.Contexts[0].ActiveTemplatePolicy = nil
 	collection, _, err := tobari.PublishWorkspaceAuthorityCollection(collection.Templates, collection.Contexts, collection.Workspaces, collection.PendingCandidates, collection.DefaultTemplateID, nil)
@@ -218,18 +269,17 @@ func TestContextEntryStaleActivationMakesZeroRuntimeAndEnvelopeMutation(t *testi
 		t.Fatal(err)
 	}
 	store, mutator, adapter, _, runtime, _, _, sessions := newEntryFixture(t, collection)
-	before, _ := EncodeComplete(collection)
 	contextRef, _ := tobari.ContextRef(storeContextID)
-	if _, err := adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); !errors.Is(err, tobari.ErrWorkspaceEntryTemplatePolicyInactive) {
-		t.Fatalf("stale Template policy activation error=%v", err)
+	publication, err := adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatal(err)
 	}
 	after, present, err := store.ReadComplete(context.Background())
 	if err != nil || !present {
 		t.Fatal(err)
 	}
-	encoded, _ := EncodeComplete(after)
-	if string(before) != string(encoded) || runtime.planCalls != 0 || runtime.reconcileCalls != 0 || sessions.begin != 0 {
-		t.Fatalf("stale activation mutated authority runtime=%d/%d session=%d", runtime.planCalls, runtime.reconcileCalls, sessions.begin)
+	if after.Revision == collection.Revision || publication.Snapshot.ActiveTemplatePolicy == nil || publication.Snapshot.ActivePolicyMemory == nil || publication.Snapshot.ActivePolicyMemoryRef == nil || runtime.planCalls != 1 || runtime.reconcileCalls != 1 || sessions.begin != 1 {
+		t.Fatalf("inactive activation did not settle authority runtime=%d/%d session=%d snapshot=%+v", runtime.planCalls, runtime.reconcileCalls, sessions.begin, publication.Snapshot)
 	}
 	if _, active, err := mutator.readEffectDecision(); err != nil || active {
 		t.Fatalf("decision active=%t err=%v", active, err)

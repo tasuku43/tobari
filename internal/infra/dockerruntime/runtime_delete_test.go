@@ -61,6 +61,7 @@ func TestDeleteManagedRuntimeAllowsZeroRevisionDraft(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	bindEmptyFinalRuntimeProtection(t, runtime)
 	created, err := runtime.CreateRuntime(context.Background(), "draft", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
 	if err != nil {
 		t.Fatal(err)

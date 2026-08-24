@@ -105,10 +105,10 @@ func recoveryFor(id doctor.CheckID, status doctor.CheckStatus, cause doctor.Obse
 	if status != doctor.CheckStatusFail {
 		return nil
 	}
-	if cause == doctor.ObservationCauseMigrationRequired {
+	if cause == doctor.ObservationCauseLegacyStatePresent {
 		return &doctor.Recovery{
-			Action:      "Migrate the supported unpublished Context snapshot to current V1 state.",
-			NextCommand: "migrate apply",
+			Action:      "legacy_state_present: reset or recreate the unsupported pre-release installation; Tobari does not migrate or adopt development state.",
+			NextCommand: "help",
 		}
 	}
 	action := map[doctor.CheckID]string{

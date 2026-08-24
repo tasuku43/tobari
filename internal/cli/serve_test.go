@@ -7,10 +7,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tasuku43/tobari/internal/app/tobaricmd"
+	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/infra/operatorconsole"
 )
+
+func configureFinalServeTest(command *CLI) {
+	command.finalPolicy = workspaceauthoritycmd.NewPolicyMemoryService(nil)
+	command.finalClusterLifecycle = workspaceauthoritycmd.NewFinalClusterLifecycleService(nil)
+}
 
 type operatorConsoleRunnerFake struct {
 	open  bool
@@ -40,7 +45,7 @@ func (f *operatorConsoleRunnerFake) Run(
 func TestServeUsesCatalogInputAndPrintsForegroundSession(t *testing.T) {
 	t.Parallel()
 	command, stdout, stderr := newTestCLI(passingInspector("unused"))
-	command.tobari = tobaricmd.New(nil)
+	configureFinalServeTest(command)
 	runner := &operatorConsoleRunnerFake{}
 	command.console = runner
 	if code := runCLI(command, []string{"serve", "--no-open"}); code != ExitOK {
@@ -77,7 +82,7 @@ func TestServePreservesComposedSnapshotReadFaults(t *testing.T) {
 		t.Run(declared.Code, func(t *testing.T) {
 			t.Parallel()
 			command, _, stderr := newTestCLI(passingInspector("unused"))
-			command.tobari = tobaricmd.New(nil)
+			configureFinalServeTest(command)
 			command.console = operatorConsoleFailureRunner{err: fault.New(
 				declared.Kind, declared.Code, "simulated operator console preflight failure", declared.Retryable,
 			)}
@@ -96,7 +101,7 @@ func TestServeStartupOutputFailureUsesDeclaredReadFault(t *testing.T) {
 	t.Parallel()
 	command, _, stderr := newTestCLI(passingInspector("unused"))
 	command.Out = shortWriter{}
-	command.tobari = tobaricmd.New(nil)
+	configureFinalServeTest(command)
 	command.console = &operatorConsoleRunnerFake{}
 	if code := runCLI(command, []string{"serve", "--no-open"}); code != ExitInternal {
 		t.Fatalf("serve short-write code = %d, stderr = %q", code, stderr.String())

@@ -22,6 +22,13 @@ type mutationLifecycle struct {
 	lock     sync.Mutex
 	attempts atomic.Int64
 	held     atomic.Bool
+	before   func()
+}
+
+type mutationLegacyGuard struct{ err error }
+
+func (g mutationLegacyGuard) ConfirmNoPreReleaseLegacyAuthority(context.Context, bool) error {
+	return g.err
 }
 
 func (l *mutationLifecycle) WithLifecycleLock(ctx context.Context, action func(context.Context) error) error {
@@ -30,18 +37,51 @@ func (l *mutationLifecycle) WithLifecycleLock(ctx context.Context, action func(c
 	defer l.lock.Unlock()
 	l.held.Store(true)
 	defer l.held.Store(false)
+	if l.before != nil {
+		l.before()
+	}
 	return action(ctx)
 }
 
 type deletionAuthorityFixture struct {
 	retired              []tobari.WorkspaceID
 	retirementRefs       []string
+	prepared             []tobari.WorkspaceID
+	prepareRefs          []string
 	credentialChecks     []tobari.ContextID
 	workspaceErr         error
 	confirmationErr      error
 	contextCredentialErr error
 	confirmations        int
+	onPrepare            func()
 	onRetire             func()
+}
+
+type templateRuntimeRevisionFixture struct {
+	binding tobari.RuntimeBinding
+	err     error
+	refs    []string
+	check   func() error
+}
+
+func (r *templateRuntimeRevisionFixture) ResolveWorkspaceTemplateRuntimeRevision(_ context.Context, ref string) (tobari.RuntimeBinding, error) {
+	r.refs = append(r.refs, ref)
+	if r.check != nil {
+		if err := r.check(); err != nil {
+			return tobari.RuntimeBinding{}, err
+		}
+	}
+	if r.err != nil {
+		return tobari.RuntimeBinding{}, r.err
+	}
+	if r.binding.RuntimeID != "" {
+		return r.binding, nil
+	}
+	id, revision, err := tobari.ParseRuntimeRevisionRef(ref)
+	if err != nil {
+		return tobari.RuntimeBinding{}, err
+	}
+	return tobari.RuntimeBinding{RuntimeID: id, Name: "managed", Revision: revision, Ordinal: 1, Image: "tobari-runtime-managed:aaaaaaaaaaaa"}, nil
 }
 
 type policyActivationFixture struct {
@@ -60,6 +100,7 @@ type finalSettlementFixture struct {
 	reviewedCalls         int
 	reviewedConfirms      int
 	err                   error
+	onSettle              func()
 }
 
 func reviewedSettlementFixtureReceipt(
@@ -141,6 +182,9 @@ func (s *finalSettlementFixture) SettleFinalAuthority(_ context.Context, _ tobar
 	}
 	s.calls++
 	_, err := s.activation.ActivatePolicyMemory(context.Background(), next, contextID)
+	if err == nil && s.onSettle != nil {
+		s.onSettle()
+	}
 	return err
 }
 
@@ -191,7 +235,35 @@ func (a *policyActivationFixture) ActivatePolicyMemory(_ context.Context, collec
 	return tobari.PolicyMemoryActivationReceipt{}, fmt.Errorf("activation target is unavailable")
 }
 
-func (d *deletionAuthorityFixture) RetireWorkspace(_ context.Context, workspace tobari.WorkspaceBinding, _ bool, decisionRef string) error {
+func (d *deletionAuthorityFixture) PrepareWorkspaceRetirement(_ context.Context, workspace tobari.WorkspaceBinding, _ bool, decisionRef string) error {
+	if d.onPrepare != nil {
+		d.onPrepare()
+	}
+	d.prepared = append(d.prepared, workspace.ID)
+	d.prepareRefs = append(d.prepareRefs, decisionRef)
+	return nil
+}
+
+func TestWorkspaceDeletePreparesTargetBeforeGlobalSettlementAndCompletesAfterward(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	_, mutator, _, deletion, _ := newMutationFixture(t, &existing)
+	settlement := mutator.settlement.(*finalSettlementFixture)
+	order := make([]string, 0, 3)
+	deletion.onPrepare = func() { order = append(order, "prepare") }
+	settlement.onSettle = func() { order = append(order, "settle") }
+	deletion.onRetire = func() { order = append(order, "complete") }
+	workspaceRef, _ := tobari.WorkspaceRef(storeWorkspaceID)
+
+	result, err := mutator.DeleteWorkspaceByReference(context.Background(), workspaceRef, true)
+	if err != nil || !result.Deleted {
+		t.Fatalf("delete result=%#v err=%v", result, err)
+	}
+	if !reflect.DeepEqual(order, []string{"prepare", "settle", "complete"}) {
+		t.Fatalf("delete effect order=%v", order)
+	}
+}
+
+func (d *deletionAuthorityFixture) CompleteWorkspaceRetirement(_ context.Context, workspace tobari.WorkspaceBinding, _ bool, decisionRef string) error {
 	if d.onRetire != nil {
 		d.onRetire()
 	}
@@ -237,11 +309,12 @@ func newMutationFixture(t *testing.T, existing *tobari.WorkspaceAuthorityCollect
 	if err != nil {
 		t.Fatal(err)
 	}
+	store.legacyGuard = mutationLegacyGuard{}
 	lifecycle := &mutationLifecycle{}
 	deletion := &deletionAuthorityFixture{}
 	activation := &policyActivationFixture{}
 	settlement := &finalSettlementFixture{activation: activation}
-	mutator, err := NewMutator(store, lifecycle, deletion, activation, settlement)
+	mutator, err := NewMutator(context.Background(), store, lifecycle, &templateRuntimeRevisionFixture{}, deletion, activation, settlement)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,6 +325,16 @@ func newMutationFixture(t *testing.T, existing *tobari.WorkspaceAuthorityCollect
 	}
 	mutator.entropy = bytes.NewReader(entropy)
 	return store, mutator, lifecycle, deletion, activation
+}
+
+func TestNewMutatorRejectsUnguardedStore(t *testing.T) {
+	store, err := New(filepath.Join(t.TempDir(), "workspace-authority"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewMutator(context.Background(), store, &mutationLifecycle{}, &templateRuntimeRevisionFixture{}, &deletionAuthorityFixture{}, &policyActivationFixture{}, &finalSettlementFixture{}); err == nil || !strings.Contains(err.Error(), "final-only guarded") {
+		t.Fatalf("unguarded mutator error=%v", err)
+	}
 }
 
 func reviewedSetForCandidates(
@@ -353,7 +436,7 @@ func addPendingCandidate(
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = mutator.mutate(context.Background(), func(current tobari.WorkspaceAuthorityCollection, present bool) (tobari.WorkspaceAuthorityCollection, bool, error) {
+	err = mutator.mutate(context.Background(), func(_ context.Context, current tobari.WorkspaceAuthorityCollection, present bool) (tobari.WorkspaceAuthorityCollection, bool, error) {
 		pending := append(clonePolicyCandidates(current.PendingCandidates), candidate)
 		return publishCollection(current, present, current.Templates, current.Contexts, current.Workspaces, pending, current.DefaultTemplateID)
 	})
@@ -384,12 +467,22 @@ func TestMutatorCreatesCopiesSelectsAndDeletesTemplatesThroughOneEnvelope(t *tes
 	}
 
 	templateRef, _ := tobari.WorkspaceTemplateRef(created.ID)
+	value := "xterm-256color"
+	change := tobari.WorkspaceTemplateChange{Kind: tobari.WorkspaceTemplateChangeShell, Shell: []tobari.ManifestShellEnvironmentSetting{{Variable: "TERM", Source: tobari.ManifestShellEnvironmentLiteral, Value: &value}}}
+	updated, err := mutator.UpdateWorkspaceTemplateByReference(context.Background(), templateRef, change)
+	if err != nil || !updated.Changed || updated.Previous.Revision != created.Current.Revision || updated.Current.Generation != 2 || len(updated.Template.Retained) != 2 {
+		t.Fatalf("updated=%#v err=%v", updated, err)
+	}
+	noChange, err := mutator.UpdateWorkspaceTemplateByReference(context.Background(), templateRef, change)
+	if err != nil || noChange.Changed || noChange.Current.Revision != updated.Current.Revision {
+		t.Fatalf("no-op update=%#v err=%v", noChange, err)
+	}
 	selected, err := mutator.SetDefaultWorkspaceTemplateByReference(context.Background(), templateRef)
 	if err != nil || !selected.Selected || selected.TemplateID != created.ID {
 		t.Fatalf("selected=%#v err=%v", selected, err)
 	}
 	selectedCollection, _, _ := store.ReadComplete(context.Background())
-	if selectedCollection.Generation != first.Generation+1 {
+	if selectedCollection.Generation != first.Generation+2 {
 		t.Fatalf("selection generation=%d", selectedCollection.Generation)
 	}
 	if _, err := mutator.SetDefaultWorkspaceTemplateByReference(context.Background(), templateRef); err != nil {
@@ -426,8 +519,100 @@ func TestMutatorCreatesCopiesSelectsAndDeletesTemplatesThroughOneEnvelope(t *tes
 	if final.DefaultTemplateID == nil || *final.DefaultTemplateID != copyPublication.Created.ID {
 		t.Fatalf("deleting nondefault Template cleared default: %#v", final.DefaultTemplateID)
 	}
-	if lifecycle.attempts.Load() != 7 {
+	if lifecycle.attempts.Load() != 9 {
 		t.Fatalf("lifecycle attempts=%d", lifecycle.attempts.Load())
+	}
+}
+
+func TestWorkspaceTemplateTypedChangesSerializeWithoutRevertingUnrelatedFields(t *testing.T) {
+	store, mutator, _, _, _ := newMutationFixture(t, nil)
+	created, err := mutator.CreateWorkspaceTemplate(context.Background(), "serialized", storeCollectionFixture(t).Templates[0].Current.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := tobari.WorkspaceTemplateRef(created.ID)
+	shellValue := "xterm-256color"
+	name, email := "Example User", "user@example.com"
+	shell := tobari.WorkspaceTemplateChange{Kind: tobari.WorkspaceTemplateChangeShell, Shell: []tobari.ManifestShellEnvironmentSetting{{Variable: "TERM", Source: tobari.ManifestShellEnvironmentLiteral, Value: &shellValue}}}
+	git := tobari.WorkspaceTemplateChange{Kind: tobari.WorkspaceTemplateChangeGit, Git: &tobari.ManifestGitIdentitySetting{Source: tobari.ManifestGitIdentityLiteral, Name: &name, Email: &email}}
+
+	start := make(chan struct{})
+	errors := make(chan error, 2)
+	for _, change := range []tobari.WorkspaceTemplateChange{shell, git} {
+		change := change.Clone()
+		go func() {
+			<-start
+			_, err := mutator.UpdateWorkspaceTemplateByReference(context.Background(), ref, change)
+			errors <- err
+		}()
+	}
+	close(start)
+	for range 2 {
+		if err := <-errors; err != nil {
+			t.Fatal(err)
+		}
+	}
+	collection, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present {
+		t.Fatalf("read serialized Template: present=%t err=%v", present, err)
+	}
+	body := collection.Templates[0].Current.Body
+	if len(body.SessionDefaults.ShellEnvironment) != 1 || body.SessionDefaults.ShellEnvironment[0].Variable != "TERM" ||
+		body.SessionDefaults.GitIdentity == nil || body.SessionDefaults.GitIdentity.Name == nil || *body.SessionDefaults.GitIdentity.Name != name {
+		t.Fatalf("unrelated serialized changes were not both retained: %#v", body.SessionDefaults)
+	}
+
+	lastValue := "screen-256color"
+	last := tobari.WorkspaceTemplateChange{Kind: tobari.WorkspaceTemplateChangeShell, Shell: []tobari.ManifestShellEnvironmentSetting{{Variable: "TERM", Source: tobari.ManifestShellEnvironmentLiteral, Value: &lastValue}}}
+	if _, err := mutator.UpdateWorkspaceTemplateByReference(context.Background(), ref, last); err != nil {
+		t.Fatal(err)
+	}
+	collection, _, err = store.ReadComplete(context.Background())
+	if err != nil || collection.Templates[0].Current.Body.SessionDefaults.ShellEnvironment[0].Value == nil ||
+		*collection.Templates[0].Current.Body.SessionDefaults.ShellEnvironment[0].Value != lastValue {
+		t.Fatalf("same-field last successful change was not current: %#v err=%v", collection.Templates[0].Current.Body.SessionDefaults, err)
+	}
+}
+
+func TestWorkspaceTemplateRuntimeChangeResolvesExactRevisionUnderLifecycleBeforeWrite(t *testing.T) {
+	store, mutator, lifecycle, _, _ := newMutationFixture(t, nil)
+	created, err := mutator.CreateWorkspaceTemplate(context.Background(), "runtime", storeCollectionFixture(t).Templates[0].Current.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := tobari.WorkspaceTemplateRef(created.ID)
+	runtimeID := "01912345-6789-7abc-8def-0123456789b7"
+	revision := "sha256:" + strings.Repeat("b", 64)
+	revisionRef := tobari.RuntimeRevisionRef(runtimeID, revision)
+	resolver := &templateRuntimeRevisionFixture{
+		binding: tobari.RuntimeBinding{RuntimeID: runtimeID, Name: "managed", Revision: revision, Ordinal: 3, Image: "tobari-runtime-managed:bbbbbbbbbbbb"},
+		check: func() error {
+			if !lifecycle.held.Load() {
+				return errors.New("Runtime revision was resolved outside lifecycle authority")
+			}
+			return nil
+		},
+	}
+	mutator.runtimeRevision = resolver
+	change := tobari.WorkspaceTemplateChange{Kind: tobari.WorkspaceTemplateChangeRuntime, RuntimeRevisionRef: revisionRef}
+	publication, err := mutator.UpdateWorkspaceTemplateByReference(context.Background(), ref, change)
+	if err != nil || !publication.Changed || publication.ResolvedRuntime == nil || publication.Current.Body.EntryDefaults.Runtime.Revision != revision ||
+		len(resolver.refs) != 1 || resolver.refs[0] != revisionRef || lifecycle.held.Load() {
+		t.Fatalf("Runtime publication=%#v refs=%v held-after=%t err=%v", publication, resolver.refs, lifecycle.held.Load(), err)
+	}
+
+	before, _, err := store.ReadComplete(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver.err = errors.New("Runtime revision observation unknown")
+	otherRef := tobari.RuntimeRevisionRef(runtimeID, "sha256:"+strings.Repeat("c", 64))
+	if _, err := mutator.UpdateWorkspaceTemplateByReference(context.Background(), ref, tobari.WorkspaceTemplateChange{Kind: tobari.WorkspaceTemplateChangeRuntime, RuntimeRevisionRef: otherRef}); err == nil {
+		t.Fatal("unknown Runtime revision observation reached collection publication")
+	}
+	after, _, err := store.ReadComplete(context.Background())
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatalf("Runtime observation failure changed collection: err=%v", err)
 	}
 }
 
@@ -1079,5 +1264,21 @@ func TestConfirmedExternalEffectCompletesEnvelopeAfterCancellation(t *testing.T)
 	current, _, err := store.ReadComplete(context.Background())
 	if err != nil || len(current.Workspaces) != 0 {
 		t.Fatalf("confirmed cancellation envelope=%#v err=%v", current, err)
+	}
+}
+
+func TestConfirmedPolicyEffectCompletesEnvelopeAfterCancellation(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	store, mutator, _, _, _ := newMutationFixture(t, &existing)
+	settlement := mutator.settlement.(*finalSettlementFixture)
+	ctx, cancel := context.WithCancel(context.Background())
+	settlement.onSettle = cancel
+	publication, err := mutator.AllowPolicyCandidateByReference(ctx, existing.PendingCandidates[0].ID)
+	if err != nil || !publication.Memory.Changed {
+		t.Fatalf("confirmed policy cancellation publication=%#v err=%v", publication, err)
+	}
+	current, _, err := store.ReadComplete(context.Background())
+	if err != nil || len(current.PendingCandidates) != 0 || current.Generation != existing.Generation+1 {
+		t.Fatalf("confirmed policy cancellation envelope=%#v err=%v", current, err)
 	}
 }

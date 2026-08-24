@@ -8,9 +8,11 @@
 - Review/delete trigger: Delete after the owner schedules the work, durable conclusions are promoted, implementation gates pass, and the change completes
 - Successor: None
 - Owner: Tobari product owner and maintainers
-- Target: Pre-public hard cutover from exact predecessor `0bbd9deb424814ab92eed0b816e2c565e4b8f6d3`, before further WP05 mechanism and before WP09/WP06/WP10
-- Related ADRs: ADR 0084 (Proposed implementation authority), ADR 0079
-  (current predecessor), ADR 0070, ADR 0080, ADR 0081, ADR 0082, ADR 0083
+- Target: Pre-release final-authority-only hard cutover with explicit
+  reset/recreation of incompatible development state, before further WP05
+  mechanism and before WP09/WP06/WP10
+- Related ADRs: ADR 0084 (accepted final authority), superseded ADR 0079 and ADR
+  0070, ADR 0080, ADR 0081, ADR 0082, and ADR 0083
 
 ## Outcome
 
@@ -76,16 +78,17 @@ first-use UX, and public reference flows.
       applied state, pending adoption, failure, retry, and read-only observation
       have an exact no-controller reconciliation contract.
 - [ ] Public CLI roles, opaque reference producers/consumers, human output,
-      JSON/schema versions, default selection, compatibility, and migration are
-      designed before implementation.
+      JSON/schema versions, default selection, and pre-release clean-break
+      compatibility are designed before implementation.
 - [ ] Policy Boundary/baseline and Policy Memory remain separate authority tiers;
       learned policy cannot widen the Template's terminal ceiling.
 - [ ] Research keeps WP04's exact five-path delta; login/import/status/logout
       consume one Context ref, release exposes none, and Context deletion has an
       exact logout-first supported workflow.
-- [ ] Migration preserves authoritative IDs and learned rules without inferring
-      ownership from names, generations, roots, images, or containers; rollback
-      and mixed-version behavior fail closed.
+- [ ] A genuinely fresh installation is exact empty final authority; declared
+      legacy presence fails closed with zero mutation and explicit
+      reset-and-recreate guidance. No predecessor identity, learned rule,
+      credential, principal, or Runtime-protection fact is migrated or adopted.
 - [ ] ADR/thesis/product/architecture/security/harness conclusions are promoted,
       and `task check`, `task security`, `task public:check`, and relevant runtime
       integration gates pass before the temporary packet is removed.
@@ -95,7 +98,7 @@ first-use UX, and public reference flows.
 - Thesis: Thesis 0, Thesis 4, Thesis 8, and especially Thesis 9
 - Product contract section: Public vocabulary; public command surface; input and
   path contract; Workspace Manifest definition, selection, deletion, policy,
-  output, and migration contracts
+  output, and pre-release clean-break contracts
 - Architecture or security invariant: four-layer dependency direction; explicit
   reconciliation boundaries; stable identity and digest authority; learned
   policy isolation; atomic all-definition policy activation

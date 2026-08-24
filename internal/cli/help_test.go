@@ -104,15 +104,14 @@ func TestRuntimeCreateHelpDeclaresOwnerOnlyChildren(t *testing.T) {
 func TestContextShowHelpDeclaresOptionalHumanDetails(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
-	if code := runCLI(command, []string{"manifest", "show", "--help"}); code != ExitOK {
+	if code := runCLI(command, []string{"context", "show", "--help"}); code != ExitOK {
 		t.Fatalf("Run(context show --help) code = %d, stderr = %q", code, stderr.String())
 	}
 	for _, want := range []string{
-		expectedSurfaceText("Usage:\n  tobari manifest show [--name <name>] [--details] [--format text|json]"),
-		"--details",
-		"value: boolean",
-		"default when omitted: \"false\"",
-		"JSON is already complete",
+		expectedSurfaceText("Usage:\n  tobari context show --id <context-ref> [--format text|json]"),
+		"--id",
+		"reference kind: context",
+		"desired and independently active authority",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("context show help lacks %q\n%s", want, stdout.String())
@@ -126,14 +125,14 @@ func TestRootCommandHelpUsesExecutableInvocation(t *testing.T) {
 		t.Fatal("default catalog lacks the root command")
 	}
 
-	if got, want := command.Usage(), ProgramName+" [--manifest <name>] [-- <command>...]"; got != want {
+	if got, want := command.Usage(), ProgramName+" [-- <command>...]"; got != want {
 		t.Fatalf("root command usage = %q, want %q", got, want)
 	}
 	help := string(renderCommandHelp(command))
 	if strings.Contains(help, ProgramName+" "+ProgramName) {
 		t.Fatal("root command help repeats the executable name")
 	}
-	for _, want := range []string{"command", "cardinality: repeatable", "after --", "explicit empty arguments"} {
+	for _, want := range []string{"command", "cardinality: repeatable", "after --", "positional-only marker required"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("root command help lacks %q:\n%s", want, help)
 		}

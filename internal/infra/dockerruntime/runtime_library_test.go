@@ -840,6 +840,9 @@ func exactBuildingRuntimeBuildFixture(t *testing.T) (*Runtime, *managedRuntimeBu
 func failedRuntimeBuildAttemptFixture(t *testing.T, artifact string) (*Runtime, *managedRuntimeBuildRunner, runtimeBuildJournal) {
 	t.Helper()
 	runtime, runner, building := exactBuildingRuntimeBuildFixture(t)
+	if runtime.finalRuntimeProtectionSource == nil {
+		bindEmptyFinalRuntimeProtection(t, runtime)
+	}
 	failed := building
 	failed.Phase = runtimeBuildPhaseFailed
 	failed.StagingArtifact = artifact

@@ -1,8 +1,9 @@
 # Work Context: WP11 — Separate Workspace Template, Context, and Policy Memory
 
-This file separates current verified behavior from the accepted target. Pure
-domain and migration-planning types may exist during implementation, but the
-target is not yet an ordinary reader/writer or public contract.
+This file separates current verified behavior from the accepted target. Dormant
+final domain and adapter types may exist during implementation, but the target
+is not yet an ordinary reader/writer or public contract until the atomic
+cutover.
 
 ## Current behavior
 
@@ -74,7 +75,7 @@ These are accepted inputs to the next design review, not current implementation:
   policy review/apply/reset, Workspace deletion, and cluster reconciliation.
 - Infrastructure boundary: owner-only Manifest/revision/policy stores, Workspace
   state/home, Docker runtime observation, principal registry, atomic aggregate
-  OPA projection, and migration journal.
+  OPA projection, final owner store, and bounded legacy-presence guard.
 - CLI catalog or presentation: `cli.Catalog` is the sole public command and
   reference-flow authority; existing `manifest` and `--manifest` vocabulary is a
   pre-public hard contract from WP01.
@@ -91,7 +92,7 @@ These are accepted inputs to the next design review, not current implementation:
   Presentation convenience alone must not split or combine aggregates.
 - `WorkspaceManifestID + semantic digest` is the current content authority.
   Generations, names, roots, image tags, and observed containers are not
-  authority and cannot silently become migration keys.
+  authority and cannot silently become final authority or compatibility keys.
 - There is no resident controller. Mutation-bearing reconciliation remains
   explicit Workspace entry and `cluster up`; read operations never repair.
 - Template advancement and Policy Memory mutation have independent revision and
@@ -111,12 +112,20 @@ These are accepted inputs to the next design review, not current implementation:
 - Pre-public V1 prefers a coherent hard cutover over aliases, but the owner must
   schedule that cutover against downstream packets and any first-release freeze.
 
-## Sequencing and predecessor observation
+## Sequencing and pre-release clean break
 
 - Control authorized WP11 as a pre-public hard cutover before further WP05
-  mechanism and before WP09, WP06, and WP10. The exact implementation
-  predecessor is `0bbd9deb424814ab92eed0b816e2c565e4b8f6d3`, not a published
-  compatibility contract.
+  mechanism and before WP09, WP06, and WP10. Because Tobari has no public
+  release, existing development Manifest/Workspace/Policy/Broker state is not a
+  compatibility or migration target. Users explicitly reset and recreate it.
+- Ordinary composition selects only the final owner store. Exact final absence
+  plus bounded absence of declared legacy paths is a genuinely fresh empty
+  installation; legacy, unsafe, partial, or changing presence fails closed with
+  zero mutation and explicit reset-and-recreate guidance.
+- This decision neither deletes nor transforms predecessor data and cannot be
+  generalized after the first public release. Future released-state
+  compatibility remains undecided and requires an explicit release-policy
+  decision.
 - The independent sibling worktree uses branch
   `codex/wp11-template-context-policy-memory`. Draft packet commit
   `555736bef355ce3372dd1f944464190721292439` has exact base `0bbd9deb`.
@@ -127,7 +136,7 @@ These are accepted inputs to the next design review, not current implementation:
   protection, authentication-owner, learned-policy, Catalog, and migration
   seams.
 - ADR 0083 and `0bbd9deb` remain the accepted Host Loopback hostname,
-  retirement, DNS/TLS, migration-lock, and attachment-lifetime authority.
+  retirement, DNS/TLS, final lock order, and attachment-lifetime authority.
   WP11 replaces its predecessor principal dimensions with ContextID and
   WorkspaceID before the paused mechanism is implemented.
 
@@ -147,7 +156,7 @@ choices open:
   durable `Context`, replaceable `Workspace`, and `Policy Memory`. Routine UI
   says “remembered decisions”; `policy` remains the command namespace.
   `Manifest` is retired from current public/domain resource vocabulary and may
-  describe only a private serialized migration artifact.
+  describe only historical unsupported development state.
 - **Identity:** introduce opaque `WorkspaceTemplateID`, `ContextID`, and
   `WorkspaceID`. TemplateID plus semantic Template revision digest is static
   content authority. ContextID is the Policy Memory and Project/Template
@@ -187,19 +196,20 @@ choices open:
   Broker credentials become Context-owned research state, never Template state;
   the four auth operations each require one unchanged Context ref from the
   Context discovery chain, and Context deletion requires exact research logout.
-  Existing research state is quarantined and requires reauthentication rather
-  than rebound by migration.
+  Existing research state is neither read nor adopted; explicit final Context
+  login/import creates fresh authority after the user resets legacy presence.
 - **Action binding:** mutable names are read-only discovery/completion input.
   Template copy consumes one exact immutable Template revision ref; nondefault
   entry consumes a Context ref; Workspace status/delete consumes a Workspace
   ref. Name reuse can never redirect a reviewed action.
-- **Migration identity:** preserve predecessor WorkspaceManifestID bytes as
-  WorkspaceTemplateID and predecessor WorkspaceID bytes as WorkspaceID. Generate
-  one fresh ContextID for each exact predecessor `(ProjectRoot,
-  WorkspaceManifestID)` pair and journal that mapping. Rewrite learned decisions
-  to Context Policy Memory only from exact validated predecessor identity.
-- **Compatibility:** one pre-public transaction and one final reader. No command,
-  flag, schema, state, or authority alias; no post-release fallback.
+- **Clean-break identity:** final WorkspaceTemplateID, ContextID, and WorkspaceID
+  are created only by final tasks. No predecessor ID, learned decision,
+  candidate, Runtime edge, principal, session, home, or credential is converted
+  or adopted.
+- **Compatibility:** one pre-public final reader and no migration transaction.
+  No command, flag, schema, state, or authority alias; bounded legacy presence
+  blocks final initialization until explicit reset. This is not a post-release
+  precedent.
 
 The Product Owner must accept or replace this target as a whole before
 production implementation. Any replacement must restate the affected identity,
@@ -237,33 +247,27 @@ contract and source inspection plus the product-owner lifecycle decisions above.
 - The first pure Template revision draft stored only independently activated
   digests and Runtime identity. That could prove receipts but could not supply
   the source/network Boundary, baseline policy, session/creation defaults, or
-  exact Runtime binding to routine copy, entry, and cluster operations after
-  the predecessor store is retired. Any implementation would have needed a
+  exact Runtime binding to routine copy, entry, and cluster operations using
+  only the final store. Any implementation would otherwise have needed a
   forbidden predecessor read or untyped parallel authority.
 - The corrected revision owns one complete typed immutable body. Validation
   recomputes Boundary, policy, entry, session, creation, and overall semantic
-  digests from it. Migration carries and transforms exact predecessor bodies;
-  focused clone/mutation canaries and a normal copy/entry derivation fixture
-  prove final operations do not depend on predecessor bytes or inferred values.
+  digests from it. Focused clone/mutation canaries and a normal copy/entry
+  derivation fixture prove final operations do not depend on predecessor bytes
+  or inferred values.
 - An intermediate complete-body draft represented Advanced policy as an
   arbitrary sorted relative `.rego` collection. That widened the existing
   executable-source boundary and could dead-end at the exact-file aggregate
   reader. The corrected body has a named, bounded `tobari.rego` plus
   `tobari_test.rego` pair. Its filesystem conversion rejects missing, renamed,
-  duplicate, and extra sources; migration accepts only the same exact pair.
-- The first pure migration draft retained an exact predecessor AppliedEntry
-  when its stored Template and Runtime fields matched, but it had no bounded
-  owned-Docker evidence. A normal stopped-cluster migration after Docker cleanup
-  could therefore have claimed applied authority that was missing, mismatched,
-  or unknown at cutover.
-- The corrected pure input carries one closed observation per Workspace, bound
-  to exact WorkspaceID. Only `exact_owned` evidence agreeing with Template
-  generation/digest, RuntimeID/revision, and resolved spec can retain the
-  AppliedEntry. `missing`, `mismatched`, and `unknown` publish no AppliedEntry
-  and become explicit unverified state. Focused fixtures cover all four states.
+  duplicate, and extra sources.
+- Earlier dormant pure migration drafts explored predecessor AppliedEntry and
+  exact-owned Docker evidence. The product-owner clean-break decision supersedes
+  that delivery scope; no final task consumes those drafts or predecessor
+  observations.
 - The new Workspace Template, Context, Policy Memory, Workspace binding,
-  independent activation-receipt, opaque-reference, and migration-plan types
-  remain dormant domain code. No current Manifest reader, writer, Catalog path,
+  independent activation-receipt and opaque-reference types remain dormant
+  domain code. No current Manifest reader, writer, Catalog path,
   schema, application port, infrastructure adapter, or public output consumes
   them in this concern.
 - Dormant final application tasks now consume and re-emit exact typed refs,
@@ -284,12 +288,10 @@ contract and source inspection plus the product-owner lifecycle decisions above.
   always publishes its reviewed authority change. Only same-set terminal replay
   performs zero repeated external effect, while returning the original
   confirmed `Changed=true` result.
-- Pending-candidate migration now carries that complete typed effect, validates
-  the predecessor payload digest against it, deep-copies it into the final
-  plan, and exposes a final candidate authority without any predecessor read.
-  A focused round-trip proves one migrated candidate can produce an exact
-  Allow or Deny publication; mismatched predecessor digest/effect fails before
-  planning.
+- Historical dormant migration evidence also carried that complete typed
+  effect and validated its predecessor payload digest. The clean-break target
+  does not consume that path; ordinary final candidates originate only from
+  final Context/Workspace observations.
 - The first exhaustive application collections validated each snapshot and
   duplicate primary IDs but not aggregate binding uniqueness. The corrected
   Context collection reuses `ValidateContextBindings` and rejects duplicate
@@ -424,7 +426,7 @@ contract and source inspection plus the product-owner lifecycle decisions above.
   closure, activates candidate OPA, publishes the global/per-axis receipt, and
   then permits the parent envelope publication. Principal CAS precedes the
   component replacement so an interruption never exposes candidate OPA with a
-  predecessor principal registry.
+  stale final principal registry.
 - Exact selected Gateway/OPA image IDs, permission profile, managed environment,
   mount closure, Compose assets, topology, aggregate artifacts, and previous/
   next collection revisions are journal authority. Recovery replays the
@@ -457,12 +459,15 @@ contract and source inspection plus the product-owner lifecycle decisions above.
   journal, principal registry, active receipt, Compose, and OPA counters
   byte-for-byte/unchanged. No public/current reader selects these dormant seams.
 
-## Dormant migration-engine evidence
+## Superseded dormant migration-engine evidence
 
-- The migration engine consumes the unchanged pure migration input/plan and
-  publishes exactly one final `WorkspaceAuthorityCollection` envelope. Its
-  preflight adapter is still an internal seam: no current `migrate apply`,
-  Catalog route, composition root, or ordinary reader selects this engine.
+- The following records historical implementation evidence from the earlier
+  predecessor-preservation scope. The pre-release clean-break decision removes
+  it from WP11 acceptance: no current or final `migrate apply`, Catalog route,
+  composition root, or ordinary reader may select this engine. Dormant accepted
+  code may remain unreachable; dirty migration-only composition WIP is removed.
+- The dormant engine consumes the earlier pure migration input/plan and
+  publishes exactly one final `WorkspaceAuthorityCollection` envelope.
 - One owner-only journal binds exact predecessor source digests, complete final
   collection, preserved Template/Workspace bytes, fresh stable Context
   assignments, standard-home evidence, research disposition, and the exact
@@ -475,11 +480,10 @@ contract and source inspection plus the product-owner lifecycle decisions above.
   restores the cutoff last to select the complete predecessor, and only then
   retires final authority. Crash fixtures cover both sides of each cutoff and
   post-rename/pre-journal recovery.
-- The stopped-cluster and zero-live-attachment observation is re-established
+- The dormant stopped-cluster and zero-live-attachment observation is re-established
   under the exclusive engine lock at every resumed mutation and immediately
   before either reader cutoff. If quiescence changes, no subsequent authority
-  path is moved. The eventual cutover adapter must acquire the installation
-  lifecycle lock that makes this observation stable against cluster entry.
+  path is moved. This is historical evidence, not a final cutover requirement.
 - Final publication reserves a same-parent stage only after proving it absent
   before the journal. Once `prepared` is durable, the journal owns only the
   exact bounded stage layout; empty or partial owner-only stage writes can be
@@ -506,7 +510,7 @@ contract and source inspection plus the product-owner lifecycle decisions above.
   required exact research source; macOS Keychain recovery material has no
   engine port and is untouched. Fresh canonical research-auth state blocks
   rollback rather than being merged or overwritten.
-- A committed second apply is read-only and returns `changed:false` with the
+- The dormant engine's committed second apply is read-only and returns `changed:false` with the
   same Context assignments. Rollback is idempotent but terminal; implicit
   reapply after rollback is rejected so an older rolled-final receipt cannot
   collide with a later transaction. Starting again requires a separately
@@ -548,8 +552,8 @@ contract and source inspection plus the product-owner lifecycle decisions above.
   the credential helper as execution authority. Standard providers do not
   inspect a Runtime image.
 - Final Context A/B credentials remain isolated by fresh ContextID. Context
-  creation/copy has no credential input, and matching predecessor/quarantine
-  bytes or legacy IDs are never adopted. The canonical Broker source and its
+  creation/copy has no credential input, and matching predecessor bytes or
+  legacy IDs are never read or adopted. The canonical Broker source and its
   embedded runtime input remain byte-identical. Release returns unsupported
   before provider, Broker, helper, or Docker effects; research Catalog/current
   composition selection remains deliberately absent until the atomic cutover.
@@ -558,10 +562,11 @@ contract and source inspection plus the product-owner lifecycle decisions above.
 
 - Assets and side effects involved: static Template revisions, mutable learned
   policy, Context bindings, Workspace state/home, principal registry, OPA
-  projection, migration backup/journal, and deletion recovery.
+  projection, final task journals, and deletion recovery.
 - Credentials or confidential data involved: none in this packet. Standard
-  Workspace-native authentication and research Broker material must retain their
-  separately governed ownership during any future migration.
+  Workspace-native authentication and research Broker material retain their
+  separately governed final ownership; predecessor material is never read or
+  adopted.
 - New dependencies, destinations, files, processes, or generated content: none
   proposed. No resident controller is introduced.
 - External schema provenance, publication rights, and drift evidence: not

@@ -1017,37 +1017,38 @@ stderr as the build runs. Upstream prose never becomes a structured fault
 field or a source of promotion-state inference; infrastructure decides state
 from completed build, compatibility, digest, and atomic manifest operations.
 
-The state-migration slice is deliberately separate from every current reader:
-`internal/app/migrationcmd` owns the fixed installation-state task,
-`internal/domain/tobari` owns its closed source identity and result, and
-`internal/infra/dockerruntime/migration.go` is the only predecessor decoder.
-It plans the complete predecessor collection under the lifecycle lock, requires
-the cluster stopped and zero live attachments, prepares any exact managed
-Runtime revision, writes a content-addressed private backup, and commits final
-schema-2 Manifest/Workspace state plus the exact default selector. Current
-readers never call the migration decoder. Retained Manifest receipt collision
-accepts only the same WorkspaceManifestID and canonical body at the same
-generation+digest path; other or partial artifacts fail closed.
+The pre-release cutover has no predecessor decoder or state-migration slice.
+Ordinary composition injects one owner-only final Workspace authority store into
+Template, Context, Workspace, Policy, Runtime-protection, principal/session, and
+authentication consumers. A missing final store is exact empty authority only
+when one non-decoding fixed-path legacy-presence guard also proves that no
+declared predecessor authority exists. The guard is a precondition, never a
+data source: it cannot supply an ID, policy rule, Runtime binding, principal,
+session, or credential.
 
-The same owner-only journal enumerates and quarantines the complete
-filesystem-side predecessor research-auth authority set. Central ciphertext
-and lookup state moves first, so every later crash point leaves the predecessor
-reader unable to resolve old handles even if inert config or Workspace
-artifacts have not moved yet. Resume completes the exact set; rollback restores
-it byte-for-byte and refuses fresh canonical state. macOS Keychain material is
-untouched recovery material and is never queried by migration. Linux
-filesystem root-key material moves with the set. Canonical readers do not know
-the quarantine path, and public output is secret- and path-free.
+The fixed inventory is explicit rather than a directory walk. Predecessor
+Context/Workspace roots and journals, auth-projects, cluster reconciliation,
+and migration roots are legacy-only. Projection, principal, auth, Workspace
+profile/home, Host Loopback, interactive-attachment, and service-exposure roots
+are checked for absence only before first final publication because their final
+owners may create them later. Each later owner validates its own exact schema;
+the presence guard does not. WP03 Runtime catalog/material/lifecycle roots are
+not legacy Workspace authority and remain available across the cut.
 
-Host Loopback cutover extends that one migration boundary without merging its
-authority with permission resume. While the lifecycle lock is held, migration
-acquires the canonical interactive-attachment lock, proves zero live owners,
-keeps that lock held while acquiring the Host Loopback lock, and replaces only
-exact schema-1 retired-host route/grant registries with empty schema-2
-registries. The lock order is `lifecycle -> interactive-attachment ->
-host-loopback`; it fences normal entry, which publishes its canonical session
-before Host Loopback. Migration consumes no permission-ingestion endpoint,
-nonce, lease, acknowledgment, wait registry, or Gateway-only transport state.
+Legacy, unsafe, partial, or changing presence returns one typed reset-and-
+recreate fault before state-directory, lock, final-envelope, Docker, OPA,
+Gateway, principal-registry, or Broker mutation. The adapter does not read
+legacy contents, publish a backup, quarantine or restore sources, or select a
+rollback reader. A complete final envelope remains the only ordinary reader
+authority, and all of its mutations retain the existing installation lifecycle
+serialization, durable task decisions, atomic whole-envelope publication, and
+exact read-back recovery.
+
+The canonical interactive-attachment and Host Loopback registries retain their
+existing final lock, epoch, lease, nonce, liveness, and cleanup mechanisms.
+Predecessor registry presence is unsupported legacy state rather than migration
+input; it is neither translated nor automatically removed. The permanent
+retired-host terminal guard remains independent of this clean-break rule.
 
 ## Lifecycle model
 

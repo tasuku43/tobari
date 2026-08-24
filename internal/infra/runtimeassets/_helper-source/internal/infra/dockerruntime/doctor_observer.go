@@ -177,7 +177,7 @@ func (r *Runtime) observeDoctorContext(ctx context.Context) doctor.Observation {
 			return doctor.Observation{
 				Status: doctor.CheckStatusFail,
 				Detail: "the supported unpublished Context snapshot requires migration",
-				Cause:  doctor.ObservationCauseMigrationRequired,
+				Cause:  doctor.ObservationCauseLegacyStatePresent,
 			}
 		}
 		return observed(doctor.CheckStatusFail, "the current Context could not be inspected")
@@ -306,7 +306,7 @@ func (r *Runtime) observeDoctorPolicyData(ctx context.Context) doctor.Observatio
 		return observed(doctor.CheckStatusFail, "learned policy data could not be inspected")
 	}
 	if result.Status == doctor.CheckStatusFail && r.installationMigrationRequired(ctx) {
-		result.Cause = doctor.ObservationCauseMigrationRequired
+		result.Cause = doctor.ObservationCauseLegacyStatePresent
 		result.Detail = "the supported migration has residual predecessor policy state"
 	}
 	return result

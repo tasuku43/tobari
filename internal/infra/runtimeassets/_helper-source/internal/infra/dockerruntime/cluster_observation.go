@@ -277,6 +277,13 @@ func (r *Runtime) ClusterLogs(ctx context.Context, state tobari.State, request t
 	if err := state.Validate(); err != nil {
 		return nil, err
 	}
+	return r.ReadFinalClusterLogs(ctx, request)
+}
+
+// ReadFinalClusterLogs reads only the fixed, surface-selected shared
+// components. Final authority selection and two-pass receipt fencing are owned
+// by the task adapter; no predecessor State is discovered here.
+func (r *Runtime) ReadFinalClusterLogs(ctx context.Context, request tobari.LogRequest) ([]byte, error) {
 	if err := request.ValidateCluster(); err != nil {
 		return nil, err
 	}

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -12,9 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/tasuku43/tobari/internal/domain/authbroker"
-	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 var retiredWorkspaceResourceLanguage = []*regexp.Regexp{
@@ -127,96 +123,6 @@ func TestPublicVocabularyRuleAllowsProductAndOwnershipLanguage(t *testing.T) {
 		}
 		if !matched {
 			t.Errorf("retired public resource language was not rejected: %q", text)
-		}
-	}
-}
-
-func TestPublicMachineVocabularySeparatesWorkspaceIdentityFromProjectRoot(t *testing.T) {
-	t.Parallel()
-	fixtureData, err := os.ReadFile(filepath.Join("testdata", "lifecycle_status_report.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var status tobari.WorkspaceStatus
-	if err := json.Unmarshal(fixtureData, &status); err != nil {
-		t.Fatal(err)
-	}
-	encoded, err := renderProjectStatus(status, successFormatJSON)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertJSONVocabulary(t, encoded, "status",
-		[]string{"workspace_id", "project_root", "workspace_home"},
-		[]string{"id", "root", "home", "project_id", "tobari_id"})
-
-	list := tobari.WorkspaceListResult{Task: tobari.TaskWorkspaceList, Items: []tobari.WorkspaceListItem{{
-		Root: status.Root, ID: status.ID, Home: status.Home, WorkspaceManifestID: status.WorkspaceManifestID,
-		WorkspaceManifestName: status.WorkspaceManifestName, Runtime: status.Runtime,
-		Adoption: status.Adoption, Current: status.Current, Next: *status.Next, LastFailure: status.LastFailure,
-	}}}
-	encoded, err = renderProjectList(list, successFormatJSON)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertJSONVocabulary(t, encoded, "workspaces",
-		[]string{"workspace_id", "project_root"},
-		[]string{"id", "root", "project_id", "tobari"})
-
-	for name, value := range map[string]any{
-		"policy denial":    policyDenialOutput{WorkspaceID: status.ID, ProjectRoot: status.Root},
-		"policy candidate": policyCandidateOutput{WorkspaceID: status.ID, ProjectRoot: status.Root},
-		"policy rule":      policyRuleOutput{WorkspaceID: status.ID, ProjectRoot: status.Root},
-		"auth activation":  authbroker.WorkspaceActivationItem{ProjectID: status.ID, Root: status.Root},
-	} {
-		projection, err := json.Marshal(value)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(string(projection), `"workspace_id"`) || !strings.Contains(string(projection), `"project_root"`) ||
-			strings.Contains(string(projection), `"project_id"`) || strings.Contains(string(projection), `"root"`) {
-			t.Errorf("%s public projection has ambiguous identity fields: %s", name, projection)
-		}
-	}
-
-	for _, path := range []string{"status", "list", "cluster status", "cluster denials", "policy candidates", "review permissions", "policy rules"} {
-		command, found := DefaultCatalog().Lookup(path)
-		if !found {
-			t.Fatalf("catalog lacks %q", path)
-		}
-		encoded, err := json.Marshal(command.Agent.Output)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, retired := range []string{`"project_id"`, `"tobari_count"`} {
-			if strings.Contains(string(encoded), retired) {
-				t.Errorf("%s output retains retired public machine field %s", path, retired)
-			}
-		}
-	}
-}
-
-func assertJSONVocabulary(t *testing.T, encoded []byte, envelope string, required, retired []string) {
-	t.Helper()
-	var document map[string]any
-	if err := json.Unmarshal(encoded, &document); err != nil {
-		t.Fatal(err)
-	}
-	value, found := document[envelope]
-	if !found {
-		t.Fatalf("JSON lacks %q envelope: %s", envelope, encoded)
-	}
-	projection, err := json.Marshal(value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range required {
-		if !strings.Contains(string(projection), `"`+name+`"`) {
-			t.Errorf("%s lacks required public field %q: %s", envelope, name, projection)
-		}
-	}
-	for _, name := range retired {
-		if strings.Contains(string(projection), `"`+name+`"`) {
-			t.Errorf("%s retains retired public field %q: %s", envelope, name, projection)
 		}
 	}
 }

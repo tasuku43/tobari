@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
@@ -33,8 +34,8 @@ const (
 var assets embed.FS
 
 type Backend interface {
-	Snapshot(context.Context) (tobari.OperatorConsoleSnapshot, error)
-	ApplyPolicyReview(context.Context, tobari.PolicyReviewDecisionSet) (tobari.PolicyReviewChange, error)
+	Snapshot(context.Context) (tobari.FinalOperatorConsoleSnapshot, error)
+	ApplyReviewed(context.Context, tobari.PolicyMemoryReviewedDecisionSet) (tobari.PolicyMemoryReviewedResult, error)
 }
 
 type Session struct {
@@ -83,7 +84,7 @@ func (s *Server) Run(
 	authority := listener.Addr().String()
 	origin := "http://" + authority
 	pageURL := origin + "/#session=" + token
-	handler := newHandler(backend, authority, origin, token)
+	handler := newHandler(backend, authority, origin, token, preflight)
 	httpServer := &http.Server{
 		Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
 		WriteTimeout: 2*time.Minute + 5*time.Second, IdleTimeout: 30 * time.Second,
@@ -130,10 +131,12 @@ type handler struct {
 	authority string
 	origin    string
 	token     string
+	mu        sync.RWMutex
+	snapshot  tobari.FinalOperatorConsoleSnapshot
 }
 
-func newHandler(backend Backend, authority, origin, token string) http.Handler {
-	return &handler{backend: backend, authority: authority, origin: origin, token: token}
+func newHandler(backend Backend, authority, origin, token string, snapshot tobari.FinalOperatorConsoleSnapshot) http.Handler {
+	return &handler{backend: backend, authority: authority, origin: origin, token: token, snapshot: snapshot}
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -215,6 +218,9 @@ func (h *handler) serveSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "invalid_operator_console_snapshot", "operator console snapshot is invalid")
 		return
 	}
+	h.mu.Lock()
+	h.snapshot = snapshot
+	h.mu.Unlock()
 	writeJSON(w, http.StatusOK, snapshot)
 }
 
@@ -239,8 +245,8 @@ func (h *handler) serveApply(w http.ResponseWriter, r *http.Request) {
 	defer body.Close()
 	decoder := json.NewDecoder(body)
 	decoder.DisallowUnknownFields()
-	var set tobari.PolicyReviewDecisionSet
-	if err := decoder.Decode(&set); err != nil {
+	var choices tobari.PolicyMemoryReviewChoiceSet
+	if err := decoder.Decode(&choices); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_policy_review_set", "reviewed policy decision set is invalid")
 		return
 	}
@@ -249,13 +255,21 @@ func (h *handler) serveApply(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "invalid_policy_review_set", "reviewed policy decision set must contain one JSON value")
 		return
 	}
-	if err := set.Validate(); err != nil {
+	if err := choices.Validate(); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_policy_review_set", "reviewed policy decision set is invalid")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
-	change, err := h.backend.ApplyPolicyReview(ctx, set)
+	h.mu.RLock()
+	snapshot := h.snapshot
+	h.mu.RUnlock()
+	set, err := snapshot.Review.ReviewedChoiceSet(choices)
+	if err != nil {
+		writeAPIError(w, http.StatusConflict, "policy_review_changed", "Permission Inbox changed before Apply")
+		return
+	}
+	change, err := h.backend.ApplyReviewed(ctx, set)
 	if err != nil {
 		writeBackendError(w, err)
 		return

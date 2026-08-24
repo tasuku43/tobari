@@ -6,8 +6,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"reflect"
 
-	"github.com/tasuku43/tobari/internal/app/tobaricmd"
+	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -73,30 +74,49 @@ func serveSpec() CommandSpec {
 }
 
 type operatorConsoleBackend struct {
-	service *tobaricmd.Service
+	policy  *workspaceauthoritycmd.PolicyMemoryService
+	cluster *workspaceauthoritycmd.FinalClusterLifecycleService
 	apply   CommandSpec
-	tail    int
 }
 
-func (b operatorConsoleBackend) Snapshot(ctx context.Context) (tobari.OperatorConsoleSnapshot, error) {
-	return b.service.OperatorConsoleSnapshot(ctx, b.tail)
+func (b operatorConsoleBackend) Snapshot(ctx context.Context) (tobari.FinalOperatorConsoleSnapshot, error) {
+	first, err := b.policy.ReviewSnapshot(ctx)
+	if err != nil {
+		return tobari.FinalOperatorConsoleSnapshot{}, err
+	}
+	cluster, err := b.cluster.Status(ctx)
+	if err != nil {
+		return tobari.FinalOperatorConsoleSnapshot{}, err
+	}
+	second, err := b.policy.ReviewSnapshot(ctx)
+	if err != nil {
+		return tobari.FinalOperatorConsoleSnapshot{}, err
+	}
+	if !reflect.DeepEqual(first, second) {
+		return tobari.FinalOperatorConsoleSnapshot{}, fault.New(fault.KindAmbiguous, "final_authority_changed", "Final authority changed during Operator Console observation.", false)
+	}
+	return tobari.NewFinalOperatorConsoleSnapshot(cluster, second)
 }
 
-func (b operatorConsoleBackend) ApplyPolicyReview(
-	ctx context.Context, set tobari.PolicyReviewDecisionSet,
-) (tobari.PolicyReviewChange, error) {
+func (b operatorConsoleBackend) ApplyReviewed(
+	ctx context.Context, set tobari.PolicyMemoryReviewedDecisionSet,
+) (tobari.PolicyMemoryReviewedResult, error) {
 	intent := operation.Intent{
 		Command: b.apply.Path, Effect: b.apply.Effect,
-		Target: operation.TargetRef{Kind: b.apply.Agent.FixedTarget.Kind, ID: b.apply.Agent.FixedTarget.ID},
+		Target: operation.TargetRef{Kind: b.apply.Agent.FixedTarget.Kind, ParentID: b.apply.Agent.FixedTarget.ID},
 		Impact: b.apply.Agent.Mutation.Impact,
 	}
-	return b.service.ApplyPolicyReviewDecisionSet(withCommandPath(ctx, b.apply.Path), intent, set)
+	publication, err := b.policy.ApplyReviewed(withCommandPath(ctx, b.apply.Path), intent, set)
+	if err != nil {
+		return tobari.PolicyMemoryReviewedResult{}, err
+	}
+	return tobari.NewPolicyMemoryReviewedResult(publication)
 }
 
 func runServe(
 	ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs,
 ) int {
-	if c.tobari == nil {
+	if c.finalPolicy == nil || c.finalClusterLifecycle == nil {
 		return c.fail(ctx, missingRuntimeFault())
 	}
 	if c.console == nil {
@@ -114,7 +134,7 @@ func runServe(
 		))
 	}
 	noOpen, _ := inputs.Boolean("--no-open")
-	backend := operatorConsoleBackend{service: c.tobari, apply: apply, tail: 10_000}
+	backend := operatorConsoleBackend{policy: c.finalPolicy, cluster: c.finalClusterLifecycle, apply: apply}
 	err := c.console.Run(ctx, backend, !noOpen, func(session operatorconsole.Session) error {
 		opened := "manual URL ready"
 		if session.BrowserOpened {

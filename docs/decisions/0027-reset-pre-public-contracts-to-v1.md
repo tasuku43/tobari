@@ -8,7 +8,8 @@
 - Supersedes: The version-increment, migration, compatibility-reader, retired
   command, and historical-image-selection clauses of ADRs 0013, 0018–0023,
   0025, and 0026
-- Revised by: ADR 0070 adds one explicit, enumerated predecessor migration
+- Revised by: ADR 0070 added one explicit predecessor migration; ADR 0084
+  retires that exception and restores the exact pre-public clean break
 - Superseded by: None
 
 ## Context
@@ -30,9 +31,9 @@ The current repository is the initial contract snapshot:
 
 - every Tobari-owned schema and component API is V1;
 - readers accept exactly V1 and reject all other versions;
-- no implicit state migration, compatibility reader, legacy fallback, retired
-  command alias, or generic old-state cleanup path is provided; ADR 0070 alone
-  permits one explicit command to decode one enumerated predecessor;
+- no implicit or explicit state migration, compatibility reader, legacy
+  fallback, retired command alias, or generic old-state cleanup path is
+  provided;
 - development state from another snapshot must be removed and recreated;
 - behavior that is still required is expressed directly in the V1 model,
   including typed built-in credential plans and explicit AWS driver

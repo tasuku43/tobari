@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/operation"
 )
@@ -76,8 +77,12 @@ func TestEveryCatalogReadExecutesOnFreshXDGWithoutDurableOrExternalMutation(t *t
 		"version":               {"--format=json"},
 		"completion zsh":        {},
 		"completion candidates": {"--current=2", "--", "tobari", "cont"},
-		"manifest list":         {"--format=json"},
-		"manifest show":         {"--format=json"},
+		"template list":         {"--format=json"},
+		"template show":         {"--name=standard", "--format=json"},
+		"context list":          {"--format=json"},
+		"context show":          {"--id=ctx1_01912345-6789-7abc-8def-0123456789a2", "--format=json"},
+		"workspace list":        {"--format=json"},
+		"workspace status":      {"--id=wsp1_01912345-6789-7abc-8def-0123456789a3", "--format=json"},
 		"status":                {"--format=json"},
 		"cluster status":        {"--format=json"},
 		"cluster denials":       {"--format=json"},
@@ -92,13 +97,12 @@ func TestEveryCatalogReadExecutesOnFreshXDGWithoutDurableOrExternalMutation(t *t
 		"runtime list":          {"--format=json"},
 		"runtime prune dry-run": {"--format=json"},
 		"runtime show":          {"--name=standard", "--format=json"},
-		"list":                  {"--format=json"},
 	}
 	if _, found := DefaultCatalog().Lookup("serve"); found {
 		extraArgs["serve"] = []string{"--no-open"}
 	}
 	if len(authCommandSpecs()) != 0 {
-		extraArgs["auth status"] = []string{"--format=json"}
+		extraArgs["auth status"] = []string{"--context=ctx1_01912345-6789-7abc-8def-0123456789a2", "--format=json"}
 	}
 
 	var readPaths []string
@@ -145,9 +149,15 @@ func TestEveryCatalogReadExecutesOnFreshXDGWithoutDurableOrExternalMutation(t *t
 			before = append(before, readEffectTreeSnapshot(t, dataHome)...)
 
 			var stdout, stderr bytes.Buffer
-			command := New(context.Background(), strings.NewReader(""), &stdout, &stderr)
+			runContext := context.Background()
+			cancel := func() {}
+			if path == "serve" {
+				runContext, cancel = context.WithTimeout(runContext, 100*time.Millisecond)
+			}
+			defer cancel()
+			command := New(runContext, strings.NewReader(""), &stdout, &stderr)
 			args := append(strings.Fields(path), extraArgs[path]...)
-			if code := command.RunContext(context.Background(), args); code == ExitUsage {
+			if code := command.RunContext(runContext, args); code == ExitUsage {
 				t.Fatalf("%s did not reach its handler: stderr=%q", path, stderr.String())
 			}
 

@@ -604,7 +604,7 @@ func TestPolicyMemoryReviewedPublicationJSONExposesOnlyTaskOwnedActiveReferences
 	text := string(encoded)
 	for _, key := range []string{
 		`"task"`, `"active_revision"`, `"allow_count"`, `"deny_count"`, `"applied"`, `"decisions"`,
-		`"review_item_id"`, `"rule_id"`, `"context_ref"`, `"template_ref"`, `"observing_workspace_ref"`,
+		`"review_item_id"`, `"rule_id"`,
 	} {
 		if !strings.Contains(text, key) {
 			t.Fatalf("reviewed publication JSON omitted %s: %s", key, text)
@@ -612,6 +612,7 @@ func TestPolicyMemoryReviewedPublicationJSONExposesOnlyTaskOwnedActiveReferences
 	}
 	for _, key := range []string{
 		`"target_id"`, `"decision_set"`, `"settlement"`, `"changed"`, `"context_id"`,
+		`"context_ref"`, `"template_ref"`, `"observing_workspace_ref"`,
 		`"consumed_candidate_ids"`, `"source_rule_ids"`, `"proposal_digest"`,
 	} {
 		if strings.Contains(text, key) {

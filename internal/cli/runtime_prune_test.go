@@ -170,7 +170,7 @@ func TestRuntimePruneDryRunAndApplyRoundTripExactPlanReference(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan := planDoc.Plan
-	if planDoc.SchemaVersion != 1 || plan.Task != tobari.TaskRuntimePruneDryRun || plan.PlanRef == "" || plan.Empty || !plan.Applicable ||
+	if planDoc.SchemaVersion != 2 || plan.Task != tobari.TaskRuntimePruneDryRun || plan.PlanRef == "" || plan.Empty || !plan.Applicable ||
 		len(plan.Candidates) != 1 || plan.Candidates[0].LastUsed != tobari.RuntimeLastUsedUnknown || plan.Candidates[0].ReclaimableBytes != nil ||
 		len(plan.Storage) != 1 || fake.applyCalls != 0 {
 		t.Fatalf("dry-run projection/calls = %+v calls=%d", planDoc, fake.applyCalls)
@@ -189,7 +189,7 @@ func TestRuntimePruneDryRunAndApplyRoundTripExactPlanReference(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := resultDoc.Result
-	if resultDoc.SchemaVersion != 1 || result.Task != tobari.TaskRuntimePruneApply || result.PlanRef != plan.PlanRef || result.State != tobari.RuntimePruneApplied ||
+	if resultDoc.SchemaVersion != 2 || result.Task != tobari.TaskRuntimePruneApply || result.PlanRef != plan.PlanRef || result.State != tobari.RuntimePruneApplied ||
 		len(result.Items) != 1 || result.Items[0].LastUsed != tobari.RuntimeLastUsedUnknown || result.Items[0].ReclaimedBytes != nil ||
 		result.ReclaimedBytes != nil || result.RemovedTagCount != 1 || !result.SourcePreserved || !result.SnapshotsPreserved || !result.HistoryPreserved {
 		t.Fatalf("apply projection = %+v", resultDoc)
@@ -337,6 +337,76 @@ func TestRuntimePruneHelpAndCompletionDeriveFromAtomicCatalogClosure(t *testing.
 		if !strings.Contains(text, want) {
 			t.Errorf("agent help omitted %q: %s", want, text)
 		}
+	}
+}
+
+func TestRuntimePruneProtectionHardCutUsesOnlyFinalAuthorityKeys(t *testing.T) {
+	digest := tobari.SemanticDigest("sha256:" + strings.Repeat("a", 64))
+	protected := []tobari.RuntimeProtection{{
+		RuntimeID: "018bcfe5-687b-7000-8000-000000000077", RuntimeRevision: string(digest),
+		Reason:              tobari.RuntimeProtectedByWorkspaceApplied,
+		WorkspaceTemplateID: tobari.WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789a1"), TemplateRevision: digest,
+		ContextID: tobari.ContextID("01912345-6789-7abc-8def-0123456789a2"), WorkspaceID: tobari.WorkspaceID("01912345-6789-7abc-8def-0123456789a3"),
+	}, {
+		RuntimeID: "018bcfe5-687b-7000-8000-000000000077", RuntimeRevision: string(digest),
+		Reason:              tobari.RuntimeProtectedByContextDesired,
+		WorkspaceTemplateID: tobari.WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789a1"), TemplateRevision: digest,
+		ContextID: tobari.ContextID("01912345-6789-7abc-8def-0123456789a2"),
+	}}
+	projection := runtimePrunePlanProjectionFrom(tobari.RuntimePrunePlan{Protected: protected})
+	encoded, err := json.Marshal(runtimePrunePlanJSONDocument{SchemaVersion: 2, Plan: projection})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(encoded)
+	for _, want := range []string{`"schema_version":2`, `"reason":"workspace_applied"`, `"reason":"context_desired"`, `"workspace_template_id"`, `"workspace_template_revision"`, `"context_id"`, `"workspace_id"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("final Runtime protection JSON omitted %s: %s", want, text)
+		}
+	}
+	for _, forbidden := range []string{`manifest_current`, `manifest_retained`, `workspace_manifest_id`, `manifest_revision`} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("final Runtime protection JSON exposed predecessor key %q: %s", forbidden, text)
+		}
+	}
+	spec, found := DefaultCatalog().Lookup("runtime prune dry-run")
+	if !found || spec.Agent.Output.JSONSchemaVersion != 2 {
+		t.Fatalf("Runtime prune Catalog schema = %d, found=%t; want 2", spec.Agent.Output.JSONSchemaVersion, found)
+	}
+	fields := runtimePruneProtectionOutputFields()
+	var reasonValues []string
+	for _, field := range fields {
+		if field.Name == "reason" {
+			reasonValues = field.Enum
+			break
+		}
+	}
+	contextDesiredDeclared := false
+	for _, value := range reasonValues {
+		contextDesiredDeclared = contextDesiredDeclared || value == string(tobari.RuntimeProtectedByContextDesired)
+	}
+	if !contextDesiredDeclared {
+		t.Fatalf("Runtime prune Catalog omitted context_desired: %#v", reasonValues)
+	}
+	for _, forbidden := range []string{"workspace_manifest_id", "manifest_revision"} {
+		if outputDeclaresField(fields, forbidden) {
+			t.Fatalf("Runtime prune Catalog retained predecessor field %q", forbidden)
+		}
+	}
+	snapshot, observedAt := runtimePruneAvailableSnapshot()
+	snapshot.Protection.Items = []tobari.RuntimeProtection{protected[1]}
+	snapshot.Protection.Items[0].RuntimeID = snapshot.Runtimes[1].ID
+	snapshot.Protection.Items[0].RuntimeRevision = snapshot.Runtimes[1].Revisions[0].Revision
+	plan, err := tobari.PlanRuntimePrune(snapshot, observedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	human, err := renderRuntimePrunePlan("runtime prune dry-run", plan, successFormatText, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(human), "context_desired") || !strings.Contains(string(human), string(protected[1].ContextID)) {
+		t.Fatalf("Runtime prune human output omitted desired Context protection: %s", human)
 	}
 }
 

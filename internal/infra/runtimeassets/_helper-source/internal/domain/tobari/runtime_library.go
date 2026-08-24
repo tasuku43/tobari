@@ -431,8 +431,9 @@ func RuntimeReportWithRevisionReferences(report RuntimeReport) (RuntimeReport, e
 type RuntimeProtectionReason string
 
 const (
-	RuntimeProtectedByManifestCurrent   RuntimeProtectionReason = "manifest_current"
-	RuntimeProtectedByManifestRetained  RuntimeProtectionReason = "manifest_retained"
+	RuntimeProtectedByTemplateCurrent   RuntimeProtectionReason = "template_current"
+	RuntimeProtectedByTemplateRetained  RuntimeProtectionReason = "template_retained"
+	RuntimeProtectedByContextDesired    RuntimeProtectionReason = "context_desired"
 	RuntimeProtectedByWorkspaceApplied  RuntimeProtectionReason = "workspace_applied"
 	RuntimeProtectedByWorkspacePending  RuntimeProtectionReason = "workspace_pending"
 	RuntimeProtectedByWorkspaceObserved RuntimeProtectionReason = "workspace_observed"
@@ -442,9 +443,10 @@ type RuntimeProtection struct {
 	RuntimeID           string                  `json:"runtime_id"`
 	RuntimeRevision     string                  `json:"runtime_revision"`
 	Reason              RuntimeProtectionReason `json:"reason"`
-	WorkspaceManifestID string                  `json:"workspace_manifest_id,omitempty"`
-	ManifestRevision    string                  `json:"manifest_revision,omitempty"`
-	WorkspaceID         string                  `json:"workspace_id,omitempty"`
+	WorkspaceTemplateID WorkspaceTemplateID     `json:"workspace_template_id"`
+	TemplateRevision    SemanticDigest          `json:"workspace_template_revision"`
+	ContextID           ContextID               `json:"context_id,omitempty"`
+	WorkspaceID         WorkspaceID             `json:"workspace_id,omitempty"`
 }
 
 func (p RuntimeProtection) Validate() error {
@@ -454,18 +456,23 @@ func (p RuntimeProtection) Validate() error {
 	if err := ValidateDigest(p.RuntimeRevision); err != nil {
 		return err
 	}
-	if p.ManifestRevision != "" {
-		if err := ValidateDigest(p.ManifestRevision); err != nil {
-			return fmt.Errorf("Runtime protection Manifest revision: %w", err)
-		}
+	if err := p.WorkspaceTemplateID.Validate(); err != nil {
+		return fmt.Errorf("Runtime protection Template: %w", err)
+	}
+	if err := p.TemplateRevision.Validate(); err != nil {
+		return fmt.Errorf("Runtime protection Template revision: %w", err)
 	}
 	switch p.Reason {
-	case RuntimeProtectedByManifestCurrent, RuntimeProtectedByManifestRetained:
-		if ValidateWorkspaceManifestID(p.WorkspaceManifestID) != nil || p.ManifestRevision == "" || p.WorkspaceID != "" {
-			return fmt.Errorf("Manifest Runtime protection owner is invalid")
+	case RuntimeProtectedByTemplateCurrent, RuntimeProtectedByTemplateRetained:
+		if p.ContextID != "" || p.WorkspaceID != "" {
+			return fmt.Errorf("Template Runtime protection owner is invalid")
+		}
+	case RuntimeProtectedByContextDesired:
+		if p.ContextID.Validate() != nil || p.WorkspaceID != "" {
+			return fmt.Errorf("Context Runtime protection owner is invalid")
 		}
 	case RuntimeProtectedByWorkspaceApplied, RuntimeProtectedByWorkspacePending, RuntimeProtectedByWorkspaceObserved:
-		if ValidateWorkspaceManifestID(p.WorkspaceManifestID) != nil || p.ManifestRevision == "" || ValidateWorkspaceID(p.WorkspaceID) != nil {
+		if p.ContextID.Validate() != nil || p.WorkspaceID.Validate() != nil {
 			return fmt.Errorf("Workspace Runtime protection owner is invalid")
 		}
 	default:
@@ -521,7 +528,7 @@ func (i RuntimeProtectionInventory) Validate() error {
 			return err
 		}
 		identity := item.RuntimeID + "\x00" + item.RuntimeRevision + "\x00" + string(item.Reason) + "\x00" +
-			item.WorkspaceManifestID + "\x00" + item.ManifestRevision + "\x00" + item.WorkspaceID
+			string(item.WorkspaceTemplateID) + "\x00" + string(item.TemplateRevision) + "\x00" + string(item.ContextID) + "\x00" + string(item.WorkspaceID)
 		if _, exists := seen[identity]; exists {
 			return fmt.Errorf("Runtime protection inventory contains duplicate evidence")
 		}

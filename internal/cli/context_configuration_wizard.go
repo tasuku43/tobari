@@ -650,14 +650,15 @@ func gitIdentitySourceIndex(source tobari.ManifestGitIdentitySource) int {
 }
 
 type configurationWizardMenu struct {
-	title       string
-	contextName string
-	current     string
-	details     []configurationWizardDetail
-	information []string
-	prompt      string
-	options     []configurationWizardOption
-	initial     int
+	title        string
+	contextName  string
+	contextLabel string
+	current      string
+	details      []configurationWizardDetail
+	information  []string
+	prompt       string
+	options      []configurationWizardOption
+	initial      int
 }
 
 func (w *terminalContextConfigurationWizard) choose(
@@ -755,7 +756,11 @@ func renderConfigurationWizardRaw(
 ) (int, error) {
 	lines := []string{selectorTitle(style, menu.title)}
 	if menu.contextName != "" {
-		lines = append(lines, selectorDetail(style, "Workspace Manifest", safeExternalText(menu.contextName), styleText))
+		label := menu.contextLabel
+		if label == "" {
+			label = "Workspace Manifest"
+		}
+		lines = append(lines, selectorDetail(style, label, safeExternalText(menu.contextName), styleText))
 	}
 	if menu.current != "" {
 		lines = append(lines, selectorDetail(style, "Current", safeExternalText(menu.current), styleText))
@@ -802,7 +807,11 @@ func selectConfigurationWizardLine(
 		return 0, err
 	}
 	if menu.contextName != "" {
-		if _, err := fmt.Fprintf(out, "Workspace Manifest: %s\n", safeExternalText(menu.contextName)); err != nil {
+		label := menu.contextLabel
+		if label == "" {
+			label = "Workspace Manifest"
+		}
+		if _, err := fmt.Fprintf(out, "%s: %s\n", safeExternalText(label), safeExternalText(menu.contextName)); err != nil {
 			return 0, err
 		}
 	}
