@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
@@ -16,6 +17,8 @@ import (
 const ExitInterrupted = 130
 
 const workspaceCleanupAttention = "Tobari cleanup needs attention; Next: tobari status."
+
+const firstEntryClassificationTimeout = 5 * time.Second
 
 func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {
 	if c == nil || c.finalDefaultPair == nil || c.finalEntryReadiness == nil || c.finalCluster == nil {
@@ -113,6 +116,10 @@ func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, 
 		_ = progress.Finish(firstEntryFailureState(err))
 		return c.failRootBeforeHandoff(ctx, err)
 	}
+	if err := rootCancellationAfterResolution(ctx, resolution); err != nil {
+		_ = progress.Finish(firstEntryFailureState(err))
+		return c.failRootBeforeHandoff(ctx, err)
+	}
 	if err := progress.Finish(tobari.FirstEntryStageSucceeded); err != nil {
 		return c.failRootBeforeHandoff(ctx, err)
 	}
@@ -129,8 +136,15 @@ func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, 
 		_ = progress.Finish(firstEntryFailureState(clusterErr))
 		return c.failRootBeforeHandoff(ctx, clusterErr)
 	}
-	resolution, err = c.finalDefaultPair.RefreshAfterCluster(ctx, resolution, clusterResult)
+	classificationContext, cancelClassification := firstEntryClassificationContext(ctx)
+	resolution, err = c.finalDefaultPair.RefreshAfterCluster(classificationContext, resolution, clusterResult)
+	cancelClassification()
 	if err != nil {
+		_ = progress.Finish(firstEntryFailureState(err))
+		return c.failRootBeforeHandoff(ctx, err)
+	}
+	if ctx.Err() != nil {
+		err = rootConfirmedCheckpointInterrupted(ctx.Err())
 		_ = progress.Finish(firstEntryFailureState(err))
 		return c.failRootBeforeHandoff(ctx, err)
 	}
@@ -164,6 +178,31 @@ func emitWorkspaceCleanupAttention(out io.Writer, outcome tobari.WorkspaceSessio
 	_, _ = fmt.Fprintln(out, workspaceCleanupAttention)
 }
 
+func firstEntryClassificationContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		return context.WithTimeout(context.Background(), firstEntryClassificationTimeout)
+	}
+	return context.WithTimeout(context.WithoutCancel(ctx), firstEntryClassificationTimeout)
+}
+
+func rootCancellationAfterResolution(ctx context.Context, resolution workspaceauthoritycmd.DefaultPairResolution) error {
+	if ctx == nil || ctx.Err() == nil {
+		return nil
+	}
+	if resolution.AuthorityChanged {
+		return rootConfirmedCheckpointInterrupted(ctx.Err())
+	}
+	return ctx.Err()
+}
+
+func rootConfirmedCheckpointInterrupted(err error) error {
+	return fault.WithClassification(fault.Wrap(
+		fault.KindUnavailable, "default_pair_initialized",
+		"Tobari confirmed setup authority before interruption; Workspace entry did not complete.", false, err,
+		fault.NextAction{Command: "status", Reason: "Observe retained setup authority before entering again."},
+	), fault.PhaseMutation, fault.ChangePartial)
+}
+
 func (c *CLI) firstUseStandardTemplateBody(ctx context.Context) (tobari.WorkspaceTemplateBody, error) {
 	if c.firstUseTemplateBody != nil {
 		return c.firstUseTemplateBody(ctx)
@@ -195,7 +234,7 @@ func (c *CLI) firstEntryClusterIntent() (operation.Intent, error) {
 
 func (c *CLI) failRootBeforeHandoff(ctx context.Context, err error) int {
 	code := c.fail(ctx, err)
-	if errors.Is(err, context.Canceled) && ctx != nil && errors.Is(ctx.Err(), context.Canceled) {
+	if ctx != nil && errors.Is(ctx.Err(), context.Canceled) {
 		return ExitInterrupted
 	}
 	return code

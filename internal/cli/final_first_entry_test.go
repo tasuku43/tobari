@@ -15,16 +15,21 @@ import (
 )
 
 type firstEntryPairFixture struct {
-	order        *[]string
-	observation  tobari.FinalDefaultPairObservation
-	resolution   workspaceauthoritycmd.DefaultPairResolution
-	resolveBody  *tobari.WorkspaceTemplateBody
-	session      tobari.WorkspaceSessionRequest
-	outcome      tobari.WorkspaceSessionOutcome
-	resolveCalls int
-	refreshCalls int
-	entryCalls   int
-	entryErr     error
+	order         *[]string
+	observation   tobari.FinalDefaultPairObservation
+	resolution    workspaceauthoritycmd.DefaultPairResolution
+	resolveBody   *tobari.WorkspaceTemplateBody
+	session       tobari.WorkspaceSessionRequest
+	outcome       tobari.WorkspaceSessionOutcome
+	resolveCalls  int
+	refreshCalls  int
+	refreshCtxErr error
+	entryCalls    int
+	cancelAt      string
+	cancel        context.CancelFunc
+	resolveErr    error
+	refreshErr    error
+	entryErr      error
 }
 
 func (f *firstEntryPairFixture) Observe(context.Context) (tobari.FinalDefaultPairObservation, error) {
@@ -35,23 +40,33 @@ func (f *firstEntryPairFixture) Observe(context.Context) (tobari.FinalDefaultPai
 func (f *firstEntryPairFixture) Resolve(_ context.Context, intent operation.Intent, body *tobari.WorkspaceTemplateBody) (workspaceauthoritycmd.DefaultPairResolution, error) {
 	f.resolveCalls++
 	*f.order = append(*f.order, "resolve")
+	if f.cancelAt == "resolve" && f.cancel != nil {
+		f.cancel()
+	}
 	if intent.Command != WorkspaceEntryCommandPath || intent.Effect != operation.EffectCreate || intent.Target.Kind != tobari.CurrentDirectoryTargetKind || intent.Target.ParentID != tobari.CurrentDirectoryTargetID {
 		panic("root resolution lost its Catalog mutation binding")
 	}
 	f.resolveBody = body
-	return f.resolution, nil
+	return f.resolution, f.resolveErr
 }
 
-func (f *firstEntryPairFixture) RefreshAfterCluster(_ context.Context, resolution workspaceauthoritycmd.DefaultPairResolution, _ workspaceauthoritycmd.FinalClusterReconciliation) (workspaceauthoritycmd.DefaultPairResolution, error) {
+func (f *firstEntryPairFixture) RefreshAfterCluster(ctx context.Context, resolution workspaceauthoritycmd.DefaultPairResolution, _ workspaceauthoritycmd.FinalClusterReconciliation) (workspaceauthoritycmd.DefaultPairResolution, error) {
 	f.refreshCalls++
+	f.refreshCtxErr = ctx.Err()
 	*f.order = append(*f.order, "refresh")
-	return resolution, nil
+	if f.cancelAt == "refresh" && f.cancel != nil {
+		f.cancel()
+	}
+	return resolution, f.refreshErr
 }
 
 func (f *firstEntryPairFixture) EnterResolved(_ context.Context, _ workspaceauthoritycmd.DefaultPairResolution, session tobari.WorkspaceSessionRequest, progress tobari.FirstEntryProgressSink, _ io.Reader, _, _ io.Writer) (workspaceauthoritycmd.ContextEntryResult, error) {
 	f.entryCalls++
 	*f.order = append(*f.order, "entry")
 	f.session = session
+	if f.cancelAt == "entry" && f.cancel != nil {
+		f.cancel()
+	}
 	if f.entryErr != nil {
 		return workspaceauthoritycmd.ContextEntryResult{}, f.entryErr
 	}
@@ -78,14 +93,18 @@ func (f *firstEntryReadinessFixture) Check(context.Context) error {
 }
 
 type firstEntryClusterFixture struct {
-	order *[]string
-	calls int
-	err   error
+	order  *[]string
+	calls  int
+	cancel context.CancelFunc
+	err    error
 }
 
 func (f *firstEntryClusterFixture) Reconcile(_ context.Context, intent operation.Intent) (workspaceauthoritycmd.FinalClusterReconciliation, error) {
 	f.calls++
 	*f.order = append(*f.order, "cluster")
+	if f.cancel != nil {
+		f.cancel()
+	}
 	if intent.Command != "cluster up" || intent.Effect != operation.EffectCreate || intent.Target.Kind != tobari.ClusterTargetKind || intent.Target.ParentID != tobari.ClusterTargetID {
 		panic("root cluster call did not consume the canonical Catalog contract")
 	}
@@ -209,6 +228,78 @@ func TestFinalRootCallerCancellationBeforeHandoffExits130(t *testing.T) {
 	}
 	if pair.resolveCalls != 0 || cluster.calls != 0 || pair.entryCalls != 0 {
 		t.Fatalf("canceled root crossed mutation: resolve=%d cluster=%d entry=%d", pair.resolveCalls, cluster.calls, pair.entryCalls)
+	}
+}
+
+func TestFinalRootCallerCancellationAtEachCanonicalPreHandoffBoundaryExits130(t *testing.T) {
+	for _, boundary := range []string{"resolve", "cluster", "refresh", "entry"} {
+		t.Run(boundary, func(t *testing.T) {
+			command, pair, _, cluster, _, _, stderr, _ := newFirstEntryCLI(t, false, false, recommendedFirstUseStart)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			switch boundary {
+			case "resolve":
+				pair.cancelAt, pair.cancel, pair.resolveErr = boundary, cancel, context.Canceled
+			case "cluster":
+				cluster.cancel, cluster.err = cancel, context.Canceled
+			case "refresh":
+				pair.cancelAt, pair.cancel, pair.refreshErr = boundary, cancel, context.Canceled
+			case "entry":
+				pair.cancelAt, pair.cancel, pair.entryErr = boundary, cancel, context.Canceled
+			}
+			if code := command.RunContext(ctx, nil); code != ExitInterrupted {
+				t.Fatalf("%s cancellation exit=%d stderr=%q", boundary, code, stderr.String())
+			}
+			if !strings.Contains(stderr.String(), "operation_canceled") || !strings.Contains(stderr.String(), "Canceled") {
+				t.Fatalf("%s cancellation classification=%q", boundary, stderr.String())
+			}
+		})
+	}
+}
+
+func TestFinalRootCallerCancellationPreservesUnknownMutationClassificationAndExits130(t *testing.T) {
+	command, _, _, cluster, _, stdout, stderr, _ := newFirstEntryCLI(t, false, false, recommendedFirstUseStart)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cluster.cancel = cancel
+	cluster.err = fault.WithClassification(
+		fault.New(fault.KindContract, "unclassified_mutation_outcome", "synthetic unknown cluster outcome", false),
+		fault.PhaseMutation, fault.ChangeUnknown,
+	)
+	if code := command.RunContext(ctx, nil); code != ExitInterrupted {
+		t.Fatalf("unknown cancellation exit=%d stderr=%q", code, stderr.String())
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "unclassified_mutation_outcome") || !humanOutputHasRow(stderr.String(), "Change state", "unknown") || !humanOutputHasRow(stderr.String(), "Retryable", "no") {
+		t.Fatalf("unknown cancellation stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestFinalRootLateCancellationAfterResolutionPreservesConfirmedAuthorityAndStops(t *testing.T) {
+	command, pair, _, cluster, _, stdout, stderr, _ := newFirstEntryCLI(t, false, false, recommendedFirstUseStart)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pair.cancelAt, pair.cancel = "resolve", cancel
+	pair.resolution.AuthorityChanged = true
+	if code := command.RunContext(ctx, nil); code != ExitInterrupted {
+		t.Fatalf("late resolution cancellation exit=%d stderr=%q", code, stderr.String())
+	}
+	if cluster.calls != 0 || pair.refreshCalls != 0 || pair.entryCalls != 0 || stdout.Len() != 0 ||
+		!strings.Contains(stderr.String(), "default_pair_initialized") || !humanOutputHasRow(stderr.String(), "Change state", "partial") || !humanOutputHasRow(stderr.String(), "Retryable", "no") {
+		t.Fatalf("late resolution cancellation cluster=%d refresh=%d entry=%d stdout=%q stderr=%q", cluster.calls, pair.refreshCalls, pair.entryCalls, stdout.String(), stderr.String())
+	}
+}
+
+func TestFinalRootLateCancellationAfterClusterUsesBoundedClassificationAndStopsBeforeEntry(t *testing.T) {
+	command, pair, _, cluster, _, stdout, stderr, _ := newFirstEntryCLI(t, false, false, recommendedFirstUseStart)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cluster.cancel = cancel
+	if code := command.RunContext(ctx, nil); code != ExitInterrupted {
+		t.Fatalf("late cluster cancellation exit=%d stderr=%q", code, stderr.String())
+	}
+	if pair.refreshCalls != 1 || pair.refreshCtxErr != nil || pair.entryCalls != 0 || stdout.Len() != 0 ||
+		!strings.Contains(stderr.String(), "default_pair_initialized") || !humanOutputHasRow(stderr.String(), "Change state", "partial") || !humanOutputHasRow(stderr.String(), "Retryable", "no") {
+		t.Fatalf("late cluster cancellation refresh=%d refresh_ctx=%v entry=%d stdout=%q stderr=%q", pair.refreshCalls, pair.refreshCtxErr, pair.entryCalls, stdout.String(), stderr.String())
 	}
 }
 
