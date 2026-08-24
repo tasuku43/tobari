@@ -24,8 +24,8 @@ Go CLI は起動時に実行可能なポリシーや Python ソースをダウ�
 埋め込み用にバイト列と内容の一致を検査する複製は、
 `internal/infra/runtimeassets/assets/` にあります。Gateway とランタイムの image contract はレビュー済みの更新・署名コードを含み、未レビューの executable が image に入ることを拒否します。
 
-埋め込みの複製は二つ目の実装ではありません。`check-gateway-source.sh`、
-`check-authbroker-source.sh`、`check-runtime-base.sh` が正本との差分を拒否します。
+埋め込みの複製は二つ目の実装ではありません。`check-gateway-source.sh` と
+`check-runtime-base.sh` が正本との差分を拒否します。
 専用 Linux `tobari-expose` と `tobari-permission` helper は、固定した Go builder と
 一つの機械的に検査する source/module closure からこの base に組み込みます。どちらも
 host executable のコピーでも、二つ目の archive でもありません。
