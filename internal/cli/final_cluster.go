@@ -13,7 +13,9 @@ import (
 )
 
 type finalClusterCLIState struct {
-	finalCluster          *workspaceauthoritycmd.FinalClusterService
+	finalCluster interface {
+		Reconcile(context.Context, operation.Intent) (workspaceauthoritycmd.FinalClusterReconciliation, error)
+	}
 	finalClusterLifecycle *workspaceauthoritycmd.FinalClusterLifecycleService
 	finalClusterRead      *workspaceauthoritycmd.FinalClusterReadService
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
+	"github.com/tasuku43/tobari/internal/domain/tobari"
 	"github.com/tasuku43/tobari/internal/infra/dockerruntime"
 	"github.com/tasuku43/tobari/internal/infra/systemdoctor"
 	"github.com/tasuku43/tobari/internal/infra/terminal"
@@ -40,20 +41,31 @@ type finalWorkspaceAuthorityAdapter struct {
 	*workspaceauthoritystore.HostLoopbackPolicyAdapter
 }
 
+type finalDefaultPairEntry interface {
+	Observe(context.Context) (tobari.FinalDefaultPairObservation, error)
+	Resolve(context.Context, operation.Intent, *tobari.WorkspaceTemplateBody) (workspaceauthoritycmd.DefaultPairResolution, error)
+	EnterResolved(context.Context, workspaceauthoritycmd.DefaultPairResolution, tobari.WorkspaceSessionRequest, tobari.FirstEntryProgressSink, io.Reader, io.Writer, io.Writer) (workspaceauthoritycmd.ContextEntryResult, error)
+}
+
+type finalWorkspaceEntryReadiness interface {
+	Check(context.Context) error
+}
+
 var (
-	_ workspaceauthoritycmd.TemplateReadPort            = (*finalWorkspaceAuthorityAdapter)(nil)
-	_ workspaceauthoritycmd.TemplateCreatePort          = (*finalWorkspaceAuthorityAdapter)(nil)
-	_ workspaceauthoritycmd.TemplateCopyPort            = (*finalWorkspaceAuthorityAdapter)(nil)
-	_ workspaceauthoritycmd.TemplateUpdatePort          = (*finalWorkspaceAuthorityAdapter)(nil)
-	_ workspaceauthoritycmd.TemplateDefaultPort         = (*finalWorkspaceAuthorityAdapter)(nil)
-	_ workspaceauthoritycmd.TemplateDeletePort          = (*finalWorkspaceAuthorityAdapter)(nil)
-	_ workspaceauthoritycmd.ContextReadPort             = (*finalWorkspaceAuthorityAdapter)(nil)
-	_ workspaceauthoritycmd.ContextCreatePort           = (*finalWorkspaceAuthorityAdapter)(nil)
-	_ workspaceauthoritycmd.ContextEnterPort            = (*finalWorkspaceAuthorityAdapter)(nil)
-	_ workspaceauthoritycmd.DefaultPairContextEnterPort = (*finalWorkspaceAuthorityAdapter)(nil)
-	_ workspaceauthoritycmd.ContextDeletePort           = (*finalWorkspaceAuthorityAdapter)(nil)
-	_ workspaceauthoritycmd.WorkspaceReadPort           = (*finalWorkspaceAuthorityAdapter)(nil)
-	_ workspaceauthoritycmd.WorkspaceDeletePort         = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.TemplateReadPort                    = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.TemplateCreatePort                  = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.TemplateCopyPort                    = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.TemplateUpdatePort                  = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.TemplateDefaultPort                 = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.TemplateDeletePort                  = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.ContextReadPort                     = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.ContextCreatePort                   = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.ContextEnterPort                    = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.DefaultPairContextEnterPort         = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.DefaultPairContextEnterProgressPort = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.ContextDeletePort                   = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.WorkspaceReadPort                   = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.WorkspaceDeletePort                 = (*finalWorkspaceAuthorityAdapter)(nil)
 )
 
 // CLI contains injected streams and application services.
@@ -82,18 +94,22 @@ type CLI struct {
 	finalContexts         *workspaceauthoritycmd.ContextService
 	finalWorkspaces       *workspaceauthoritycmd.WorkspaceService
 	finalPolicy           *workspaceauthoritycmd.PolicyMemoryService
-	finalDefaultPair      *workspaceauthoritycmd.DefaultPairService
+	finalDefaultPair      finalDefaultPairEntry
+	finalEntryReadiness   finalWorkspaceEntryReadiness
 	finalClusterCLIState
-	finalProjectRoot finalProjectRootAuthority
-	config           contextConfigurationWizard
-	contextCreate    contextCreateWizard
-	firstUse         recommendedFirstUseReviewer
-	runtimeChoice    runtimeChoiceWizard
-	authLogin        authLoginProviderSelector
-	policyReview     func(bool) *policyReviewSelector
-	policyNotify     func(io.Writer, string) error
-	serviceNotify    func(io.Writer, string) error
-	noColor          bool
+	finalProjectRoot     finalProjectRootAuthority
+	config               contextConfigurationWizard
+	contextCreate        contextCreateWizard
+	firstUse             recommendedFirstUseReviewer
+	runtimeChoice        runtimeChoiceWizard
+	authLogin            authLoginProviderSelector
+	policyReview         func(bool) *policyReviewSelector
+	policyNotify         func(io.Writer, string) error
+	serviceNotify        func(io.Writer, string) error
+	firstUseInteractive  func(io.Reader, io.Writer, io.Writer) bool
+	firstUseTemplateBody func(context.Context) (tobari.WorkspaceTemplateBody, error)
+	firstUseCustomize    func(context.Context, tobari.RecommendedFirstUseDraft) (tobari.WorkspaceTemplateBody, error)
+	noColor              bool
 }
 
 // New builds the production CLI with the Docker-backed Tobari runtime.
@@ -114,6 +130,7 @@ func New(lifetime context.Context, in io.Reader, out, errOut io.Writer) *CLI {
 		command.doctor = doctorcmd.New(systemdoctor.New(err))
 		return command
 	}
+	command.finalEntryReadiness = workspaceauthoritycmd.NewWorkspaceEntryReadinessService(runtime)
 	command.doctor = doctorcmd.New(runtime)
 	authorityRoot, err := runtime.FinalWorkspaceAuthorityRoot()
 	if err != nil {
@@ -256,6 +273,9 @@ func newCLI(in io.Reader, out, errOut io.Writer, catalog Catalog, inspector doct
 		policyReview:  newPolicyReviewSelectorWithStyle,
 		policyNotify:  terminal.WritePermissionInboxNotification,
 		serviceNotify: terminal.WriteServiceReviewNotification,
+		firstUseInteractive: func(in io.Reader, out, errOut io.Writer) bool {
+			return terminal.IsTerminal(in) && terminal.IsTerminal(out) && terminal.IsTerminal(errOut)
+		},
 	}
 }
 
@@ -516,6 +536,9 @@ func parseRootOptions(args []string) (rootOptions, []string, error) {
 			value = strings.TrimPrefix(argument, "--error-format=")
 		default:
 			if argument == "--help" || argument == "-h" || argument == "--version" || argument == "-v" {
+				return options, args[index:], nil
+			}
+			if argument == "--" {
 				return options, args[index:], nil
 			}
 			if strings.HasPrefix(argument, "--") {

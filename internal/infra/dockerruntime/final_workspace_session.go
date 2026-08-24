@@ -336,6 +336,22 @@ func (o *FinalWorkspaceSessionOwner) Run(
 	ctx context.Context, request tobari.WorkspaceSessionRequest,
 	in io.Reader, out, errOut io.Writer,
 ) (tobari.WorkspaceSessionOutcome, error) {
+	return o.run(ctx, request, in, out, errOut, nil)
+}
+
+// RunWithHandoff reports the exact point after all Tobari-owned attachment
+// setup and immediately before the child runner takes stream ownership.
+func (o *FinalWorkspaceSessionOwner) RunWithHandoff(
+	ctx context.Context, request tobari.WorkspaceSessionRequest,
+	in io.Reader, out, errOut io.Writer, handoff func(),
+) (tobari.WorkspaceSessionOutcome, error) {
+	return o.run(ctx, request, in, out, errOut, handoff)
+}
+
+func (o *FinalWorkspaceSessionOwner) run(
+	ctx context.Context, request tobari.WorkspaceSessionRequest,
+	in io.Reader, out, errOut io.Writer, handoff func(),
+) (tobari.WorkspaceSessionOutcome, error) {
 	if o == nil || o.runtime == nil || o.attachment == nil {
 		return tobari.WorkspaceSessionOutcome{}, fmt.Errorf("final Workspace session owner is unavailable")
 	}
@@ -355,10 +371,10 @@ func (o *FinalWorkspaceSessionOwner) Run(
 	if err := o.runtime.confirmExactInteractiveWorkspaceAttachment(ctx, o.principal, o.attachment.session); err != nil {
 		return tobari.WorkspaceSessionOutcome{}, fmt.Errorf("confirm exact final Workspace session owner: %w", err)
 	}
-	return o.runtime.runWorkspaceSession(
+	return o.runtime.runWorkspaceSessionWithHandoff(
 		ctx, o.principal, o.binding.SessionDefaults.ShellEnvironment,
 		o.binding.ProjectRoot, o.binding.ContainerID, request,
-		o.attachment, in, out, errOut,
+		o.attachment, in, out, errOut, handoff,
 	)
 }
 

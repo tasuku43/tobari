@@ -99,3 +99,22 @@ func TestFirstEntryProgressRejectsReorderingAndNonterminalFinish(t *testing.T) {
 		t.Fatal("backward stage was accepted")
 	}
 }
+
+func TestFirstEntryProgressAppliesTypedSinkEvents(t *testing.T) {
+	var output bytes.Buffer
+	progress := newFirstEntryProgressWithTiming(&output, false, firstEntryProgressTiming{
+		antiFlicker: time.Hour, elapsed: 2 * time.Hour, waitReason: 3 * time.Hour, heartbeat: time.Hour,
+	})
+	sink := tobari.FirstEntryProgressSink(func(event tobari.FirstEntryProgress) {
+		if err := progress.Apply(event); err != nil {
+			t.Errorf("apply progress: %v", err)
+		}
+	})
+	sink(tobari.FirstEntryProgress{Stage: tobari.FirstEntryPrepareWorkspace, State: tobari.FirstEntryStageRunning})
+	sink(tobari.FirstEntryProgress{Stage: tobari.FirstEntryPrepareWorkspace, State: tobari.FirstEntryStageSucceeded})
+	sink(tobari.FirstEntryProgress{Stage: tobari.FirstEntryEnterWorkspace, State: tobari.FirstEntryStageRunning})
+	sink(tobari.FirstEntryProgress{Stage: tobari.FirstEntryEnterWorkspace, State: tobari.FirstEntryStageSucceeded})
+	if got := output.String(); got != "✓ Prepare Workspace\n✓ Enter Workspace\n" {
+		t.Fatalf("sink progress = %q", got)
+	}
+}

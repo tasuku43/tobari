@@ -24,6 +24,10 @@ type RuntimePort interface {
 	RecoverRuntimeBuildByReference(context.Context, string, tobari.RuntimeBuildRecoveryKind) error
 }
 
+type RuntimeAuthorityListPort interface {
+	ListRuntimes(context.Context) (tobari.RuntimeListResult, error)
+}
+
 // RuntimePruneApplyPort is owned by the prune apply task. It accepts only the
 // opaque reviewed-plan authority; the adapter recovers the full plan from its
 // coherent observation, journal, or receipt.
@@ -602,6 +606,51 @@ func (s *Service) List(ctx context.Context) (tobari.RuntimeListResult, error) {
 		return tobari.RuntimeListResult{}, fault.Wrap(fault.KindContract, "invalid_runtime_list", "Runtime list is invalid", false, err)
 	}
 	return result, nil
+}
+
+// ListAuthority reads only the Runtime catalog and immutable source records.
+// It deliberately omits Docker material observation so a first-use review can
+// be canceled without touching the selected engine.
+func (s *Service) ListAuthority(ctx context.Context) (tobari.RuntimeListResult, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.RuntimeListResult{}, err
+	}
+	reader, ok := s.runtime.(RuntimeAuthorityListPort)
+	if !ok || portcheck.IsNil(reader) {
+		return tobari.RuntimeListResult{}, fault.New(fault.KindInternal, "missing_runtime", "Runtime authority catalog observation is not configured", false)
+	}
+	result, err := reader.ListRuntimes(ctx)
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return tobari.RuntimeListResult{}, err
+	}
+	if err != nil {
+		return tobari.RuntimeListResult{}, runtimeReportObservationFault(err)
+	}
+	if err := result.Validate(); err != nil {
+		return tobari.RuntimeListResult{}, fault.Wrap(fault.KindContract, "invalid_runtime_list", "Runtime authority list is invalid", false, err)
+	}
+	return result, nil
+}
+
+// BindingByReference resolves one authority-list reference unchanged and
+// returns its exact immutable revision binding without observing Docker.
+func (s *Service) BindingByReference(ctx context.Context, runtimeRef string, ordinal int) (tobari.RuntimeBinding, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.RuntimeBinding{}, err
+	}
+	if err := tobari.ValidateRuntimeRef(runtimeRef); err != nil {
+		return tobari.RuntimeBinding{}, fault.Wrap(fault.KindInvalidInput, "invalid_runtime_ref", "Runtime reference is invalid", false, err)
+	}
+	manifest, err := s.runtime.ResolveRuntimeReference(ctx, runtimeRef)
+	if err != nil {
+		return tobari.RuntimeBinding{}, runtimeReportObservationFault(err)
+	}
+	binding, err := manifest.Binding(ordinal)
+	if err != nil {
+		return tobari.RuntimeBinding{}, fault.Wrap(fault.KindRejected, "runtime_not_ready", "The selected Runtime revision is not ready", false, err,
+			fault.NextAction{Command: "review runtimes", Reason: "Choose one exact ready Runtime revision."})
+	}
+	return binding, nil
 }
 
 func (s *Service) Show(ctx context.Context, name string) (tobari.RuntimeReport, error) {

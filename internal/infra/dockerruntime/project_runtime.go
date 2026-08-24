@@ -505,6 +505,16 @@ func (r *Runtime) runWorkspaceSession(
 	session tobari.WorkspaceSessionRequest, interactiveAttachment *interactiveWorkspaceAttachment,
 	in io.Reader, out, errOut io.Writer,
 ) (outcome tobari.WorkspaceSessionOutcome, resultErr error) {
+	return r.runWorkspaceSessionWithHandoff(ctx, principal, shellSettings, cwd, container, session, interactiveAttachment, in, out, errOut, nil)
+}
+
+func (r *Runtime) runWorkspaceSessionWithHandoff(
+	ctx context.Context, principal interactiveWorkspacePrincipal,
+	shellSettings []tobari.ManifestShellEnvironmentSetting, cwd string,
+	container string,
+	session tobari.WorkspaceSessionRequest, interactiveAttachment *interactiveWorkspaceAttachment,
+	in io.Reader, out, errOut io.Writer, handoff func(),
+) (outcome tobari.WorkspaceSessionOutcome, resultErr error) {
 	if err := principal.validate(); err != nil {
 		return outcome, err
 	}
@@ -547,7 +557,7 @@ func (r *Runtime) runWorkspaceSession(
 	extraEnvironment = append(extraEnvironment, permissionChannel.environment()...)
 	code, serviceReceipt, resultErr := r.enterProjectRuntime(
 		ctx, principal, shellSettings, cwd, container, session,
-		extraEnvironment, in, out, errOut,
+		extraEnvironment, in, out, errOut, handoff,
 	)
 	outcome.ExitCode = code
 	outcome.ServiceCleanupReceipt = serviceReceipt
@@ -561,7 +571,7 @@ func (r *Runtime) enterProjectRuntime(
 	ctx context.Context, principal interactiveWorkspacePrincipal,
 	shellSettings []tobari.ManifestShellEnvironmentSetting, cwd string,
 	container string,
-	session tobari.WorkspaceSessionRequest, extraEnvironment []string, in io.Reader, out, errOut io.Writer,
+	session tobari.WorkspaceSessionRequest, extraEnvironment []string, in io.Reader, out, errOut io.Writer, handoff func(),
 ) (code int, serviceReceipt *tobari.ServiceCleanupReceipt, resultErr error) {
 	if err := principal.validate(); err != nil {
 		return 0, nil, err
@@ -635,6 +645,9 @@ func (r *Runtime) enterProjectRuntime(
 				return interactive.RunInteractive(ctx, args, os.Environ(), in, out, errOut, true)
 			}
 		}
+	}
+	if handoff != nil {
+		handoff()
 	}
 	if err := run(); err == nil {
 		return 0, serviceReceipt, nil

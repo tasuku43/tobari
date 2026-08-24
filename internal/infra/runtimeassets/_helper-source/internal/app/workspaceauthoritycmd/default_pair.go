@@ -28,6 +28,24 @@ type DefaultPairInitializePort interface {
 	InitializeFinalDefaultPair(context.Context, string, tobari.WorkspaceTemplateBody) (tobari.FinalDefaultPairPublication, error)
 }
 
+// DefaultPairResolution is one invocation-local receipt for the exact default
+// Template and canonical Project Context selected by root entry. It does not
+// create another durable authority or selection.
+type DefaultPairResolution struct {
+	Observation      tobari.FinalDefaultPairObservation
+	AuthorityChanged bool
+}
+
+func (r DefaultPairResolution) Validate() error {
+	if err := r.Observation.Validate(); err != nil {
+		return err
+	}
+	if r.Observation.DefaultTemplate == nil || r.Observation.Context == nil {
+		return fmt.Errorf("resolved final default pair is incomplete")
+	}
+	return nil
+}
+
 type DefaultPairStatus struct {
 	SchemaVersion                    int
 	Task                             string
@@ -171,9 +189,9 @@ func DefaultPairEnterImpact() operation.Impact {
 }
 
 func (s *DefaultPairService) Status(ctx context.Context) (DefaultPairStatus, error) {
-	observation, err := s.observeStable(ctx)
+	observation, err := s.Observe(ctx)
 	if err != nil {
-		return DefaultPairStatus{}, readFault(err, "default_pair_read_failed", "The final default Template and current Project pair could not be observed")
+		return DefaultPairStatus{}, err
 	}
 	result, err := NewDefaultPairStatus(observation)
 	if err != nil {
@@ -182,47 +200,123 @@ func (s *DefaultPairService) Status(ctx context.Context) (DefaultPairStatus, err
 	return result, nil
 }
 
-func (s *DefaultPairService) Enter(ctx context.Context, intent operation.Intent, standardBody tobari.WorkspaceTemplateBody, session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer) (ContextEntryResult, error) {
-	if s == nil || portcheck.IsNil(s.authority) || portcheck.IsNil(s.initialize) || s.contexts == nil {
-		return ContextEntryResult{}, missingPort("final default-pair")
+// Observe returns the stable root pair without taking a lock or creating
+// state. Root uses it only to decide whether the one fresh review is required.
+func (s *DefaultPairService) Observe(ctx context.Context) (tobari.FinalDefaultPairObservation, error) {
+	observation, err := s.observeStable(ctx)
+	if err != nil {
+		return tobari.FinalDefaultPairObservation{}, readFault(err, "default_pair_read_failed", "The final default Template and current Project pair could not be observed")
 	}
-	if err := standardBody.Validate(); err != nil {
-		return ContextEntryResult{}, invalidFault("invalid_template_body", "The reviewed first-use Template is invalid", err, "template create")
+	return observation, nil
+}
+
+// Resolve confirms an existing complete pair without mutation, or publishes
+// the reviewed fresh Template and Context through the canonical initializer.
+// A fresh body is required only for exact empty authority.
+func (s *DefaultPairService) Resolve(ctx context.Context, intent operation.Intent, freshBody *tobari.WorkspaceTemplateBody) (DefaultPairResolution, error) {
+	if s == nil || portcheck.IsNil(s.authority) {
+		return DefaultPairResolution{}, missingPort("final default-pair")
 	}
-	if err := session.Validate(); err != nil {
-		return ContextEntryResult{}, invalidFault("invalid_arguments", "Workspace session command is invalid", err, "help "+TaskDefaultPairEnter)
+	observation, err := s.observeStable(ctx)
+	if err != nil {
+		return DefaultPairResolution{}, defaultPairMutationFault(err)
+	}
+	if observation.CollectionPresent {
+		if observation.DefaultTemplate == nil {
+			return DefaultPairResolution{}, defaultPairInitializationFault(tobari.ErrDefaultTemplateSelectionRequired)
+		}
+		if observation.Context != nil {
+			resolution := DefaultPairResolution{Observation: observation.Clone()}
+			if err := resolution.Validate(); err != nil {
+				return DefaultPairResolution{}, contractFault("invalid_default_pair", "The final default pair is invalid", err)
+			}
+			return resolution, nil
+		}
+	}
+	if portcheck.IsNil(s.initialize) {
+		return DefaultPairResolution{}, missingPort("final default-pair initialization")
+	}
+	var body tobari.WorkspaceTemplateBody
+	if observation.CollectionPresent {
+		body = observation.DefaultTemplate.Current.Body.Clone()
+	} else {
+		if freshBody == nil {
+			return DefaultPairResolution{}, invalidFault("invalid_template_body", "The reviewed first-use Template is required", fmt.Errorf("fresh Template body is absent"), "help "+TaskDefaultPairEnter)
+		}
+		body = freshBody.Clone()
+	}
+	if err := body.Validate(); err != nil {
+		return DefaultPairResolution{}, invalidFault("invalid_template_body", "The reviewed first-use Template is invalid", err, "template create")
 	}
 	target := operation.TargetRef{Kind: tobari.CurrentDirectoryTargetKind, ParentID: tobari.CurrentDirectoryTargetID}
 	request := execution.Request{Intent: intent, ExpectedCommand: TaskDefaultPairEnter, ExpectedEffect: operation.EffectCreate, ExpectedTarget: target, ExpectedImpact: DefaultPairEnterImpact()}
-	var result ContextEntryResult
-	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		observation, err := s.observeStable(actionContext)
+	var resolution DefaultPairResolution
+	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		current, err := s.observeStable(actionContext)
 		if err != nil {
 			return defaultPairMutationFault(err)
 		}
-		publication, err := s.initialize.InitializeFinalDefaultPair(actionContext, observation.ProjectRoot, standardBody.Clone())
+		if !current.SameReceipt(observation) || !reflect.DeepEqual(current, observation) {
+			return defaultPairMutationFault(fmt.Errorf("final authority changed before initialization"))
+		}
+		publication, err := s.initialize.InitializeFinalDefaultPair(actionContext, current.ProjectRoot, body.Clone())
 		if err != nil {
 			return defaultPairInitializationFault(err)
 		}
-		if err := publication.ValidateFor(observation.ProjectRoot, standardBody); err != nil {
+		if err := publication.ValidateFor(current.ProjectRoot, body); err != nil {
 			return contractFault("invalid_default_pair_initialization", "The final default-pair initialization publication is invalid", err)
 		}
-		observation, err = s.observeStable(actionContext)
+		confirmed, err := s.observeStable(actionContext)
 		if err != nil {
 			return defaultPairPostInitializationFault(err, publication.Changed)
 		}
-		if !observation.SameReceipt(publication.Current) || !reflect.DeepEqual(observation, publication.Current) || observation.DefaultTemplate == nil || observation.Context == nil {
+		if !confirmed.SameReceipt(publication.Current) || !reflect.DeepEqual(confirmed, publication.Current) {
 			return defaultPairPostInitializationFault(fmt.Errorf("default-pair authority changed after initialization"), publication.Changed)
 		}
-		contextRef, _ := tobari.ContextRef(observation.Context.Context.ID)
-		entryIntent := operation.Intent{Command: TaskContextEnter, Effect: operation.EffectCreate, Target: operation.TargetRef{Kind: tobari.WorkspaceReferenceKind, ParentID: contextRef}, Impact: ContextEnterImpact()}
-		result, err = s.contexts.EnterDefaultPair(actionContext, entryIntent, observation.Clone(), session, in, out, errOut)
-		if err != nil {
+		resolution = DefaultPairResolution{Observation: confirmed.Clone(), AuthorityChanged: publication.Changed}
+		if err := resolution.Validate(); err != nil {
 			return defaultPairPostInitializationFault(err, publication.Changed)
 		}
 		return nil
 	})
-	return result, err
+	return resolution, err
+}
+
+// EnterResolved preserves the exact resolution through Context entry while
+// allowing the root composition to run canonical cluster reconciliation in
+// between. The optional sink is presentation-only.
+func (s *DefaultPairService) EnterResolved(ctx context.Context, resolution DefaultPairResolution, session tobari.WorkspaceSessionRequest, progress tobari.FirstEntryProgressSink, in io.Reader, out, errOut io.Writer) (ContextEntryResult, error) {
+	if s == nil || s.contexts == nil {
+		return ContextEntryResult{}, missingPort("final default-pair entry")
+	}
+	if err := resolution.Validate(); err != nil {
+		return ContextEntryResult{}, invalidFault("invalid_default_pair", "The final default pair is invalid", err, "status")
+	}
+	if err := session.Validate(); err != nil {
+		return ContextEntryResult{}, invalidFault("invalid_arguments", "Workspace session command is invalid", err, "help "+TaskDefaultPairEnter)
+	}
+	confirmed, err := s.observeStable(ctx)
+	if err != nil {
+		return ContextEntryResult{}, defaultPairPostInitializationFault(err, resolution.AuthorityChanged)
+	}
+	if !confirmed.SameReceipt(resolution.Observation) || !reflect.DeepEqual(confirmed, resolution.Observation) {
+		return ContextEntryResult{}, defaultPairPostInitializationFault(fmt.Errorf("default-pair authority changed before entry"), resolution.AuthorityChanged)
+	}
+	contextRef, _ := tobari.ContextRef(resolution.Observation.Context.Context.ID)
+	entryIntent := operation.Intent{Command: TaskContextEnter, Effect: operation.EffectCreate, Target: operation.TargetRef{Kind: tobari.WorkspaceReferenceKind, ParentID: contextRef}, Impact: ContextEnterImpact()}
+	result, err := s.contexts.EnterDefaultPairWithProgress(ctx, entryIntent, confirmed.Clone(), session, progress, in, out, errOut)
+	if err != nil {
+		return ContextEntryResult{}, defaultPairPostInitializationFault(err, resolution.AuthorityChanged)
+	}
+	return result, nil
+}
+
+func (s *DefaultPairService) Enter(ctx context.Context, intent operation.Intent, standardBody tobari.WorkspaceTemplateBody, session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer) (ContextEntryResult, error) {
+	resolution, err := s.Resolve(ctx, intent, &standardBody)
+	if err != nil {
+		return ContextEntryResult{}, err
+	}
+	return s.EnterResolved(ctx, resolution, session, nil, in, out, errOut)
 }
 
 func (s *DefaultPairService) observeStable(ctx context.Context) (tobari.FinalDefaultPairObservation, error) {

@@ -592,11 +592,7 @@ func (c *CLI) reviewedStandardTemplateBody(ctx context.Context) (tobari.Workspac
 	if c == nil || c.runtime == nil {
 		return tobari.WorkspaceTemplateBody{}, fault.New(fault.KindInternal, "missing_port", "The built-in Runtime authority is not configured.", false)
 	}
-	report, err := c.runtime.Show(ctx, tobari.StandardRuntimeName)
-	if err != nil {
-		return tobari.WorkspaceTemplateBody{}, err
-	}
-	binding, err := report.Runtime.Binding(1)
+	binding, err := c.runtime.BindingByReference(ctx, tobari.StandardRuntimeID, 1)
 	if err != nil {
 		return tobari.WorkspaceTemplateBody{}, err
 	}

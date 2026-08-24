@@ -25,6 +25,43 @@ func statusHomeReadErrors() []CommandError {
 		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the status snapshot composition root."))
 }
 
+func finalDefaultPairEnterErrors() []CommandError {
+	return append(finalNoOutputMutationErrors(WorkspaceEntryCommandPath, "status"),
+		classifiedCommandError(fault.KindRejected, "first_use_interactive_required", false, fault.PhasePrecondition, fault.ChangeNone, "help tobari", "Open an interactive terminal in the Project, then run tobari."),
+		classifiedCommandError(fault.KindContract, "invalid_first_use_draft", false, fault.PhasePrecondition, fault.ChangeNone, "help tobari", "Inspect the root first-use contract."),
+		classifiedCommandError(fault.KindInternal, "first_use_review_failed", false, fault.PhasePrecondition, fault.ChangeNone, "help tobari", "Open an interactive terminal and retry the reviewed first-use flow."),
+		classifiedCommandError(fault.KindContract, "invalid_first_use_action", false, fault.PhasePrecondition, fault.ChangeNone, "help tobari", "Inspect the root first-use contract."),
+		classifiedCommandError(fault.KindUnavailable, "docker_cli_unavailable", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect generic Docker readiness."),
+		classifiedCommandError(fault.KindUnavailable, "docker_engine_unavailable", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Start the selected engine externally, then retry root entry."),
+		classifiedCommandError(fault.KindUnavailable, "docker_context_unavailable", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect the selected Docker context."),
+		classifiedCommandError(fault.KindUnavailable, "docker_compose_unavailable", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect Docker Compose v2 readiness."),
+		classifiedCommandError(fault.KindUnsupported, "docker_engine_incompatible", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Use Docker Engine 24 or newer."),
+		classifiedCommandError(fault.KindContract, "invalid_readiness_profile", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Repair the closed Workspace readiness profile."),
+		classifiedCommandError(fault.KindContract, "invalid_readiness_observation", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Repair the generic Docker readiness observation."),
+		classifiedCommandError(fault.KindUnavailable, "default_pair_read_failed", false, fault.PhaseObservation, fault.ChangeNotApplicable, "status", "Observe the current default Template and Context pair."),
+		classifiedCommandError(fault.KindRejected, "default_pair_changed", false, fault.PhasePrecondition, fault.ChangeNone, "status", "Observe the current default pair before retrying."),
+		classifiedCommandError(fault.KindRejected, "default_template_required", false, fault.PhasePrecondition, fault.ChangeNone, "template list", "Discover a Template reference, then select it with template default set."),
+		classifiedCommandError(fault.KindInvalidInput, "invalid_template_body", false, fault.PhasePrecondition, fault.ChangeNone, "template create", "Review a valid Workspace Template body."),
+		classifiedCommandError(fault.KindContract, "invalid_default_pair_initialization", false, fault.PhaseVerification, fault.ChangeUnknown, "status", "Reconcile the default-pair publication before retrying."),
+		classifiedCommandError(fault.KindContract, "invalid_default_pair", false, fault.PhaseVerification, fault.ChangeUnknown, "status", "Inspect the current default pair before retrying."),
+		classifiedCommandError(fault.KindUnavailable, "default_pair_initialized", false, fault.PhaseMutation, fault.ChangePartial, "status", "Observe the confirmed default pair before entering again."),
+		classifiedCommandError(fault.KindContract, "invalid_catalog", false, fault.PhasePrecondition, fault.ChangeNone, "help cluster up", "Repair the Catalog-owned cluster activation contract."),
+		declaredCommandError(fault.KindUnavailable, "cluster_reconcile_interrupted", false, "cluster status", "Inspect the retained final activation decision."),
+		declaredCommandError(fault.KindContract, "invalid_cluster_reconciliation_result", false, "cluster status", "Inspect final authority and component state."),
+		classifiedCommandError(fault.KindUnavailable, "workspace_entry_attachment_unavailable", false, fault.PhaseAttachment, fault.ChangeConfirmed, "status", "Read the confirmed desired, applied, and active authority before another explicit entry."),
+		classifiedCommandError(fault.KindUnavailable, "workspace_entry_interrupted", false, fault.PhaseMutation, fault.ChangePartial, "status", "Read the preserved last-successful entry and active recovery authority."),
+		classifiedCommandError(fault.KindRejected, "workspace_entry_template_policy_inactive", false, fault.PhasePrecondition, fault.ChangeNone, "status", "Read the current Template policy activation before explicit cluster reconciliation."),
+		classifiedCommandError(fault.KindRejected, "workspace_entry_policy_memory_inactive", false, fault.PhasePrecondition, fault.ChangeNone, "status", "Read current and active Policy Memory authority before explicit policy reconciliation."),
+		classifiedCommandError(fault.KindUnavailable, "workspace_entry_observation_unavailable", false, fault.PhaseObservation, fault.ChangeNotApplicable, "status", "Read desired, applied, and active authority without reconciling it."),
+		classifiedCommandError(fault.KindCanceled, "workspace_entry_canceled", false, fault.PhasePrecondition, fault.ChangeNone, "status", "Read current authority before deciding whether to enter again."),
+		classifiedCommandError(fault.KindRejected, "runtime_not_ready", false, fault.PhasePrecondition, fault.ChangeNone, "review runtimes", "Choose one exact ready Runtime revision."),
+		classifiedCommandError(fault.KindRejected, "runtime_retirement_observation_unknown", false, fault.PhaseObservation, fault.ChangeNotApplicable, "doctor", "Inspect the host Runtime lifecycle state."),
+		classifiedCommandError(fault.KindContract, "invalid_runtime_list", false, fault.PhasePrecondition, fault.ChangeNone, "review runtimes", "Review the current Runtime authority catalog."),
+		classifiedCommandError(fault.KindInvalidInput, "invalid_runtime_ref", false, fault.PhasePrecondition, fault.ChangeNone, "review runtimes", "Choose one exact ready Runtime reference."),
+		classifiedCommandError(fault.KindInternal, "missing_runtime", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Configure the root Workspace-entry composition."),
+	)
+}
+
 func finalDefaultPairEnterSpec() CommandSpec {
 	return CommandSpec{
 		Path: WorkspaceEntryCommandPath, Summary: "Initialize or enter the canonical current Project's final default pair",
@@ -35,7 +72,7 @@ func finalDefaultPairEnterSpec() CommandSpec {
 			Output:        noOutput(),
 			Prerequisites: []string{"The canonical current Project root and final-only legacy absence guard are observable exactly."},
 			FixedTarget:   fixedCurrentDirectoryTarget(),
-			Errors:        finalNoOutputMutationErrors(WorkspaceEntryCommandPath, "status"),
+			Errors:        finalDefaultPairEnterErrors(),
 			Mutation:      &MutationContract{TargetKind: tobari.CurrentDirectoryTargetKind, TargetInputs: []string{}, Impact: workspaceauthoritycmd.DefaultPairEnterImpact()},
 		},
 		handler: runFinalDefaultPairEnter,

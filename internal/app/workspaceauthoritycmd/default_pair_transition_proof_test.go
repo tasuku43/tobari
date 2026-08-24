@@ -22,10 +22,10 @@ func (f *defaultPairReceiptDriftFixture) ObserveFinalDefaultPair(ctx context.Con
 		return tobari.FinalDefaultPairObservation{}, err
 	}
 	f.observations++
-	// The first pair belongs to the pre-initialization stable observation. The
-	// second pair is the required post-initialization fence immediately before
-	// nested Context entry. Return another valid receipt on its second pass
-	// without changing the fixture's authority, modelling concurrent drift.
+	// The first pair is the stable existing-pair resolution. The second pair is
+	// the application-owned fence immediately before nested Context entry.
+	// Return another valid receipt on that second pass without changing
+	// authority, modelling concurrent drift.
 	if f.observations == 4 {
 		observation.CollectionGeneration++
 		observation.CollectionRevision = digest("f")
@@ -57,7 +57,7 @@ func TestDefaultPairReceiptDriftBeforeNestedEntryMakesZeroEntryEffect(t *testing
 	if !ok || public.Code != "default_pair_changed" || public.ChangeState != fault.ChangeNone {
 		t.Fatalf("default receipt drift classification=%+v err=%v", public, err)
 	}
-	if base.initializeCalls != 1 || base.templateCreates != 0 || base.defaultWrites != 0 || base.contextCreates != 0 ||
+	if base.initializeCalls != 0 || base.templateCreates != 0 || base.defaultWrites != 0 || base.contextCreates != 0 ||
 		base.entries != 0 || base.generation != beforeGeneration {
 		t.Fatalf("receipt drift crossed nested entry or changed default authority: %+v", base)
 	}

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -149,6 +150,7 @@ type entrySessionFixture struct {
 	runErr    error
 	closeErr  error
 	outcome   tobari.WorkspaceSessionOutcome
+	handoffs  int
 }
 
 type defaultPairContextEntryPort interface {
@@ -175,6 +177,12 @@ func (s *entrySessionFixture) Run(_ context.Context, _ tobari.WorkspaceSessionRe
 		return tobari.WorkspaceSessionOutcome{}, fmt.Errorf("interactive session retained installation lifecycle lock")
 	}
 	return s.outcome, s.runErr
+}
+
+func (s *entrySessionFixture) RunWithHandoff(ctx context.Context, request tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer, handoff func()) (tobari.WorkspaceSessionOutcome, error) {
+	s.handoffs++
+	handoff()
+	return s.Run(ctx, request, in, out, errOut)
 }
 
 func (s *entrySessionFixture) Close(context.Context) error {
@@ -258,6 +266,32 @@ func TestDefaultPairEntryRechecksExactReceiptInsideLifecycleLockBeforeRuntimeEff
 	if runtime.planCalls != 0 || runtime.reconcileCalls != 0 || runtime.confirmCalls != 0 || templatePolicy.calls != 0 || memory.confirmCalls != 0 || sessions.begin != 0 || sessions.run != 0 || sessions.close != 0 {
 		t.Fatalf("drift performed runtime/session effect: runtime=%d/%d/%d activation=%d/%d session=%d/%d/%d",
 			runtime.planCalls, runtime.reconcileCalls, runtime.confirmCalls, templatePolicy.calls, memory.confirmCalls, sessions.begin, sessions.run, sessions.close)
+	}
+}
+
+func TestDefaultPairEntryProgressEndsBeforeSessionStreamHandoff(t *testing.T) {
+	previous := storeCollectionFixture(t)
+	_, _, adapter, _, _, _, _, sessions := newEntryFixture(t, previous)
+	expected, err := tobari.NewFinalDefaultPairObservation(previous, true, previous.Contexts[0].Context.ProjectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := []tobari.FirstEntryProgress{}
+	publication, err := adapter.EnterFinalDefaultPairWithProgress(
+		context.Background(), expected, tobari.NewWorkspaceShellSession(),
+		func(event tobari.FirstEntryProgress) { events = append(events, event) },
+		strings.NewReader(""), io.Discard, io.Discard,
+	)
+	if err != nil || publication.Outcome.ExitCode != 7 {
+		t.Fatalf("publication=%+v err=%v", publication, err)
+	}
+	want := []tobari.FirstEntryProgress{
+		{Stage: tobari.FirstEntryPrepareWorkspace, State: tobari.FirstEntryStageSucceeded},
+		{Stage: tobari.FirstEntryEnterWorkspace, State: tobari.FirstEntryStageRunning},
+		{Stage: tobari.FirstEntryEnterWorkspace, State: tobari.FirstEntryStageSucceeded},
+	}
+	if !reflect.DeepEqual(events, want) || sessions.handoffs != 1 || sessions.run != 1 {
+		t.Fatalf("events=%+v handoffs=%d runs=%d", events, sessions.handoffs, sessions.run)
 	}
 }
 
