@@ -3,28 +3,37 @@
 - Goal: [goal.md](goal.md)
 - Plan: [plan.md](plan.md)
 
-This is a future implementation checklist. No production implementation is
-authorized or complete in this packet.
+This is the authorized implementation checklist. Production implementation is
+started but is not complete in this packet.
 
 - Design status: Accepted/Fixed
-- Implementation status: Not started
+- Implementation status: In progress from exact accepted HEAD `dd1af498`
 
 ## Mandatory implementation-entry gate
 
-- [ ] Observe completion in the fixed order: WP01 + WP02 audit -> WP08 -> WP03
-      -> WP04 -> WP05 -> WP07 -> WP09. Record each completion handoff and do not
+- [x] Observe completion in the fixed order: WP01 + WP02 audit -> WP08 -> WP03
+      -> WP04 -> WP07 -> WP11 -> WP05 -> WP09. Record each completion handoff and do not
       partially reproduce an upstream mechanism. WP06 waits for the WP09
       summary handoff.
-- [ ] After WP07 handoff, fetch `origin/main`; record exact `HEAD`, upstream and
+- [x] After the final upstream handoff, create an independent clean worktree;
+      record exact `HEAD`, upstream and
       nominated integration commit, branch, and complete `git status`; preserve
       every unrelated change and stop if overlapping Service/identity/schema/
       Catalog/helper files remain unowned or actively changing.
-- [ ] Re-read `AGENTS.md`, ADR 0079, docs 00--04 in numeric order,
+- [x] Re-read `AGENTS.md`, docs 00--04 in numeric order, ADR 0074 and ADRs
+      0081--0084,
       `07535a9`/`428812f` promotion evidence, and the actual integrated
-      Workspace/Manifest identity, migration, promoted copy isolation, WP08
+      Context/Workspace/Template presentation identity, clean-break isolation, WP08
       recursive traversal, WP03 Runtime protection, WP04 research boundary,
       WP05 opposite-direction hostname/name, WP07 permission wait, attachment/
       registry, Service, schema/JSON/status, helper closure, and tests.
+- [x] Verify exact clean accepted baseline `dd1af498`, branch
+      `codex/wp09-service-exposure-ux`, and ancestry of WP03 `922fa792`, WP04
+      `cc5d14b`, WP07 `77c5607`, and WP11 corrective `6ccdb424` before edits.
+- [x] Fix the consumed seams: ContextID + WorkspaceID authority, Template-derived
+      presentation only, canonical attachment identity/liveness only, and a
+      distinct Service owner branch with no Permission Inbox, Policy Memory,
+      Host Loopback grant/route, Template copy/inheritance, or research state.
 - [ ] Rerun current help and empty Service review/status observations with fresh
       temporary XDG roots and only bounded read-only diagnostics. Record exact
       commit, output/schema, and zero-write evidence; create no listener,

@@ -2,19 +2,19 @@
 
 - Status: Accepted
 - Decision state: Fixed by Product Owner
-- Implementation state: Not started; implementation entry is gated by the
-  fixed upstream order and a final re-baseline
+- Implementation state: Started from the accepted integrated baseline
+  `dd1af4981f1b85fd14ed7521092d2afb4ca17eef`
 - Retention: temporary
 - Retention reason: None
 - Governing contract: `docs/00_theses.md` through `docs/04_harness.md`, ADR 0074,
-  and ADR 0079
+  and ADRs 0081 through 0084
 - Review/delete trigger: Delete after durable conclusions are promoted and the change completes
 - Successor: None
 - Owner: Tobari product, domain, and security maintainers
-- Target: A future pre-public V1 implementation slice
-- Related ADRs: ADR 0049, ADR 0055, ADR 0073, ADR 0074, and ADR 0079
-- Fixed implementation order: WP01 + WP02 completion audit -> WP08 -> WP03 ->
-  WP04 -> WP05 -> WP07 -> WP09
+- Target: The authorized pre-public V1 implementation slice
+- Related ADRs: ADR 0049, ADR 0055, ADR 0073, ADR 0074, and ADRs 0080 through 0084
+- Fixed implementation order: completed WP01 + WP02 + WP08 + WP03 + WP04 +
+  WP07 + WP11 + WP05 -> WP09
 - Promoted WP01/WP02 authority:
   [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md),
   [Theses](../../00_theses.md), [Product contract](../../01_product_contract.md),
@@ -28,6 +28,28 @@
   [ADR 0083 Host Loopback authority](../../decisions/0083-name-the-physical-host-loopback-authority.md),
   the accepted [permission-resume and attachment-session contract](../../decisions/0081-observe-reviewed-permission-from-an-attached-workspace.md), and
   [Status Home](../status-home/goal.md)
+
+### Implementation-start re-baseline
+
+- The independent worktree `/Users/tasuku/work/github.com/tasuku43/tobari-wp09`
+  and branch `codex/wp09-service-exposure-ux` start at exact clean accepted HEAD
+  `dd1af4981f1b85fd14ed7521092d2afb4ca17eef`. WP03 `922fa792`, WP04
+  `cc5d14b`, WP07 `77c5607`, WP11 corrective `6ccdb424`, and final WP05 are
+  ancestors. Historical shared integration HEAD `97dd314b` is evidence only.
+- ADR 0084 supersedes the packet's predecessor Manifest model. Current Service
+  authority binds exact `ContextID + WorkspaceID + Service AttachmentID/epoch`
+  plus trusted controller/principal, exact target, and request/exposure
+  identity. Template identity/revision and Template-derived presentation are
+  never Service mutation authority.
+- Service Exposure remains its own attachment-local owner branch. It may
+  consume canonical interactive attachment identity/liveness, but it does not
+  reuse or join the Permission Inbox registry, permission-ingestion transport,
+  nonce, endpoint, lease, ACK, or wait authority. It also consumes no Context
+  Policy Memory ownership, Host Loopback route/grant authority, Template
+  copy/inheritance state, or research-only capability.
+- Public CWD `status` remains WP06-owned. WP09 supplies only a typed bounded
+  Service summary seam and does not edit the public CWD status Catalog, human,
+  or JSON contract.
 
 ## Outcome
 
@@ -56,8 +78,8 @@ port. V1 therefore needs one unpredictable `.localhost` hostname per exposure
 while the actual listener remains bound only to `127.0.0.1`.
 
 This packet keeps the accepted security mechanism and shortens only the task
-sequence, typed state model, and presentation. It does not authorize
-implementation in this session.
+sequence, typed state model, and presentation. Production implementation was
+authorized from the exact implementation-start baseline recorded above.
 
 WP01 and WP02 have now been promoted into ADR 0079 and the governing durable
 documents and integrated by evidence commits `07535a9` and `428812f`. The

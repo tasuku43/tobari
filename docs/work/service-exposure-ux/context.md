@@ -5,6 +5,28 @@ inference. Desired behavior is not described as current behavior.
 
 ## Baseline
 
+### Authorized implementation baseline (2026-08-25)
+
+- The independent clean worktree is
+  `/Users/tasuku/work/github.com/tasuku43/tobari-wp09` on
+  `codex/wp09-service-exposure-ux` at exact accepted HEAD
+  `dd1af4981f1b85fd14ed7521092d2afb4ca17eef`.
+- `922fa792` (WP03), `cc5d14b` (WP04), `77c5607` (WP07), and `6ccdb424`
+  (WP11 direct-child correction) are verified ancestors; final WP05 is the
+  baseline HEAD. The worktree was clean before edits.
+- ADR 0084 is the current authority model: `ContextID` and `WorkspaceID` are
+  Service authority fields, while Template-derived Context presentation is a
+  display fact. Predecessor `WorkspaceManifestID` wording below is retained
+  only where it describes historical evidence and is not a target contract.
+- The final canonical interactive attachment registry supplies a bounded typed
+  identity/liveness seam. The Service controller still owns a distinct
+  AttachmentID/epoch, registry, socket, nonce, requests, grants, listeners, and
+  exposures. Permission ingestion, Permission Inbox state, Policy Memory,
+  Host Loopback route/grant state, Template copy/inheritance, and research-only
+  paths are outside that owner.
+- WP06 owns public CWD status. WP09 implements the bounded typed Service summary
+  producer only and leaves the status Catalog and renderers unchanged.
+
 - Historical predecessor-main observation, verified on 2026-08-23 after
   `git fetch origin main`.
 - Local `HEAD`, `origin/main`, and `FETCH_HEAD` were all
@@ -108,6 +130,10 @@ inference. Desired behavior is not described as current behavior.
   independent request and exposure action groups without extension.
 
 ### Promoted Workspace Manifest and applied Workspace authority
+
+> Historical model evidence only. ADR 0084 supersedes this section for the
+> implementation. The target uses Context/Workspace authority as stated in the
+> authorized baseline above and carries no public Manifest alias.
 
 - The product owner has selected **Workspace Manifest** as the public durable
   desired declaration, routine **Manifest** presentation, `manifest` and

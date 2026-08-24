@@ -2,12 +2,27 @@
 
 - Status: Accepted
 - Decision state: Fixed by Product Owner
-- Implementation state: Not started
+- Implementation state: Started from exact accepted HEAD `dd1af498`
 - Goal: [goal.md](goal.md)
 - Context: [context.md](context.md)
 - Tasks: [tasks.md](tasks.md)
 
 ## Chosen approach
+
+Implementation re-baseline: ADR 0084 supersedes the predecessor Manifest
+phrasing below. The live Service authority tuple is exact ContextID,
+WorkspaceID, Service-controller AttachmentID/epoch, trusted controller/
+principal, target, and request/exposure identity. Template-derived Context
+presentation is non-authoritative. The canonical interactive attachment is
+consumed only for typed identity/liveness; the Service controller remains a
+separate owner and does not reuse Permission Inbox/ingestion state, Policy
+Memory, Host Loopback route/grant authority, Template copy/inheritance, or any
+research-only surface. WP06 alone owns public CWD status presentation; WP09
+provides its bounded typed summary seam without editing that public command.
+
+The implementation branch is `codex/wp09-service-exposure-ux` in the
+independent worktree `/Users/tasuku/work/github.com/tasuku43/tobari-wp09`, based
+on exact clean accepted HEAD `dd1af4981f1b85fd14ed7521092d2afb4ca17eef`.
 
 Keep ADR 0074's owner, control channel, rendezvous, IPv4-loopback listener,
 HTTP/WebSocket relay, and cleanup ownership. Replace the single-shot line UI
@@ -79,10 +94,10 @@ returns a typed cleanup receipt used by the session-close presentation.
 | Host port | OS-selected random host port remains the only default and only first-slice mode |
 | Retired reads | Replace host `service requests` and helper `list` with `service status` and helper `status`; no aliases |
 | WP05 Host Loopback | Opposite direction; `host.tobari.internal` and its name are absent from Service parameters/output |
-| Domain identity | WorkspaceManifestID + WorkspaceID + AttachmentID/epoch + principal/controller + target + exact resource identity |
+| Domain identity | ContextID + WorkspaceID + Service AttachmentID/epoch + principal/controller + target + exact resource identity; Template/presentation is not authority |
 | Manifest adoption | Desired revision changes and attached-blocked adoption leave current exposures unchanged |
 | Migration | No durable Service migration; atomic private cutover after WP01's zero-live-attachment precondition |
-| Integration | WP01+02 audit -> WP08 -> WP03 -> WP04 -> WP05 -> WP07 -> WP09, then fresh actual-interface re-baseline |
+| Integration | WP01+02 + WP08 + WP03 + WP04 + WP07 + WP11 + WP05 completed; WP09 starts from exact accepted `dd1af498` after fresh interface re-baseline |
 | Manifest/Runtime copy | Copy no request, exposure, attachment, observation, or reconciliation; use no lineage/provenance to select Service authority |
 | Runtime lifecycle | Never cascade Service cleanup; active observed Workspace/container use is a fail-closed protection edge |
 | Nested output refs | Consume WP08's one recursive Catalog traversal; add no Service-specific walker |
