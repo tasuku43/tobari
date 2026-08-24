@@ -22,6 +22,33 @@ func (finalWorkspacePlanningRunner) Run(context.Context, []string, []string, io.
 	return nil
 }
 
+type finalWorkspaceAllocatedNetworkRunner struct{}
+
+func (finalWorkspaceAllocatedNetworkRunner) Run(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error {
+	return errors.New("unexpected Docker mutation")
+}
+
+func (finalWorkspaceAllocatedNetworkRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
+	if slices.Equal(args, []string{"network", "ls", "--quiet", "--no-trunc"}) {
+		return []byte(strings.Repeat("a", 64)), nil
+	}
+	if len(args) >= 2 && args[0] == "network" && args[1] == "inspect" {
+		return []byte(`[{"Subnet":"10.20.0.0/16","Gateway":"10.20.0.1"}]`), nil
+	}
+	return nil, errors.New("unexpected Docker observation")
+}
+
+func TestFinalWorkspaceSubnetInventoryAcceptsExactDockerGatewayEvidence(t *testing.T) {
+	runtime := &Runtime{runner: finalWorkspaceAllocatedNetworkRunner{}}
+	prefixes, err := runtime.observeBoundedDockerIPv4Subnets(context.Background())
+	if err != nil {
+		t.Fatalf("observe Docker subnet with exact Gateway evidence: %v", err)
+	}
+	if len(prefixes) != 1 || prefixes[0].String() != "10.20.0.0/16" {
+		t.Fatalf("unexpected bounded subnet inventory: %v", prefixes)
+	}
+}
+
 type finalWorkspaceRetirementRunner struct {
 	workspaceID         tobari.WorkspaceID
 	containerPresent    bool

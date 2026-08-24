@@ -300,7 +300,10 @@ type finalWorkspaceNetworkObservation struct {
 	} `json:"ipam"`
 	Containers map[string]struct {
 		Name        string `json:"Name"`
+		EndpointID  string `json:"EndpointID"`
+		MacAddress  string `json:"MacAddress"`
 		IPv4Address string `json:"IPv4Address"`
+		IPv6Address string `json:"IPv6Address"`
 	} `json:"containers"`
 }
 
@@ -381,7 +384,8 @@ func (r *Runtime) observeBoundedDockerIPv4Subnets(ctx context.Context) ([]netip.
 			return nil, fmt.Errorf("inspect Docker network allocation: %w: %s", err, boundedDiagnostic(config))
 		}
 		var values []struct {
-			Subnet string `json:"Subnet"`
+			Subnet  string `json:"Subnet"`
+			Gateway string `json:"Gateway"`
 		}
 		if err := decodeStrictJSON(config, &values); err != nil {
 			return nil, err
@@ -638,6 +642,9 @@ func (r *Runtime) ReconcileWorkspaceEntry(ctx context.Context, plan tobari.Works
 		if err := r.ensureFinalWorkspaceRuntimeRoot(); err != nil {
 			return err
 		}
+		if err := r.ensureFinalWorkspaceHelpers(ctx, image); err != nil {
+			return err
+		}
 		if err := r.prepareFinalWorkspaceFiles(plan, spec, gitConfig); err != nil {
 			return err
 		}
@@ -759,8 +766,39 @@ func (r *Runtime) confirmFinalWorkspaceRuntimeAssets(spec finalWorkspaceRuntimeS
 	if version, err := runtimeassets.Version(); err != nil || version != spec.AssetVersion || spec.RuntimeDirectory != filepath.Join(r.stateDirectory, "runtime", version) {
 		return fmt.Errorf("final Workspace runtime asset authority changed: %w", err)
 	}
-	for _, relative := range []string{"browser/tobari-open", "helpers/tobari-expose", "helpers/tobari-permission"} {
+	if err := r.confirmFinalWorkspaceHelperAssets(spec.RuntimeDirectory); err != nil {
+		return err
+	}
+	for _, relative := range []string{"browser/tobari-open"} {
 		path := filepath.Join(spec.RuntimeDirectory, filepath.FromSlash(relative))
+		info, err := os.Lstat(path)
+		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
+			return fmt.Errorf("final Workspace runtime asset %s is unavailable or unsafe: %w", relative, err)
+		}
+	}
+	return nil
+}
+
+func (r *Runtime) ensureFinalWorkspaceHelpers(ctx context.Context, image string) error {
+	version, err := runtimeassets.Version()
+	if err != nil {
+		return err
+	}
+	runtimeDirectory := filepath.Join(r.stateDirectory, "runtime", version)
+	if err := r.confirmFinalWorkspaceHelperAssets(runtimeDirectory); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := r.materializeWorkspaceHelpers(ctx, image); err != nil {
+		return fmt.Errorf("materialize final Workspace helpers: %w", err)
+	}
+	return r.confirmFinalWorkspaceHelperAssets(runtimeDirectory)
+}
+
+func (r *Runtime) confirmFinalWorkspaceHelperAssets(runtimeDirectory string) error {
+	for _, relative := range []string{"helpers/tobari-expose", "helpers/tobari-permission"} {
+		path := filepath.Join(runtimeDirectory, filepath.FromSlash(relative))
 		info, err := os.Lstat(path)
 		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
 			return fmt.Errorf("final Workspace runtime asset %s is unavailable or unsafe: %w", relative, err)

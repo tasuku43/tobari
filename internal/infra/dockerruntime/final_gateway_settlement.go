@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/netip"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -34,6 +35,8 @@ const (
 	finalGatewayPhasePolicy      = "policy_active"
 	finalGatewayPhaseReceipt     = "receipt_published"
 )
+
+var finalGatewayInheritedCAPath = path.Join("/", "home", "mitmproxy", ".mitmproxy")
 
 // finalGatewaySettlementCandidate binds every selectable value before an
 // effect: the complete final policy plan, exact Workspace/container/network
@@ -691,6 +694,7 @@ func validateFinalGatewayEnvironment(environment []string, profile tobari.Shared
 
 func finalGatewayMountDestinations(profile tobari.SharedClusterAppliedProfile) []string {
 	mounts := []string{
+		finalGatewayInheritedCAPath,
 		"/run/tobari/ca-public",
 		"/run/tobari/config/gateway.json",
 		"/run/tobari/host-loopback",
@@ -1122,7 +1126,10 @@ func (r *Runtime) replaceFinalGateway(ctx context.Context, candidate finalGatewa
 		return err
 	}
 	args = append(args, profileArgs...)
-	args = append(args, "up", "-d", "--no-build", "--no-deps", "--force-recreate", "opa", "gateway")
+	// OPA already belongs to the selected candidate closure. Recreating it
+	// while Gateway is replaced removes the stable Docker DNS endpoint that
+	// the new Gateway must use for its first health and policy checks.
+	args = append(args, "up", "-d", "--no-build", "--no-deps", "--force-recreate", "gateway")
 	if brokerRuntimeEnabled {
 		args = append(args, "auth-broker")
 	}
@@ -1131,9 +1138,6 @@ func (r *Runtime) replaceFinalGateway(ctx context.Context, candidate finalGatewa
 		return fmt.Errorf("replace final Gateway: %w: %s", err, boundedDiagnostic(output.Bytes()))
 	}
 	if err := r.reconcileFinalComponentTopology(ctx, gatewayContainer, "gateway", candidate.GatewayNetworks); err != nil {
-		return err
-	}
-	if err := r.reconcileFinalComponentTopology(ctx, opaContainer, "opa", candidate.OPANetworks); err != nil {
 		return err
 	}
 	if brokerRuntimeEnabled {
@@ -1148,6 +1152,12 @@ func (r *Runtime) replaceFinalGateway(ctx context.Context, candidate finalGatewa
 		if err := r.startCredentialCompanion(ctx, rootKey); err != nil {
 			return err
 		}
+	}
+	// Compose starts Gateway before the exact post-effect aliases and, on the
+	// research surface, the companion are restored. Restart only the replaced
+	// Gateway after those dependencies are exact; the selected OPA stays live.
+	if err := r.restartFinalReplacementComponents(ctx, []string{gatewayContainer}); err != nil {
+		return err
 	}
 	if err := r.waitForFinalSelectedComponents(ctx, candidate); err != nil {
 		return err
@@ -1168,7 +1178,22 @@ func finalGatewayReplacementEnvironment(environment []string, candidate finalGat
 	if brokerRuntimeEnabled {
 		result = replaceEnvironmentValue(result, "TOBARI_AUTH_BROKER_IMAGE", candidate.AuthBrokerImageID)
 	}
-	return applyFinalGatewayEnvironment(result, candidate.GatewayEnv)
+	return applyFinalGatewayComposeEnvironment(result, candidate.GatewayEnv)
+}
+
+func applyFinalGatewayComposeEnvironment(environment, selected []string) []string {
+	result := append([]string(nil), environment...)
+	for _, entry := range selected {
+		key, value, _ := strings.Cut(entry, "=")
+		switch key {
+		case "TOBARI_OPA_TIMEOUT_SECONDS", "TOBARI_UPSTREAM_TIMEOUT_SECONDS", "TOBARI_AUTH_BROKER_TIMEOUT_SECONDS":
+			result = replaceEnvironmentValue(result, key, value)
+		}
+	}
+	// Every other selected value is fixed inside the Compose service. Keeping
+	// it out of the host process environment preserves HOME (Docker's plugin
+	// discovery root) and host bind-source variables such as GatewayConfig.
+	return result
 }
 
 func applyFinalGatewayEnvironment(environment, selected []string) []string {
@@ -1208,6 +1233,45 @@ func (r *Runtime) reconcileFinalComponentTopology(ctx context.Context, container
 		if err := r.runBoundedNetworkMutation(ctx, []string{"network", "connect", "--alias", alias, "--ip", network.Address, network.Name, container}); err != nil {
 			return fmt.Errorf("connect exact final %s network: %w", alias, err)
 		}
+	}
+	return r.confirmFinalComponentTopology(ctx, container, alias, expected)
+}
+
+func (r *Runtime) confirmFinalComponentTopology(ctx context.Context, container, alias string, expected []FinalGatewayNetworkAddress) error {
+	networks, err := r.observeClusterContainerNetworks(ctx, container)
+	if err != nil {
+		return fmt.Errorf("confirm final %s network topology: %w", alias, err)
+	}
+	if len(networks) != len(expected) {
+		return fmt.Errorf("final %s network topology contains an extra or missing attachment", alias)
+	}
+	for _, want := range expected {
+		raw, present := networks[want.Name]
+		var endpoint struct {
+			IPAddress string   `json:"IPAddress"`
+			Aliases   []string `json:"Aliases"`
+		}
+		if !present || json.Unmarshal(raw, &endpoint) != nil || endpoint.IPAddress != want.Address || !slices.Contains(endpoint.Aliases, alias) {
+			return fmt.Errorf("final %s network attachment or alias differs from selected authority", alias)
+		}
+	}
+	return nil
+}
+
+func (r *Runtime) restartFinalReplacementComponents(ctx context.Context, containers []string) error {
+	restartContext, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	stdout := &boundedBuffer{limit: appliedClusterInspectLimit / 2}
+	stderr := &boundedBuffer{limit: appliedClusterInspectLimit / 2}
+	args := append([]string{"container", "restart"}, containers...)
+	if err := r.runner.Run(restartContext, args, os.Environ(), nil, stdout, stderr); err != nil {
+		return fmt.Errorf("restart exact final replacement components: %w: %s", err, boundedDiagnostic(stderr.buffer.Bytes()))
+	}
+	if stdout.overflow || stderr.overflow || len(bytes.TrimSpace(stderr.buffer.Bytes())) != 0 {
+		return fmt.Errorf("final replacement component restart output is ambiguous")
+	}
+	if lines := strings.Fields(stdout.buffer.String()); !slices.Equal(lines, containers) {
+		return fmt.Errorf("final replacement component restart confirmation is incomplete")
 	}
 	return nil
 }
@@ -1350,7 +1414,11 @@ func (r *Runtime) selectFinalGatewayNetworkAddress(ctx context.Context, network,
 			Gateway string `json:"Gateway"`
 		} `json:"ipam"`
 		Containers map[string]struct {
+			Name        string `json:"Name"`
+			EndpointID  string `json:"EndpointID"`
+			MacAddress  string `json:"MacAddress"`
 			IPv4Address string `json:"IPv4Address"`
+			IPv6Address string `json:"IPv6Address"`
 		} `json:"containers"`
 	}
 	if err := decodeStrictJSON(output, &observed); err != nil || len(observed.IPAM) != 1 {

@@ -124,6 +124,16 @@ func (r *Runtime) ensureFinalClusterBaseComponents(ctx context.Context, plan tob
 	if operation == "" || decisionRef == "" || plan.Validate() != nil {
 		return fmt.Errorf("final cluster bootstrap request is invalid")
 	}
+	// The base Compose closure bind-mounts both canonical attachment stores.
+	// Initialize their exact empty authority before Docker can create either
+	// source as a root-owned directory and before the first policy fence uses
+	// the WP07 registry as its global zero-owner proof.
+	if err := r.ensureHostLoopbackStore(ctx); err != nil {
+		return fmt.Errorf("prepare canonical Host Loopback authority: %w", err)
+	}
+	if err := r.ensureInteractiveAttachmentStore(ctx); err != nil {
+		return fmt.Errorf("prepare canonical interactive attachment authority: %w", err)
+	}
 	aggregate, _, _, err := r.buildFinalSettlementArtifacts(ctx, plan)
 	if err != nil {
 		return err
@@ -227,7 +237,7 @@ func (r *Runtime) resumeFinalClusterBootstrap(ctx context.Context, journal final
 	if brokerRuntimeEnabled {
 		environment = replaceEnvironmentValue(environment, "TOBARI_AUTH_BROKER_IMAGE", journal.AuthBrokerImage)
 	}
-	environment = applyFinalGatewayEnvironment(environment, selectedFinalGatewayEnvironment(journal.Profile))
+	environment = applyFinalGatewayComposeEnvironment(environment, selectedFinalGatewayEnvironment(journal.Profile))
 	args := []string{"compose", "--project-directory", journal.State.RuntimeDirectory}
 	args = append(args, composeFileArgs(journal.State.RuntimeDirectory)...)
 	profileArgs, err := permissionSessionComposeFileArgsForTransport(journal.State.RuntimeDirectory, transport)
@@ -242,6 +252,9 @@ func (r *Runtime) resumeFinalClusterBootstrap(ctx context.Context, journal final
 	var output bytes.Buffer
 	if err := r.runner.Run(ctx, args, environment, nil, &output, &output); err != nil {
 		return fmt.Errorf("activate fresh final cluster base: %w: %s", err, boundedDiagnostic(output.Bytes()))
+	}
+	if err := r.ensureFinalClusterBootstrapTopology(ctx); err != nil {
+		return err
 	}
 	if brokerRuntimeEnabled {
 		rootKey, err := r.unlockAuthBroker(ctx)
@@ -263,6 +276,74 @@ func (r *Runtime) resumeFinalClusterBootstrap(ctx context.Context, journal final
 	}
 	journal.Phase = finalClusterBootstrapRunning
 	return r.writeFinalClusterBootstrap(journal)
+}
+
+func (r *Runtime) ensureFinalClusterBootstrapTopology(ctx context.Context) error {
+	for _, network := range []string{"tobari-control", "tobari-egress"} {
+		if err := r.verifyOwned(ctx, "network", network); err != nil {
+			return fmt.Errorf("verify fresh final shared network %s: %w", network, err)
+		}
+	}
+	type component struct {
+		name     string
+		label    string
+		networks []string
+		connect  func(context.Context, string) error
+	}
+	components := []component{
+		{name: opaContainer, label: "OPA", networks: []string{"tobari-control"}, connect: r.ensureOPANetwork},
+	}
+	if brokerRuntimeEnabled {
+		components = append(components, component{name: authBrokerContainer, label: "Auth Broker", networks: []string{"tobari-control"}, connect: r.ensureAuthBrokerNetwork})
+	}
+	components = append(components, component{
+		name: gatewayContainer, label: "Gateway", networks: []string{"tobari-control", "tobari-egress"}, connect: r.ensureGatewayNetwork,
+	})
+
+	restart := make([]string, 0, len(components))
+	for _, item := range components {
+		observed, err := r.observeClusterContainerNetworks(ctx, item.name)
+		if err != nil {
+			return fmt.Errorf("observe fresh final %s topology: %w", item.label, err)
+		}
+		allowed := make(map[string]struct{}, len(item.networks))
+		for _, network := range item.networks {
+			allowed[network] = struct{}{}
+		}
+		for network := range observed {
+			if _, ok := allowed[network]; !ok {
+				return fmt.Errorf("fresh final %s has an unexpected network attachment", item.label)
+			}
+		}
+		changed := false
+		for _, network := range item.networks {
+			if _, ok := observed[network]; ok {
+				continue
+			}
+			if err := item.connect(ctx, network); err != nil {
+				return err
+			}
+			changed = true
+		}
+		if changed {
+			restart = append(restart, item.name)
+		}
+		confirmed, err := r.observeClusterContainerNetworks(ctx, item.name)
+		if err != nil || len(confirmed) != len(item.networks) {
+			return fmt.Errorf("confirm fresh final %s topology: %w", item.label, err)
+		}
+		for _, network := range item.networks {
+			if _, ok := confirmed[network]; !ok {
+				return fmt.Errorf("fresh final %s is missing network %s", item.label, network)
+			}
+		}
+	}
+	if len(restart) != 0 {
+		if err := r.restartFinalReplacementComponents(ctx, restart); err != nil {
+			return fmt.Errorf("restart fresh final component topology: %w", err)
+		}
+	}
+	return nil
 }
 
 func (r *Runtime) waitForFinalClusterBase(ctx context.Context, gatewayImage, opaImage, brokerImage string) error {

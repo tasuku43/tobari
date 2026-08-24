@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -218,6 +219,36 @@ func TestFinalSettlementReplaysJournaledManagedEnvironmentAcrossProcessAmbientDr
 	}
 	if brokerRuntimeEnabled && got["TOBARI_AUTH_BROKER_TIMEOUT_SECONDS"] != "83" {
 		t.Fatalf("research ambient drift selected a new Broker timeout: %v", got)
+	}
+}
+
+func TestFinalGatewayComposeEnvironmentPreservesGatewayConfigBindSource(t *testing.T) {
+	const bindSource = "/owner/state/aggregate/revision/gateway.json"
+	selected := selectedFinalGatewayEnvironment(tobari.SharedClusterProfileLoopbackTCP)
+	environment := applyFinalGatewayComposeEnvironment([]string{
+		"TOBARI_GATEWAY_CONFIG=" + bindSource,
+		"HOME=/owner/home",
+	}, selected)
+	if got := environmentValue(environment, "TOBARI_GATEWAY_CONFIG"); got != bindSource {
+		t.Fatalf("Gateway config bind source=%q want %q", got, bindSource)
+	}
+	if got := environmentValue(environment, "HOME"); got != "/owner/home" {
+		t.Fatalf("Docker plugin discovery HOME=%q want host authority", got)
+	}
+	if got := environmentValue(environment, "TOBARI_OPA_TIMEOUT_SECONDS"); got != "2" {
+		t.Fatalf("Gateway Compose timeout=%q want selected value", got)
+	}
+}
+
+func TestFinalComponentMountClosureIncludesTmpfsAndInheritedImageVolume(t *testing.T) {
+	if !strings.Contains(appliedClusterInspectTemplate, ".HostConfig.Tmpfs") {
+		t.Fatal("applied component observation omits Docker tmpfs destinations")
+	}
+	want := finalGatewayMountDestinations(tobari.SharedClusterProfileLoopbackTCP)
+	for _, destination := range []string{"/tmp", finalGatewayInheritedCAPath} {
+		if !slices.Contains(want, destination) {
+			t.Fatalf("final Gateway mount closure omits %s: %v", destination, want)
+		}
 	}
 }
 
@@ -505,14 +536,19 @@ func TestClusterAndFinalSettlementDurableDecisionsExcludeEachOtherBeforeEffects(
 }
 
 type finalGatewaySettlementRunner struct {
-	candidate      finalGatewaySettlementCandidate
-	workspaces     map[tobari.WorkspaceID]*tobari.WorkspacePolicyPrincipalAuthority
-	workspaceNets  map[tobari.WorkspaceID]string
-	onCompose      func()
-	selected       bool
-	composeCalls   int
-	policyEffects  int
-	companionEpoch string
+	candidate           finalGatewaySettlementCandidate
+	workspaces          map[tobari.WorkspaceID]*tobari.WorkspacePolicyPrincipalAuthority
+	workspaceNets       map[tobari.WorkspaceID]string
+	onCompose           func()
+	selected            bool
+	composeCalls        int
+	policyEffects       int
+	companionEpoch      string
+	replacementPending  bool
+	gatewayOPAReachable bool
+	gatewayContainerID  string
+	restartCalls        [][]string
+	replacementServices []string
 }
 
 func (r *finalGatewaySettlementRunner) workspaceResource(name string) (*tobari.WorkspacePolicyPrincipalAuthority, string) {
@@ -537,7 +573,7 @@ func (r *finalGatewaySettlementRunner) component(container string) appliedCluste
 	if container == authBrokerContainer {
 		networks := map[string]json.RawMessage{}
 		for _, network := range candidate.AuthBrokerNetworks {
-			payload, _ := json.Marshal(map[string]string{"IPAddress": network.Address})
+			payload, _ := json.Marshal(map[string]any{"IPAddress": network.Address, "Aliases": []string{"auth-broker"}})
 			networks[network.Name] = payload
 		}
 		return appliedClusterComponentObservation{
@@ -547,11 +583,15 @@ func (r *finalGatewaySettlementRunner) component(container string) appliedCluste
 	}
 	if container == opaContainer {
 		image := candidate.OPAImageID
+		health := "healthy"
+		if r.replacementPending && !r.gatewayOPAReachable {
+			health = "starting"
+		}
 		return appliedClusterComponentObservation{
 			ContainerID: strings.Repeat("e", 64), Owner: ownerValue, Component: "opa", ImageID: image,
-			State: "running", Health: "healthy", Environment: []string{"PATH=/usr/bin"},
+			State: "running", Health: health, Environment: []string{"PATH=/usr/bin"},
 			MountDestinations: finalOPAMountDestinations(),
-			Networks:          map[string]json.RawMessage{"tobari-control": json.RawMessage(`{"IPAddress":"172.28.0.3"}`)},
+			Networks:          map[string]json.RawMessage{"tobari-control": json.RawMessage(`{"IPAddress":"172.28.0.3","Aliases":["opa"]}`)},
 		}
 	}
 	image := "sha256:" + strings.Repeat("f", 64)
@@ -560,12 +600,20 @@ func (r *finalGatewaySettlementRunner) component(container string) appliedCluste
 	}
 	networks := make(map[string]json.RawMessage, len(candidate.GatewayNetworks))
 	for _, network := range candidate.GatewayNetworks {
-		payload, _ := json.Marshal(map[string]string{"IPAddress": network.Address})
+		payload, _ := json.Marshal(map[string]any{"IPAddress": network.Address, "Aliases": []string{"gateway"}})
 		networks[network.Name] = payload
 	}
+	health := "healthy"
+	if r.replacementPending && !r.gatewayOPAReachable {
+		health = "starting"
+	}
+	containerID := r.gatewayContainerID
+	if containerID == "" {
+		containerID = candidate.ReviewedGateway
+	}
 	return appliedClusterComponentObservation{
-		ContainerID: candidate.ReviewedGateway, Owner: ownerValue, Component: "gateway", Role: gatewayRole, ImageID: image,
-		State: "running", Health: "healthy", Environment: append([]string{"PATH=/usr/bin"}, candidate.GatewayEnv...),
+		ContainerID: containerID, Owner: ownerValue, Component: "gateway", Role: gatewayRole, ImageID: image,
+		State: "running", Health: health, Environment: append([]string{"PATH=/usr/bin"}, candidate.GatewayEnv...),
 		MountDestinations: finalGatewayMountDestinations(candidate.Profile),
 		Networks:          networks,
 	}
@@ -586,6 +634,21 @@ func (r *finalGatewaySettlementRunner) Run(_ context.Context, args, _ []string, 
 		}
 		r.selected = true
 		r.composeCalls++
+		if index := slices.Index(args, "--force-recreate"); index >= 0 {
+			r.replacementServices = append([]string(nil), args[index+1:]...)
+			r.gatewayContainerID = strings.Repeat(strconv.Itoa(r.composeCalls%8+1), 64)
+			r.replacementPending = true
+			r.gatewayOPAReachable = false
+		}
+		return nil
+	}
+	if len(args) >= 3 && args[0] == "container" && args[1] == "restart" {
+		r.restartCalls = append(r.restartCalls, append([]string(nil), args[2:]...))
+		r.gatewayOPAReachable = true
+		r.replacementPending = false
+		for _, container := range args[2:] {
+			_, _ = io.WriteString(out, container+"\n")
+		}
 		return nil
 	}
 	if slices.Contains(args, "authbroker.control") {
@@ -605,6 +668,11 @@ func (r *finalGatewaySettlementRunner) Run(_ context.Context, args, _ []string, 
 			}
 		}
 		_, _ = fmt.Fprintf(out, `{"schema_version":1,"ok":true,"state":%q,"epoch_id":%q}`+"\n", state, epoch)
+		return nil
+	}
+	if len(args) >= 4 && args[0] == "inspect" && args[2] == "{{json .NetworkSettings.Networks}}" {
+		payload, _ := json.Marshal(r.component(args[len(args)-1]).Networks)
+		_, _ = out.Write(payload)
 		return nil
 	}
 	if len(args) >= 2 && args[0] == "inspect" {
@@ -1022,6 +1090,19 @@ func TestFinalReviewedPolicyAuthorityUsesOneGlobalReceiptForHTTPAndGraphQL(t *te
 	if err != nil || receipt.Validate() != nil || runner.composeCalls != beforeCompose+1 {
 		t.Fatalf("receipt=%#v compose=%d→%d err=%v validate=%v", receipt, beforeCompose, runner.composeCalls, err, receipt.Validate())
 	}
+	if !runner.gatewayOPAReachable {
+		t.Fatal("replacement settlement did not restore Gateway-to-OPA reachability")
+	}
+	wantReplacement := []string{"gateway"}
+	if brokerRuntimeEnabled {
+		wantReplacement = append(wantReplacement, "auth-broker")
+	}
+	if !slices.Equal(runner.replacementServices, wantReplacement) {
+		t.Fatalf("replacement services=%v want=%v", runner.replacementServices, wantReplacement)
+	}
+	if len(runner.restartCalls) == 0 || !slices.Equal(runner.restartCalls[len(runner.restartCalls)-1], []string{gatewayContainer}) {
+		t.Fatalf("replacement restart order=%v", runner.restartCalls)
+	}
 	plan, err := tobari.BuildReviewedWorkspacePolicyProjection(next, []tobari.ContextID{finalProjectionContextID, "01912345-6789-7abc-8def-0123456789d2"})
 	if err != nil {
 		t.Fatal(err)
@@ -1318,6 +1399,9 @@ func TestFinalGatewaySettlementNoOpUsesOPAOnlyWithoutComponentReplacement(t *tes
 		NextGeneration: journal.NextGeneration, NextRevision: journal.NextRevision,
 		PreviousActive: &active, PreviousPrincipals: registry, Candidate: journal.Candidate,
 	}
+	// A later action observes the replacement's current container identity;
+	// reusing the predecessor candidate would not model a real prepared action.
+	noOp.Candidate.ReviewedGateway = active.Material.Gateway.ContainerID
 	if err := runtime.writeFinalGatewaySettlementJournal(noOp); err != nil {
 		t.Fatal(err)
 	}
