@@ -13,7 +13,7 @@ transcripts as repository fixtures.
 | Choose and retire a Workspace Template | `template list`, `template show`, `template copy`, `template default set`, `template delete` | Human list identifies the default; copy consumes one exact immutable revision reference and publishes a fresh generation-1 ID with no lineage or lower-lifetime copy; changing the default does not retarget Contexts or Workspaces, and deletion rejects default or Context-bound Templates |
 | Prepare a reusable Runtime source | `runtime list`, then `runtime create --copy-source-from NAME --name NAME` | Scoped help identifies `standard` or one managed current editable source; creation returns a fresh Runtime ID with empty history and no lineage, performs no build or Manifest/Workspace change, and needs zero revision decoding or source reconstruction |
 | Review, reclaim, and recover Runtime material | `review runtimes`; `runtime prune dry-run`, then `runtime prune apply --plan PLAN_REF --confirm=prune`; `runtime restore --id REVISION_REF`; `runtime delete --id RUNTIME_REF --confirm=delete` | One scoped help read plus one local discovery yields every exact opaque input; dry-run is zero-write and exhaustive, apply consumes the unchanged plan, restore reconstructs exact retained content, and whole deletion preserves Manifest, Workspace, Workspace home, project, and credential authority while protected, unknown, shared, or standard targets fail closed |
-| Enter bounded work | `tobari` or `tobari -- COMMAND [ARG...]`; explicit `cluster up` remains available | The root command binds canonical CWD plus the exact installation-default Template, creates only the missing final Context/Workspace authority through its reviewed path, and enters one reusable Workspace; the direct form runs exact foreground argv without a shell, returns its status to the host, and leaves the Workspace reusable |
+| Enter bounded work | `tobari` or `tobari -- COMMAND [ARG...]`; nondefault entry is `context enter --id CONTEXT_REF [-- COMMAND...]` | Empty authority receives one interactive no-authority Start/Customize/Cancel review, then root composes the canonical default Template/Context, cluster, Workspace entry, and handoff boundaries with five checkpoint-local stderr stages; direct entry preserves exact argv and child status, while every failed or interrupted boundary leaves one causal Catalog action or typed condition and no blind replay |
 | Understand authority lifetime | `context show --id CONTEXT_REF`, `policy rules`, and Host Loopback capability/review output | Routine guidance distinguishes Workspace Template policy, remembered Context decisions, and this-session Host Loopback access without requiring baseline, overlay, principal, epoch, or grant reconstruction; typed output retains exact destination kind and authority lifetime |
 | Grow exact permission | `review permissions`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Workspace Manifest/project/scheme/host/port/method/path authority |
 | Resume after reviewed denial | In the attached Workspace run the exact `tobari-permission wait --id pwt_...` printed by one eligible ordinary HTTP/HTTPS denial; in a separate trusted-host terminal review and Apply; after `Allow`, deliberately retry the workload | Wait returns only `Allow`, `Deny`, or lease `Expired`; the helper has no proposal, decision, mutation, discovery, or retry authority; the fresh request receives an independent Gateway authorization |
@@ -47,15 +47,14 @@ task integration:test
 
 TOBARI_BIN=bin/tobari
 "$TOBARI_BIN" help --format agent
-"$TOBARI_BIN" help manifest --format agent
-"$TOBARI_BIN" manifest create --name writable \
-  --source-access read-write \
-  --native-readiness enabled --format json
-"$TOBARI_BIN" manifest create --name restricted \
-  --source-access read-only \
-  --native-readiness disabled --format json
-"$TOBARI_BIN" manifest show --name writable --format json
-"$TOBARI_BIN" manifest show --name restricted --format json
+"$TOBARI_BIN" help tobari --format agent
+"$TOBARI_BIN" status --format json
+# In one interactive terminal, review Start/Customize/Cancel, choose Start,
+# and preserve the direct child's exact successful status.
+"$TOBARI_BIN" -- /bin/true
+"$TOBARI_BIN" status --format json
+"$TOBARI_BIN" template list --format json
+"$TOBARI_BIN" context list --format json
 ```
 
 Record the invocation count, source of every input, output field consumed by the
@@ -90,7 +89,7 @@ history readiness separate from head availability, and contains no
 `revision`, `image`, `image_digest`, or `snapshot_path` field. Verify dry-run
 leaves a fresh XDG tree byte-identical and makes no
 Docker mutation, while a confirmed prune applies only the unchanged plan.
-Exercise one protected current or retained Manifest edge, Workspace applied,
+Exercise one protected current or retained Template revision edge, Workspace applied,
 pending, and observed edges, external/shared image use, an unavailable retained
 revision, and an unused zero-revision Runtime. Restore must publish only the
 recorded digest and leave history unchanged. Whole deletion must preserve every
@@ -108,12 +107,25 @@ the child observes the exact argv and status, no shell is inserted, and the
 next host command runs instead of entering Workspace Bash. Also verify bare
 `--` performs no setup or Workspace mutation.
 
+For the fixed seven-row first-entry evaluator, begin with empty final authority
+and no installation default. Verify review precedes every readiness/state/Docker
+call and exposes exactly Start Workspace, Customize, and Cancel. Start must
+produce the five ordered stages `check_requirements`, `resolve_context`,
+`prepare_protection`, `prepare_workspace`, and `enter_workspace`; each success
+marker proves only its exact receipt. Repeat with an unavailable Engine, known
+stopped cluster, default-pair partial result, unknown cluster result, explicit
+Context entry, and a second known-safe root invocation. Record the one primary
+Next or typed condition at every stop, and prove no classifier points to itself
+or authorizes mutation after an unknown outcome. The evaluator has exactly
+E1-E7 and may not grow by inventing another public concept.
+
 For causal failure recovery, run the same typed Docker-unavailable fixture in
 human and JSON error formats. Verify identical `kind`, `code`, `phase`,
 `change_state`, retryability, and exact `doctor` action; no provider name,
 context name, socket path, or raw cause may appear. The failure must occur after
-first-use review and before Workspace Manifest creation, with zero Workspace Manifest, cluster,
-Workspace, network, and Docker mutations. Replay Engine versions 23, 24, and a
+first-use review and before Template/default/Context publication, with zero
+Template, Context, cluster, Workspace, network, and Docker mutations. Replay
+Engine versions 23, 24, and a
 malformed value through the generic observation port. After any mutation fault
 whose state is `partial`, `confirmed`, or `unknown`, execute its declared read
 before choosing another mutation. A direct child's nonzero status remains the

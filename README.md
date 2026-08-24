@@ -19,12 +19,12 @@ pinned Gateway and agent-ready base locally from embedded source recipes.
   host-managed credentials are not exposed to a Workspace.
 - The selected source bind is exactly `read-only` or `read-write`; Workspace
   home and tmpfs remain writable.
-- Learned permission is exact Workspace Manifest, project, scheme, host, port, method, and
+- Learned permission is exact Context, Workspace, scheme, host, port, method, and
   raw path. A declared GraphQL endpoint adds operation type and root field.
   Signed AWS Query/JSON RPC adds only wire protocol, SigV4 service, and exact
   operation; Tobari does not need an AWS service catalog or infer IAM/read-write
   semantics.
-- A Workspace Manifest method policy gives every HTTP method one `allow`, `exact_review`,
+- A Workspace Template method policy gives every HTTP method one `allow`, `exact_review`,
   or `deny` decision beneath an independent immutable destination ceiling.
   Terminal destination and method Deny decisions precede baseline data,
   learned policy, and Advanced Rego.
@@ -44,7 +44,7 @@ pinned Gateway and agent-ready base locally from embedded source recipes.
 
 Tobari does not claim filesystem integrity for a read-write source or for
 overlapping roots. A read-only source is a live bind, not a snapshot: host
-changes and same-root read-write Workspace Manifest changes remain observable. Allowed
+changes and same-root read-write Workspace changes remain observable. Allowed
 destinations can receive payload chosen by the Workspace. Docker/kernel escape,
 multi-tenant production isolation, raw TCP, UDP, QUIC, recursive DNS, Git SSH,
 clone/overlay/apply-back, and process-level identity are outside V1.
@@ -103,154 +103,103 @@ On first use, `tobari` shows one recommended review for the canonical project:
 direct read-write project access, routine Claude Code and Codex traffic,
 exact review for other requests, private-destination denial, `standard@1`, no
 host import, and Bash or the exact requested executable. **Start Workspace**
-creates that reviewed `default` Workspace Manifest, prepares Gateway and OPA, and enters.
-**Customize** opens the complete six-stage Workspace Manifest wizard with those values
-prefilled; host AWS or EKS files are still read only after an explicit
-Configure from host choice.
-Customization remains a prepare-first flow: create and build a managed Runtime,
-then select its ready revision during Workspace Manifest creation or through
-`manifest runtime set`.
+publishes the reviewed `default` Workspace Template, selects it as the
+installation default, creates this Project's Context, prepares Gateway and OPA,
+reconciles the Workspace, and enters it. **Customize** edits the same complete
+Template draft before those mutations. The draft has no identity or authority
+until Start is confirmed, and no host configuration is imported implicitly.
 
-The individual operations remain available for automation and advanced use:
+Progress is written to Tobari-owned stderr before child handoff. It has five
+checkpoint-local lines: Check requirements, Save setup or Use Context, Prepare
+protection, Prepare Workspace, and Enter Workspace. A completed line proves
+only that checkpoint. Long work shows bounded elapsed/wait information, not a
+percentage or ETA. If setup fails or is interrupted, the fault preserves known
+Template, Context, cluster, and Workspace facts and gives one causal Next.
+
+The same authorities remain available through exact advanced commands:
 
 ```sh
-# Create the envelope deterministically for automation.
-tobari manifest create --name default \
-  --runtime standard \
-  --mode guided \
-  --source-access read-write \
-  --native-readiness enabled
+# Inspect reusable setup and Project-specific Contexts.
+tobari template list
+tobari context list
 
 # Reconcile shared services explicitly when automation owns the sequence.
 tobari cluster up
 
-# Optionally snapshot one secret-free AWS IAM Identity Center profile for new Workspaces.
-tobari config bootstrap aws --profile engineering
-
-# Optionally compose one reviewed EKS context using that same AWS profile.
-tobari config bootstrap kubernetes eks --kube-context engineering
-
-# Create/reuse and enter the Workspace.
-tobari
+# Enter a non-default Context by its unchanged opaque reference.
+tobari context enter --id <context-ref>
+tobari context enter --id <context-ref> -- claude
 ```
-
-Interactive text creation treats supplied flags as prefilled stages and asks
-only for the remaining Workspace Manifest boundary before Review & Create. For example,
-`--name default` starts at Filesystem rather than silently applying every
-omission default. Redirected and JSON creation never prompts and requires the
-complete direct group shown above; Workspace bootstrap remains an optional
-explicit addition.
-
-The reviewed flow owns its visible defaults, including `read-write`, the fixed
-Workspace Manifest method policy, enabled native readiness, `standard@1`, and no Workspace
-bootstrap. New Workspace Manifests persist the
-normalized Workspace Manifest policy revision and the separate readiness choice. The
-agent-ready compatibility baseline is composed by the trusted binary; it is
-not a selectable profile or catalog entry.
 
 With no command, Tobari enters Bash as before. After `--`, it passes the command
 and every argument directly to Docker without shell expansion or reparsing.
 The command is a foreground child exec, not container PID 1. When it exits,
 Tobari returns its exact status to the host shell instead of opening Bash.
+On a fresh Project, a direct command still goes through the one interactive
+review. After authority exists, `tobari -- claude`, `tobari -- codex exec ...`,
+and `tobari -- gh auth login` are routine direct-entry forms.
+
+Native clients sign in inside the persistent Workspace home after policy is
+applied. Tobari never inspects or copies a host credential. A fresh interactive
+shell shows this once; a direct command relies on the client's own prompt.
 
 Leaving the child shell or direct command detaches only the session. The
 Workspace and persistent home remain available:
 
 ```sh
-tobari                 # resume
-tobari status          # observe
-tobari delete          # remove Workspace runtime/home, preserve project files
+tobari                    # resume the default Context
+tobari status             # observe without reconciliation
+tobari workspace list     # obtain the exact Workspace reference
+tobari workspace delete --id <workspace-ref> --confirm=delete
 ```
 
-Use `tobari delete --force` only when intentionally terminating another
-attached session. `cluster down` requires all Workspaces to be deleted first.
+Add `--force` to the exact `workspace delete` only when intentionally
+terminating its attached session. `cluster down` requires all Workspaces to be
+deleted first.
 
-## Workspace Manifests
+## Workspace Templates, Contexts, and Workspaces
 
-A Workspace Manifest is one reusable Workspace definition. Every Workspace created with
-its stable ID stays bound to that definition identity. The Workspace Manifest contains:
+A Workspace Template is one reusable static setup with a stable ID and complete
+immutable revisions. It owns the source/network Boundary, baseline policy,
+exact Runtime revision, and typed entry/session/creation defaults. It owns no
+Project, learned decision, Workspace home, authentication, attachment, applied
+receipt, or observation.
 
-- an immutable creation-time Boundary: `source_access: read-only|read-write`,
-  guided or Advanced policy mode, one Workspace Manifest-owned normalized policy snapshot
-  and SHA-256 revision, and native-readiness participation;
-- one exact Runtime binding that `manifest runtime set` may replace for adoption
-  on the next Workspace entry while preserving identity and home;
-- narrow shell/Git session defaults resolved on later entry or child sessions;
-- an optional secret-free bootstrap creation default applied only to future
-  Workspace homes;
-- one read-only agent profile.
-
-The manifest contains no credential or host CLI state. Native credentials are
-created later by tools inside each Workspace home.
-`manifest default set` changes only the default for later omitted Workspace Manifest selections; it
-does not retarget existing Workspaces.
+A Context is the durable binding between one canonical Project root and one
+Template ID. Its Policy Memory retains that Project's reviewed decisions across
+Workspace replacement. A Workspace is the replaceable applied instance and
+persistent home for one Context. These identities and lifetimes are distinct;
+names, roots, generations, images, containers, and timestamps never authorize a
+mutation.
 
 ```sh
-tobari manifest list
-tobari manifest show --name default
-tobari manifest default set --name default
-tobari manifest delete --name disposable
+# Discover exact opaque references.
+tobari template list
+tobari template show --id <template-ref>
+tobari context list
+tobari context show --id <context-ref>
+tobari workspace list
 
-# Copy the default Manifest's exact current revision into a new independent Manifest.
-tobari manifest create --copy-from default --name restricted
+# Copy one exact immutable Template revision into a fresh independent Template.
+tobari template copy --from <template-revision-ref> --name restricted
 
-tobari config bootstrap aws --refresh --manifest default
-tobari config bootstrap kubernetes eks --refresh --manifest default
-
-# The same root can have another independent Workspace Manifest-bound Workspace.
-tobari --manifest restricted
+# Bind the current Project to one Template, then enter by exact Context reference.
+tobari context create --template <template-ref>
+tobari context enter --id <context-ref> -- codex exec "Fix the failing tests"
 ```
 
-`manifest list` renders one result-first card per Manifest: default marker,
-effective Access, exact Runtime, and an action marker when needed. `manifest
-show` keeps ordinary text focused on fixed Boundary, next-entry Runtime,
-later-entry/session and new-home-only Workspace defaults, Workspace-tool login
-ownership, and exact Details/Next commands; add
-`--details` for the complete sectioned host diagnostic. JSON is already
-complete and is unchanged by that flag. `manifest delete` accepts only an additional
-non-default Workspace Manifest with no bound Workspace. It preserves project files and
-shared runtime images; the foundational `default` Workspace Manifest has no delete path.
+`template default set --id <template-ref>` changes only later bare root/status
+selection. It never retargets an existing Context or Workspace. Template copy
+records no lineage and copies no Context, Policy Memory, Workspace, home,
+authentication, applied, failure, observed, or default state. Reads are
+observational: Template mutation does not activate cluster policy, and Context
+mutation does not reconcile a Workspace.
 
-### Source access
-
-`read-write` permits source reads and mutation. `read-only` permits reads but
-denies create/change/delete, mode changes, and Git metadata writes through the
-source bind. In both cases the Workspace home and tmpfs stay writable. Tobari
-adds no writable source alias, and reconciliation includes the access mode in
-the runtime spec/hash and Docker inspection.
-
-### Workspace Manifest policy and native readiness
-
-Native readiness is an independent immutable creation-time Boundary choice and
-defaults to `enabled`; use `--native-readiness disabled` for an intentionally
-strict Workspace Manifest. Its finite exact overlay never overrides the Workspace Manifest-owned policy:
-destination and method Deny decisions filter it, and exact Deny still wins.
-
-Workspace Manifest creation collects one complete HTTP method `default` plus exact
-`overrides`. Unknown and extension methods receive that default. Routine
-`manifest list` and `manifest show` text summarizes the effective decisions;
-`manifest show --details` and JSON retain the immutable `policy_revision` and
-complete policy diagnostics. There is no user-selectable policy catalog.
-
-The fixed agent-ready baseline is trusted-binary data composed into each new
-Workspace Manifest snapshot. It supplies the reviewed Claude Code, Codex, GitHub CLI, TWG,
-and pup compatibility routes when the corresponding clients are present, but
-it is not a reusable profile and does not install any client. Workspace Manifest method
-choices can express deny-only, exact-review, GET-only, or other bounded
-postures. Method Allow is Workspace Manifest-wide rather than process identity, and exact
-Deny still overrides it. A terminal denial creates no candidate and makes zero
-external DNS, Broker-resolution, or upstream calls.
-
-Workspace Manifest policy snapshots are strict owner-only schema-V1 non-executable data.
-They reject wildcard, IP/private destination, secret, shell, Rego, include,
-inheritance, remote fetch, refresh, signing, symlink, unsafe-mode, and unknown
-fields. Creation normalizes, validates, digests, and stores the snapshot at
-`contexts/<name>/policy/context.json`; later changes cannot rewrite an existing
-Workspace Manifest. Native readiness is the exception: when enabled, it selects the
-installed binary current reviewed overlay without rewriting the snapshot.
-Run `tobari cluster up` after a binary upgrade to activate that overlay; until
-then status marks the older projection invalid and root entry fails closed with
-the same recovery command.
+`read-write` source access permits source mutation; `read-only` denies source
+create/change/delete, mode, and Git-metadata writes while leaving Workspace
+home and tmpfs writable. The immutable Template Boundary also fixes terminal
+destination and method ceilings. Baseline policy and native client readiness
+cannot widen those ceilings, and exact Deny remains terminal.
 
 ## Permission workflow
 
@@ -258,12 +207,12 @@ Tobari presents network authority in three user-facing layers:
 
 | Layer | What it means |
 |---|---|
-| Workspace Manifest Access | The creation-time destination and method Boundary, plus the routine client traffic admitted inside it |
-| Remembered Workspace decisions | Host-reviewed Allow and exact Deny choices for this Workspace Manifest and Workspace; they remain until `policy reset` |
+| Workspace Template Access | The immutable destination and method Boundary plus reviewed baseline policy |
+| Remembered Context decisions | Host-reviewed Allow and exact Deny choices in one Context's Policy Memory; they remain until `policy reset` |
 | This-session Host Loopback access | Exact access to physical-host loopback for the active attachment only; it disappears when the owning attachment exits |
 
 The third layer is a separate closed branch, not a temporary widening of
-ordinary Internet access. Ordinary Workspace Manifest and remembered authority cannot
+ordinary Internet access. Ordinary Template and Context authority cannot
 authorize Host Loopback, and Host Loopback decisions cannot authorize an
 ordinary destination.
 
@@ -292,7 +241,7 @@ The attached Workspace reserves no Tobari key prefix. `Ctrl+]` and all other
 input remain child-owned, so Permission Inbox stays in this separate trusted-host
 terminal rather than replacing a shell or full-screen child's presentation.
 
-The Permission Inbox groups by validated Workspace Manifest/Workspace identity. One distinct
+The Permission Inbox groups by validated Context/Workspace identity. One distinct
 path remains exact. After a second compatible distinct HTTP path, Inbox proposes
 a single-segment `/path/{id}` template. Inspect its examples and explicit future
 scope. Exact Allow or Deny can be staged and cleared directly from the raw list;
@@ -404,15 +353,15 @@ The socket still binds only IPv4 `127.0.0.1` on an OS-selected port. Only the
 exact generated Host authority admits HTTP/1.1 and WebSocket Upgrade. Tobari
 does not rewrite Host, Origin, redirects, cookies, headers, or content. The
 attachment owns the listener: exit closes it and active connections. Approval
-is not saved as Workspace Manifest policy or a remembered Workspace decision, and the
+is not saved as Workspace Template policy or a remembered Context decision, and the
 helper cannot choose a host port, publish to the LAN, or expose raw TCP.
 The Workspace helpers are dedicated engine-native Linux programs built into
 Tobari's verified base Runtime and mounted read-only even when the Workspace
-Manifest selects a custom Runtime; they are not host release executables or
+Template selects a custom Runtime; they are not host release executables or
 archive members.
 
-Advanced Workspace Manifests may add trusted-host Rego constraints, but Advanced Rego is
-beneath the Workspace Manifest policy ceiling and cannot redefine exact learned identity or the
+Advanced Workspace Templates may add trusted-host Rego constraints, but Advanced Rego is
+beneath the Workspace Template policy ceiling and cannot redefine exact learned identity or the
 Tobari-owned router.
 
 ## Authentication
@@ -433,7 +382,7 @@ persist their own login state below that Workspace's `HOME=/var/lib/tobari`.
 The state is available to every process in the same Workspace, is not shared
 with another Workspace, and is deleted with the Workspace. Tobari never mounts
 or copies host CLI homes, host token caches, credential helpers, keychains, or
-credential environment variables. A reviewed secret-free Workspace Manifest bootstrap is
+credential environment variables. A reviewed secret-free Workspace Template bootstrap is
 configuration only; it imports no authentication state.
 
 For pinned native clients, the attachment-scoped bridge may open one strictly
@@ -464,18 +413,19 @@ re-enter the Workspace normally when needed.
 The repository retains an unsupported, unpublished Auth Broker research
 surface for development only. It is absent from the standard and release
 surfaces and
-cannot be enabled by a runtime flag, Runtime input, Manifest revision,
+cannot be enabled by a runtime flag, Runtime input, Template revision,
 Workspace state, or renamed executable. Contributors must build the research
 surface explicitly:
 
 ```sh
 task build:dev
-bin/tobari-research auth login --provider github --manifest default
-bin/tobari-research auth status --manifest default
-bin/tobari-research auth logout github --manifest default
+bin/tobari-research context list
+bin/tobari-research auth login --provider github --context <context-ref>
+bin/tobari-research auth status --context <context-ref>
+bin/tobari-research auth logout github --context <context-ref>
 ```
 
-This research surface studies Workspace Manifest vaults, project-bound handles, and a closed set of
+This research surface studies Context-owned vaults, project-bound handles, and a closed set of
 reviewed provider acquisition plans; it is not a supported user authentication
 path or release artifact. See [Authentication handling](docs/07_authentication.md#research-broker-surface)
 for its detailed research contract.
@@ -488,7 +438,8 @@ tobari runtime create --name frontend
 tobari runtime list
 # Copy the opaque Runtime reference shown for frontend.
 tobari runtime build --id '<runtime-ref>'
-tobari manifest runtime set --runtime frontend@1
+tobari review runtimes
+tobari template runtime set --id <template-ref> --runtime <runtime-revision-ref>
 tobari
 
 # Or initialize another standalone source from frontend's current editable source.
@@ -497,19 +448,19 @@ tobari runtime create --copy-source-from frontend --name frontend-node22
 
 The explicit build snapshots the complete bounded Runtime source tree,
 validates the result against runtime API 1, and appends an immutable successful
-revision without changing any Workspace Manifest. Selection is a separate Workspace Manifest action,
-so the same revision can be reused by several Workspace Manifests. Existing Workspaces
+revision without changing any Workspace Template. Selection is a separate
+Template action, so the same revision can be reused by several Templates. Existing Workspaces
 adopt a changed binding on their next entry while preserving home. On an
 interactive terminal, the review flows present the exact Runtime, Workspace
-Manifest, current binding, and impact before Build or Apply. Scripts remain
-deterministic by supplying the opaque Runtime reference or `--runtime
-frontend@1` directly.
+Template, current binding, and impact before Build or Apply. Scripts remain
+deterministic by supplying opaque Runtime and Runtime-revision references
+unchanged.
 
 Managed Runtime cleanup keeps immutable history separate from replaceable
 local image availability:
 
 ```sh
-tobari runtime history --name frontend
+tobari review runtimes
 tobari runtime restore --id '<runtime-revision-ref>'
 
 tobari runtime prune dry-run
@@ -519,9 +470,9 @@ tobari runtime delete --id '<runtime-ref>' --confirm=delete
 ```
 
 Copy the opaque references from Runtime discovery or prune dry-run without
-decoding them. Prune removes only exact unused owned image tags; restore
+decoding them. Prune removes only exact unused execution material; restore
 reconstructs one retained immutable revision; delete retires one complete
-unused managed Runtime. Current or retained Manifest references, Workspace
+unused managed Runtime. Current or retained Template revision references, Workspace
 applied/pending/observed use, external containers, unknown evidence, and the
 built-in standard Runtime block destructive work. `review runtimes` provides
 the trusted-host interactive build and interruption-recovery flow; redirected
@@ -529,14 +480,14 @@ and JSON review remain read-only.
 
 Both copy operations are one-time initializers. Runtime copy reads current
 editable source, not an immutable successful revision; revisions, history, and
-lineage are not copied. Manifest copy reads one exact immutable current desired
+lineage are not copied. Template copy reads one exact retained immutable
 revision and retains no inheritance or lineage. It copies no Workspace, login,
 learned permission, attachment authority, applied state, failure, observation,
 or default selection.
 
 The public base retains Git, curl, jq, Python, SSH, GitHub CLI, AWS CLI, Claude
 Code, and Codex as ordinary Workspace tools. Their presence grants no
-credential or network authority. A custom Workspace Manifest runtime must add pup before
+credential or network authority. A custom Workspace Template Runtime must add pup before
 it can acquire Datadog credentials.
 
 ## Command discovery
@@ -544,7 +495,8 @@ it can acquire Datadog credentials.
 ```sh
 tobari help
 tobari help --format agent
-tobari help manifest --format agent
+tobari help template --format agent
+tobari help context --format agent
 tobari help review --format agent
 tobari help review permissions --format agent
 ```
@@ -565,9 +517,9 @@ source <(tobari completion zsh)
 ```
 
 The adapter asks the current `tobari` executable for candidates on every Tab,
-so command, flag, Workspace Manifest, and Runtime additions do not require regenerating a
+so command, flag, Workspace Template, Context, and Runtime additions do not require regenerating a
 checked-in shell script. The read is local and creates no Tobari state. For
-For example, `tobari mani<Tab>` completes to `tobari manifest`.
+For example, `tobari temp<Tab>` completes to `tobari template`.
 
 ## Diagnostics
 
@@ -578,21 +530,16 @@ tobari cluster denials
 tobari cluster logs --component gateway --tail 200
 ```
 
-Reads are observational: they do not initialize Workspace Manifest, policy, key, vault,
+Reads are observational: they do not initialize Template, Context, Policy Memory, key, vault,
 Broker, Workspace, or Docker state. Standard reads do not inspect or create
 tool-owned authentication state; the key, vault, and Broker observations apply
 only to the research surface. External text is untrusted and
 visibly projected; printable prompt-like meaning is not filtered. Opaque
 references are validated and passed byte-for-byte unchanged.
 
-If `doctor` identifies the one supported unpublished predecessor snapshot, it
-returns `tobari migrate apply` as the recovery. That explicit command creates
-an owner-only content-addressed backup and retains Manifest/Workspace IDs,
-Workspace homes and native authentication bytes, learned rules, the default
-selector, and Runtime authority. Predecessor experimental Broker filesystem
-authority moves to private quarantine and requires explicit reauthentication;
-it is never rebound from preserved IDs. Public output exposes neither secret
-paths nor Keychain facts. Other old or ambiguous state remains fail closed.
+Pre-release predecessor authority has no migration command or compatibility
+reader. `doctor` fails closed on legacy or ambiguous state and gives explicit
+reset-and-recreate guidance; root never migrates implicitly.
 
 ## Development and verification
 

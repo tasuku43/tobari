@@ -66,17 +66,16 @@ const ui = isJapanese
       },
       steps: [
         {
-          title: "空の練習用ディレクトリで共有クラスターを起動する",
+          title: "空の練習用ディレクトリを作る",
           location: "信頼するホスト",
           action:
-            "空のディレクトリへ移動し、Gateway と OPA からなる共有クラスターを起動します。",
+            "空のディレクトリを作り、そのディレクトリへ移動します。初回の `tobari` がレビュー後に必要な共有保護を準備します。",
           command: `mkdir -p quickstart-example
-cd quickstart-example
-tobari cluster up`,
+cd quickstart-example`,
           expected:
-            "共有クラスターが起動します。この時点では、プロジェクト用の Workspace はまだ作られません。",
+            "この時点では Template、Context、Workspace、Docker リソースは作られません。",
           blocked:
-            "`tobari doctor` と `tobari cluster status` を実行し、表示されたホスト側の前提条件を修正してから `tobari cluster up` を再実行します。",
+            "ディレクトリを作成できない場合はホスト側の権限を修正します。Docker の前提条件は次の `tobari` が `doctor` を Next として案内します。",
         },
         {
           title: "Workspace から未許可のリクエストを送る",
@@ -90,15 +89,15 @@ curl -sS -w '\\nhttp=%{http_code}\\n' \\
   -X PUT https://example.com/quickstart
 exit`,
           expected:
-            "初回はホスト設定を取り込まず、確認した default Workspace Manifest と Workspace を作成します。その後 HTTP 403 と `policy_denied` が表示され、ホスト側のレビューコマンドが案内されます。Gateway は接続先へ接続せず、リクエストを自動で許可・再送しません。`exit` 後も Workspace とその状態は残ります。",
+            "初回はホスト設定を取り込まず、確認した default Workspace Template、Project の Context、Workspace を作成し、5 段階の進捗を stderr に表示します。その後 HTTP 403 と `policy_denied` が表示され、ホスト側のレビューコマンドが案内されます。Gateway は接続先へ接続せず、リクエストを自動で許可・再送しません。`exit` 後も Context、Workspace、永続 home は残ります。",
           blocked:
-            "`tobari` で Workspace に入るには、対話型ターミナルが必要です。イメージに関するエラーが出た場合は `tobari manifest show` を確認し、対応するランタイムを準備します。",
+            "初回の `tobari` には対話型ターミナルが必要です。Engine の問題は `tobari doctor`、Runtime material の問題は `tobari review runtimes` という表示された一つの Next に従います。",
         },
         {
           title: "ホスト側で拒否内容をレビューし、完全一致で許可する",
           location: "信頼するホスト",
           action:
-            "レビュー画面で Workspace Manifest、プロジェクト、ホスト、ポート、メソッド、パスを確認し、この通信条件だけを許可します。",
+            "レビュー画面で Context、プロジェクト、ホスト、ポート、メソッド、パスを確認し、この通信条件だけを許可します。",
           command: `tobari review permissions --tail 100`,
           expected:
             "選択した通信条件の完全一致ルールが、ポリシー全体の検証後に有効になります。許可操作は、拒否された HTTP リクエストそのものを再送しません。",
@@ -119,7 +118,7 @@ exit`,
           expected:
             "今回は外部の接続先から HTTP 応答が返ります。`example.com` が返すステータスコード自体は保証しません。ここで確認するのは、許可した通信条件が外部への経路へ進んだことです。",
           blocked:
-            "再び 403 になった場合は、Workspace Manifest、プロジェクト、ホスト、ポート、メソッド、パスが許可した条件と一致しているか確認し、`tobari review permissions --tail 100` を実行します。",
+            "再び 403 になった場合は、Context、プロジェクト、ホスト、ポート、メソッド、パスが許可した条件と一致しているか確認し、`tobari review permissions --tail 100` を実行します。",
         },
         {
           title: "状態を確認して、練習用リソースを削除する",
@@ -127,13 +126,13 @@ exit`,
           action:
             "Workspace の状態を確認し、練習用 Workspace を削除してから、空になった共有クラスターを停止します。",
           command: `tobari status
-tobari list
-tobari delete
-tobari cluster down --purge`,
+tobari workspace list
+tobari workspace delete --id <workspace-ref> --confirm=delete
+tobari cluster down`,
           expected:
-            "`delete` は Workspace の永続ホームと、Workspace が所有するランタイムリソースを削除します。練習用ディレクトリのファイルは削除しません。`cluster down --purge` は、共有 CA と有効なポリシーバンドルのボリュームも削除します。",
+            "`workspace delete` は Workspace の永続 home、native auth、所有するランタイムリソースを削除しますが、練習用ディレクトリ、Context、Policy Memory は残します。`cluster down` は Workspace がゼロのときだけ共有保護を停止します。",
           blocked:
-            "`cluster_not_empty` の場合は `tobari list` で残っている Workspace を確認し、それぞれを削除してから再実行します。接続中のセッションを意図的に終了する場合だけ `tobari delete --force` を使います。",
+            "`cluster_not_empty` の場合は `tobari workspace list` で exact ref を取得し、それぞれを明示的に削除してから再実行します。接続中のセッションを意図的に終了する場合だけ `workspace delete` に `--force` を追加します。",
         },
       ],
       completionTitle: "確認できたこと",
@@ -226,17 +225,16 @@ tobari policy allow --id <exact-pcy-id-from-policy-review>`,
       },
       steps: [
         {
-          title: "Create a synthetic project and start the shared cluster",
+          title: "Create a synthetic project directory",
           location: "Trusted host",
           action:
-            "Move into a dedicated empty directory and start the shared Gateway and OPA cluster.",
+            "Create and enter a dedicated empty directory. The first reviewed root entry prepares shared protection when needed.",
           command: `mkdir -p quickstart-example
-cd quickstart-example
-tobari cluster up`,
+cd quickstart-example`,
           expected:
-            "The shared cluster starts and becomes ready. The project Workspace does not exist yet.",
+            "No Template, Context, Workspace, or Docker resource exists yet.",
           blocked:
-            "Run `tobari doctor` and `tobari cluster status`, correct the reported host prerequisite, and then retry `tobari cluster up`.",
+            "If directory creation fails, correct the host filesystem permission. The next `tobari` reports `doctor` as its single Next when Docker prerequisites are unavailable.",
         },
         {
           title: "Enter the Workspace and send one request that will be denied",
@@ -250,15 +248,15 @@ curl -sS -w '\\nhttp=%{http_code}\\n' \\
   -X PUT https://example.com/quickstart
 exit`,
           expected:
-            "First use creates the reviewed default Workspace Manifest and Workspace without importing host configuration. You then receive HTTP 403 with `policy_denied` and a host-side review command. Tobari does not connect upstream, approve the request, or retry it. The Workspace and its state remain after `exit`.",
+            "First use creates the reviewed default Workspace Template, this Project's Context, and its Workspace without importing host configuration. Five checkpoint-local progress lines stay on Tobari-owned stderr before handoff. You then receive HTTP 403 with `policy_denied` and a host-side review command. Tobari does not connect upstream, approve the request, or retry it. The Context, Workspace, and persistent home remain after `exit`.",
           blocked:
-            "The root `tobari` entry requires an interactive terminal. For image errors, inspect `tobari manifest show` and prepare a compatible Runtime before entering again.",
+            "Fresh root entry requires an interactive terminal. Follow the one reported Next: `tobari doctor` for an Engine prerequisite or `tobari review runtimes` for unavailable Runtime material.",
         },
         {
           title: "Review the denial on the host and allow the exact effect",
           location: "Trusted host",
           action:
-            "Inspect the Workspace Manifest, project, host, port, method, and path in the review screen, then allow only this exact communication.",
+            "Inspect the Context, project, host, port, method, and path in the review screen, then allow only this exact communication.",
           command: `tobari review permissions --tail 100`,
           expected:
             "The exact rule becomes active after the complete policy is validated. The allow action does not replay the denied HTTP request.",
@@ -279,7 +277,7 @@ exit`,
           expected:
             "The HTTP response now comes from the upstream. Tobari does not promise a particular status from `example.com`; this step shows that the authorized exact effect can reach the upstream path.",
           blocked:
-            "If you receive 403 again, check that Workspace Manifest, project, host, port, method, and path match the reviewed effect, then run `tobari review permissions --tail 100`.",
+            "If you receive 403 again, check that Context, project, host, port, method, and path match the reviewed effect, then run `tobari review permissions --tail 100`.",
         },
         {
           title: "Inspect state and remove the synthetic resources",
@@ -287,13 +285,13 @@ exit`,
           action:
             "Inspect the Workspace, delete the synthetic Workspace, and then stop the now-empty shared cluster.",
           command: `tobari status
-tobari list
-tobari delete
-tobari cluster down --purge`,
+tobari workspace list
+tobari workspace delete --id <workspace-ref> --confirm=delete
+tobari cluster down`,
           expected:
-            "`delete` removes the Workspace persistent home and owned runtime resources, but not the synthetic project files. `cluster down --purge` also removes shared CA and active policy-bundle volumes.",
+            "`workspace delete` removes the Workspace persistent home, native authentication, and owned runtime resources, but preserves the synthetic project files, Context, and Policy Memory. `cluster down` stops shared protection only after every Workspace is gone.",
           blocked:
-            "For `cluster_not_empty`, use `tobari list`, delete every remaining Workspace, and retry. Use `tobari delete --force` only when you intentionally want to terminate an attached session.",
+            "For `cluster_not_empty`, use `tobari workspace list`, pass each exact reference to `workspace delete`, and retry. Add `--force` only when you intentionally want to terminate the exact attached session.",
         },
       ],
       completionTitle: "What you have now verified",

@@ -1053,26 +1053,23 @@ machine-readable, canceled, unchanged, invalid, or failed Review paths make
 zero Runtime-build and Workspace Manifest-binding mutation calls. Fully
 specified direct mode reaches the same application invoker without Review.
 
-Shared lifecycle mutations target one catalog-declared `tool_local` cluster.
-The root command uses the catalog-declared current-directory fixed target to
-read and present containing Workspace candidates, then creates or reconciles
-one Workspace only after an explicit choice and a fresh locked check. An
-exact current-root record is reused directly; a nested root requires the
-explicit create-here choice. During interactive entry, the CLI may precede
-that CWD mutation with the separately cataloged cluster create when observation
-is not ready; first use may also compose Workspace Manifest-catalog create and optional
-Workspace Manifest-runtime create actions. Each action enters
-  its own application invoker with its own validated intent, target, impact, and
-  mutation-complete output; root cannot combine or weaken them. The root-only
-  recommended review contains the exact source, effective Access, Runtime,
-  host-import, and session consequences. Start revalidates known-empty Workspace Manifest
-  state under the existing owner lifecycle lock before the canonical create;
-  a concurrent change fails rather than becoming authority. Non-interactive
-  root invocation and review/wizard cancellation, EOF, or render/terminal
-  failure perform no Workspace Manifest, host-read, cluster, Docker, Workspace, network,
-  or attachment mutation. A later-stage failure preserves an already confirmed earlier
-mutation and reports reconciliation rather than claiming the whole sequence is
-safe to replay.
+Shared lifecycle mutations target one Catalog-declared `tool_local` cluster.
+The root command uses the Catalog-declared current-directory fixed target and
+creates or reconciles one Workspace only after a fresh locked check. During
+entry, the CLI composes canonical final default-Template/Context publication,
+cluster reconciliation, and exact Context entry in dependency order. It never
+composes a Runtime build or repair. Each action enters its own application
+invoker with its own validated intent, target, impact, journal, and
+mutation-complete output; root cannot combine or weaken them. The root-only
+recommended review contains the exact source, effective Access, Runtime,
+host-import, and session consequences. Start revalidates known-empty final
+authority under the existing owner lifecycle lock; a concurrent change fails
+rather than becoming authority. Noninteractive fresh root invocation and
+review/wizard cancellation, EOF, or render/terminal failure perform no Template,
+Context, host-read, cluster, Docker, Workspace, network, or attachment mutation.
+A later-stage failure preserves an already confirmed earlier mutation and
+reports reconciliation rather than claiming the whole sequence is safe to
+replay.
 Project runtime reconciliation does not remove authority merely to prove that
 an already matching Workspace is reusable. It first performs a read-only exact
 ownership, endpoint, specification, source-access, connectivity, and health
@@ -1253,11 +1250,28 @@ command as its immediate recovery.
 
 The Workspace-start prerequisite boundary is provider-neutral and read-only.
 It permits only fixed Docker CLI lookup plus bounded Engine-version, selected
-Workspace Manifest, and Compose-v2 observations, enforces Engine major version 24, and
-runs before first-use Workspace Manifest creation or direct cluster mutation. It performs
-no process inventory, socket probing, application opening, backend inference,
-or provider lifecycle command. Raw Docker output and causes never enter the
-fault envelope.
+Docker context, and Compose-v2 observations, enforces Engine major version 24,
+and runs after the authority-free first-use review but before Template, default,
+Context, cluster, or Workspace mutation. It performs no process inventory,
+socket probing, application opening, backend inference, or provider lifecycle
+command. Raw Docker output and causes never enter the fault envelope or decide
+a progress stage, result, retry, or Next action.
+
+First-entry progress is untrusted-output-safe presentation, not authority. Only
+closed Tobari-owned stage/state values cross its sink; Project content,
+Docker/BuildKit text, image metadata, provider hints, and child bytes cannot
+advance a checkpoint. Root preserves the existing Intent, TargetRef, Impact,
+lock, journal, mutation-complete, and cleanup owners of default-pair, cluster,
+and Context-entry operations. An unknown post-mutation outcome permits only a
+Catalog-validated read-only classifier, never automatic replay or an opposite
+write.
+
+Before child handoff, cancellation uses a distinct bounded classification
+context and exits 130 without erasing confirmed facts. After handoff, Tobari
+does not inspect, log, reconstruct, or persist child argv or stream content;
+the child's status remains authoritative. Standard login continues only inside
+the policy-applied persistent Workspace home. First-use guidance neither
+inspects host credential state nor exposes research-only authentication paths.
 
 `doctor` is a read-only recovery observation. It reports the full diagnostic
 set through a fixed dependency graph: only checks whose direct prerequisites

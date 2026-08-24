@@ -8,10 +8,21 @@ surface, the agent CLI owns its login state inside the Workspace.
 
 ## Run native login
 
-Enter the project and follow the tool's official flow:
+Run the tool directly through the ordinary entry path and follow its official
+flow:
 
 ```sh
 cd /path/to/your/project
+tobari -- claude
+# or
+tobari -- codex login
+# or
+tobari -- gh auth login
+```
+
+You can also enter Bash first and run any installed native client there:
+
+```sh
 tobari
 
 # Inside the Workspace
@@ -23,6 +34,12 @@ gh auth login
 # or
 aws sso login --profile your-profile
 ```
+
+Fresh first use still shows the one Start Workspace / Customize / Cancel review
+before either form enters. A fresh shell may print one non-blocking reminder
+that credentials stay in this Workspace; direct commands rely on the client's
+native prompt. Tobari has no host login/setup stage and does not inspect
+credential state.
 
 The resulting state lives in this Workspace's persistent home. It survives
 ordinary `exit` and work-container replacement, but is not copied from the host
@@ -54,7 +71,8 @@ then retry in the existing Workspace.
 
 - `exit` leaves the Workspace and its native login state intact.
 - Runtime rebuild or container recovery reuses the same Workspace home.
-- `tobari delete` removes that Workspace home and its tool-owned credentials.
+- `tobari workspace delete --id <workspace-ref> --confirm=delete` removes that exact
+  Workspace home and its tool-owned credentials.
 - Host homes, Keychain, SSH agents, and host credential variables are never
   inherited.
 

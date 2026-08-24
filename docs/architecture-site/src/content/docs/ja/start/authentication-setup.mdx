@@ -8,10 +8,20 @@ release surface では agent CLI が Workspace 内のログイン状態を所有
 
 ## ネイティブログインを実行する
 
-project に入り、ツールの公式 flow に従います。
+project に入り、通常の entry path からツールを直接実行して公式 flow に従います。
 
 ```sh
 cd /path/to/your/project
+tobari -- claude
+# or
+tobari -- codex login
+# or
+tobari -- gh auth login
+```
+
+Bash に入ってから、インストール済みの native client を実行することもできます。
+
+```sh
 tobari
 
 # Inside the Workspace
@@ -23,6 +33,12 @@ gh auth login
 # or
 aws sso login --profile your-profile
 ```
+
+fresh first use では、どちらの形式でも入室前に Start Workspace / Customize /
+Cancel の review が一度だけ表示されます。fresh shell では credential がこの
+Workspace に残ることを一行だけ案内する場合があります。direct command は client
+自身の prompt を使います。Tobari は host login/setup stage を持たず、credential
+state を検査しません。
 
 生成された状態はこの Workspace の永続 home に保存されます。通常の `exit` や
 work container の置換後も残りますが、host からコピーされず、別 Workspace とも
@@ -38,7 +54,7 @@ Workspace へ relay されます。この callback 方式が利用できない�
 情報を OPA と audit から隠し、正確な request effect を OPA に問い合わせ、allow
 後だけ元の credential を upstream へ渡します。
 
-固定の agent-ready compatibility baseline は native readiness が enabled の Workspace Manifest に
+固定の agent-ready compatibility baseline は native readiness が enabled の Workspace Template に
 pinned Claude/Codex のネイティブログインと core endpoint を提供します。新しい optional endpoint は deny されることがあり
 ます。別の trusted-host terminal で次を実行します。
 
@@ -53,7 +69,8 @@ tobari review permissions
 
 - `exit` 後も Workspace とネイティブログイン状態は残ります。
 - runtime rebuild や container recovery は同じ Workspace home を使います。
-- `tobari delete` は Workspace home と tool-owned credential を削除します。
+- `tobari workspace delete --id <workspace-ref> --confirm=delete` は完全一致する
+  Workspace home と tool-owned credential を削除します。
 - host home、Keychain、SSH agent、host credential variable は継承されません。
 
 [認証の詳細](../../guides/authentication/) または

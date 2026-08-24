@@ -193,19 +193,28 @@ using `tobari` leaves host execution unchanged, while `delete` and
   details remain available as advanced paths; they do not define the routine
   agent workflow.
 - The human first-use route starts with the CWD-first `tobari` entry. On an
-  interactive terminal with no persisted Workspace Manifest, that one route owns the
-  one-screen recommended review of canonical project root, direct source
-  effect, effective Access, exact standard Runtime, absent host import, and
-  selected session. Start revalidates the empty Workspace Manifest collection, composes
-  the separately cataloged Workspace Manifest-create and `cluster up` actions after
-  confirmed review, and enters the first Workspace. Customize opens the
-  complete Workspace Manifest creation frame with those recommendations prefilled.
-  Runtime preparation is an independent host workflow
-  performed before selection, never a post-create fork.
-  After review and before Workspace Manifest creation, Start performs the closed generic
-  Docker CLI/Engine/Workspace Manifest/Compose readiness profile required for the promised
-  Workspace outcome. Failure creates no Workspace Manifest or Docker state and points to
-  `doctor`; Tobari does not identify or manage the provider behind Docker.
+  interactive terminal with empty final Template/Context authority, that one
+  route owns the one-screen recommended review of canonical Project root,
+  direct source effect, effective Access, exact standard Runtime, absent host
+  import, and selected session. The recommended draft has no identity or
+  authority. Start revalidates the empty final collection, publishes and
+  selects the default Workspace Template through the canonical final authority
+  boundary, creates this Project's Context, composes canonical `cluster up`,
+  reconciles the Workspace through explicit entry, and hands off once.
+  Customize changes the same complete Template draft before publication; it is
+  not Template copy and creates no lineage. Runtime preparation remains an
+  independent host workflow performed before Template selection.
+  After review and before the first mutation, Start performs the closed generic
+  Docker CLI/Engine/selected-context/Compose readiness profile required for the
+  promised Workspace outcome. Failure creates no Template, Context, cluster,
+  Workspace, or Docker state and points to `doctor`; Tobari does not identify
+  or manage the provider behind Docker.
+  The journey reports exactly five checkpoint-local stages on Tobari-owned
+  stderr: requirements, Context resolution, protection, Workspace preparation,
+  and child handoff. Progress is invocation-only and grants no authority. A
+  pre-handoff interruption preserves confirmed results, performs bounded
+  classification, and exits 130; after handoff, child streams and status are
+  authoritative and cleanup attention is secondary.
   Read-only `doctor`, status/list inspection, and
   opaque-ID policy actions remain recovery or machine paths rather than steps
   in the normal journey. On a TTY, `review permissions` is the complete human
@@ -216,8 +225,8 @@ using `tobari` leaves host execution unchanged, while `delete` and
   cannot bypass typed review staging, fresh validation, or final confirmation.
   It is compiled only by `task build:dev`; release-surface command
   catalogs omit it while the interface is evaluated.
-- Explicit `manifest create`, `cluster up`, and runtime commands remain
-  independently supported compatibility and automation surfaces. They do not
+- Explicit Template/Context, `cluster up`, and Runtime commands remain
+  independently supported advanced and automation surfaces. They do not
   require a human to remember their order for the ordinary first-use route.
 
 ### Mechanical enforcement
@@ -555,9 +564,9 @@ directory.
 - `cluster up` explicitly creates or reconciles the shared enforcement runtime.
   Interactive `tobari` may compose that exact separately declared mutation
   whenever the selected shared projection is not ready; on first use it does so
-  only after the ordinary Workspace Manifest wizard confirms creation. It then
-  resolves an existing canonical-root record or creates one at the current
-  directory, reconciles only the project runtime, and enters the work container.
+  only after the authority-free recommended Template/Context review confirms
+  Start. It then revalidates the exact selected Context, reconciles only that
+  Workspace through Context entry, and hands off the child.
 - The logical record owns a generated stable internal ID, canonical root,
   last reconciled compatible runtime image, profile, XDG home, and diagnostic
   runtime identifiers. Container or network loss never changes logical

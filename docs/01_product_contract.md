@@ -97,7 +97,8 @@ exists or does not exist, and the user should not need to manage container
 names, network IDs, or policy internals for routine work. `cluster up` remains
 the independently invocable owner of shared Gateway and OPA setup, while an
 interactive first-use `tobari` composes that exact action after a newly
-confirmed Workspace Manifest so a human need not remember the setup sequence.
+confirmed default Template/Context pair so a human need not remember the setup
+sequence.
 
 The primary operating loop is progressive policy learning: a Workspace workload is
 denied by default, Gateway records the rejected HTTP effect, including one
@@ -427,38 +428,49 @@ for other Templates remain siblings and never redirect selection. Nondefault
 work uses an opaque Context or Workspace reference obtained from its owning
 discovery command.
 
-The root command is interactive and requires a TTY on stdin, stdout, and stderr.
-It does not silently create state in a non-interactive context. With no
-persisted Workspace Manifest and no explicit `--manifest`, it first validates the canonical
-project root and shows one recommended draft: direct read-write project effect,
+Fresh root review and default-shell entry require the existing interactive
+terminal contract. An existing-authority direct child may use its declared
+noninteractive stream contract. Root does not silently create state in a
+noninteractive fresh context. With no
+persisted final Template/Context authority, it first validates the canonical
+Project root and shows one recommended draft: direct read-write project effect,
 effective routine/other/private Access, `standard@1`, no host import, and Bash
-or the safely projected direct executable. Start revalidates that the Workspace Manifest
-collection remains empty and `default` absent under the creation lock, then
-invokes canonical Workspace Manifest creation. A concurrent change fails with exact
-read-only `manifest list` recovery and is never adopted or overwritten.
-Customize opens the same ordinary six-stage Workspace Manifest wizard with recommended
-values prefilled. Cancellation, EOF, rendering, or terminal failure before
-Create changes no Workspace Manifest, host configuration, cluster, Docker, Workspace, or
-network state.
-After either review path chooses continuation and before Workspace Manifest creation, root
-runs the closed generic Workspace-start readiness profile: Docker CLI, selected
-Engine version, selected Docker Context, and Compose v2. Engine major versions
-below 24 fail as unsupported. Any failed or invalid observation returns one
-fixed safe fault pointing to `doctor` and performs zero Workspace Manifest, cluster,
-Workspace, network, or Docker mutation. The profile neither identifies nor
-manages the Docker provider. Standalone `manifest create` remains independent
-from Docker readiness.
-After confirmed Workspace Manifest creation it emits that durable success, performs the
-exact catalog-owned `cluster up` action without another confirmation, and
-retains the Workspace Manifest if cluster reconciliation fails. When shared services are
-ready, root proceeds directly to Workspace selection and entry with the exact
-Runtime revision reviewed during Workspace Manifest creation. Runtime customization is a
-separate prepare-first flow: `runtime create`, edit the managed source tree,
-`runtime build`, then select the ready revision during Workspace Manifest creation or with
-`manifest runtime set`. Existing persisted Workspace Manifests never receive an automatic
-upgrade prompt. If their shared projection is absent, stopped, or
-invalid, the same interactive root invocation composes exact `cluster up`
-before Workspace mutation. When the
+or the safely projected direct executable. The draft has no TemplateID,
+ContextID, default selection, revision, Workspace, or persistence. Start
+revalidates empty authority under the canonical final lock, publishes the
+reviewed `default` Workspace Template, selects it as the installation default,
+and creates this Project's Context through the existing final default-pair
+boundary. Customize edits the same complete Template body before publication;
+it is not Template copy and records no provenance. Cancellation, EOF,
+rendering, terminal failure, or a noninteractive fresh invocation changes no
+Template, Context, host configuration, cluster, Docker, Workspace, or network
+state.
+
+After review and before the first mutation, root runs the closed generic
+Workspace-start readiness profile: Docker CLI, selected Engine version,
+selected Docker Context, and Compose v2. Engine major versions below 24 fail as
+unsupported. Any failed or invalid observation returns one fixed safe fault
+pointing to `doctor` and performs zero Template, Context, cluster, Workspace,
+network, or Docker mutation. The profile neither identifies nor manages the
+Docker provider. Standalone Template/Context actions remain independent from
+this root readiness composition.
+
+After final default-pair publication, root performs the exact canonical
+`cluster up` reconciliation without another confirmation, re-observes the
+returned final collection receipt, and requires the exact reviewed
+Project/default-Template/Context authority before entry. A later failure never
+rolls back a confirmed earlier receipt. When protection is ready, root invokes
+the canonical Context-entry boundary, which alone reconciles the Workspace
+AppliedEntry and hands off the child. Runtime customization is an independent
+prepare-first flow; root never implicitly builds, restores, prunes, deletes, or
+selects another Runtime. If authoritative Runtime execution material is absent
+or mismatched, immediate human recovery is `review runtimes`, which owns the
+opaque revision reference and exact build/restore choice.
+
+An existing default pair skips fresh review and is re-observed before each
+canonical mutation. If its shared projection is absent, stopped, or invalid,
+the same root invocation composes canonical `cluster up` before Workspace
+entry. When the
 canonical current directory is below one or more indexed Workspace roots, the
 command presents an English selector ordered nearest-first. Arrow keys and
 Enter choose an existing Workspace; `n` chooses explicit creation at the
@@ -470,13 +482,18 @@ delegated capability is a documented security property rather than an
 undeclared Docker mutation by the CLI.
 
 An optional direct command begins only after the required positional-only
-marker: `tobari [--manifest NAME] -- COMMAND [ARG...]`. A bare `--`, an empty
+marker: `tobari -- COMMAND [ARG...]`. A bare `--`, an empty
 executable, or child argv without the marker fails before setup or Workspace
 mutation. Tobari neither invokes a shell nor expands, joins, or reparses the
 argv; order, duplicates, dash-prefixed values, and explicit empty arguments are
-preserved. The command owns the foreground terminal and signals for that exec
-session. Its exit returns to the host shell rather than entering Bash, and its
-exact status is returned without stopping the fixed Workspace lifetime process.
+preserved. Fresh direct entry still requires the one recommended interactive
+review; after authority exists it is a routine path for Claude, Codex, GitHub
+CLI login, or another exact executable. The child owns the foreground terminal
+and signals after handoff. Its exit returns to the host shell rather than
+entering Bash, and its exact status is returned without stopping the fixed
+Workspace lifetime process. Tobari may then emit one clearly host-owned bounded
+cleanup diagnostic, but cleanup failure cannot replace child status or permit
+automatic retry.
 Neither Bash nor a direct child reserves a Tobari input prefix. In particular,
 `Ctrl+]` is forwarded to the child unchanged; trusted-host Permission Inbox
 review runs through `tobari review permissions` in a separate host terminal.
@@ -924,6 +941,14 @@ post-action results are `unknown`, and a confirmed mutation remains
 `confirmed` if final output fails. Catalog declarations own these facts and
 the exact next actions. A mutation marked `partial`, `confirmed`, or `unknown`
 must first recover through a declared read-only reconciliation command.
+The release Catalog forms one executable causal recovery graph. Every command
+Next names an existing Catalog task or a declared typed non-command condition;
+it never appends unchecked required argv. Nonretryable self-loops, closed
+reference cycles, action rediscovery, and mutation replay after unknown state
+are invalid. A read-only classifier may be intermediate only when each of its
+declared outcomes terminates at a causal action or condition. An
+`output_encoding_failed` edge never recommends the same encoding-failing task;
+`version` is the build-identity diagnostic and help remains Catalog-derived.
 
 `version --format json` uses schema version 1 with envelope
 `build_identity`. Its fixed fields are `version`, `commit`,
@@ -1075,6 +1100,37 @@ change, not for an idle terminal-read poll. They use a bounded alternate screen
 and repaint from terminal home instead of moving by logical row counts, so a
 long row that wraps cannot duplicate headings or drift later redraws. Finishing
 restores the main screen and visible cursor exactly once.
+
+The root journey's recommended review precedes progress and is not a progress
+stage. Before child handoff, Tobari writes stable line-oriented progress to
+stderr using exactly these semantic stages and routine labels:
+
+| Stage | Routine label | Checkpoint proved by success |
+|---|---|---|
+| `check_requirements` | Check requirements | closed read-only root readiness |
+| `resolve_context` | Save setup / Use Context | final desired Template/default/Context receipt |
+| `prepare_protection` | Prepare protection | canonical cluster and active-policy receipts |
+| `prepare_workspace` | Prepare Workspace | exact last-successful Workspace AppliedEntry |
+| `enter_workspace` | Enter Workspace | successful child handoff |
+
+Stage state is closed to `pending`, `running`, `succeeded`, `skipped`,
+`blocked`, `failed`, and `unknown`. No checkmark implies a later checkpoint or
+collapses desired, active, applied, and observed facts. A stage finishing within
+250 ms need not show a running line; elapsed time appears after one second; one
+bounded sanitized wait reason appears after ten seconds; redirected stderr may
+emit a bounded heartbeat no more often than every 30 seconds. Progress exposes
+no percent, ETA, raw external log, public flag, preference, schema, event
+resource, or live details control.
+
+Before handoff, caller interruption cancels the current canonical operation,
+waits for its bounded settlement/classification, preserves any confirmed
+mutation-complete result, reports retained facts plus one causal Next, and root
+exits 130. An unknown mutation outcome never grants replay. After handoff, the
+child owns stdin/stdout/stderr/signals and its exact exit status, including a
+signal-derived status. On creation of a fresh Workspace only, shell entry may
+emit one non-blocking stderr line that credentials stay in that Workspace;
+direct children rely on their native prompts and no dismissal state is saved.
+
 When `cluster up` runs with an interactive stderr terminal, it may also render
 bounded fixed-step startup progress on stderr. The progress uses terminal
 control sequences and color only for that terminal presentation; it carries no
@@ -1092,11 +1148,10 @@ full recent diagnostic remain available in JSON or failure detail. A
 successful `cluster up` additionally points to the next `tobari`
 command.
 
-`manifest default set` reports `default_updated`; it changes only the omitted-Workspace Manifest
-  default regardless of cluster state. `manifest create` reports
-`requires_reconcile` when a configured cluster does not yet contain the new
-Workspace Manifest projection; an explicit `cluster up` is required. Neither command
-starts Docker.
+`template default set --id` changes only the installation default for later
+bare root/status resolution. Template and Context mutations do not start Docker
+or reconcile cluster, active policy, Workspace AppliedEntry, or observation;
+those boundaries remain explicit.
 
 Project runtime diagnostics may report `incomplete` when a durable root index
 survives without its instance state. This preserves logical existence for safe

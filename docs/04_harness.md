@@ -351,22 +351,39 @@ template permission through a trusted host
 action, and retry. Human presentation may simplify this journey only while the
 catalog, opaque-reference, effect, mutation, and fail-closed contracts remain
 unchanged.
-The first-use fixture starts from a synthetic-default Workspace Manifest observation and
-proves one interactive root invocation renders a typed recommended draft from
-one presentation-independent fixture, revalidates the empty collection, creates
-exactly once through canonical Workspace Manifest creation, and only then reconciles the
-cluster under the exact `cluster up` contract. Raw and line goldens share that
-fixture; Customize seeds the complete wizard. Negative fixtures prove invalid
-root/direct-child rejection, non-TTY zero setup, cancellation/EOF/render failure
-zero later calls, concurrent collection-change rejection, durable Workspace Manifest
-retention after cluster failure, pending-build entry refusal, and post-build
-re-entry without a second runtime choice.
-The same fixture proves that the closed generic Docker CLI/Engine/Workspace Manifest/
-Compose profile runs after review and before creation, accepts Engine 24 and
-rejects Engine 23 or malformed versions, performs no mutation on failure, and
-is not repeated by the composed cluster action. Recording runners reject
-Docker mutations, provider executable names, process managers, application
-openers, socket probes, and any argv outside the fixed read set.
+The first-entry evaluator is mechanically fixed to exactly seven rows: fresh
+first use; stopped Engine or cluster; interrupted or partial authority;
+explicit entry and retry; truthful progress and Next; idempotent convergence;
+and final repository integration. One presentation-independent fixture proves
+an interactive empty-authority root renders the recommended no-authority draft,
+then composes the canonical final default pair, final cluster, Context entry,
+and child handoff in order. Customize changes the same complete draft.
+Negative fixtures prove invalid root/direct-child rejection, non-TTY zero
+setup, cancellation/EOF/render failure zero later calls, concurrent authority
+drift rejection, confirmed Template/Context retention after cluster failure,
+missing Runtime-material refusal, and retry without a second Runtime choice.
+
+The same semantic fixtures drive line-oriented stderr, failure, cancellation,
+status, help, narrow/NO_COLOR projections, and agent-readiness answers. They fix
+the five stage names, seven stage states, checkpoint-local terminal markers,
+250 ms anti-flicker, one-second elapsed, ten-second bounded wait reason, and
+30-second maximum redirected heartbeat frequency. They prove external text
+cannot drive progress and that no persistent progress authority, percentage,
+ETA, raw log, or details-toggle interface exists.
+
+Production-shaped cluster fixtures publish activation receipts A→B and prove
+the same invocation refreshes exact collection/activation authority before
+Workspace entry; post-cluster drift or read failure stops entry while retaining
+a non-none mutation classification. Cancellation fixtures cover each
+pre-handoff boundary and bounded classification/exit 130. Child fixtures prove
+exact argv/streams/status and secondary cleanup guidance.
+
+The readiness fixture proves that the closed generic Docker
+CLI/Engine/selected-context/Compose profile runs after review and before the
+first mutation, accepts Engine 24 and rejects Engine 23 or malformed versions,
+and performs no mutation on failure. Recording runners reject Docker mutations,
+provider executable names, process managers, application openers, socket probes,
+and any argv outside the fixed read set.
 
 Auth Broker readiness is split deliberately. The required agent-readiness
 scenario delegates its reproducible synthetic authentication proof to `task
@@ -1054,14 +1071,14 @@ Every strong statement should identify its enforcement path.
 | Standard native Workspace authentication boundary | Release-surface empty authentication-projection and full runtime-reconciliation tests prove zero Auth Broker inspection/control calls and no research auth-registry creation; the attached-session suite adds a closed Claude/Codex/GitHub CLI/AWS CLI/TWG/pup browser union, one binary-owned read-only opener, exact `BROWSER`/`GH_BROWSER`/`xdg-open` projection, and a dedicated schema-v1 Unix-socket/non-TTY Docker exec protocol; a shared closed query-field schema enforces required singleton values, rejects invalid definitions and unknown fields, and dispatches provider-owned validators; exact mandatory URL fields, individually reviewed optional selectors, device targets, provider clients or bounded DCR IDs, scope ceilings, state/PKCE/callback shapes including AWS's commercial-region/default-scope dynamic callback and pup 1.10.7's optional UUID-shaped `dd_oid`, complete 110-scope ceiling, and four fixed ports, direct Docker terminal ownership, fixed login/setup argv and pass-through, zero-listener device paths, dynamic non-privileged host-loopback-only callback relay to the label-verified selected Workspace, duplicate-key/unknown-field/version/size/replay/neighbor canaries, opaque callback canaries, and cleanup; the research-surface suite separately retains project-bound handle and file projection coverage |
 | Transparent attached-child terminal ownership | Direct-stream coverage plus Unix PTY literal-`0x1d`, delayed-input, resize, exact-status, output-failure, and terminal-restoration tests; root human-help rejects any `Ctrl+]` or Trusted Host Review shortcut; excluded capability/catalog absence; and independent Permission Inbox raw-terminal tests |
 | Atomic multi-Manifest policy activation | Source and projection locks, Workspace Manifest namespace rejection, complete all-Manifest OPA validation, content-addressed atomic publication, stale-revision rejection, known-good rollback, and invalid/concurrent mutation tests |
-| Causal failure recovery | Closed phase/change-state validation, Catalog/runtime agreement, schema-2 text/JSON equivalence, pre-action-none and post-action-unknown cancellation, confirmed-output preservation, lifecycle unknown/confirmed classifications, provider-neutral first-use readiness with Engine 23/24 boundaries, and read-only recovery for partial/confirmed/unknown mutation state |
+| Causal failure recovery | Closed phase/change-state validation, Catalog/runtime agreement, text/JSON equivalence, pre-action-none and post-action-unknown cancellation, confirmed-output preservation, lifecycle unknown/confirmed classifications, provider-neutral first-use readiness with Engine 23/24 boundaries, and a machine-checked release Catalog graph that rejects self-loops, closed reference cycles, nonexistent paths, unchecked required inputs, action rediscovery, output-encoding replay, and mutation retry after unknown state while permitting only causally terminating read-only classifiers |
 | Confirmed mutation output | One effect-aware finalizer, late-cancellation regression, non-retryable mutation short-write fault, and read-only recovery validation |
 | Pagination completeness | Cursor loop/budget/cancellation tests, retryability/catalog agreement, and no-partial-result assertion |
 | Public paged continuation | Catalog validation of one exact same-kind optional input/top-level output binding, non-`not_applicable` coverage, JSON-only presentation, and agent-help/reference-workflow projection |
 | Retry safety | Timeout/attempt/idempotency validation and adapter contract tests |
 | Rate evidence versus replay permission | Fault validation permits positive `retry_after` on non-retryable rate limits only, plus text/JSON projection tests |
 | Executable command inputs | Catalog validation, one shared typed parser, handler integration tests, and exact human/agent-help input projection |
-| Catalog-derived shell completion | Typed `InputCompletion` validation, command/flag/value planner tests, validated Workspace Manifest/Runtime application candidates, bounded hostile-TSV canaries, generated-adapter checks, and catalog-derived first-use zero-write coverage |
+| Catalog-derived shell completion | Typed `InputCompletion` validation, command/flag/value planner tests, validated Workspace Template/Context/Runtime application candidates, bounded hostile-TSV canaries, generated-adapter checks, and catalog-derived first-use zero-write coverage |
 | Agent recovery | Catalog fault declarations, exact-path/help-selector executable grammar tests, and structured error snapshots |
 | Bounded agent discovery | Fixed root-index shape, 512-byte per-command entry validation, 100-command growth/selection tests, and a derived-scale grouped-workflow whole-response budget with edge-equivalence checks |
 | Bounded-autonomy adoption | Agent-readiness first-use and denial-to-retry transcripts record command count, discovery rounds, external-processing count, and the concrete next action; a reviewed human-handoff scorecard identifies setup friction as product evidence |

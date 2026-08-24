@@ -1155,28 +1155,42 @@ Image preflight fails before the policy test, cluster journal, shared network,
 or service-container mutation. Local Tobari-managed image development uses
 `task build` and the source-hash development resolver instead of a public
 cluster option.
-On first use, root validates the canonical project root and observes a known
-empty Workspace Manifest collection before rendering one typed recommended draft. Start
-revalidates empty/default-absent under the Workspace Manifest lifecycle lock and invokes
-the same Workspace Manifest-create application invoker; Customize seeds the ordinary
-complete Workspace Manifest wizard. Neither branch duplicates Workspace Manifest persistence or
-imports host configuration implicitly. Confirmed creation is durable; root then
-invokes the same typed cluster reconciliation used by explicit `cluster up`.
-Before creation, the application selects the closed generic Workspace-start
-readiness profile from Doctor's typed observation inventory. Infrastructure
-executes only fixed bounded Docker CLI/Engine-version/Workspace Manifest/Compose reads.
-The application enforces Engine major version 24 and returns a typed context
-receipt so the composed `cluster up` does not repeat the profile. Direct
-`cluster up` performs it before the mutation invoker. No layer detects, opens,
-starts, stops, or otherwise manages the Docker provider.
-Cluster failure leaves the Workspace Manifest available for another root invocation. Once
-ready, root proceeds directly with the exact ready Runtime revision reviewed by
-Workspace Manifest creation; it has no post-create Runtime chooser. Customization is
-prepared independently through Runtime create/build before selection. Existing
-Workspace Manifests stay pinned until the explicit Workspace Manifest Runtime mutation replaces their
-binding.
+On first use, root validates the canonical Project root and observes known empty
+final Template/Context authority before rendering one typed recommended draft.
+The draft has no ID or persistence. Start and Customize both produce one
+complete reviewed Template body, then call the same final default-pair
+application boundary; neither CLI branch writes Template, default selection,
+Context, or Policy Memory directly. The boundary publishes the default
+Template, selects it, and creates the CWD Context under one final-authority lock.
+Confirmed publication is durable; later cluster or entry failure never rolls it
+back.
 
-Outside that fresh-Workspace Manifest composition, root observes whether the configured
+Before the first mutation, the application runs the closed generic
+Workspace-start readiness port. Infrastructure executes only fixed bounded
+Docker CLI/Engine-version/selected-context/Compose reads. The application
+enforces Engine major version 24. No layer detects, opens, starts, stops, or
+otherwise manages the Docker provider.
+
+Root then calls the canonical final cluster reconciler with its own Catalog
+Intent and retains the returned collection generation/revision. A bounded
+read-only refresh must match that exact receipt plus the reviewed
+Project/default-Template/Context desired authority and selected Context
+activation receipts before entry. This prevents cluster activation A→B from
+being mistaken for caller drift while still stopping on real post-mutation
+drift. The Context-entry application boundary alone reconciles the Workspace
+AppliedEntry and establishes child ownership. Root has no nested Runtime
+builder, restorer, pruner, deleter, provider repairer, or parallel status
+recovery model.
+
+Invocation progress is a domain-validated ordered sequence of five stage/state
+events projected by a line-oriented CLI renderer. It is process-local,
+non-authoritative, and cannot affect nested application results. The entry port
+emits only Workspace-prepared and handoff events because it owns those exact
+checkpoints; root owns readiness, desired resolution, and cluster checkpoints.
+The renderer applies bounded anti-flicker, elapsed, wait-reason, and heartbeat
+timers and accepts no Docker/BuildKit/child text as a state transition.
+
+Outside that fresh final-authority composition, root observes whether the configured
 cluster is running and whether its policy, Gateway, and principal projections
 are valid for the current binary. Gateway projection observation includes the
 live required Gateway/OPA shared-network joins, and principal projection
@@ -1642,24 +1656,37 @@ as argv after Docker's `--`.
 
 ## Cancellation and errors
 
-The command root installs signal-aware cancellation and propagates one operation
-context. It separately supplies infrastructure with one process-lifetime parent
-used only to derive the finite attachment teardown and post-mutation rollback
-deadlines that must survive child cancellation; it grants no unbounded action.
-Pre-execution cancellation makes zero Docker calls. A child interactive session
-exit status is preserved, and the CLI emits the session-closed/resume/delete
-guidance on host stderr after the child returns. Child stdout remains owned by
-the interactive process. The optional root delimiter and repeatable positional
-input are catalog-owned; a missing command is rejected before lifecycle side
-effects. Lifecycle operations return structured state after
-confirmed completion; unclassified post-mutation errors are non-retryable and
-direct the user to `status` for reconciliation.
+The command root separates four contexts: the current operation context, one
+bounded settlement/classification context, the child context after handoff, and
+one bounded cleanup context. Pre-execution cancellation makes zero Docker calls.
+Before handoff, caller cancellation stops only the current canonical operation;
+root then uses at most five seconds of cancellation-independent read-only
+classification where a just-completed mutation receipt must be re-observed,
+preserves confirmed or unknown structured state, prints one recovery, and exits
+130. A late cancel cannot turn confirmed success into retry permission.
+
+After handoff, the child owns terminal streams, signals, and exit status.
+Attachment/service cleanup remains bounded under its existing owner; the CLI
+may emit one host-owned cleanup-attention line after child exit, but cleanup
+failure never replaces the child's exact status or triggers replay. The optional
+root delimiter and repeatable positional input are Catalog-owned; a missing
+command is rejected before lifecycle side effects. Lifecycle operations return
+structured state after confirmed completion; unclassified post-mutation errors
+are non-retryable and direct the user to a Catalog-validated read-only
+reconciliation path.
 The domain fault vocabulary separates causal identity (`kind` plus `code`) from
 the closed command phase and strongest proved change state. Application and
 infrastructure may strengthen state only from typed boundary evidence. Catalog
 owns the published classification and rejects runtime disagreement; mutation
 states `partial`, `confirmed`, and `unknown` recover first through a validated
 read. CLI presentation projects these facts but never infers them.
+One Catalog-wide traversal validates the release recovery graph from the same
+command/fault metadata used by help and runtime dispatch. It resolves every
+Next in-program, derives required-input and opaque-reference producer/consumer
+edges, rejects nonretryable self-loops and closed cycles, and prevents a
+read-only classifier from becoming an endless observation path. Status
+continues to own typed PrimaryNext/Attention and non-command conditions; the
+traversal adds no parallel status model or executable-string registry.
 Auth mutations use the same structured-outcome rule. A failed or cancelled
 GitHub host driver leaves the previous Workspace Manifest credential unchanged; a
 host-login availability rejection carries one closed
