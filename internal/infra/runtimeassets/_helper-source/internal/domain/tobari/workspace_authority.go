@@ -1076,11 +1076,18 @@ func (r PolicyMemoryRevision) ValidateFor(context ContextBinding, template Works
 	if err := template.Validate(); err != nil {
 		return err
 	}
+	if r.ContextID != context.ID || template.TemplateID != context.TemplateID {
+		return fmt.Errorf("Policy Memory owner does not match its Context and Template")
+	}
+	return r.validateInsideBoundary(template.Body.Boundary)
+}
+
+func (r PolicyMemoryRevision) validateInsideBoundary(boundary WorkspaceTemplateBoundary) error {
 	if err := r.Validate(); err != nil {
 		return err
 	}
-	if r.ContextID != context.ID || template.TemplateID != context.TemplateID {
-		return fmt.Errorf("Policy Memory owner does not match its Context and Template")
+	if err := boundary.Validate(); err != nil {
+		return err
 	}
 	for _, rule := range r.Rules {
 		path := rule.Body.Path
@@ -1091,10 +1098,10 @@ func (r PolicyMemoryRevision) ValidateFor(context ContextBinding, template Works
 			Scheme: rule.Body.Scheme, Host: rule.Body.Host, Port: rule.Body.Port,
 			Method: rule.Body.Method, Path: path,
 		}
-		if !contextPolicyRuleInsideDestination(template.Body.Boundary.DestinationCeiling, exact) {
+		if !contextPolicyRuleInsideDestination(boundary.DestinationCeiling, exact) {
 			return fmt.Errorf("Policy Memory rule exceeds the fixed Template Boundary")
 		}
-		if rule.Decision == PolicyMemoryAllow && template.Body.Boundary.MethodPolicy.Decision(rule.Body.Method) == ManifestMethodDeny {
+		if rule.Decision == PolicyMemoryAllow && boundary.MethodPolicy.Decision(rule.Body.Method) == ManifestMethodDeny {
 			return fmt.Errorf("Policy Memory Allow exceeds the fixed Template method Boundary")
 		}
 	}

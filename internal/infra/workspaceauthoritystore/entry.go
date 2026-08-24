@@ -28,7 +28,7 @@ type WorkspaceEntryRuntimeAuthority interface {
 // static policy axis. Context entry does not repair or replace cluster policy;
 // a stale receipt requires the existing explicit cluster reconciliation.
 type TemplatePolicyActivationAuthority interface {
-	ConfirmTemplatePolicyActive(context.Context, tobari.ContextAuthoritySnapshot, tobari.TemplatePolicyActivationReceipt) error
+	ConfirmTemplatePolicyActive(context.Context, tobari.WorkspaceAuthorityCollection, tobari.ContextID, tobari.TemplatePolicyActivationReceipt) error
 }
 
 // WorkspaceSessionOwner is the task-owned result required from the deferred
@@ -166,7 +166,7 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 	if !active && terminalPresent && terminal.Operation == "context-entry" && terminal.Target == contextRef {
 		if snapshot, consequenceErr := entryTerminalConsequence(current, terminal, contextID); consequenceErr == nil {
 			settlementContext, cancel := a.newSettlementContext(ctx)
-			receipt, confirmErr := a.confirmEntry(settlementContext, snapshot, *terminal.EntryPlan, entryDecisionRef(*terminal.EntryPlan, terminal.NextRevision))
+			receipt, confirmErr := a.confirmEntry(settlementContext, current, snapshot, *terminal.EntryPlan, entryDecisionRef(*terminal.EntryPlan, terminal.NextRevision))
 			cancel()
 			if confirmErr == nil {
 				publicationConfirmed = true
@@ -199,7 +199,7 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 				return tobari.ContextAuthoritySnapshot{}, nil, err
 			}
 			settlementContext, cancel := a.newSettlementContext(ctx)
-			receipt, confirmErr := a.confirmEntry(settlementContext, snapshot, *decision.EntryPlan, entryDecisionRef(*decision.EntryPlan, decision.NextRevision))
+			receipt, confirmErr := a.confirmEntry(settlementContext, current, snapshot, *decision.EntryPlan, entryDecisionRef(*decision.EntryPlan, decision.NextRevision))
 			cancel()
 			if confirmErr != nil {
 				return tobari.ContextAuthoritySnapshot{}, nil, confirmErr
@@ -222,7 +222,7 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 	if err != nil {
 		return tobari.ContextAuthoritySnapshot{}, nil, err
 	}
-	if err := a.confirmCurrentActivations(ctx, desired); err != nil {
+	if err := a.confirmCurrentActivations(ctx, current, desired); err != nil {
 		return tobari.ContextAuthoritySnapshot{}, nil, err
 	}
 
@@ -318,7 +318,7 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 		return tobari.ContextAuthoritySnapshot{}, nil, fmt.Errorf("Workspace reconciliation returned another authority: %w", err)
 	}
 	completionContext, cancelSettlement := a.newSettlementContext(ctx)
-	confirmedReceipt, confirmErr := a.confirmEntry(completionContext, desired, plan, decisionRef)
+	confirmedReceipt, confirmErr := a.confirmEntry(completionContext, current, desired, plan, decisionRef)
 	cancelSettlement()
 	if confirmErr != nil {
 		return tobari.ContextAuthoritySnapshot{}, nil, confirmErr
@@ -425,27 +425,27 @@ func (a *ContextEntryAdapter) newSettlementContext(parent context.Context) (cont
 	return context.WithTimeout(base, timeout)
 }
 
-func (a *ContextEntryAdapter) confirmCurrentActivations(ctx context.Context, snapshot tobari.ContextAuthoritySnapshot) error {
+func (a *ContextEntryAdapter) confirmCurrentActivations(ctx context.Context, collection tobari.WorkspaceAuthorityCollection, snapshot tobari.ContextAuthoritySnapshot) error {
 	if snapshot.ActiveTemplatePolicy == nil || snapshot.ActiveTemplatePolicy.ValidateFor(snapshot.Context, snapshot.Template.Current) != nil {
 		return tobari.ErrWorkspaceEntryTemplatePolicyInactive
 	}
 	if snapshot.ActivePolicyMemory == nil || snapshot.ActivePolicyMemoryRef == nil || snapshot.ActivePolicyMemory.Revision != snapshot.PolicyMemory.Revision || snapshot.ActivePolicyMemoryRef.ValidateFor(snapshot.Context, snapshot.PolicyMemory) != nil {
 		return tobari.ErrWorkspaceEntryPolicyMemoryInactive
 	}
-	if err := a.templatePolicy.ConfirmTemplatePolicyActive(ctx, snapshot.Clone(), *snapshot.ActiveTemplatePolicy); err != nil {
+	if err := a.templatePolicy.ConfirmTemplatePolicyActive(ctx, collection.Clone(), snapshot.Context.ID, *snapshot.ActiveTemplatePolicy); err != nil {
 		return errors.Join(tobari.ErrWorkspaceEntryObservationUnavailable, err)
 	}
-	if err := a.mutator.activation.ConfirmPolicyMemoryActive(ctx, snapshot.Clone(), *snapshot.ActivePolicyMemoryRef); err != nil {
+	if err := a.mutator.activation.ConfirmPolicyMemoryActive(ctx, collection.Clone(), snapshot.Context.ID, *snapshot.ActivePolicyMemoryRef); err != nil {
 		return errors.Join(tobari.ErrWorkspaceEntryObservationUnavailable, err)
 	}
 	return nil
 }
 
-func (a *ContextEntryAdapter) confirmEntry(ctx context.Context, snapshot tobari.ContextAuthoritySnapshot, plan tobari.WorkspaceEntryReconciliationPlan, decisionRef string) (tobari.WorkspaceEntryReconciliationReceipt, error) {
+func (a *ContextEntryAdapter) confirmEntry(ctx context.Context, collection tobari.WorkspaceAuthorityCollection, snapshot tobari.ContextAuthoritySnapshot, plan tobari.WorkspaceEntryReconciliationPlan, decisionRef string) (tobari.WorkspaceEntryReconciliationReceipt, error) {
 	if err := plan.ValidateFor(snapshot); err != nil {
 		return tobari.WorkspaceEntryReconciliationReceipt{}, err
 	}
-	if err := a.confirmCurrentActivations(ctx, snapshot); err != nil {
+	if err := a.confirmCurrentActivations(ctx, collection, snapshot); err != nil {
 		return tobari.WorkspaceEntryReconciliationReceipt{}, err
 	}
 	receipt, err := a.runtime.ConfirmWorkspaceEntry(ctx, plan.Clone(), decisionRef)

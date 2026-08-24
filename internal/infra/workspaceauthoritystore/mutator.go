@@ -38,8 +38,8 @@ type DeletionAuthority interface {
 // confirms the exact Context-owned revision; failures preserve the prior
 // current and last-successful active authority.
 type PolicyMemoryActivationAuthority interface {
-	ActivatePolicyMemory(context.Context, tobari.ContextAuthoritySnapshot, tobari.PolicyMemoryRevision) (tobari.PolicyMemoryActivationReceipt, error)
-	ConfirmPolicyMemoryActive(context.Context, tobari.ContextAuthoritySnapshot, tobari.PolicyMemoryActivationReceipt) error
+	ActivatePolicyMemory(context.Context, tobari.WorkspaceAuthorityCollection, tobari.ContextID) (tobari.PolicyMemoryActivationReceipt, error)
+	ConfirmPolicyMemoryActive(context.Context, tobari.WorkspaceAuthorityCollection, tobari.ContextID, tobari.PolicyMemoryActivationReceipt) error
 }
 
 // Mutator publishes complete final-authority envelopes behind the existing
@@ -444,7 +444,7 @@ func (m *Mutator) applyPolicyCandidate(ctx context.Context, ref string, decision
 		}
 		contexts := cloneContextRecords(current.Contexts)
 		contexts[recordIndex].PolicyMemory = memory
-		activationEffect, err := m.preparePolicyMemoryActivation(current, &contexts[recordIndex])
+		expectedReceipt, err := m.preparePolicyMemoryActivation(&contexts[recordIndex])
 		if err != nil {
 			return effectPlan{}, err
 		}
@@ -467,6 +467,7 @@ func (m *Mutator) applyPolicyCandidate(ctx context.Context, ref string, decision
 		if !collectionChanged {
 			return effectPlan{}, fmt.Errorf("Policy candidate did not change final authority")
 		}
+		activationEffect := m.policyMemoryActivationEffect(next, candidate.ContextID, expectedReceipt)
 		candidateEvidence := candidate.Clone()
 		previousEvidence := previous.Clone()
 		return effectPlan{
@@ -512,7 +513,7 @@ func (m *Mutator) ResetPolicyMemoryRuleByReference(ctx context.Context, ref stri
 		}
 		contexts := cloneContextRecords(current.Contexts)
 		contexts[recordIndex].PolicyMemory = memory
-		activationEffect, err := m.preparePolicyMemoryActivation(current, &contexts[recordIndex])
+		expectedReceipt, err := m.preparePolicyMemoryActivation(&contexts[recordIndex])
 		if err != nil {
 			return effectPlan{}, err
 		}
@@ -534,6 +535,7 @@ func (m *Mutator) ResetPolicyMemoryRuleByReference(ctx context.Context, ref stri
 		if !collectionChanged {
 			return effectPlan{}, fmt.Errorf("Policy reset did not change final authority")
 		}
+		activationEffect := m.policyMemoryActivationEffect(next, previous.ContextID, expectedReceipt)
 		previousEvidence := previous.Clone()
 		return effectPlan{
 			next:     next,
@@ -547,50 +549,32 @@ func (m *Mutator) ResetPolicyMemoryRuleByReference(ctx context.Context, ref stri
 	return publication, resultErr
 }
 
-func (m *Mutator) preparePolicyMemoryActivation(current tobari.WorkspaceAuthorityCollection, record *tobari.WorkspaceAuthorityContextRecord) (func(context.Context) error, error) {
+func (m *Mutator) preparePolicyMemoryActivation(record *tobari.WorkspaceAuthorityContextRecord) (tobari.PolicyMemoryActivationReceipt, error) {
 	if m.activation == nil {
-		return nil, fmt.Errorf("Policy Memory activation authority is unavailable")
-	}
-	templateIndex := -1
-	for index := range current.Templates {
-		if current.Templates[index].ID == record.Context.TemplateID {
-			templateIndex = index
-			break
-		}
-	}
-	if templateIndex < 0 {
-		return nil, fmt.Errorf("Policy Memory Template authority is unavailable")
-	}
-	var workspace *tobari.WorkspaceBinding
-	for index := range current.Workspaces {
-		if current.Workspaces[index].ContextID == record.Context.ID {
-			value := cloneWorkspaceBindings(current.Workspaces[index : index+1])[0]
-			workspace = &value
-			break
-		}
-	}
-	desired := tobari.ContextAuthoritySnapshot{
-		Context: record.Context, Template: current.Templates[templateIndex].Clone(), PolicyMemory: record.PolicyMemory.Clone(),
-		ActiveTemplatePolicy: record.ActiveTemplatePolicy, ActivePolicyMemory: record.ActivePolicyMemory,
-		ActivePolicyMemoryRef: record.ActivePolicyMemoryRef, Workspace: workspace,
-	}
-	if err := desired.Validate(); err != nil {
-		return nil, err
+		return tobari.PolicyMemoryActivationReceipt{}, fmt.Errorf("Policy Memory activation authority is unavailable")
 	}
 	expectedReceipt := tobari.PolicyMemoryActivationReceipt{ContextID: record.Context.ID, Revision: record.PolicyMemory.Revision}
 	active := record.PolicyMemory.Clone()
 	record.ActivePolicyMemory = &active
 	record.ActivePolicyMemoryRef = &expectedReceipt
+	return expectedReceipt, nil
+}
+
+func (m *Mutator) policyMemoryActivationEffect(collection tobari.WorkspaceAuthorityCollection, contextID tobari.ContextID, expectedReceipt tobari.PolicyMemoryActivationReceipt) func(context.Context) error {
 	return func(ctx context.Context) error {
-		receipt, err := m.activation.ActivatePolicyMemory(ctx, desired.Clone(), active.Clone())
+		receipt, err := m.activation.ActivatePolicyMemory(ctx, collection.Clone(), contextID)
 		if err != nil {
 			return err
 		}
-		if err := receipt.ValidateFor(record.Context, active); err != nil || receipt != expectedReceipt {
+		snapshot, snapshotErr := snapshotForContext(collection, contextID)
+		if snapshotErr != nil || snapshot.ActivePolicyMemory == nil {
+			return fmt.Errorf("Policy Memory activation candidate is incomplete: %w", snapshotErr)
+		}
+		if err := receipt.ValidateFor(snapshot.Context, *snapshot.ActivePolicyMemory); err != nil || receipt != expectedReceipt {
 			return fmt.Errorf("Policy Memory activation returned another authority: %w", err)
 		}
 		return nil
-	}, nil
+	}
 }
 
 func (m *Mutator) effectfulMutate(ctx context.Context, operation, target string, planner func(tobari.WorkspaceAuthorityCollection, bool) (effectPlan, error)) (committed effectDecision, resultErr error) {
@@ -779,7 +763,7 @@ func (m *Mutator) confirmCommittedEffect(ctx context.Context, current tobari.Wor
 		if snapshot.ActivePolicyMemoryRef == nil {
 			return fmt.Errorf("committed Policy Memory has no activation receipt")
 		}
-		return m.activation.ConfirmPolicyMemoryActive(ctx, snapshot, *snapshot.ActivePolicyMemoryRef)
+		return m.activation.ConfirmPolicyMemoryActive(ctx, current.Clone(), snapshot.Context.ID, *snapshot.ActivePolicyMemoryRef)
 	default:
 		return fmt.Errorf("final-authority effect recovery operation is invalid")
 	}

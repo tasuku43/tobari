@@ -115,10 +115,14 @@ type templateActivationFixture struct {
 	err   error
 }
 
-func (a *templateActivationFixture) ConfirmTemplatePolicyActive(_ context.Context, snapshot tobari.ContextAuthoritySnapshot, receipt tobari.TemplatePolicyActivationReceipt) error {
+func (a *templateActivationFixture) ConfirmTemplatePolicyActive(_ context.Context, collection tobari.WorkspaceAuthorityCollection, contextID tobari.ContextID, receipt tobari.TemplatePolicyActivationReceipt) error {
 	a.calls++
 	if a.err != nil {
 		return a.err
+	}
+	snapshot, err := snapshotForContext(collection, contextID)
+	if err != nil {
+		return err
 	}
 	return receipt.ValidateFor(snapshot.Context, snapshot.Template.Current)
 }

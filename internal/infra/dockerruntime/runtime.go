@@ -158,6 +158,25 @@ type Runtime struct {
 	// finalSessionAfterLiveness is nil in production. Tests use it to move the
 	// principal projection between the two complete Run-start observations.
 	finalSessionAfterLiveness func()
+	// finalProjectionAfterFirstObservation is nil in production. Tests use it
+	// to move Docker network/principal evidence between the two complete dormant
+	// final-authority observations.
+	finalProjectionAfterFirstObservation func()
+	// finalProjectionBeforeEffect is nil in production. Tests use it to move
+	// Docker evidence after artifact construction but before the final complete
+	// observation fence that authorizes an activation effect.
+	finalProjectionBeforeEffect func()
+	// finalPolicyRootSync is nil in production. Tests replace the first-use
+	// activation-root parent durability barrier without weakening production
+	// directory fsync behavior.
+	finalPolicyRootSync func(string) error
+	// finalPolicyActivationLimit is zero in production. Tests lower the exact
+	// task-owned journal/receipt byte ceiling to prove rejection precedes OPA.
+	finalPolicyActivationLimit int64
+	// finalPolicyAfterApply is nil in production. Tests use it to interrupt the
+	// dormant final-authority activation after OPA confirmed the exact revision
+	// but before the private active receipt is published.
+	finalPolicyAfterApply func() error
 }
 
 // New resolves XDG paths without creating them.

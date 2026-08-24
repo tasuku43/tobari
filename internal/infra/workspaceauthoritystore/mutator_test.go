@@ -48,26 +48,39 @@ type policyActivationFixture struct {
 	confirmErr   error
 }
 
-func (a *policyActivationFixture) ConfirmPolicyMemoryActive(_ context.Context, snapshot tobari.ContextAuthoritySnapshot, receipt tobari.PolicyMemoryActivationReceipt) error {
+func (a *policyActivationFixture) ConfirmPolicyMemoryActive(_ context.Context, collection tobari.WorkspaceAuthorityCollection, contextID tobari.ContextID, receipt tobari.PolicyMemoryActivationReceipt) error {
 	if a.confirmErr != nil {
 		return a.confirmErr
 	}
 	a.confirmCalls++
+	snapshot, err := snapshotForContext(collection, contextID)
+	if err != nil {
+		return err
+	}
 	if snapshot.ActivePolicyMemory == nil || snapshot.ActivePolicyMemoryRef == nil || *snapshot.ActivePolicyMemoryRef != receipt || receipt.Revision != snapshot.ActivePolicyMemory.Revision {
 		return fmt.Errorf("Policy Memory active receipt mismatch")
 	}
 	return nil
 }
 
-func (a *policyActivationFixture) ActivatePolicyMemory(_ context.Context, snapshot tobari.ContextAuthoritySnapshot, memory tobari.PolicyMemoryRevision) (tobari.PolicyMemoryActivationReceipt, error) {
+func (a *policyActivationFixture) ActivatePolicyMemory(_ context.Context, collection tobari.WorkspaceAuthorityCollection, contextID tobari.ContextID) (tobari.PolicyMemoryActivationReceipt, error) {
 	if a.err != nil {
 		return tobari.PolicyMemoryActivationReceipt{}, a.err
 	}
 	a.calls++
-	if snapshot.Context.ID != memory.ContextID || snapshot.PolicyMemory.Revision != memory.Revision {
+	projection, err := tobari.BuildHotWorkspacePolicyProjection(collection, contextID)
+	if err != nil {
+		return tobari.PolicyMemoryActivationReceipt{}, err
+	}
+	for _, item := range projection.Contexts {
+		if item.ContextID == contextID {
+			return item.MemoryReceipt, nil
+		}
+	}
+	if contextID == "" {
 		return tobari.PolicyMemoryActivationReceipt{}, fmt.Errorf("activation input mismatch")
 	}
-	return tobari.PolicyMemoryActivationReceipt{ContextID: memory.ContextID, Revision: memory.Revision}, nil
+	return tobari.PolicyMemoryActivationReceipt{}, fmt.Errorf("activation target is unavailable")
 }
 
 func (d *deletionAuthorityFixture) RetireWorkspace(_ context.Context, workspace tobari.WorkspaceBinding, _ bool, decisionRef string) error {

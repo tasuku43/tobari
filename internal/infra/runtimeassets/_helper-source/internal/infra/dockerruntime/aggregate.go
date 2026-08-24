@@ -34,6 +34,10 @@ type aggregateProjection struct {
 }
 
 type aggregateContext struct {
+	contextID           string
+	presentation        string
+	policyMode          tobari.ManifestPolicyMode
+	finalAuthority      *tobari.WorkspacePolicyProjectionContext
 	manifest            tobari.WorkspaceManifest
 	paths               tobari.ManifestStorePaths
 	data                map[string]any
@@ -43,6 +47,65 @@ type aggregateContext struct {
 	mcpEndpoints        []tobari.MCPEndpoint
 	kubernetesEndpoints []tobari.GraphQLEndpoint
 	contextPolicy       tobari.ManifestPolicy
+}
+
+func (c aggregateContext) resolvedIdentity() aggregateContext {
+	if c.contextID == "" {
+		c.contextID = c.manifest.ID
+	}
+	if c.presentation == "" {
+		c.presentation = c.manifest.Name
+	}
+	if c.policyMode == "" {
+		c.policyMode = c.manifest.PolicyMode
+	}
+	return c
+}
+
+func (c aggregateContext) validateIdentity() error {
+	c = c.resolvedIdentity()
+	if c.contextID == "" || c.presentation == "" {
+		return fmt.Errorf("aggregate Context identity is incomplete")
+	}
+	if err := tobari.ValidateWorkspaceManifestID(c.contextID); err != nil {
+		return err
+	}
+	if err := tobari.ValidateName(c.presentation); err != nil {
+		return err
+	}
+	if err := c.policyMode.Validate(); err != nil {
+		return err
+	}
+	if c.finalAuthority != nil {
+		if err := c.finalAuthority.Validate(); err != nil {
+			return err
+		}
+		if c.contextID != string(c.finalAuthority.ContextID) || c.presentation != c.finalAuthority.Presentation || c.policyMode != c.finalAuthority.TemplatePolicy.Policy.Mode ||
+			!reflect.DeepEqual(c.manifest, tobari.WorkspaceManifest{}) || c.paths != (tobari.ManifestStorePaths{}) || !reflect.DeepEqual(c.policy, policyDataFile{}) {
+			return fmt.Errorf("final aggregate Context crosses typed authority or legacy state")
+		}
+		expected, err := finalAggregateContext(c.finalAuthority.Clone())
+		if err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(c.data, expected.data) || !bytes.Equal(c.rego, expected.rego) ||
+			!reflect.DeepEqual(c.graphqlEndpoints, expected.graphqlEndpoints) || !reflect.DeepEqual(c.mcpEndpoints, expected.mcpEndpoints) ||
+			!reflect.DeepEqual(c.kubernetesEndpoints, expected.kubernetesEndpoints) || !reflect.DeepEqual(c.contextPolicy, expected.contextPolicy) {
+			return fmt.Errorf("final aggregate rendered content does not match its typed authority")
+		}
+		return nil
+	}
+	return c.manifest.Validate()
+}
+
+func (c aggregateContext) authorityBytes() ([]byte, error) {
+	if err := c.validateIdentity(); err != nil {
+		return nil, err
+	}
+	if c.finalAuthority != nil {
+		return json.Marshal(c.finalAuthority)
+	}
+	return json.Marshal(c.manifest)
 }
 
 func (r *Runtime) aggregateRoot() string {
@@ -134,6 +197,7 @@ func (r *Runtime) readAggregateContextsWithTransactions(
 			return nil, fmt.Errorf("Context %q policy evaluator: %w", manifest.Name, err)
 		}
 		items = append(items, aggregateContext{
+			contextID: manifest.ID, presentation: manifest.Name, policyMode: manifest.PolicyMode,
 			manifest: manifest, paths: paths, data: contextData,
 			policy: policySource, rego: rego,
 			graphqlEndpoints:    graphqlEndpoints,
@@ -142,7 +206,7 @@ func (r *Runtime) readAggregateContextsWithTransactions(
 			contextPolicy:       effectivePolicy,
 		})
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].manifest.ID < items[j].manifest.ID })
+	sort.Slice(items, func(i, j int) bool { return items[i].contextID < items[j].contextID })
 	return items, nil
 }
 
@@ -229,18 +293,19 @@ func aggregateNamespace(id string) string {
 }
 
 func transformContextRego(item aggregateContext) ([]byte, error) {
+	item = item.resolvedIdentity()
 	if !regoPackagePattern.Match(item.rego) {
-		return nil, fmt.Errorf("Context %q policy must declare package tobari.http", item.manifest.Name)
+		return nil, fmt.Errorf("Context %q policy must declare package tobari.http", item.presentation)
 	}
 	if bytes.Contains(item.rego, []byte("data.tobari_contexts")) || bytes.Contains(item.rego, []byte("package tobari.system")) || bytes.Contains(item.rego, []byte("package tobari.contexts")) {
-		return nil, fmt.Errorf("Context %q policy crosses the reserved routing namespace", item.manifest.Name)
+		return nil, fmt.Errorf("Context %q policy crosses the reserved routing namespace", item.presentation)
 	}
 	schemaMatches := regoInputSchemaPattern.FindAllSubmatch(item.rego, -1)
 	if len(schemaMatches) != 1 || string(schemaMatches[0][1]) != "1" {
-		return nil, fmt.Errorf("Context %q policy must target source input schema 1", item.manifest.Name)
+		return nil, fmt.Errorf("Context %q policy must target source input schema 1", item.presentation)
 	}
-	packageName := "package tobari.contexts." + aggregateNamespace(item.manifest.ID) + ".http"
-	if item.manifest.PolicyMode == tobari.ManifestPolicyModeGuided {
+	packageName := "package tobari.contexts." + aggregateNamespace(item.contextID) + ".http"
+	if item.policyMode == tobari.ManifestPolicyModeGuided {
 		packageName = "package tobari.system.guided"
 	}
 	transformed := regoPackagePattern.ReplaceAll(item.rego, []byte(packageName))
@@ -249,6 +314,9 @@ func transformContextRego(item aggregateContext) ([]byte, error) {
 }
 
 func aggregateRouter(items []aggregateContext) ([]byte, error) {
+	for index := range items {
+		items[index] = items[index].resolvedIdentity()
+	}
 	var builder strings.Builder
 	builder.WriteString("package tobari.http\n\nimport rego.v1\n\n")
 	builder.WriteString("default decision := {\"allow\": false, \"reason\": \"unknown or invalid Context authority\", \"status_code\": 403, \"learnable\": false}\n\n")
@@ -304,14 +372,14 @@ func aggregateRouter(items []aggregateContext) ([]byte, error) {
 	builder.WriteString("decision := result if {\n  input.schema_version == 1\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  not terminal_policy\n  not exact_denied\n  not context_policy_granted\n  object.get(input.request, \"git\", null) != null\n  result := data.tobari.system.guided.decision\n}\n\n")
 	builder.WriteString("decision := result if {\n  input.schema_version == 1\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  not terminal_policy\n  not exact_denied\n  not context_policy_granted\n  object.get(input.request, \"oci\", null) != null\n  result := data.tobari.system.guided.decision\n}\n\n")
 	for _, item := range items {
-		if err := item.manifest.Validate(); err != nil {
+		if err := item.validateIdentity(); err != nil {
 			return nil, err
 		}
 		builder.WriteString("decision := result if {\n")
 		builder.WriteString("  input.schema_version == 1\n")
 		builder.WriteString("  input.principal.cluster == \"default\"\n")
 		builder.WriteString("  input.principal.context_id == \"")
-		builder.WriteString(item.manifest.ID)
+		builder.WriteString(item.contextID)
 		builder.WriteString("\"\n")
 		builder.WriteString("  not host_loopback_request\n")
 		builder.WriteString("  not terminal_policy\n")
@@ -321,11 +389,11 @@ func aggregateRouter(items []aggregateContext) ([]byte, error) {
 		builder.WriteString("  object.get(input.request, \"git\", null) == null\n")
 		builder.WriteString("  object.get(input.request, \"oci\", null) == null\n")
 		builder.WriteString("  result := data.")
-		if item.manifest.PolicyMode == tobari.ManifestPolicyModeGuided {
+		if item.policyMode == tobari.ManifestPolicyModeGuided {
 			builder.WriteString("tobari.system.guided")
 		} else {
 			builder.WriteString("tobari.contexts.")
-			builder.WriteString(aggregateNamespace(item.manifest.ID))
+			builder.WriteString(aggregateNamespace(item.contextID))
 			builder.WriteString(".http")
 		}
 		builder.WriteString(".decision\n}\n\n")
@@ -335,11 +403,12 @@ func aggregateRouter(items []aggregateContext) ([]byte, error) {
 }
 
 func rewriteGatewayProjection(item aggregateContext) map[string]any {
+	item = item.resolvedIdentity()
 	endpoints := append([]tobari.GraphQLEndpoint{}, item.graphqlEndpoints...)
 	mcpEndpoints := append([]tobari.MCPEndpoint{}, item.mcpEndpoints...)
 	kubernetesEndpoints := append([]tobari.GraphQLEndpoint{}, item.kubernetesEndpoints...)
 	return map[string]any{
-		"name":                 item.manifest.Name,
+		"name":                 item.presentation,
 		"graphql_endpoints":    endpoints,
 		"mcp_endpoints":        mcpEndpoints,
 		"kubernetes_endpoints": kubernetesEndpoints,
@@ -357,12 +426,6 @@ func (r *Runtime) buildAggregateProjectionWithTransactions(
 	if err != nil {
 		return aggregateProjection{}, err
 	}
-	revision, err := aggregateRevision(items)
-	if err != nil {
-		return aggregateProjection{}, err
-	}
-	dataContexts := map[string]any{}
-	gatewayContexts := map[string]any{}
 	validationReused := false
 	for _, item := range items {
 		preflight, err := prepareContextPolicyPreflight(item.manifest, item.paths.PolicyDirectory, item.policy)
@@ -388,8 +451,29 @@ func (r *Runtime) buildAggregateProjectionWithTransactions(
 		if testErr != nil {
 			return aggregateProjection{}, fmt.Errorf("Context %q policy tests: %w", item.manifest.Name, testErr)
 		}
-		dataContexts[item.manifest.ID] = item.data
-		gatewayContexts[item.manifest.ID] = rewriteGatewayProjection(item)
+	}
+	return r.materializeAggregateProjection(ctx, items, func() error {
+		return verifyAggregatePolicySources(items, transactions)
+	})
+}
+
+func (r *Runtime) materializeAggregateProjection(ctx context.Context, items []aggregateContext, verify func() error) (aggregateProjection, error) {
+	for index := range items {
+		items[index] = items[index].resolvedIdentity()
+	}
+	revision, err := aggregateRevision(items)
+	if err != nil {
+		return aggregateProjection{}, err
+	}
+	dataContexts := map[string]any{}
+	gatewayContexts := map[string]any{}
+	for _, item := range items {
+		item = item.resolvedIdentity()
+		if err := item.validateIdentity(); err != nil {
+			return aggregateProjection{}, err
+		}
+		dataContexts[item.contextID] = item.data
+		gatewayContexts[item.contextID] = rewriteGatewayProjection(item)
 	}
 	directory := filepath.Join(r.aggregateRoot(), revision)
 	result := aggregateProjection{
@@ -400,8 +484,10 @@ func (r *Runtime) buildAggregateProjectionWithTransactions(
 		if err := r.testPolicyDirectory(ctx, result.PolicyDirectory); err != nil {
 			return aggregateProjection{}, fmt.Errorf("validate existing aggregate policy: %w", err)
 		}
-		if err := verifyAggregatePolicySources(items, transactions); err != nil {
-			return aggregateProjection{}, err
+		if verify != nil {
+			if err := verify(); err != nil {
+				return aggregateProjection{}, err
+			}
 		}
 		return result, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -434,8 +520,8 @@ func (r *Runtime) buildAggregateProjectionWithTransactions(
 		return aggregateProjection{}, err
 	}
 	guidedModule, err := transformContextRego(aggregateContext{
-		manifest: tobari.WorkspaceManifest{Name: "system", PolicyMode: tobari.ManifestPolicyModeGuided, SourceAccess: tobari.ManifestSourceAccessReadWrite},
-		rego:     canonicalGuided,
+		contextID: "00000000-0000-0000-0000-000000000000", presentation: "system", policyMode: tobari.ManifestPolicyModeGuided,
+		rego: canonicalGuided,
 	})
 	if err != nil {
 		return aggregateProjection{}, err
@@ -448,14 +534,14 @@ func (r *Runtime) buildAggregateProjectionWithTransactions(
 		if err != nil {
 			return aggregateProjection{}, err
 		}
-		regoName := aggregateNamespace(item.manifest.ID) + ".rego"
-		if item.manifest.PolicyMode == tobari.ManifestPolicyModeGuided {
+		regoName := aggregateNamespace(item.contextID) + ".rego"
+		if item.policyMode == tobari.ManifestPolicyModeGuided {
 			regoName = "guided.rego"
 			if !bytes.Equal(guidedModule, rego) {
 				return aggregateProjection{}, fmt.Errorf("guided Context policy logic diverged from the shared system module")
 			}
 		}
-		if item.manifest.PolicyMode != tobari.ManifestPolicyModeGuided {
+		if item.policyMode != tobari.ManifestPolicyModeGuided {
 			if _, err := os.Lstat(filepath.Join(policyDirectory, regoName)); errors.Is(err, os.ErrNotExist) {
 				if err := os.WriteFile(filepath.Join(policyDirectory, regoName), rego, 0o600); err != nil {
 					return aggregateProjection{}, err
@@ -480,8 +566,10 @@ func (r *Runtime) buildAggregateProjectionWithTransactions(
 	if err := r.testPolicyDirectory(ctx, candidatePolicy); err != nil {
 		return aggregateProjection{}, fmt.Errorf("validate aggregate policy: %w", err)
 	}
-	if err := verifyAggregatePolicySources(items, transactions); err != nil {
-		return aggregateProjection{}, err
+	if verify != nil {
+		if err := verify(); err != nil {
+			return aggregateProjection{}, err
+		}
 	}
 	if err := os.Rename(temporary, directory); err != nil {
 		if !errors.Is(err, os.ErrExist) {
@@ -497,7 +585,7 @@ func (r *Runtime) buildAggregateProjectionWithTransactions(
 func aggregateRevision(items []aggregateContext) (string, error) {
 	hash := sha256.New()
 	for _, item := range items {
-		manifestBytes, err := json.Marshal(item.manifest)
+		authorityBytes, err := item.authorityBytes()
 		if err != nil {
 			return "", err
 		}
@@ -505,7 +593,7 @@ func aggregateRevision(items []aggregateContext) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		hash.Write(manifestBytes)
+		hash.Write(authorityBytes)
 		hash.Write([]byte{0})
 		hash.Write(encoded)
 		hash.Write([]byte{0})
@@ -527,7 +615,7 @@ func verifyAggregatePolicySources(
 			current, err = readPolicyData(item.paths.PolicyDirectory)
 		}
 		if err != nil || !reflect.DeepEqual(current.sources, item.policy.sources) {
-			return fmt.Errorf("Context %q policy source changed during aggregate generation", item.manifest.Name)
+			return fmt.Errorf("Context %q policy source changed during aggregate generation", item.presentation)
 		}
 	}
 	return nil

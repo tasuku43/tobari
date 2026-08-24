@@ -43,6 +43,15 @@ type finalWorkspaceContainerObservation struct {
 	Role      string `json:"role"`
 	Spec      string `json:"spec"`
 	Running   bool   `json:"running"`
+	Health    string `json:"health"`
+}
+
+func (o finalWorkspaceContainerObservation) validateFor(workspaceID tobari.WorkspaceID, resolvedSpec tobari.SemanticDigest, exactContainerID string) error {
+	if o.Owner != ownerValue || o.Component != "tobari" || o.Workspace != string(workspaceID) || o.Role != projectWorkRole ||
+		o.Spec != string(resolvedSpec) || !o.Running || o.Health != "healthy" || !runtimeLifecycleContainerID.MatchString(o.ID) || exactContainerID != "" && o.ID != exactContainerID {
+		return fmt.Errorf("final Workspace container does not match its exact AppliedEntry authority")
+	}
+	return nil
 }
 
 func (r *Runtime) confirmFinalWorkspaceContainer(ctx context.Context, binding tobari.WorkspaceSessionBinding) error {
@@ -54,7 +63,7 @@ func (r *Runtime) confirmFinalWorkspaceContainer(ctx context.Context, binding to
 		`"workspace":{{json (index .Config.Labels "` + projectIDLabel + `")}},` +
 		`"role":{{json (index .Config.Labels "` + projectRoleLabel + `")}},` +
 		`"spec":{{json (index .Config.Labels "` + projectSpecLabel + `")}},` +
-		`"running":{{json .State.Running}}}`
+		`"running":{{json .State.Running}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}"none"{{end}}}`
 	output, err := r.runner.Output(ctx, []string{"container", "inspect", "--format", format, binding.ContainerID}, os.Environ())
 	if err != nil {
 		return fmt.Errorf("observe exact final Workspace container: %w: %s", err, boundedDiagnostic(output))
@@ -63,12 +72,7 @@ func (r *Runtime) confirmFinalWorkspaceContainer(ctx context.Context, binding to
 	if err := decodeStrictJSON(output, &observed); err != nil {
 		return fmt.Errorf("decode exact final Workspace container: %w", err)
 	}
-	if observed.ID != binding.ContainerID || observed.Owner != ownerValue || observed.Component != "tobari" ||
-		observed.Workspace != string(binding.WorkspaceID) || observed.Role != projectWorkRole ||
-		observed.Spec != string(binding.AppliedEntry.ResolvedSpec) || !observed.Running {
-		return fmt.Errorf("final Workspace container does not match its exact AppliedEntry authority")
-	}
-	return nil
+	return observed.validateFor(binding.WorkspaceID, binding.AppliedEntry.ResolvedSpec, binding.ContainerID)
 }
 
 // BeginFinalWorkspaceSession validates the complete final binding and exact

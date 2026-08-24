@@ -379,6 +379,49 @@ contract and source inspection plus the product-owner lifecycle decisions above.
   ambiguous. No Gateway/Broker composition, resident controller, public
   recovery command, current reader, or Catalog route is changed.
 
+## Dormant final policy projection evidence
+
+- One pure final projection plan binds operation mode, exact input collection
+  revision, hot target Context when applicable, and the complete selected
+  Context content. Its separate content identity excludes those request
+  preconditions, so identical live policy/principal content is confirmable
+  after an unrelated default or unused-Template envelope mutation.
+- Hot Policy Memory activation selects the target Context's new current memory
+  while preserving every Context's active Template policy slice and every
+  other Context's active memory. Cluster candidate construction separately
+  selects current Template policy plus current Policy Memory for every Context;
+  no combined Context revision or ambient `Template.Current` inference exists.
+- Materialization binds exact Context/Template receipts, current WorkspaceID,
+  AppliedEntry/spec, retained creation-defaults authority, healthy Workspace
+  container identity, healthy pinned Gateway component identity, and the exact
+  control/egress/project network set and endpoint addresses. Remembered rules
+  are executable only for the current projected Workspace; Context-only memory
+  remains durable but produces no principal-bound rows.
+- One private publication receipt joins the route-independent materialized
+  digest, exact aggregate revision, OPA artifact tree, Gateway artifact bytes,
+  all per-Context Template/Memory receipts, and principal evidence. A live hot
+  activation additionally proves that the running Gateway's exact owner-only
+  aggregate mount has the same bytes; a previous immutable aggregate path is
+  valid when bytes match, while changed interpretation requires cluster
+  reconciliation.
+- The dormant hot adapter holds the existing policy-projection lock under the
+  caller's installation lifecycle authority. It fsyncs the activation-root
+  parent before the first journal, writes one bounded recovery record before
+  OPA effects, re-observes Docker after artifact build, publishes OPA, then
+  atomically records the active receipt. Process interruption resumes the exact
+  journal; confirmation performs no mutation and compares live content rather
+  than the originating collection revision.
+- The dormant cluster seam only prepares the typed current/current candidate
+  and exact artifacts. It does not replace the live principal registry, switch
+  the Gateway mount, or become current composition. Likewise, first Context
+  entry still needs a later lifecycle-owned principal publication between new
+  Workspace reconciliation and session Begin. That later settlement must also
+  cover AppliedEntry/retained-creation changes on an existing Workspace and
+  Workspace deletion/re-entry, because all three change the global principal,
+  Gateway, and OPA content. Cluster reconciliation must not become an
+  undocumented prerequisite for those invoked tasks, and atomic reader/public
+  cutover remains blocked until their journaled settlement is implemented.
+
 ## Dormant migration-engine evidence
 
 - The migration engine consumes the unchanged pure migration input/plan and

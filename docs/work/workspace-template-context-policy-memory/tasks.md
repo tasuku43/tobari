@@ -194,9 +194,28 @@ implementation is authorized by creating it.
       route/channel/child effects; and persistent snapshot identity classifies
       missing/empty registries as absent while malformed, stale, or owner-loss
       evidence fails closed. Current composition/Catalog remain unchanged.
+- [x] Implement the dormant final-authority policy projection and hot Policy
+      Memory activation adapter. Evidence: one complete collection selects
+      active Template slices independently from the target current Policy
+      Memory; materialization binds exact healthy Gateway/container/network/IP
+      evidence, retained Workspace creation defaults, current Workspace IDs,
+      rendered OPA/Gateway artifacts, and one global publication receipt. A
+      journal is durable before OPA effects, large receipts use a bounded
+      task-owned codec, same-content confirmation survives unrelated collection
+      changes, and Docker/Gateway/artifact drift fails before mutation. Cluster
+      current/current projection is prepared as a dormant candidate only.
 - [ ] Wire the exact predecessor adapter and migration selection only with the
       atomic final-reader cutover; implement principal/policy projection and
       reconciliation adapters without changing WP03/04/07 mechanisms.
+- [ ] Close the first-entry principal-publication seam in the later atomic
+      entry/runtime projection concern: a newly reconciled Workspace must
+      publish its exact final principal under the same lifecycle decision before
+      `BeginFinalWorkspaceSession`, without making `cluster up` an undocumented
+      prerequisite. The same settlement must cover an existing Workspace whose
+      AppliedEntry/creation authority changes and Workspace retirement that
+      removes the last principal. The dormant policy adapter does not implement
+      or claim entry/deletion principal, Gateway-mount, OPA, or receipt
+      settlement, and no current composition exposes it.
 - [ ] Perform one public Catalog hard cutover with no accidental aliases.
 - [ ] Update human output, JSON schemas, completion, help, examples, site,
       embedded/generated snapshots, and agent-readiness fixtures.
@@ -221,6 +240,13 @@ implementation is authorized by creating it.
       toolchain; `task check:fast` passes with pinned Go 1.26.6 and Node
       24.18.0 after the default shell's older toolchains were rejected by the
       expected preflight.
+- [x] Dormant final projection/hot-activation focused tests pass. Evidence:
+      complete domain/app/infra package tests; focused standard and race tests
+      cover independent hot/cluster axes, no-op confirmation, stale/missing
+      authority, exact principal/Gateway topology and health, artifact/receipt
+      mismatch, post-effect journal recovery, the task-owned >128 KiB codec,
+      and over-ceiling rejection before OPA; helper source snapshot and
+      `task check:fast` pass with pinned Go 1.26.6/Node 24.18.0.
 - [ ] `task check` passes. Evidence:
 - [ ] `task security` passes. Evidence:
 - [ ] `task public:check` passes. Evidence:

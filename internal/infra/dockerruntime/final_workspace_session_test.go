@@ -21,6 +21,7 @@ const (
 
 type finalWorkspaceSessionRunner struct {
 	binding tobari.WorkspaceSessionBinding
+	health  string
 	outputs int
 	runs    int
 }
@@ -36,13 +37,38 @@ func (r *finalWorkspaceSessionRunner) Output(ctx context.Context, args, _ []stri
 		return nil, err
 	}
 	if len(args) == 5 && args[0] == "container" && args[1] == "inspect" && args[2] == "--format" && args[4] == r.binding.ContainerID {
+		health := r.health
+		if health == "" {
+			health = "healthy"
+		}
 		return json.Marshal(finalWorkspaceContainerObservation{
 			ID: r.binding.ContainerID, Owner: ownerValue, Component: "tobari",
 			Workspace: string(r.binding.WorkspaceID), Role: projectWorkRole,
-			Spec: string(r.binding.AppliedEntry.ResolvedSpec), Running: true,
+			Spec: string(r.binding.AppliedEntry.ResolvedSpec), Running: true, Health: health,
 		})
 	}
 	return nil, errors.New("unexpected Docker observation")
+}
+
+func TestFinalWorkspaceSessionRejectsRunningUnhealthyContainerBeforeOwnerEffect(t *testing.T) {
+	for _, health := range []string{"unhealthy", "none"} {
+		t.Run(health, func(t *testing.T) {
+			binding := finalSessionBindingFixture(t, finalSessionContextID, finalSessionWorkspaceID, "restricted", "/workspace/example")
+			runner := &finalWorkspaceSessionRunner{binding: binding, health: health}
+			root := t.TempDir()
+			runtime, err := newRuntime(root+"/config", root+"/state", runner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			prepareFinalSessionPrincipal(t, runtime, binding)
+			if owner, err := runtime.BeginFinalWorkspaceSession(context.Background(), binding); err == nil || owner != nil {
+				t.Fatalf("running %s Workspace acquired owner", health)
+			}
+			if runner.runs != 0 {
+				t.Fatalf("running %s Workspace performed session effect", health)
+			}
+		})
+	}
 }
 
 func finalSessionDigest(character string) tobari.SemanticDigest {

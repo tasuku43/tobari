@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -18,6 +19,8 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
+
+var aggregateRevisionPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 type gatewayAuditRecord struct {
 	tobari.PolicyProtocolIdentity
@@ -195,13 +198,20 @@ func (r *Runtime) publishPolicyBundle(ctx context.Context, state tobari.State) e
 	if err := state.Validate(); err != nil {
 		return err
 	}
+	return r.publishPolicyBundleTarget(ctx, state.PolicyDirectory, state.AggregateRevision)
+}
+
+func (r *Runtime) publishPolicyBundleTarget(ctx context.Context, policyDirectory, aggregateRevision string) error {
+	if !aggregateRevisionPattern.MatchString(aggregateRevision) || !filepath.IsAbs(policyDirectory) || filepath.Clean(policyDirectory) != policyDirectory {
+		return fmt.Errorf("policy bundle target is invalid")
+	}
 	versions, err := runtimeassets.Versions()
 	if err != nil {
 		return fmt.Errorf("read embedded runtime versions: %w", err)
 	}
-	source := "/bundle/.source-" + state.AggregateRevision
-	candidate := "/bundle/.candidate-" + state.AggregateRevision + ".tar.gz"
-	archive, cleanupArchive, err := r.policySourceArchive(state.PolicyDirectory)
+	source := "/bundle/.source-" + aggregateRevision
+	candidate := "/bundle/.candidate-" + aggregateRevision + ".tar.gz"
+	archive, cleanupArchive, err := r.policySourceArchive(policyDirectory)
 	if err != nil {
 		return fmt.Errorf("archive tested policy source: %w", err)
 	}
@@ -224,7 +234,7 @@ func (r *Runtime) publishPolicyBundle(ctx context.Context, state tobari.State) e
 		"--tmpfs", "/tmp:size=16m,mode=1777",
 		"--mount", "type=volume,src=" + policyBundleVolume + ",dst=/bundle",
 		versions["OPA_IMAGE"], "build", "-b", source,
-		"-o", candidate, "--revision", state.AggregateRevision,
+		"-o", candidate, "--revision", aggregateRevision,
 	}, os.Environ())
 	if err != nil {
 		cleanupOutput, cleanupErr := r.removeStagedPolicySource(ctx, versions["DEBIAN_IMAGE"], source)
@@ -447,7 +457,14 @@ func (r *Runtime) applyPolicyRevision(ctx context.Context, state tobari.State) e
 	if err := state.Validate(); err != nil {
 		return err
 	}
-	if err := r.testPolicy(ctx, state); err != nil {
+	return r.applyPolicyTarget(ctx, state.PolicyDirectory, state.AggregateRevision)
+}
+
+func (r *Runtime) applyPolicyTarget(ctx context.Context, policyDirectory, aggregateRevision string) error {
+	if !aggregateRevisionPattern.MatchString(aggregateRevision) || !filepath.IsAbs(policyDirectory) || filepath.Clean(policyDirectory) != policyDirectory {
+		return fmt.Errorf("policy activation target is invalid")
+	}
+	if err := r.testPolicyDirectory(ctx, policyDirectory); err != nil {
 		return fault.Wrap(
 			fault.KindRejected, "policy_test_failed", policyTestFailureMessage, false, err,
 		)
@@ -458,10 +475,55 @@ func (r *Runtime) applyPolicyRevision(ctx context.Context, state tobari.State) e
 	if err := r.verifyOwned(ctx, "volume", policyBundleVolume); err != nil {
 		return fmt.Errorf("inspect owned policy bundle volume: %w", err)
 	}
-	if err := r.publishPolicyBundle(ctx, state); err != nil {
+	if err := r.publishPolicyBundleTarget(ctx, policyDirectory, aggregateRevision); err != nil {
 		return err
 	}
-	return r.waitForPolicyRevision(ctx, state.AggregateRevision)
+	return r.waitForPolicyRevision(ctx, aggregateRevision)
+}
+
+// ApplyFinalAggregatePolicy hot-activates one already tested final-authority
+// projection without reading legacy shared State as an authority selector. A
+// deny-all fence makes every transition conservative; this dormant seam owns
+// no public command or current composition route.
+func (r *Runtime) ApplyFinalAggregatePolicy(ctx context.Context, projection FinalAggregateProjection) error {
+	if !aggregateRevisionPattern.MatchString(projection.AggregateRevision) || !filepath.IsAbs(projection.PolicyDirectory) || filepath.Clean(projection.PolicyDirectory) != projection.PolicyDirectory {
+		return fmt.Errorf("final aggregate policy target is invalid")
+	}
+	fenceDirectory, fenceRevision, cleanup, err := r.finalPolicyFenceTarget(projection.AggregateRevision)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	if err := r.applyPolicyTarget(ctx, fenceDirectory, fenceRevision); err != nil {
+		return err
+	}
+	return r.applyPolicyTarget(ctx, projection.PolicyDirectory, projection.AggregateRevision)
+}
+
+func (r *Runtime) finalPolicyFenceTarget(candidateRevision string) (string, string, func(), error) {
+	digest := sha256.Sum256([]byte("tobari-final-policy-transition:" + candidateRevision))
+	revision := fmt.Sprintf("%x", digest[:])
+	if err := r.ensurePrivateDirectory(r.stateDirectory); err != nil {
+		return "", "", nil, err
+	}
+	directory, err := os.MkdirTemp(r.stateDirectory, ".final-policy-transition-")
+	if err != nil {
+		return "", "", nil, err
+	}
+	cleanup := func() { _ = os.RemoveAll(directory) }
+	if err := os.Chmod(directory, 0o700); err != nil { // #nosec G302 -- transition policy is owner-only.
+		cleanup()
+		return "", "", nil, err
+	}
+	rego := []byte("package tobari.http\n\ndefault decision := {\"allow\": false, \"reason\": \"final policy transition in progress\", \"status_code\": 503, \"learnable\": false}\n\npermission_wait_observation := {\"revision\": data.tobari.aggregate_revision, \"decision\": decision}\n")
+	data := []byte(fmt.Sprintf(`{"tobari":{"aggregate_schema_version":%d,"aggregate_revision":%q}}`+"\n", aggregateSchemaVersion, revision))
+	for name, contents := range map[string][]byte{"fence.rego": rego, "data.json": data} {
+		if err := os.WriteFile(filepath.Join(directory, name), contents, 0o600); err != nil {
+			cleanup()
+			return "", "", nil, err
+		}
+	}
+	return directory, revision, cleanup, nil
 }
 
 // ApplyPolicy validates and hot-activates one complete revision in the stable
