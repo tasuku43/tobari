@@ -295,7 +295,7 @@ const (
 	appliedClusterScanTimeout    = 7 * time.Second
 )
 
-const appliedClusterInspectTemplate = `{"container_id":{{json .Id}},"owner":{{json (index .Config.Labels "io.tobari.owner")}},"component":{{json (index .Config.Labels "io.tobari.component")}},"role":{{json (index .Config.Labels "io.tobari.gateway-role")}},"image_id":{{json .Image}},"state":{{json .State.Status}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}"none"{{end}},"environment":{{json .Config.Env}},"mount_destinations":[{{range $index,$mount := .Mounts}}{{if $index}},{{end}}{{json $mount.Destination}}{{end}}],"networks":{{json .NetworkSettings.Networks}}}`
+const appliedClusterInspectTemplate = `{"container_id":{{json .Id}},"owner":{{json (index .Config.Labels "io.tobari.owner")}},"component":{{json (index .Config.Labels "io.tobari.component")}},"role":{{json (index .Config.Labels "io.tobari.gateway-role")}},"image_id":{{json .Image}},"state":{{json .State.Status}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}"none"{{end}},"environment":{{json .Config.Env}},"mount_destinations":[{{$first := true}}{{range $mount := .Mounts}}{{if not $first}},{{end}}{{json $mount.Destination}}{{$first = false}}{{end}}{{range $destination,$_ := .HostConfig.Tmpfs}}{{if not $first}},{{end}}{{json $destination}}{{$first = false}}{{end}}],"networks":{{json .NetworkSettings.Networks}}}`
 
 type appliedClusterComponentObservation struct {
 	ContainerID       string                     `json:"container_id"`

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -22,6 +23,8 @@ type finalClusterLifecycleRunner struct {
 	networkRemoveCalls   map[string]int
 	volumeRemoveCalls    int
 	failNetworkOnce      bool
+	missingGateway       *FinalGatewayNetworkAddress
+	networkConnectCalls  int
 }
 
 func newFinalClusterLifecycleRunner(base *finalGatewaySettlementRunner) *finalClusterLifecycleRunner {
@@ -45,6 +48,14 @@ func (r *finalClusterLifecycleRunner) writeMissing(name string, errOut io.Writer
 }
 
 func (r *finalClusterLifecycleRunner) Run(ctx context.Context, args, environment []string, in io.Reader, out, errOut io.Writer) error {
+	if len(args) >= 6 && args[0] == "network" && args[1] == "connect" && args[len(args)-1] == gatewayContainer {
+		r.networkConnectCalls++
+		if r.missingGateway != nil && args[len(args)-2] == r.missingGateway.Name {
+			r.base.candidate.GatewayNetworks = append(r.base.candidate.GatewayNetworks, *r.missingGateway)
+			r.missingGateway = nil
+		}
+		return nil
+	}
 	if len(args) >= 2 && args[0] == "image" && args[1] == "inspect" {
 		imageID := r.base.candidate.OPAImageID
 		if args[len(args)-1] == "tobari-gateway:test" {
@@ -173,6 +184,21 @@ func reconcileCleanFinalCluster(t *testing.T) (*Runtime, *finalClusterLifecycleR
 
 func TestFinalClusterCleanDaemonReconcilesThroughBootstrapAndPublishesActiveAuthority(t *testing.T) {
 	runtime, runner, active := reconcileCleanFinalCluster(t)
+	for path, mode := range map[string]os.FileMode{
+		runtime.hostLoopbackDirectory():                    0o700,
+		runtime.hostLoopbackRegistryPath():                 0o600,
+		runtime.attachmentGrantRegistryPath():              0o600,
+		runtime.interactiveAttachmentDirectory():           0o700,
+		runtime.interactiveAttachmentSessionRegistryPath(): 0o600,
+	} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("canonical attachment authority %s: %v", path, err)
+		}
+		if info.Mode().Perm() != mode {
+			t.Fatalf("canonical attachment authority %s mode=%v want=%o", path, info.Mode().Perm(), mode)
+		}
+	}
 	if runner.base.composeCalls != 1 {
 		t.Fatalf("clean activation Compose calls=%d, want one journaled exact bootstrap", runner.base.composeCalls)
 	}
@@ -192,6 +218,34 @@ func TestFinalClusterCleanDaemonReconcilesThroughBootstrapAndPublishesActiveAuth
 	}
 	if len(status.Components) != wantComponents {
 		t.Fatalf("surface-selected component closure=%#v", status.Components)
+	}
+}
+
+func TestFinalClusterBootstrapRepairsMissingGatewayControlBeforeReadiness(t *testing.T) {
+	runtime, runner, previous, active, _ := finalClusterLifecycleFixture(t)
+	for index, network := range runner.base.candidate.GatewayNetworks {
+		if network.Name != "tobari-control" {
+			continue
+		}
+		missing := network
+		runner.missingGateway = &missing
+		runner.base.candidate.GatewayNetworks = append(
+			append([]FinalGatewayNetworkAddress{}, runner.base.candidate.GatewayNetworks[:index]...),
+			runner.base.candidate.GatewayNetworks[index+1:]...,
+		)
+		break
+	}
+	if runner.missingGateway == nil {
+		t.Fatal("fixture has no Gateway control attachment")
+	}
+	if err := runtime.ReconcileFinalClusterAuthority(context.Background(), previous, active, "cluster-up", "clean-cluster-topology"); err != nil {
+		t.Fatalf("reconcile clean final cluster topology: %v", err)
+	}
+	if runner.networkConnectCalls != 1 {
+		t.Fatalf("Gateway control repair calls=%d, want one", runner.networkConnectCalls)
+	}
+	if len(runner.base.restartCalls) == 0 || !slices.Equal(runner.base.restartCalls[0], []string{gatewayContainer}) {
+		t.Fatalf("Gateway topology restart calls=%v", runner.base.restartCalls)
 	}
 }
 
