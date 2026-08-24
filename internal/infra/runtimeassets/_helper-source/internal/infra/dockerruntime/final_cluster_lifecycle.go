@@ -9,7 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 	"github.com/tasuku43/tobari/internal/infra/companionruntime"
@@ -127,6 +129,56 @@ func (r *Runtime) observeFinalClusterComponentRaw(ctx context.Context, component
 	return observed, false, nil
 }
 
+// observeFinalResearchClusterPair keeps the supported research status path
+// within the same Docker-call budget as the standard build. The exact
+// component label joins each observation; Docker output order is never used
+// as authority. An ambiguous or partial result degrades both optional live
+// observations instead of triggering extra calls outside the frozen budget.
+func (r *Runtime) observeFinalResearchClusterPair(ctx context.Context) (appliedClusterComponentObservation, bool, error, appliedClusterComponentObservation, bool, error) {
+	output, err := r.runner.Output(ctx, []string{"inspect", "--format", appliedClusterInspectTemplate, opaContainer, authBrokerContainer}, os.Environ())
+	if err != nil {
+		observationErr := fmt.Errorf("observe final research component pair: %w: %s", err, boundedDiagnostic(output))
+		return appliedClusterComponentObservation{}, false, observationErr, appliedClusterComponentObservation{}, false, observationErr
+	}
+	lines := bytes.Split(bytes.TrimSpace(output), []byte("\n"))
+	if len(lines) != 2 {
+		observationErr := fmt.Errorf("final research component pair is incomplete")
+		return appliedClusterComponentObservation{}, false, observationErr, appliedClusterComponentObservation{}, false, observationErr
+	}
+	observed := make(map[string]appliedClusterComponentObservation, 2)
+	for _, line := range lines {
+		var component appliedClusterComponentObservation
+		if err := decodeStrictJSON(line, &component); err != nil {
+			observationErr := fmt.Errorf("decode final research component pair: %w", err)
+			return appliedClusterComponentObservation{}, false, observationErr, appliedClusterComponentObservation{}, false, observationErr
+		}
+		if component.Component != "opa" && component.Component != "auth-broker" || observed[component.Component].Component != "" {
+			observationErr := fmt.Errorf("final research component pair has unknown or duplicate identity")
+			return appliedClusterComponentObservation{}, false, observationErr, appliedClusterComponentObservation{}, false, observationErr
+		}
+		component.NetworkAddresses = make(map[string]string, len(component.Networks))
+		for network, raw := range component.Networks {
+			var endpoint struct {
+				IPAddress string `json:"IPAddress"`
+			}
+			if err := json.Unmarshal(raw, &endpoint); err != nil {
+				observationErr := fmt.Errorf("decode final research component network: %w", err)
+				return appliedClusterComponentObservation{}, false, observationErr, appliedClusterComponentObservation{}, false, observationErr
+			}
+			component.NetworkAddresses[network] = endpoint.IPAddress
+		}
+		sort.Strings(component.MountDestinations)
+		observed[component.Component] = component
+	}
+	opa, opaPresent := observed["opa"]
+	broker, brokerPresent := observed["auth-broker"]
+	if !opaPresent || !brokerPresent {
+		observationErr := fmt.Errorf("final research component pair omitted selected identity")
+		return appliedClusterComponentObservation{}, false, observationErr, appliedClusterComponentObservation{}, false, observationErr
+	}
+	return opa, false, nil, broker, false, nil
+}
+
 func finalComponentStatus(name string, observed appliedClusterComponentObservation, missing bool, err error) tobari.FinalClusterComponentObservation {
 	result := tobari.FinalClusterComponentObservation{Name: name, Identity: tobari.FinalClusterEvidenceUnknown, Topology: tobari.FinalClusterEvidenceUnknown}
 	if err != nil {
@@ -153,6 +205,71 @@ func finalComponentStatus(name string, observed appliedClusterComponentObservati
 		result.Identity, result.Topology = tobari.FinalClusterEvidenceExact, tobari.FinalClusterEvidenceExact
 	}
 	return result
+}
+
+type statusClusterImageObservation struct {
+	ID          string   `json:"id"`
+	RepoTags    []string `json:"repo_tags"`
+	RepoDigests []string `json:"repo_digests"`
+}
+
+// resolveStatusClusterImageIDs resolves the selected OPA and, on the research
+// surface, Auth Broker image identities in one bounded Docker call. Each
+// result is joined by its exact selected reference rather than Docker output
+// order, so the call-count bound does not weaken component identity evidence.
+func (r *Runtime) resolveStatusClusterImageIDs(ctx context.Context, references ...string) (map[string]string, error) {
+	result := make(map[string]string, len(references))
+	if len(references) == 0 {
+		return result, nil
+	}
+	seen := make(map[string]struct{}, len(references))
+	for _, reference := range references {
+		if reference == "" {
+			return nil, fmt.Errorf("status cluster image reference is empty")
+		}
+		if _, duplicate := seen[reference]; duplicate {
+			return nil, fmt.Errorf("status cluster image reference is ambiguous")
+		}
+		seen[reference] = struct{}{}
+	}
+	format := `{"id":{{json .Id}},"repo_tags":{{json .RepoTags}},"repo_digests":{{json .RepoDigests}}}`
+	args := append([]string{"image", "inspect", "--format", format}, references...)
+	stdout, stderr := &boundedBuffer{limit: 32 * 1024}, &boundedBuffer{limit: 4096}
+	if err := r.runner.Run(ctx, args, os.Environ(), nil, stdout, stderr); err != nil {
+		return nil, fmt.Errorf("resolve status cluster image authority: %w: %s", err, boundedDiagnostic(stderr.buffer.Bytes()))
+	}
+	if stdout.overflow || stderr.overflow || len(bytes.TrimSpace(stderr.buffer.Bytes())) != 0 {
+		return nil, fmt.Errorf("status cluster image authority exceeds its bound or emitted diagnostics")
+	}
+	lines := bytes.Split(bytes.TrimSpace(stdout.buffer.Bytes()), []byte("\n"))
+	if len(lines) != len(references) {
+		return nil, fmt.Errorf("status cluster image authority is incomplete")
+	}
+	for _, line := range lines {
+		var observed statusClusterImageObservation
+		if err := decodeStrictJSON(line, &observed); err != nil || !imageIDPattern.MatchString(observed.ID) {
+			return nil, fmt.Errorf("status cluster image authority is invalid")
+		}
+		matched := ""
+		for _, reference := range references {
+			if slices.Contains(observed.RepoTags, reference) || slices.Contains(observed.RepoDigests, reference) {
+				if matched != "" {
+					return nil, fmt.Errorf("status cluster image authority matches multiple references")
+				}
+				matched = reference
+			}
+		}
+		if matched == "" || result[matched] != "" {
+			return nil, fmt.Errorf("status cluster image authority is unknown or duplicated")
+		}
+		result[matched] = observed.ID
+	}
+	for _, reference := range references {
+		if result[reference] == "" {
+			return nil, fmt.Errorf("status cluster image authority omitted %s", strings.SplitN(reference, "@", 2)[0])
+		}
+	}
+	return result, nil
 }
 
 func (r *Runtime) ObserveFinalCluster(ctx context.Context, collection tobari.WorkspaceAuthorityCollection, present bool) (tobari.FinalClusterStatus, error) {
@@ -204,9 +321,16 @@ func (r *Runtime) ObserveFinalCluster(ctx context.Context, collection tobari.Wor
 		status.Receipt = tobari.FinalClusterReceiptUnknown
 	}
 	gateway, gatewayMissing, gatewayErr := r.observeFinalClusterComponentRaw(ctx, "gateway", gatewayContainer)
-	opa, opaMissing, opaErr := r.observeFinalClusterComponentRaw(ctx, "opa", opaContainer)
+	var opa, broker appliedClusterComponentObservation
+	var opaMissing, brokerMissing bool
+	var opaErr, brokerErr error
+	if brokerRuntimeEnabled && activePresent {
+		opa, opaMissing, opaErr, broker, brokerMissing, brokerErr = r.observeFinalResearchClusterPair(ctx)
+	} else {
+		opa, opaMissing, opaErr = r.observeFinalClusterComponentRaw(ctx, "opa", opaContainer)
+		broker, brokerMissing, brokerErr = r.observeFinalClusterComponentRaw(ctx, "auth-broker", authBrokerContainer)
+	}
 	status.Components = append(status.Components, finalComponentStatus("gateway", gateway, gatewayMissing, gatewayErr), finalComponentStatus("opa", opa, opaMissing, opaErr))
-	broker, brokerMissing, brokerErr := r.observeFinalClusterComponentRaw(ctx, "auth-broker", authBrokerContainer)
 	brokerStatus := finalComponentStatus("auth-broker", broker, brokerMissing, brokerErr)
 	companionStatus := tobari.FinalClusterComponentObservation{Name: "credential-companion", State: tobari.FinalClusterRuntimeAbsent, Identity: tobari.FinalClusterEvidenceAbsent, Topology: tobari.FinalClusterEvidenceAbsent}
 	if brokerRuntimeEnabled {
@@ -286,23 +410,31 @@ func (r *Runtime) ObserveFinalCluster(ctx context.Context, collection tobari.Wor
 	if activePresent && !gatewayMissing && !opaMissing && (active.Material.Gateway.ContainerID != gateway.ContainerID || active.Material.Gateway.ImageID != gateway.ImageID || !reflect.DeepEqual(active.Material.Gateway.Networks, componentNetworkRows(gateway))) {
 		status.Runtime = tobari.FinalClusterRuntimeDrifted
 	}
+	selectedImages := make([]string, 0, 2)
+	selectedOPA, selectedBroker := "", ""
 	if !opaMissing && opaErr == nil {
 		versions, versionsErr := runtimeassets.Versions()
 		if versionsErr != nil {
 			status.Runtime = tobari.FinalClusterRuntimeUnknown
-		} else if expectedOPA, identityErr := r.resolveCandidateImageID(ctx, versions["OPA_IMAGE"]); identityErr != nil {
-			status.Runtime = tobari.FinalClusterRuntimeUnknown
-		} else if opa.ImageID != expectedOPA {
-			status.Runtime = tobari.FinalClusterRuntimeDrifted
+		} else {
+			selectedOPA = versions["OPA_IMAGE"]
+			selectedImages = append(selectedImages, selectedOPA)
 		}
 	}
 	if brokerRuntimeEnabled && !brokerMissing && brokerErr == nil {
 		selection, selectErr := r.selectAuthBrokerImage(ctx)
 		if selectErr != nil {
 			status.Runtime = tobari.FinalClusterRuntimeUnknown
-		} else if expectedBroker, identityErr := r.resolveCandidateImageID(ctx, selection.Image); identityErr != nil {
+		} else {
+			selectedBroker = selection.Image
+			selectedImages = append(selectedImages, selectedBroker)
+		}
+	}
+	if len(selectedImages) != 0 {
+		resolved, identityErr := r.resolveStatusClusterImageIDs(ctx, selectedImages...)
+		if identityErr != nil {
 			status.Runtime = tobari.FinalClusterRuntimeUnknown
-		} else if broker.ImageID != expectedBroker {
+		} else if (selectedOPA != "" && opa.ImageID != resolved[selectedOPA]) || (selectedBroker != "" && broker.ImageID != resolved[selectedBroker]) {
 			status.Runtime = tobari.FinalClusterRuntimeDrifted
 		}
 	}

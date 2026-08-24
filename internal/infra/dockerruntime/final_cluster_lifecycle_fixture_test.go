@@ -1,6 +1,7 @@
 package dockerruntime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,6 +26,8 @@ type finalClusterLifecycleRunner struct {
 	failNetworkOnce      bool
 	missingGateway       *FinalGatewayNetworkAddress
 	networkConnectCalls  int
+	recordStatusCalls    bool
+	statusCalls          [][]string
 }
 
 func newFinalClusterLifecycleRunner(base *finalGatewaySettlementRunner) *finalClusterLifecycleRunner {
@@ -48,6 +51,9 @@ func (r *finalClusterLifecycleRunner) writeMissing(name string, errOut io.Writer
 }
 
 func (r *finalClusterLifecycleRunner) Run(ctx context.Context, args, environment []string, in io.Reader, out, errOut io.Writer) error {
+	if r.recordStatusCalls {
+		r.statusCalls = append(r.statusCalls, append([]string(nil), args...))
+	}
 	if len(args) >= 6 && args[0] == "network" && args[1] == "connect" && args[len(args)-1] == gatewayContainer {
 		r.networkConnectCalls++
 		if r.missingGateway != nil && args[len(args)-2] == r.missingGateway.Name {
@@ -57,6 +63,29 @@ func (r *finalClusterLifecycleRunner) Run(ctx context.Context, args, environment
 		return nil
 	}
 	if len(args) >= 2 && args[0] == "image" && args[1] == "inspect" {
+		if len(args) >= 5 && strings.Contains(args[3], `"repo_tags"`) {
+			for index := len(args) - 1; index >= 4; index-- {
+				reference := args[index]
+				imageID := r.base.candidate.OPAImageID
+				tags, digests := []string{}, []string{}
+				if reference == r.base.candidate.AuthBrokerImage {
+					imageID = r.base.candidate.AuthBrokerImageID
+				}
+				if strings.Contains(reference, "@") {
+					digests = append(digests, reference)
+				} else {
+					tags = append(tags, reference)
+				}
+				payload, _ := json.Marshal(statusClusterImageObservation{ID: imageID, RepoTags: tags, RepoDigests: digests})
+				_, _ = fmt.Fprintln(out, string(payload))
+			}
+			return nil
+		}
+		if len(args) >= 5 && strings.Contains(args[3], `"runtime"`) {
+			_, _ = fmt.Fprintf(out, `{"id":"sha256:%s","owner":"","component":"","runtime":"","revision":"","api":"%s","lifetime":"%s","user":"tobari","entrypoint":["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]}`,
+				strings.Repeat("6", 64), tobari.RuntimeImageAPI, tobari.RuntimeImageLifetimeCommand)
+			return nil
+		}
 		imageID := r.base.candidate.OPAImageID
 		if args[len(args)-1] == "tobari-gateway:test" {
 			imageID = r.base.candidate.GatewayImageID
@@ -82,6 +111,21 @@ func (r *finalClusterLifecycleRunner) Run(ctx context.Context, args, environment
 }
 
 func (r *finalClusterLifecycleRunner) Output(ctx context.Context, args, environment []string) ([]byte, error) {
+	if r.recordStatusCalls {
+		r.statusCalls = append(r.statusCalls, append([]string(nil), args...))
+	}
+	if len(args) == 5 && args[0] == "inspect" && args[2] == appliedClusterInspectTemplate && args[3] == opaContainer && args[4] == authBrokerContainer {
+		var output bytes.Buffer
+		for index := len(args) - 1; index >= 3; index-- {
+			name := args[index]
+			payload, err := json.Marshal(r.base.component(name))
+			if err != nil {
+				return nil, err
+			}
+			_, _ = fmt.Fprintln(&output, string(payload))
+		}
+		return output.Bytes(), nil
+	}
 	if len(args) >= 2 && args[0] == "container" && args[1] == "rm" {
 		id := args[len(args)-1]
 		for _, name := range []string{gatewayContainer, opaContainer, authBrokerContainer} {
@@ -180,6 +224,63 @@ func reconcileCleanFinalCluster(t *testing.T) (*Runtime, *finalClusterLifecycleR
 		t.Fatalf("reconcile clean final cluster: %v", err)
 	}
 	return runtime, runner, active
+}
+
+func TestStatusHomeProductionAdaptersStayWithinFrozenDockerCallBudget(t *testing.T) {
+	runtime, runner, active := reconcileCleanFinalCluster(t)
+	workspaceFixture := finalProjectionCollectionFixture(t, finalProjectionWorkspaceA)
+	snapshots, err := workspaceFixture.ContextSnapshots()
+	if err != nil || len(snapshots) != 1 || snapshots[0].Workspace == nil {
+		t.Fatalf("status authority snapshots=%d err=%v", len(snapshots), err)
+	}
+	plan, err := tobari.BuildHotWorkspacePolicyProjection(workspaceFixture, finalProjectionContextID)
+	if err != nil || len(plan.Contexts) != 1 || plan.Contexts[0].Principal == nil {
+		t.Fatalf("status Workspace plan=%#v err=%v", plan, err)
+	}
+	principal := *plan.Contexts[0].Principal
+	runner.base.workspaces[principal.WorkspaceID] = &principal
+	resolver := runtime.images.(testImageResolver)
+	resolver.runtimeImage = tobari.OfficialRuntimeBase
+	runtime.images = resolver
+	binding, err := runtime.standardRuntimeManifest().Binding(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runner.statusCalls = nil
+	runner.recordStatusCalls = true
+	defer func() { runner.recordStatusCalls = false }()
+	cluster, err := runtime.ObserveFinalCluster(context.Background(), active, true)
+	if err != nil || cluster.Runtime != tobari.FinalClusterRuntimeRunning {
+		t.Fatalf("status cluster=%#v err=%v", cluster, err)
+	}
+	runtimeStatus, err := runtime.ObserveStatusRuntime(context.Background(), binding)
+	if err != nil || runtimeStatus.Authority != tobari.StatusRuntimeAuthorityReady || runtimeStatus.Availability != tobari.RuntimeAvailabilityAvailable {
+		t.Fatalf("status Runtime=%#v err=%v", runtimeStatus, err)
+	}
+	workspace, err := runtime.ObserveStatusWorkspace(context.Background(), snapshots[0])
+	if err != nil || workspace.State != tobari.StatusWorkspaceRuntimeRunning {
+		t.Fatalf("status Workspace=%#v err=%v", workspace, err)
+	}
+	if got := len(runner.statusCalls); got != tobari.StatusHomeDockerCallsPerAttempt {
+		t.Fatalf("production status Docker calls=%d want=%d: %v", got, tobari.StatusHomeDockerCallsPerAttempt, runner.statusCalls)
+	}
+	imageAuthorityCalls := 0
+	for _, call := range runner.statusCalls {
+		if len(call) >= 5 && call[0] == "image" && call[1] == "inspect" && strings.Contains(call[3], `"repo_tags"`) {
+			imageAuthorityCalls++
+			wantReferences := 1
+			if brokerRuntimeEnabled {
+				wantReferences = 2
+			}
+			if len(call[4:]) != wantReferences {
+				t.Fatalf("cluster image authority references=%v want=%d", call[4:], wantReferences)
+			}
+		}
+	}
+	if imageAuthorityCalls != 1 {
+		t.Fatalf("cluster image authority Docker calls=%d want=1: %v", imageAuthorityCalls, runner.statusCalls)
+	}
 }
 
 func TestFinalClusterCleanDaemonReconcilesThroughBootstrapAndPublishesActiveAuthority(t *testing.T) {
