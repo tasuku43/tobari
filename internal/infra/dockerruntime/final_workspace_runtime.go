@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -327,13 +328,13 @@ func (r *Runtime) selectFinalWorkspaceNetworkAuthority(ctx context.Context, id t
 		return tobari.WorkspaceRuntimeNetworkAuthority{}, err
 	}
 	digest := sha256.Sum256([]byte(id))
-	start := int(digest[0])<<8 | int(digest[1])
-	const subnetCount = 1 << 14 // 10.64.0.0/10 split into /24 networks.
-	for offset := 0; offset < subnetCount; offset++ {
+	const subnetCount uint16 = 1 << 14 // 10.64.0.0/10 split into /24 networks.
+	start := binary.BigEndian.Uint16(digest[:2]) % subnetCount
+	for offset := uint16(0); offset < subnetCount; offset++ {
 		index := (start + offset) % subnetCount
-		second := 64 + index/256
-		third := index % 256
-		candidate := netip.PrefixFrom(netip.AddrFrom4([4]byte{10, byte(second), byte(third), 0}), 24)
+		var octets [2]byte
+		binary.BigEndian.PutUint16(octets[:], index)
+		candidate := netip.PrefixFrom(netip.AddrFrom4([4]byte{10, 64 + octets[0], octets[1], 0}), 24)
 		collision := false
 		for _, occupied := range used {
 			if prefixesOverlap(candidate, occupied) {
@@ -805,7 +806,7 @@ func ensureExactFinalBootstrapFile(directory, name string, content []byte) error
 		return err
 	} else if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 || info.Size() > maxProjectStateBytes {
 		return fmt.Errorf("final Workspace bootstrap target is unsafe")
-	} else if current, err := os.ReadFile(path); err != nil || !bytes.Equal(current, content) {
+	} else if current, err := os.ReadFile(path); err != nil || !bytes.Equal(current, content) { // #nosec G304 -- fixed bootstrap filename below the validated owner-only Workspace home child.
 		return fmt.Errorf("final Workspace bootstrap target differs from reviewed creation authority: %w", err)
 	}
 	return syncDirectory(directory)
@@ -818,7 +819,7 @@ func (r *Runtime) ensureFinalWorkspaceAgentState(home, profile string) error {
 			return err
 		}
 	}
-	baseSettings, err := os.ReadFile(filepath.Join(profile, "common", "settings.json"))
+	baseSettings, err := os.ReadFile(filepath.Join(profile, "common", "settings.json")) // #nosec G304 -- profile is the exact runtime-owned path selected from a validated name and revalidated digest.
 	if err != nil {
 		return err
 	}
@@ -852,7 +853,7 @@ func writeFinalWorkspaceGitConfig(directory string, data []byte) error {
 		if info.Mode().Perm() != 0o600 {
 			return fmt.Errorf("final Workspace Git projection is not owner-only")
 		}
-		current, err := os.ReadFile(path)
+		current, err := os.ReadFile(path) // #nosec G304 -- fixed config child after owner-only directory and regular-file validation.
 		if err != nil {
 			return err
 		}

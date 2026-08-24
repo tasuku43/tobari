@@ -2138,9 +2138,9 @@ func cloneContextRecords(values []tobari.WorkspaceAuthorityContextRecord) []toba
 func cloneWorkspaceBindings(values []tobari.WorkspaceBinding) []tobari.WorkspaceBinding {
 	result := make([]tobari.WorkspaceBinding, len(values))
 	copy(result, values)
-	for index := range result {
-		if values[index].LastSuccessfulEntry != nil {
-			entry := *values[index].LastSuccessfulEntry
+	for index, value := range values {
+		if value.LastSuccessfulEntry != nil {
+			entry := *value.LastSuccessfulEntry
 			result[index].LastSuccessfulEntry = &entry
 		}
 	}

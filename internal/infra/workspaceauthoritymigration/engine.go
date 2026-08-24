@@ -811,7 +811,7 @@ func (e *Engine) acquireLock() (func(), error) {
 	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 		return nil, statErr
 	}
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600) // #nosec G304 -- fixed lock child below the validated exact owner-only transaction root and checked with lstat/stat identity.
 	if err != nil {
 		return nil, fmt.Errorf("Workspace authority migration is already active or lock is unsafe: %w", err)
 	}
@@ -1252,7 +1252,7 @@ func safeDirectory(info os.FileInfo) bool {
 }
 
 func writePrivateFile(path string, data []byte) error {
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G304 -- sole caller supplies the fixed authority child below a newly created owner-only migration stage.
 	if err != nil {
 		return err
 	}
