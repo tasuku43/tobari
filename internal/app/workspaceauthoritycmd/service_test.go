@@ -2,6 +2,7 @@ package workspaceauthoritycmd
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -74,13 +75,16 @@ func ptrMemory(value tobari.PolicyMemoryRevision) *tobari.PolicyMemoryRevision {
 }
 
 type fakePort struct {
-	template        tobari.WorkspaceTemplate
-	snapshot        tobari.ContextAuthoritySnapshot
-	copyPublication tobari.WorkspaceTemplateCopyPublication
-	policy          tobari.PolicyCandidatePublication
-	reset           tobari.PolicyRuleResetPublication
-	lastRef         string
-	calls           int
+	template         tobari.WorkspaceTemplate
+	snapshot         tobari.ContextAuthoritySnapshot
+	copyPublication  tobari.WorkspaceTemplateCopyPublication
+	policy           tobari.PolicyCandidatePublication
+	reset            tobari.PolicyRuleResetPublication
+	lastRef          string
+	calls            int
+	entryErr         error
+	createContextErr error
+	deleteContextErr error
 }
 
 func (f *fakePort) ListWorkspaceTemplates(context.Context) ([]tobari.WorkspaceTemplate, error) {
@@ -118,16 +122,25 @@ func (f *fakePort) ReadContextAuthorityByReference(_ context.Context, ref string
 func (f *fakePort) CreateContextByTemplateReference(_ context.Context, ref, root string) (tobari.ContextAuthoritySnapshot, error) {
 	f.calls++
 	f.lastRef = ref
+	if f.createContextErr != nil {
+		return tobari.ContextAuthoritySnapshot{}, f.createContextErr
+	}
 	return f.snapshot, nil
 }
 func (f *fakePort) EnterContextByReference(_ context.Context, ref string, _ tobari.WorkspaceSessionRequest, _ io.Reader, _ io.Writer, _ io.Writer) (tobari.ContextEntryPublication, error) {
 	f.calls++
 	f.lastRef = ref
+	if f.entryErr != nil {
+		return tobari.ContextEntryPublication{}, f.entryErr
+	}
 	return tobari.ContextEntryPublication{Snapshot: f.snapshot, Outcome: tobari.WorkspaceSessionOutcome{ExitCode: 0, CleanupIssues: []tobari.WorkspaceAttachmentCleanupIssue{}}}, nil
 }
 func (f *fakePort) DeleteContextByReference(_ context.Context, ref string) (tobari.ContextDeleteResult, error) {
 	f.calls++
 	f.lastRef = ref
+	if f.deleteContextErr != nil {
+		return tobari.ContextDeleteResult{}, f.deleteContextErr
+	}
 	return tobari.ContextDeleteResult{ContextID: contextID, Deleted: true}, nil
 }
 func (f *fakePort) ListWorkspaceAuthority(context.Context) ([]tobari.ContextAuthoritySnapshot, error) {
@@ -212,6 +225,72 @@ func TestContextAndWorkspaceActionsUseOnlyExactRefs(t *testing.T) {
 	target = operation.TargetRef{Kind: tobari.WorkspaceReferenceKind, ID: workspaceRef}
 	if _, err := workspaces.Delete(context.Background(), intent(TaskWorkspaceDelete, operation.EffectWrite, target, WorkspaceDeleteImpact()), workspaceRef, false); err != nil || fake.lastRef != workspaceRef {
 		t.Fatalf("delete ref=%q err=%v", fake.lastRef, err)
+	}
+}
+
+func TestContextEntryClassifiesSupportedAuthorityBoundariesWithoutUnknownMutation(t *testing.T) {
+	contextRef, _ := tobari.ContextRef(contextID)
+	target := operation.TargetRef{Kind: tobari.WorkspaceReferenceKind, ParentID: contextRef}
+	for _, test := range []struct {
+		name   string
+		err    error
+		code   string
+		phase  fault.Phase
+		change fault.ChangeState
+	}{
+		{name: "Template policy stale", err: tobari.ErrWorkspaceEntryTemplatePolicyInactive, code: "workspace_entry_template_policy_inactive", phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{name: "Policy Memory stale", err: tobari.ErrWorkspaceEntryPolicyMemoryInactive, code: "workspace_entry_policy_memory_inactive", phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{name: "observation unavailable", err: errors.Join(tobari.ErrWorkspaceEntryObservationUnavailable, errors.New("synthetic private observation")), code: "workspace_entry_observation_unavailable", phase: fault.PhaseObservation, change: fault.ChangeNotApplicable},
+		{name: "durable decision interrupted", err: errors.Join(tobari.ErrWorkspaceEntryInterrupted, context.DeadlineExceeded), code: "workspace_entry_interrupted", phase: fault.PhaseMutation, change: fault.ChangePartial},
+		{name: "published before attachment", err: errors.Join(tobari.ErrWorkspaceEntryReconciliationConfirmed, context.Canceled), code: "workspace_entry_attachment_unavailable", phase: fault.PhaseAttachment, change: fault.ChangeConfirmed},
+		{name: "canceled before decision", err: errors.Join(tobari.ErrWorkspaceEntryCanceledBeforeDecision, context.Canceled), code: "workspace_entry_canceled", phase: fault.PhasePrecondition, change: fault.ChangeNone},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &fakePort{snapshot: snapshotFixture(t, true, true), entryErr: test.err}
+			service := NewContextService(fake)
+			_, err := service.Enter(context.Background(), intent(TaskContextEnter, operation.EffectCreate, target, ContextEnterImpact()), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard)
+			public, ok := fault.PublicCopy(err)
+			if !ok || public.Code != test.code || public.Phase != test.phase || public.ChangeState != test.change || public.Code == "unclassified_mutation_outcome" {
+				t.Fatalf("fault=%#v ok=%t", public, ok)
+			}
+			if len(public.NextActions) != 1 || public.NextActions[0].Command == "context enter" {
+				t.Fatalf("recovery is not read-only: %#v", public.NextActions)
+			}
+		})
+	}
+}
+
+func TestContextCreateDeleteRawCancellationDoesNotBorrowEntryPreconditionClassification(t *testing.T) {
+	templateRef, _ := tobari.WorkspaceTemplateRef(templateID)
+	contextRef, _ := tobari.ContextRef(contextID)
+	for _, test := range []struct {
+		name string
+		run  func(*ContextService) error
+		fake *fakePort
+	}{
+		{
+			name: "create",
+			fake: &fakePort{snapshot: snapshotFixture(t, false, false), createContextErr: context.Canceled},
+			run: func(service *ContextService) error {
+				_, err := service.Create(context.Background(), intent(TaskContextCreate, operation.EffectCreate, operation.TargetRef{Kind: tobari.ContextReferenceKind, ParentID: templateRef}, ContextCreateImpact()), templateRef, "/workspace/example")
+				return err
+			},
+		},
+		{
+			name: "delete",
+			fake: &fakePort{snapshot: snapshotFixture(t, false, false), deleteContextErr: context.Canceled},
+			run: func(service *ContextService) error {
+				_, err := service.Delete(context.Background(), intent(TaskContextDelete, operation.EffectWrite, operation.TargetRef{Kind: tobari.ContextReferenceKind, ID: contextRef}, ContextDeleteImpact()), contextRef)
+				return err
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			public, ok := fault.PublicCopy(test.run(NewContextService(test.fake)))
+			if !ok || public.Code != "unclassified_mutation_outcome" || public.Phase != fault.PhaseMutation || public.ChangeState != fault.ChangeUnknown {
+				t.Fatalf("fault=%#v ok=%t", public, ok)
+			}
+		})
 	}
 }
 

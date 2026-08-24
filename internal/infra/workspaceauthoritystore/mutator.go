@@ -59,24 +59,25 @@ type Mutator struct {
 const effectDecisionSchemaVersion = 1
 
 type effectDecision struct {
-	SchemaVersion      int                              `json:"schema_version"`
-	Operation          string                           `json:"operation"`
-	Target             string                           `json:"target"`
-	PreviousGeneration uint64                           `json:"previous_generation"`
-	PreviousRevision   tobari.SemanticDigest            `json:"previous_revision"`
-	NextGeneration     uint64                           `json:"next_generation"`
-	NextRevision       tobari.SemanticDigest            `json:"next_revision"`
-	WorkspaceID        *tobari.WorkspaceID              `json:"workspace_id,omitempty"`
-	Workspace          *tobari.WorkspaceBinding         `json:"workspace,omitempty"`
-	Force              *bool                            `json:"force,omitempty"`
-	Candidate          *tobari.PolicyCandidateAuthority `json:"candidate,omitempty"`
-	RuleID             string                           `json:"rule_id,omitempty"`
-	Decision           tobari.PolicyMemoryDecision      `json:"decision,omitempty"`
-	PreviousMemory     *tobari.PolicyMemoryRevision     `json:"previous_policy_memory,omitempty"`
+	SchemaVersion      int                                      `json:"schema_version"`
+	Operation          string                                   `json:"operation"`
+	Target             string                                   `json:"target"`
+	PreviousGeneration uint64                                   `json:"previous_generation"`
+	PreviousRevision   tobari.SemanticDigest                    `json:"previous_revision"`
+	NextGeneration     uint64                                   `json:"next_generation"`
+	NextRevision       tobari.SemanticDigest                    `json:"next_revision"`
+	WorkspaceID        *tobari.WorkspaceID                      `json:"workspace_id,omitempty"`
+	Workspace          *tobari.WorkspaceBinding                 `json:"workspace,omitempty"`
+	Force              *bool                                    `json:"force,omitempty"`
+	Candidate          *tobari.PolicyCandidateAuthority         `json:"candidate,omitempty"`
+	RuleID             string                                   `json:"rule_id,omitempty"`
+	Decision           tobari.PolicyMemoryDecision              `json:"decision,omitempty"`
+	PreviousMemory     *tobari.PolicyMemoryRevision             `json:"previous_policy_memory,omitempty"`
+	EntryPlan          *tobari.WorkspaceEntryReconciliationPlan `json:"workspace_entry_plan,omitempty"`
 }
 
 func (d effectDecision) validate() error {
-	if d.SchemaVersion != effectDecisionSchemaVersion || d.Operation == "" || d.Target == "" || d.PreviousGeneration == 0 || d.NextGeneration != d.PreviousGeneration+1 {
+	if d.SchemaVersion != effectDecisionSchemaVersion || d.Operation == "" || d.Target == "" || d.PreviousGeneration == 0 {
 		return fmt.Errorf("final-authority effect decision metadata is invalid")
 	}
 	if err := d.PreviousRevision.Validate(); err != nil {
@@ -87,16 +88,31 @@ func (d effectDecision) validate() error {
 	}
 	switch d.Operation {
 	case "workspace-delete", "workspace-delete-force":
-		if d.WorkspaceID == nil || d.WorkspaceID.Validate() != nil || d.Workspace == nil || d.Workspace.ID != *d.WorkspaceID || d.Force == nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil {
+		if d.NextGeneration != d.PreviousGeneration+1 || d.WorkspaceID == nil || d.WorkspaceID.Validate() != nil || d.Workspace == nil || d.Workspace.ID != *d.WorkspaceID || d.Force == nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil || d.EntryPlan != nil {
 			return fmt.Errorf("Workspace delete effect decision is invalid")
 		}
 	case "policy-allow", "policy-deny":
-		if d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate == nil || d.Candidate.Validate() != nil || d.RuleID == "" || d.PreviousMemory == nil || d.PreviousMemory.Validate() != nil || d.Decision.Validate() != nil {
+		if d.NextGeneration != d.PreviousGeneration+1 || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate == nil || d.Candidate.Validate() != nil || d.RuleID == "" || d.PreviousMemory == nil || d.PreviousMemory.Validate() != nil || d.Decision.Validate() != nil || d.EntryPlan != nil {
 			return fmt.Errorf("Policy candidate effect decision is invalid")
 		}
 	case "policy-reset":
-		if d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID == "" || d.PreviousMemory == nil || d.PreviousMemory.Validate() != nil || d.Decision != "" {
+		if d.NextGeneration != d.PreviousGeneration+1 || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID == "" || d.PreviousMemory == nil || d.PreviousMemory.Validate() != nil || d.Decision != "" || d.EntryPlan != nil {
 			return fmt.Errorf("Policy reset effect decision is invalid")
+		}
+	case "context-entry":
+		contextID, err := tobari.ParseContextRef(d.Target)
+		if err != nil || d.EntryPlan == nil || d.EntryPlan.Workspace.ContextID != contextID || d.EntryPlan.Applied.ContextID != contextID || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil {
+			return fmt.Errorf("Context entry effect decision is invalid")
+		}
+		binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, ProjectRoot: d.EntryPlan.Workspace.ProjectRoot, TemplateID: d.EntryPlan.Applied.TemplateID}
+		if d.EntryPlan.Workspace.ValidateFor(binding) != nil || d.EntryPlan.Applied.ValidateFor(binding) != nil || d.EntryPlan.Workspace.LastSuccessfulEntry == nil || *d.EntryPlan.Workspace.LastSuccessfulEntry != d.EntryPlan.Applied {
+			return fmt.Errorf("Context entry effect decision plan is invalid")
+		}
+		if d.NextGeneration != d.PreviousGeneration && d.NextGeneration != d.PreviousGeneration+1 {
+			return fmt.Errorf("Context entry envelope transition is invalid")
+		}
+		if d.NextGeneration == d.PreviousGeneration && d.NextRevision != d.PreviousRevision {
+			return fmt.Errorf("Context entry no-op transition changed revision")
 		}
 	default:
 		return fmt.Errorf("final-authority effect decision operation is invalid")

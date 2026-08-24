@@ -139,6 +139,46 @@ func storeCollectionFixture(t *testing.T) tobari.WorkspaceAuthorityCollection {
 	return collection
 }
 
+func TestWorkspaceAuthorityCollectionMakesWorkspaceHomeAnExclusiveOwnerBoundary(t *testing.T) {
+	collection := storeCollectionFixture(t)
+	secondTemplateID := tobari.WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789b1")
+	secondContextID := tobari.ContextID("01912345-6789-7abc-8def-0123456789b2")
+	secondWorkspaceID := tobari.WorkspaceID("01912345-6789-7abc-8def-0123456789b3")
+	secondTemplate, err := tobari.CopyWorkspaceTemplateRevision(secondTemplateID, "second", collection.Templates[0].Current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memory, _, err := tobari.PublishPolicyMemory(secondContextID, []tobari.PolicyMemoryRule{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contextBinding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: secondContextID, ProjectRoot: collection.Contexts[0].Context.ProjectRoot, TemplateID: secondTemplateID}
+	templateReceipt := tobari.TemplatePolicyActivationReceipt{ContextID: secondContextID, TemplateID: secondTemplateID, PolicySliceDigest: secondTemplate.Current.Slices.PolicySliceDigest}
+	memoryReceipt := tobari.PolicyMemoryActivationReceipt{ContextID: secondContextID, Revision: memory.Revision}
+	activeMemory := memory.Clone()
+	record := tobari.WorkspaceAuthorityContextRecord{Context: contextBinding, PolicyMemory: memory, ActiveTemplatePolicy: &templateReceipt, ActivePolicyMemory: &activeMemory, ActivePolicyMemoryRef: &memoryReceipt}
+	applied := tobari.WorkspaceAppliedEntry{
+		ContextID: secondContextID, TemplateID: secondTemplateID, TemplateRevision: secondTemplate.Current.Revision,
+		EntrySliceDigest: secondTemplate.Current.Slices.EntrySliceDigest, RuntimeID: secondTemplate.Current.Slices.RuntimeID,
+		RuntimeRevision: secondTemplate.Current.Slices.RuntimeRevision, ResolvedSpec: tobari.SemanticDigest("sha256:" + strings.Repeat("8", 64)), ReconciledAt: time.Unix(2, 0).UTC(),
+	}
+	workspace := tobari.WorkspaceBinding{
+		SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: secondWorkspaceID, ContextID: secondContextID,
+		ProjectRoot: contextBinding.ProjectRoot, Home: collection.Workspaces[0].Home,
+		CreationDefaults: secondTemplate.Current.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied,
+	}
+	templates := append(collection.Templates, secondTemplate)
+	contexts := append(collection.Contexts, record)
+	workspaces := append(collection.Workspaces, workspace)
+	if _, _, err := tobari.PublishWorkspaceAuthorityCollection(templates, contexts, workspaces, collection.PendingCandidates, collection.DefaultTemplateID, nil); err == nil {
+		t.Fatal("two Workspace IDs shared one standard home authority")
+	}
+	workspaces[1].Home = "/workspace/home-" + string(secondWorkspaceID)
+	if _, _, err := tobari.PublishWorkspaceAuthorityCollection(templates, contexts, workspaces, collection.PendingCandidates, collection.DefaultTemplateID, nil); err != nil {
+		t.Fatalf("unique WorkspaceID-derived homes failed: %v", err)
+	}
+}
+
 func materializeCollection(t *testing.T, root string, collection tobari.WorkspaceAuthorityCollection) []byte {
 	t.Helper()
 	if err := os.Mkdir(root, 0o700); err != nil {

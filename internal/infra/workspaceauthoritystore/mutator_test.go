@@ -18,12 +18,15 @@ import (
 type mutationLifecycle struct {
 	lock     sync.Mutex
 	attempts atomic.Int64
+	held     atomic.Bool
 }
 
 func (l *mutationLifecycle) WithLifecycleLock(ctx context.Context, action func(context.Context) error) error {
 	l.attempts.Add(1)
 	l.lock.Lock()
 	defer l.lock.Unlock()
+	l.held.Store(true)
+	defer l.held.Store(false)
 	return action(ctx)
 }
 

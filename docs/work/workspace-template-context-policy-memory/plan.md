@@ -404,7 +404,12 @@ with empty Policy Memory.
    decision, and one latest terminal receipt; it remains absent from current
    composition and public routing.
 4. Owner-only stores, atomic migration/rollback, principal projection, and
-   desired/applied/observed reconciliation adapters.
+   desired/applied/observed reconciliation adapters. Context entry reuses the
+   installation lifecycle authority and the one final-envelope effect decision,
+   confirms exact runtime/container plus independent activation receipts before
+   AppliedEntry, and calls a session-owner port before releasing the lock. The
+   concrete WP07 attachment bridge lands with final principal/session
+   projection, not in the dormant coordinator concern.
 5. Catalog hard cutover, CLI/human/JSON/status/default-selection behavior,
    completion/help/examples/site, and generated snapshots.
 6. Security, migration, public-boundary, agent-readiness, and isolated runtime

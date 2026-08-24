@@ -173,6 +173,20 @@ implementation is authorized by creating it.
       research disposition, byte-untouched standard homes, idempotent committed
       apply, terminal rollback, crash recovery, and kernel-released exclusion.
       No current reader or invocable migration route selects it yet.
+- [x] Implement dormant explicit Context-entry reconciliation. Consume one
+      unchanged Context ref; derive desired authority from the final Template;
+      require independent current Template-policy and Policy-Memory receipts;
+      bind WorkspaceID-derived home and exact 64-hex container observation;
+      publish AppliedEntry only after bounded confirmation; preserve prior
+      last-successful state and one durable same-ref recovery decision across
+      interruption; and invoke the session-owner port under the existing
+      lifecycle authority while running the returned owner only after lock
+      release.
+- [ ] Implement the concrete final-identity bridge from the dormant
+      `WorkspaceSessionAuthority` port to WP07's canonical interactive
+      attachment/session registry, with exact Context/Workspace principal
+      projection and live-session tests. Keep this in the next
+      principal/session projection concern before atomic cutover.
 - [ ] Wire the exact predecessor adapter and migration selection only with the
       atomic final-reader cutover; implement principal/policy projection and
       reconciliation adapters without changing WP03/04/07 mechanisms.

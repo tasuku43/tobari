@@ -150,6 +150,7 @@ func (c WorkspaceAuthorityCollection) Validate() error {
 
 	workspacesByContext := make(map[ContextID]WorkspaceBinding, len(c.Workspaces))
 	workspacesByID := make(map[WorkspaceID]WorkspaceBinding, len(c.Workspaces))
+	workspacesByHome := make(map[string]WorkspaceID, len(c.Workspaces))
 	previousWorkspace := WorkspaceID("")
 	for _, workspace := range c.Workspaces {
 		if previousWorkspace != "" && workspace.ID <= previousWorkspace {
@@ -165,8 +166,12 @@ func (c WorkspaceAuthorityCollection) Validate() error {
 		if err := workspace.ValidateFor(record.Context); err != nil {
 			return err
 		}
+		if previous, exists := workspacesByHome[workspace.Home]; exists && previous != workspace.ID {
+			return fmt.Errorf("one Workspace home may belong to only one Workspace")
+		}
 		workspacesByContext[workspace.ContextID] = workspace
 		workspacesByID[workspace.ID] = workspace
+		workspacesByHome[workspace.Home] = workspace.ID
 		previousWorkspace = workspace.ID
 	}
 

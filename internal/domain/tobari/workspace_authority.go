@@ -31,16 +31,23 @@ const (
 )
 
 var (
-	ErrWorkspaceTemplateExists           = errors.New("Workspace Template already exists")
-	ErrWorkspaceTemplateNotFound         = errors.New("Workspace Template does not exist")
-	ErrWorkspaceTemplateRevisionNotFound = errors.New("Workspace Template revision does not exist")
-	ErrWorkspaceTemplateProtected        = errors.New("Workspace Template is still referenced")
-	ErrContextBindingExists              = errors.New("Context already exists")
-	ErrContextBindingNotFound            = errors.New("Context does not exist")
-	ErrContextBindingProtected           = errors.New("Context still owns live authority")
-	ErrWorkspaceBindingNotFound          = errors.New("Workspace does not exist")
-	ErrWorkspaceBindingProtected         = errors.New("Workspace still has a live attachment")
-	ErrPolicyMemoryTargetNotFound        = errors.New("Policy Memory target does not exist")
+	ErrWorkspaceTemplateExists               = errors.New("Workspace Template already exists")
+	ErrWorkspaceTemplateNotFound             = errors.New("Workspace Template does not exist")
+	ErrWorkspaceTemplateRevisionNotFound     = errors.New("Workspace Template revision does not exist")
+	ErrWorkspaceTemplateProtected            = errors.New("Workspace Template is still referenced")
+	ErrContextBindingExists                  = errors.New("Context already exists")
+	ErrContextBindingNotFound                = errors.New("Context does not exist")
+	ErrContextBindingProtected               = errors.New("Context still owns live authority")
+	ErrWorkspaceBindingNotFound              = errors.New("Workspace does not exist")
+	ErrWorkspaceBindingProtected             = errors.New("Workspace still has a live attachment")
+	ErrWorkspaceEntryReconciliationConfirmed = errors.New("Workspace entry reconciliation is confirmed but the interactive attachment did not start")
+	ErrWorkspaceEntryTemplatePolicyInactive  = errors.New("Workspace entry requires current Template policy activation")
+	ErrWorkspaceEntryPolicyMemoryInactive    = errors.New("Workspace entry requires current Policy Memory activation")
+	ErrWorkspaceEntryObservationUnavailable  = errors.New("Workspace entry precondition observation is unavailable")
+	ErrWorkspaceEntryInterrupted             = errors.New("Workspace entry reconciliation requires exact recovery")
+	ErrWorkspaceEntryCanceledBeforeDecision  = errors.New("Workspace entry was canceled before a durable reconciliation decision")
+	ErrWorkspaceEntryRuntimeNotCurrent       = errors.New("Workspace entry runtime is confirmed missing or mismatched")
+	ErrPolicyMemoryTargetNotFound            = errors.New("Policy Memory target does not exist")
 )
 
 const (
@@ -1112,6 +1119,75 @@ type WorkspaceAppliedEntry struct {
 	RuntimeRevision  SemanticDigest      `json:"runtime_revision"`
 	ResolvedSpec     SemanticDigest      `json:"resolved_spec_revision"`
 	ReconciledAt     time.Time           `json:"reconciled_at"`
+}
+
+// WorkspaceEntryReconciliationPlan is the complete, decision-bound runtime
+// outcome that one explicit Context entry intends to publish. Infrastructure
+// may resolve image and container details, but it cannot change the Context,
+// Template, Workspace, Runtime, or creation-default authority selected here.
+type WorkspaceEntryReconciliationPlan struct {
+	Workspace WorkspaceBinding      `json:"workspace"`
+	Applied   WorkspaceAppliedEntry `json:"applied_entry"`
+}
+
+func (p WorkspaceEntryReconciliationPlan) ValidateFor(snapshot ContextAuthoritySnapshot) error {
+	if err := snapshot.Validate(); err != nil {
+		return err
+	}
+	if err := p.Workspace.ValidateFor(snapshot.Context); err != nil {
+		return err
+	}
+	if err := p.Applied.ValidateForRevision(snapshot.Context, snapshot.Template.Current); err != nil {
+		return err
+	}
+	if p.Workspace.LastSuccessfulEntry == nil || *p.Workspace.LastSuccessfulEntry != p.Applied {
+		return fmt.Errorf("Workspace entry plan does not publish its exact AppliedEntry")
+	}
+	if snapshot.Workspace != nil {
+		if p.Workspace.ID != snapshot.Workspace.ID || p.Workspace.ContextID != snapshot.Workspace.ContextID || p.Workspace.ProjectRoot != snapshot.Workspace.ProjectRoot || p.Workspace.Home != snapshot.Workspace.Home || p.Workspace.CreationDefaults != snapshot.Workspace.CreationDefaults {
+			return fmt.Errorf("Workspace entry plan changed create-once Workspace authority")
+		}
+	} else if p.Workspace.CreationDefaults != snapshot.Template.Current.Slices.CreationDefaultsDigest {
+		return fmt.Errorf("new Workspace entry plan does not bind current creation defaults")
+	}
+	return nil
+}
+
+func (p WorkspaceEntryReconciliationPlan) Clone() WorkspaceEntryReconciliationPlan {
+	result := p
+	if p.Workspace.LastSuccessfulEntry != nil {
+		entry := *p.Workspace.LastSuccessfulEntry
+		result.Workspace.LastSuccessfulEntry = &entry
+	}
+	return result
+}
+
+// WorkspaceEntryReconciliationReceipt is bounded observed evidence returned
+// only after the exact planned runtime/spec is healthy in its owned container.
+// ContainerID is observation, not desired or persisted Workspace authority.
+type WorkspaceEntryReconciliationReceipt struct {
+	WorkspaceID WorkspaceID           `json:"workspace_id"`
+	ContextID   ContextID             `json:"context_id"`
+	Applied     WorkspaceAppliedEntry `json:"applied_entry"`
+	ContainerID string                `json:"container_id"`
+}
+
+func (r WorkspaceEntryReconciliationReceipt) ValidateFor(plan WorkspaceEntryReconciliationPlan) error {
+	if err := plan.Workspace.ID.Validate(); err != nil {
+		return err
+	}
+	if r.WorkspaceID != plan.Workspace.ID || r.ContextID != plan.Workspace.ContextID || r.Applied != plan.Applied {
+		return fmt.Errorf("Workspace entry receipt does not confirm its exact plan")
+	}
+	if len(r.ContainerID) != 64 {
+		return fmt.Errorf("Workspace entry container observation is invalid")
+	}
+	for _, value := range r.ContainerID {
+		if !((value >= 'a' && value <= 'f') || (value >= '0' && value <= '9')) {
+			return fmt.Errorf("Workspace entry container observation is invalid")
+		}
+	}
+	return nil
 }
 
 func (a WorkspaceAppliedEntry) Validate() error {

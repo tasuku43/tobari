@@ -409,3 +409,66 @@ func TestWorkspaceBindingAndIndependentReceiptsRejectCrossOwnerState(t *testing.
 		t.Fatal("AppliedEntry with another Runtime revision passed exact Template validation")
 	}
 }
+
+func TestWorkspaceEntryPlanAndExactContainerReceiptBindCurrentAuthority(t *testing.T) {
+	contextBinding := ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: testContextAuthorityID, ProjectRoot: "/workspace/example", TemplateID: testTemplateAuthorityID}
+	revision, err := NewWorkspaceTemplateRevision(testTemplateAuthorityID, 1, templateBodyFixture("entry"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := WorkspaceTemplate{SchemaVersion: WorkspaceTemplateSchemaVersion, ID: testTemplateAuthorityID, Name: "restricted", Current: revision, Retained: []WorkspaceTemplateRevision{revision.Clone()}}
+	memory, _, err := PublishPolicyMemory(testContextAuthorityID, []PolicyMemoryRule{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	templateReceipt := TemplatePolicyActivationReceipt{ContextID: testContextAuthorityID, TemplateID: testTemplateAuthorityID, PolicySliceDigest: revision.Slices.PolicySliceDigest}
+	memoryReceipt := PolicyMemoryActivationReceipt{ContextID: testContextAuthorityID, Revision: memory.Revision}
+	activeMemory := memory.Clone()
+	snapshot := ContextAuthoritySnapshot{Context: contextBinding, Template: template, PolicyMemory: memory, ActiveTemplatePolicy: &templateReceipt, ActivePolicyMemory: &activeMemory, ActivePolicyMemoryRef: &memoryReceipt}
+	applied := WorkspaceAppliedEntry{
+		ContextID: testContextAuthorityID, TemplateID: testTemplateAuthorityID, TemplateRevision: revision.Revision,
+		EntrySliceDigest: revision.Slices.EntrySliceDigest, RuntimeID: revision.Slices.RuntimeID,
+		RuntimeRevision: revision.Slices.RuntimeRevision, ResolvedSpec: authorityDigest("7"), ReconciledAt: time.Unix(2, 0).UTC(),
+	}
+	workspace := WorkspaceBinding{SchemaVersion: WorkspaceBindingSchemaVersion, ID: testWorkspaceAuthorityID, ContextID: testContextAuthorityID, ProjectRoot: contextBinding.ProjectRoot, Home: "/workspace/home", CreationDefaults: revision.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied}
+	plan := WorkspaceEntryReconciliationPlan{Workspace: workspace, Applied: applied}
+	if err := plan.ValidateFor(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	receipt := WorkspaceEntryReconciliationReceipt{WorkspaceID: workspace.ID, ContextID: contextBinding.ID, Applied: applied, ContainerID: strings.Repeat("a", 64)}
+	if err := receipt.ValidateFor(plan); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, containerID := range map[string]string{
+		"container name":  "tobari-workspace-container",
+		"short ID":        strings.Repeat("a", 12),
+		"uppercase":       strings.Repeat("A", 64),
+		"digest-prefixed": "sha256:" + strings.Repeat("a", 64),
+	} {
+		t.Run(name, func(t *testing.T) {
+			invalid := receipt
+			invalid.ContainerID = containerID
+			if err := invalid.ValidateFor(plan); err == nil {
+				t.Fatal("non-exact Docker container identity passed")
+			}
+		})
+	}
+
+	wrongWorkspace := receipt
+	wrongWorkspace.WorkspaceID = "01912345-6789-7abc-8def-0123456789a4"
+	if err := wrongWorkspace.ValidateFor(plan); err == nil {
+		t.Fatal("container receipt crossed Workspace authority")
+	}
+	snapshot.Workspace = &workspace
+	changed := plan.Clone()
+	changed.Workspace.Home = "/workspace/other-home"
+	if err := changed.ValidateFor(snapshot); err == nil {
+		t.Fatal("entry plan changed create-once Workspace authority")
+	}
+	clone := plan.Clone()
+	clone.Workspace.LastSuccessfulEntry.ResolvedSpec = authorityDigest("8")
+	if plan.Workspace.LastSuccessfulEntry.ResolvedSpec == clone.Workspace.LastSuccessfulEntry.ResolvedSpec {
+		t.Fatal("entry plan clone aliases AppliedEntry")
+	}
+}

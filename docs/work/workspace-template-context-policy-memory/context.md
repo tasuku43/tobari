@@ -325,6 +325,43 @@ contract and source inspection plus the product-owner lifecycle decisions above.
   across unrelated pure envelope mutations until the next confirmed effectful
   outcome replaces it.
 
+## Dormant Context-entry reconciliation evidence
+
+- The dormant entry adapter consumes one unchanged Context ref and derives the
+  complete desired entry only from that Context's current final Template
+  revision. Its runtime plan binds ContextID, WorkspaceID, TemplateID/revision,
+  entry slice, RuntimeID/revision, resolved spec, reconciliation time, and the
+  WorkspaceID-derived canonical home. Complete-envelope validation rejects one
+  home shared by distinct WorkspaceIDs because standard authentication is
+  Workspace-home-owned.
+- Entry observes the two activation axes independently. The current exact
+  Template-policy receipt and current exact Policy-Memory receipt must both be
+  present and externally confirmed before runtime mutation; entry does not
+  repair either axis. Missing or stale receipts are typed precondition/none,
+  while uncertain pre-decision observation is observation/not-applicable.
+- Runtime reconciliation uses the existing lifecycle authority and the same
+  active/terminal mutation decision protocol as Workspace retirement and
+  Policy activation. The decision is durable before runtime effects. A failed,
+  canceled, or interrupted attempt preserves the prior last-successful
+  AppliedEntry; same-Context recovery reuses the exact plan and decision ref.
+  A no-op envelope transition is never mistaken for proof that the external
+  effect ran and therefore still invokes receipt-idempotent reconciliation.
+- AppliedEntry is published only after a bare 64-lowercase-hex Docker container
+  identity confirms the exact runtime/spec plan and both activation axes are
+  re-observed with one finite post-effect settlement deadline. Timeout leaves
+  the active decision and stage resumable and releases the lifecycle lock.
+  Once the envelope is read back, later cancellation or session-start/run
+  failure is typed attachment/confirmed rather than unknown or none.
+- The dormant coordinator invokes a task-owned `WorkspaceSessionAuthority`
+  port while the lifecycle lock still excludes Workspace deletion, and runs
+  the returned child/cleanup owner only after that lock is released. Focused
+  fakes prove this ordering. The concrete bridge to WP07's canonical
+  `beginInteractiveWorkspaceAttachment`/live-session authority is not in this
+  concern because it requires the deferred final principal projection. No
+  attachment registry, wait transport, Gateway/Broker wiring, resident
+  controller, or public recovery command is added; current composition and
+  Catalog remain unchanged.
+
 ## Dormant migration-engine evidence
 
 - The migration engine consumes the unchanged pure migration input/plan and
