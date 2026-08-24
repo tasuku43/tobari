@@ -578,11 +578,14 @@ func (r *Runtime) enterProjectRuntime(
 	if err != nil {
 		return 0, err
 	}
-	args := []string{
-		// Docker's attached exec path owns the PTY resize and terminal signal
-		// forwarding; inherit the caller's streams without a shell wrapper.
-		"exec", "-i", "-t", "--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
+	// A direct child remains runnable with redirected streams. Docker rejects
+	// `exec -t` when the caller has no terminal, before the exact child starts;
+	// allocate its container TTY only for an actual attached terminal pair.
+	args := []string{"exec", "-i"}
+	if isTerminalFile(in) && isTerminalFile(out) {
+		args = append(args, "-t")
 	}
+	args = append(args, "--user", strconv.Itoa(uid)+":"+strconv.Itoa(gid))
 	bridge := newWorkspaceLoginBridge(ctx, r, container, principal.workspaceID)
 	defer bridge.close()
 	browserChannel, err := r.startWorkspaceBrowserChannel(ctx, bridge, container)
