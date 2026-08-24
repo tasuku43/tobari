@@ -43,7 +43,8 @@ func TestServiceExposureURLRequiresExactIndependentOrigin(t *testing.T) {
 	if label, port, err := ParseServiceExposureURL(valid); err != nil || label != "0123456789abcdef0123456789abcdef" || port != 54321 {
 		t.Fatalf("parse = %q %d %v", label, port, err)
 	}
-	for _, invalid := range []string{httpScheme + "127.0.0.1:54321/", httpScheme + "localhost:54321/", httpScheme + "svc-0123456789abcdef0123456789abcdef.localhost:54321/path", httpScheme + "svc-0123456789abcdef0123456789abcdef.localhost:54321/?x=1", httpScheme + "svc-ABCDEF0123456789abcdef0123456789.localhost:54321/"} {
+	// A leading-zero port must not be normalized into the canonical authority.
+	for _, invalid := range []string{httpScheme + "127.0.0.1:54321/", httpScheme + "localhost:54321/", httpScheme + "svc-0123456789abcdef0123456789abcdef.localhost:54321/path", httpScheme + "svc-0123456789abcdef0123456789abcdef.localhost:54321/?x=1", httpScheme + "svc-ABCDEF0123456789abcdef0123456789.localhost:54321/", httpScheme + "svc-0123456789abcdef0123456789abcdef.localhost:054321/"} {
 		if _, _, err := ParseServiceExposureURL(invalid); err == nil {
 			t.Errorf("invalid URL passed: %s", invalid)
 		}
