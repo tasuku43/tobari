@@ -178,7 +178,11 @@ func (c *workspaceServiceController) relayHTTP(ctx context.Context, exposure tob
 	defer cancel()
 	_ = inbound.SetDeadline(time.Now().Add(workspaceServiceSetupTimeout))
 	requestReader := bufio.NewReaderSize(inbound, workspaceServiceHeaderLimit)
-	authority := "127.0.0.1:" + strconv.Itoa(exposure.HostPort)
+	label, port, authorityErr := tobari.ParseServiceExposureURL(exposure.URL)
+	if authorityErr != nil || port != exposure.HostPort {
+		return
+	}
+	authority := "svc-" + label + ".localhost:" + strconv.Itoa(port)
 	firstHeader, err := readServiceHeader(requestReader)
 	if err != nil {
 		return

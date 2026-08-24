@@ -11,11 +11,12 @@ const (
 	WorkspaceCleanupInteractiveSession WorkspaceAttachmentCleanupIssue = "interactive_session"
 	WorkspaceCleanupHostLoopback       WorkspaceAttachmentCleanupIssue = "host_loopback"
 	WorkspaceCleanupPermissionChannel  WorkspaceAttachmentCleanupIssue = "permission_channel"
+	WorkspaceCleanupServiceExposure    WorkspaceAttachmentCleanupIssue = "service_exposure"
 )
 
 func (i WorkspaceAttachmentCleanupIssue) Validate() error {
 	switch i {
-	case WorkspaceCleanupInteractiveSession, WorkspaceCleanupHostLoopback, WorkspaceCleanupPermissionChannel:
+	case WorkspaceCleanupInteractiveSession, WorkspaceCleanupHostLoopback, WorkspaceCleanupPermissionChannel, WorkspaceCleanupServiceExposure:
 		return nil
 	default:
 		return fmt.Errorf("Workspace attachment cleanup issue is invalid")
@@ -26,8 +27,9 @@ func (i WorkspaceAttachmentCleanupIssue) Validate() error {
 // carrying bounded secondary attachment cleanup evidence independently. A
 // cleanup issue never rewrites ExitCode and carries no raw infrastructure text.
 type WorkspaceSessionOutcome struct {
-	ExitCode      int
-	CleanupIssues []WorkspaceAttachmentCleanupIssue
+	ExitCode              int
+	CleanupIssues         []WorkspaceAttachmentCleanupIssue
+	ServiceCleanupReceipt *ServiceCleanupReceipt
 }
 
 func (o WorkspaceSessionOutcome) Validate() error {
@@ -43,6 +45,11 @@ func (o WorkspaceSessionOutcome) Validate() error {
 			return fmt.Errorf("Workspace attachment cleanup issue is duplicated")
 		}
 		seen[issue] = struct{}{}
+	}
+	if o.ServiceCleanupReceipt != nil {
+		if err := o.ServiceCleanupReceipt.Validate(); err != nil {
+			return err
+		}
 	}
 	return nil
 }

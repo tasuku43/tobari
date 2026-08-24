@@ -715,6 +715,9 @@ func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operati
 		Impact: command.Agent.Mutation.Impact,
 	}
 	outcome, err := c.tobari.EnterProjectSessionInContext(ctx, intent, contextName, session, c.In, c.Out, c.Err)
+	if outcome.ServiceCleanupReceipt != nil && c.Err != nil {
+		_, _ = writeOnce(c.Err, renderServiceCleanupReceipt(*outcome.ServiceCleanupReceipt, humanStyleAllowed(ctx, c, c.Err)))
+	}
 	if len(outcome.CleanupIssues) > 0 && c.Err != nil {
 		_, _ = writeOnce(c.Err, renderWorkspaceAttachmentCleanupIssues(outcome.CleanupIssues, humanStyleAllowed(ctx, c, c.Err)))
 	}
@@ -1031,10 +1034,23 @@ func renderWorkspaceAttachmentCleanupIssues(issues []tobari.WorkspaceAttachmentC
 			label = "Host Loopback"
 		case tobari.WorkspaceCleanupPermissionChannel:
 			label = "Permission wait channel"
+		case tobari.WorkspaceCleanupServiceExposure:
+			label = "Service exposure"
 		}
 		fmt.Fprintln(&output, applyStyleToken(style, styleWarning, "! "+label+" cleanup did not complete; run `tobari status` before re-entry."))
 	}
 	return []byte(output.String())
+}
+
+func renderServiceCleanupReceipt(receipt tobari.ServiceCleanupReceipt, style bool) []byte {
+	if receipt.Validate() != nil {
+		return nil
+	}
+	message := fmt.Sprintf(
+		"Service cleanup confirmed: %d pending withdrawn, %d exposures closed, %d streams closed.\n",
+		receipt.PendingWithdrawnCount, receipt.ExposureClosedCount, receipt.StreamClosedCount,
+	)
+	return []byte(applyStyleToken(style, styleText, message))
 }
 
 func renderPendingPolicyNotification(result tobari.PolicyCandidateReport, style bool) []byte {

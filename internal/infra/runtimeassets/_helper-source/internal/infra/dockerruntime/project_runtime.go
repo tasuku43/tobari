@@ -545,11 +545,15 @@ func (r *Runtime) runWorkspaceSession(
 		}
 	}()
 	extraEnvironment = append(extraEnvironment, permissionChannel.environment()...)
-	code, resultErr := r.enterProjectRuntime(
+	code, serviceReceipt, resultErr := r.enterProjectRuntime(
 		ctx, principal, shellSettings, cwd, container, session,
 		extraEnvironment, in, out, errOut,
 	)
 	outcome.ExitCode = code
+	outcome.ServiceCleanupReceipt = serviceReceipt
+	if serviceReceipt == nil && resultErr == nil {
+		outcome.CleanupIssues = append(outcome.CleanupIssues, tobari.WorkspaceCleanupServiceExposure)
+	}
 	return outcome, resultErr
 }
 
@@ -558,25 +562,25 @@ func (r *Runtime) enterProjectRuntime(
 	shellSettings []tobari.ManifestShellEnvironmentSetting, cwd string,
 	container string,
 	session tobari.WorkspaceSessionRequest, extraEnvironment []string, in io.Reader, out, errOut io.Writer,
-) (int, error) {
+) (code int, serviceReceipt *tobari.ServiceCleanupReceipt, resultErr error) {
 	if err := principal.validate(); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	resolved, err := r.ResolveProjectRoot(ctx, cwd)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	workdir, err := r.projectContainerCWD(principal.projectRoot, resolved)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	if strings.TrimSpace(container) == "" {
-		return 0, fmt.Errorf("Workspace session container is missing")
+		return 0, nil, fmt.Errorf("Workspace session container is missing")
 	}
 	uid, gid := currentIDs()
 	shellEnvironment, err := projectShellSettingsEnvironment(shellSettings, os.LookupEnv)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	// A direct child remains runnable with redirected streams. Docker rejects
 	// `exec -t` when the caller has no terminal, before the exact child starts;
@@ -590,14 +594,19 @@ func (r *Runtime) enterProjectRuntime(
 	defer bridge.close()
 	browserChannel, err := r.startWorkspaceBrowserChannel(ctx, bridge, container)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	defer browserChannel.close()
 	serviceController, err := r.startWorkspaceServiceControllerForPrincipal(ctx, principal, container)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
-	defer serviceController.Close(ctx)
+	defer func() {
+		receipt, cleanupErr := serviceController.CloseWithReceipt(ctx)
+		if cleanupErr == nil {
+			serviceReceipt = &receipt
+		}
+	}()
 	for _, environment := range browserChannel.environment() {
 		args = append(args, "--env", environment)
 	}
@@ -628,18 +637,18 @@ func (r *Runtime) enterProjectRuntime(
 		}
 	}
 	if err := run(); err == nil {
-		return 0, nil
+		return 0, serviceReceipt, nil
 	} else {
 		var exitError *exec.ExitError
 		if errors.As(err, &exitError) {
-			return exitError.ExitCode(), nil
+			return exitError.ExitCode(), serviceReceipt, nil
 		}
 		type exitCoder interface{ ExitCode() int }
 		var coded exitCoder
 		if errors.As(err, &coded) {
-			return coded.ExitCode(), nil
+			return coded.ExitCode(), serviceReceipt, nil
 		}
-		return 0, err
+		return 0, serviceReceipt, err
 	}
 }
 

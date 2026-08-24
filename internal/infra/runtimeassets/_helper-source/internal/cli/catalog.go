@@ -1732,8 +1732,8 @@ func validateInteractiveWorkflow(command CommandSpec, fields map[string]OutputFi
 	if !selectionExists {
 		return fmt.Errorf("interactive selection output field %q is not declared", workflow.SelectionOutputField)
 	}
-	if workflow.Confirmation != "explicit_yes" {
-		return fmt.Errorf("interactive confirmation must be explicit_yes")
+	if workflow.Confirmation != "explicit_yes" && workflow.Confirmation != "explicit_action" {
+		return fmt.Errorf("interactive confirmation must be explicit_yes or explicit_action")
 	}
 	if workflow.NonInteractiveBehavior != "read_only" {
 		return fmt.Errorf("interactive non-interactive behavior must be read_only")

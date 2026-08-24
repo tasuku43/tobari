@@ -100,6 +100,7 @@ type Runtime struct {
 	runner                         commandRunner
 	images                         imageResolver
 	browser                        hostBrowserOpener
+	serviceBrowser                 serviceBrowserDispatcher
 	gitIdentity                    hostGitIdentityResolver
 	companion                      companionruntime.Launcher
 	companionEntropy               io.Reader
@@ -305,6 +306,7 @@ func newRuntimeWithData(configDirectory, stateDirectory, dataDirectory string, r
 		dataDirectory:                dataDirectory,
 		runner:                       runner,
 		browser:                      osHostBrowserOpener{},
+		serviceBrowser:               osServiceBrowserDispatcher{},
 		gitIdentity:                  newOSHostGitIdentityResolver(),
 		companion:                    companionruntime.NewOSLauncher(),
 		companionEntropy:             rand.Reader,
