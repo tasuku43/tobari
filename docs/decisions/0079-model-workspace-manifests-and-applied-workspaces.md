@@ -10,6 +10,8 @@
 - Revises: ADR 0070
 - Related: ADR 0018, ADR 0062, ADR 0067, and ADR 0069
 - Superseded by: None
+- Proposed successor: ADR 0084; ADR 0079 remains the current public and state
+  contract until that proposal is implemented, verified, and accepted
 
 ## Context
 

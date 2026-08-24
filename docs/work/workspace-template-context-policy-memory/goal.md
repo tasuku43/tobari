@@ -1,7 +1,7 @@
 # Work Goal: WP11 — Separate Workspace Template, Context, and Policy Memory
 
-- Status: Draft
-- Planning state: Owner decision requested
+- Status: Accepted
+- Planning state: Accepted for implementation
 - Retention: temporary
 - Retention reason: None
 - Governing contract: `docs/00_theses.md`, `docs/01_product_contract.md`, `docs/02_architecture.md`, and `docs/03_security_model.md`
@@ -9,7 +9,8 @@
 - Successor: None
 - Owner: Tobari product owner and maintainers
 - Target: Pre-public hard cutover from exact predecessor `0bbd9deb424814ab92eed0b816e2c565e4b8f6d3`, before further WP05 mechanism and before WP09/WP06/WP10
-- Related ADRs: ADR 0079 (successor required), ADR 0070, ADR 0080, ADR 0081, ADR 0082, ADR 0083
+- Related ADRs: ADR 0084 (Proposed implementation authority), ADR 0079
+  (current predecessor), ADR 0070, ADR 0080, ADR 0081, ADR 0082, ADR 0083
 
 ## Outcome
 
