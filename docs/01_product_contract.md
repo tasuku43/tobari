@@ -860,6 +860,10 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Runtime delete result | `runtime_delete` | 1 |
 | Runtime prune plan | `runtime_prune_plan` | 2 |
 | Runtime prune result | `runtime_prune_result` | 2 |
+| Service review | `service_review` | 1 |
+| Service status | `service_status` | 1 |
+| Confirmed Service exposure | `exposure` | 1 |
+| Service browser-open request | `open` | 1 |
 <!-- public-cli-json-schemas:end -->
 
 Workspace status JSON always reports the selected Workspace Manifest ID/name, logical
