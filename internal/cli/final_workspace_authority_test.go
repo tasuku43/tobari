@@ -496,6 +496,47 @@ func TestFinalContextEnterHelpAndInvocationPermitFirstEntrySettlement(t *testing
 	}
 }
 
+func TestFinalContextEnterPreservesChildStatusAndReportsSecondaryCleanup(t *testing.T) {
+	snapshot := finalCurrentContextEntrySnapshotFixture(t)
+	contextRef, err := tobari.ContextRef(snapshot.Context.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := &finalFirstEntryFixture{publication: tobari.ContextEntryPublication{
+		Snapshot: snapshot,
+		Outcome: tobari.WorkspaceSessionOutcome{ExitCode: 29, CleanupIssues: []tobari.WorkspaceAttachmentCleanupIssue{
+			tobari.WorkspaceCleanupPermissionChannel,
+		}},
+	}}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.finalContexts = workspaceauthoritycmd.NewContextService(port)
+	if code := command.RunContext(context.Background(), []string{"context", "enter", "--id", contextRef, "--", "codex", "exec"}); code != 29 {
+		t.Fatalf("child exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if stdout.Len() != 0 || strings.Count(stderr.String(), "Tobari cleanup needs attention") != 1 || !strings.Contains(stderr.String(), "Next: tobari status") || strings.Contains(stderr.String(), "Command failed") {
+		t.Fatalf("child boundary stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func finalCurrentContextEntrySnapshotFixture(t *testing.T) tobari.ContextAuthoritySnapshot {
+	t.Helper()
+	snapshot, _, _, _, _ := finalDesiredActiveSnapshotFixture(t, true)
+	current := snapshot.Template.Current
+	snapshot.ActiveTemplatePolicy.PolicySliceDigest = current.Slices.PolicySliceDigest
+	activeMemory := snapshot.PolicyMemory.Clone()
+	snapshot.ActivePolicyMemory = &activeMemory
+	snapshot.ActivePolicyMemoryRef.Revision = activeMemory.Revision
+	snapshot.Workspace.CreationDefaults = current.Slices.CreationDefaultsDigest
+	snapshot.Workspace.LastSuccessfulEntry.TemplateRevision = current.Revision
+	snapshot.Workspace.LastSuccessfulEntry.EntrySliceDigest = current.Slices.EntrySliceDigest
+	snapshot.Workspace.LastSuccessfulEntry.RuntimeRevision = current.Slices.RuntimeRevision
+	if err := snapshot.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	return snapshot
+}
+
 func TestFinalConfigGitValidatesConditionalSourceDimensionsBeforeAdapter(t *testing.T) {
 	const templateRef = "wtpl1_01912345-6789-7abc-8def-0123456789a1"
 	for _, args := range [][]string{

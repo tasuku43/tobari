@@ -385,11 +385,16 @@ func runFinalContextEnter(ctx context.Context, c *CLI, command CommandSpec, inte
 		return c.fail(ctx, err)
 	}
 	value := map[string]any{"workspace_ref": result.WorkspaceRef, "workspace_id": string(result.Snapshot.Workspace.ID), "context_id": string(result.Snapshot.Context.ID), "exit_code": result.Outcome.ExitCode}
-	output, err := finalAuthorityOutput(command.Path, "entry", value, format, []byte(fmt.Sprintf("Workspace %s\n", result.WorkspaceRef)))
+	text := []byte(fmt.Sprintf("Workspace %s\n", result.WorkspaceRef))
+	if len(result.Outcome.CleanupIssues) > 0 {
+		text = append(text, []byte(workspaceCleanupAttention+"\n")...)
+	}
+	output, err := finalAuthorityOutput(command.Path, "entry", value, format, text)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	return c.emitMutationResultTo(ctx, command, output, c.Err)
+	_ = c.emitMutationResultTo(ctx, command, output, c.Err)
+	return result.Outcome.ExitCode
 }
 
 func runFinalContextDelete(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {

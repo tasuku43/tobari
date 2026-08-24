@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
@@ -13,6 +14,8 @@ import (
 )
 
 const ExitInterrupted = 130
+
+const workspaceCleanupAttention = "Tobari cleanup needs attention; Next: tobari status."
 
 func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {
 	if c == nil || c.finalDefaultPair == nil || c.finalEntryReadiness == nil || c.finalCluster == nil {
@@ -138,15 +141,27 @@ func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, 
 	if err := progress.Start(tobari.FirstEntryPrepareWorkspace); err != nil {
 		return c.failRootBeforeHandoff(ctx, err)
 	}
+	freshWorkspace := resolution.Observation.Context != nil && resolution.Observation.Context.Workspace == nil
 	progressSink := tobari.FirstEntryProgressSink(func(event tobari.FirstEntryProgress) {
 		_ = progress.Apply(event)
+		if freshWorkspace && !session.Direct() && event.Stage == tobari.FirstEntryPrepareWorkspace && event.State == tobari.FirstEntryStageSucceeded {
+			_, _ = fmt.Fprintln(c.Err, "Credentials stay in this Workspace; sign in with the tool when needed.")
+		}
 	})
 	result, err := c.finalDefaultPair.EnterResolved(ctx, resolution, session, progressSink, c.In, c.Out, c.Err)
 	if err != nil {
 		_ = progress.Finish(firstEntryFailureState(err))
 		return c.failRootBeforeHandoff(ctx, err)
 	}
+	emitWorkspaceCleanupAttention(c.Err, result.Outcome)
 	return result.Outcome.ExitCode
+}
+
+func emitWorkspaceCleanupAttention(out io.Writer, outcome tobari.WorkspaceSessionOutcome) {
+	if out == nil || len(outcome.CleanupIssues) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(out, workspaceCleanupAttention)
 }
 
 func (c *CLI) firstUseStandardTemplateBody(ctx context.Context) (tobari.WorkspaceTemplateBody, error) {

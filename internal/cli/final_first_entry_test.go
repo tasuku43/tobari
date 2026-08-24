@@ -17,8 +17,10 @@ import (
 type firstEntryPairFixture struct {
 	order        *[]string
 	observation  tobari.FinalDefaultPairObservation
+	resolution   workspaceauthoritycmd.DefaultPairResolution
 	resolveBody  *tobari.WorkspaceTemplateBody
 	session      tobari.WorkspaceSessionRequest
+	outcome      tobari.WorkspaceSessionOutcome
 	resolveCalls int
 	refreshCalls int
 	entryCalls   int
@@ -37,7 +39,7 @@ func (f *firstEntryPairFixture) Resolve(_ context.Context, intent operation.Inte
 		panic("root resolution lost its Catalog mutation binding")
 	}
 	f.resolveBody = body
-	return workspaceauthoritycmd.DefaultPairResolution{}, nil
+	return f.resolution, nil
 }
 
 func (f *firstEntryPairFixture) RefreshAfterCluster(_ context.Context, resolution workspaceauthoritycmd.DefaultPairResolution, _ workspaceauthoritycmd.FinalClusterReconciliation) (workspaceauthoritycmd.DefaultPairResolution, error) {
@@ -56,7 +58,7 @@ func (f *firstEntryPairFixture) EnterResolved(_ context.Context, _ workspaceauth
 	progress(tobari.FirstEntryProgress{Stage: tobari.FirstEntryPrepareWorkspace, State: tobari.FirstEntryStageSucceeded})
 	progress(tobari.FirstEntryProgress{Stage: tobari.FirstEntryEnterWorkspace, State: tobari.FirstEntryStageRunning})
 	progress(tobari.FirstEntryProgress{Stage: tobari.FirstEntryEnterWorkspace, State: tobari.FirstEntryStageSucceeded})
-	return workspaceauthoritycmd.ContextEntryResult{Outcome: tobari.WorkspaceSessionOutcome{ExitCode: 0, CleanupIssues: []tobari.WorkspaceAttachmentCleanupIssue{}}}, nil
+	return workspaceauthoritycmd.ContextEntryResult{Outcome: f.outcome}, nil
 }
 
 type firstEntryReadinessFixture struct {
@@ -106,7 +108,7 @@ func newFirstEntryCLI(t *testing.T, fresh, interactive bool, action recommendedF
 	t.Helper()
 	order := []string{}
 	observation := tobari.FinalDefaultPairObservation{SchemaVersion: tobari.FinalDefaultPairObservationSchemaVersion, ProjectRoot: "/workspace/example", CollectionPresent: !fresh}
-	pair := &firstEntryPairFixture{order: &order, observation: observation}
+	pair := &firstEntryPairFixture{order: &order, observation: observation, outcome: tobari.WorkspaceSessionOutcome{ExitCode: 0, CleanupIssues: []tobari.WorkspaceAttachmentCleanupIssue{}}}
 	readiness := &firstEntryReadinessFixture{order: &order}
 	cluster := &firstEntryClusterFixture{order: &order}
 	reviewer := &firstEntryReviewerFixture{order: &order, action: action}
@@ -232,5 +234,45 @@ func TestFinalRootPreservesCanonicalWorkspaceEntryRecoveryFault(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "workspace_entry_interrupted") || !strings.Contains(stderr.String(), "tobari status") || strings.Contains(stderr.String(), "undeclared_fault_contract") {
 		t.Fatalf("entry recovery was not preserved: stderr=%q", stderr.String())
+	}
+}
+
+func TestFinalRootPreservesChildStatusAndReportsSecondaryCleanup(t *testing.T) {
+	command, pair, _, _, _, stdout, stderr, _ := newFirstEntryCLI(t, false, false, recommendedFirstUseStart)
+	pair.outcome = tobari.WorkspaceSessionOutcome{ExitCode: 23, CleanupIssues: []tobari.WorkspaceAttachmentCleanupIssue{tobari.WorkspaceCleanupHostLoopback}}
+	if code := command.RunContext(context.Background(), []string{"--", "claude"}); code != 23 {
+		t.Fatalf("child exit=%d stderr=%q", code, stderr.String())
+	}
+	if stdout.Len() != 0 || strings.Count(stderr.String(), "Tobari cleanup needs attention") != 1 || !strings.Contains(stderr.String(), "Next: tobari status") || strings.Contains(stderr.String(), "Command failed") {
+		t.Fatalf("child boundary stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestFinalRootShowsWorkspaceOwnedCredentialHintOnlyForFreshShell(t *testing.T) {
+	tests := []struct {
+		name           string
+		args           []string
+		fresh          bool
+		freshWorkspace bool
+		want           int
+	}{
+		{name: "fresh shell", fresh: true, freshWorkspace: true, want: 1},
+		{name: "fresh direct command", args: []string{"--", "claude"}, fresh: true, freshWorkspace: true, want: 0},
+		{name: "existing Workspace shell", fresh: false, freshWorkspace: false, want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			command, pair, _, _, _, _, stderr, _ := newFirstEntryCLI(t, tt.fresh, true, recommendedFirstUseStart)
+			pair.resolution.Observation.Context = &tobari.ContextAuthoritySnapshot{}
+			if !tt.freshWorkspace {
+				pair.resolution.Observation.Context.Workspace = &tobari.WorkspaceBinding{}
+			}
+			if code := command.RunContext(context.Background(), tt.args); code != ExitOK {
+				t.Fatalf("entry exit=%d stderr=%q", code, stderr.String())
+			}
+			if count := strings.Count(stderr.String(), "Credentials stay in this Workspace; sign in with the tool when needed."); count != tt.want {
+				t.Fatalf("credential guidance count=%d want=%d stderr=%q", count, tt.want, stderr.String())
+			}
+		})
 	}
 }
