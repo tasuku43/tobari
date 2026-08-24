@@ -155,8 +155,13 @@ implementation is authorized by creating it.
       authority: unique ProjectRoot+TemplateID Context pairs, unique optional
       Workspace IDs, at most one Workspace per Context, exact equality for a
       repeated TemplateID, and unique installation Template names.
-- [ ] Implement owner-only stores, atomic migration/rollback, principal/policy
-      projection, and reconciliation adapters.
+- [x] Implement one bounded owner-only final-authority envelope and
+      zero-mutation coherent Template/Context/Workspace observations. Reads
+      validate the complete normalized authority, never consult predecessor
+      Manifest state, and return empty/not-found without creating a root or
+      lock.
+- [ ] Implement atomic migration/rollback, principal/policy projection, and
+      reconciliation adapters.
 - [ ] Perform one public Catalog hard cutover with no accidental aliases.
 - [ ] Update human output, JSON schemas, completion, help, examples, site,
       embedded/generated snapshots, and agent-readiness fixtures.

@@ -295,6 +295,25 @@ contract and source inspection plus the product-owner lifecycle decisions above.
   shared domain collection validator also makes repeated TemplateIDs require
   byte/semantic exact Template equality and rejects one Template name assigned
   to different IDs, so mixed owner-store reads cannot emit contradictory refs.
+- Final authority observation uses one normalized, atomically replaceable
+  envelope rather than independent Template, Context, Workspace, Policy Memory,
+  activation, candidate, and default files. One installation generation and
+  aggregate digest fence the complete joined observation; that aggregate
+  receipt is coherence evidence, not a new domain authority identity.
+- The read-only store accepts exactly one owner-only real `authority.json` in
+  one owner-only real root, opens and validates that immutable file once, and
+  bounds bytes plus every collection count. Unknown, duplicate, trailing,
+  partial, mixed, unsafe-mode, symlinked, or domain-incoherent authority fails
+  closed. A missing final root produces explicit empty lists or typed not-found
+  without creating the root or a lock.
+- Pending candidate state is exhaustive within the envelope. A candidate that
+  already appears in its Context's current Policy Memory source-candidate set
+  is consumed and cannot remain pending; historical source IDs remain valid
+  without corresponding pending records.
+- This store remains dormant infrastructure. It structurally satisfies only the
+  accepted read ports and is not connected to the predecessor Manifest reader,
+  current composition root, Catalog, migration writer, policy activation, or
+  public output in this concern.
 
 ## Security and public-boundary notes
 
