@@ -90,6 +90,7 @@ type CLI struct {
 	authLogin        authLoginProviderSelector
 	policyReview     func(bool) *policyReviewSelector
 	policyNotify     func(io.Writer, string) error
+	serviceNotify    func(io.Writer, string) error
 	noColor          bool
 }
 
@@ -104,6 +105,7 @@ func New(lifetime context.Context, in io.Reader, out, errOut io.Writer) *CLI {
 	command.authLogin = newAuthLoginProviderSelectorWithStyle(!command.noColor)
 	command.policyReview = newPolicyReviewSelectorWithStyle
 	command.policyNotify = terminal.WritePermissionInboxNotification
+	command.serviceNotify = terminal.WriteServiceReviewNotification
 	configureResearchCLI(command)
 	runtime, err := dockerruntime.New(lifetime)
 	if err != nil {
@@ -245,6 +247,7 @@ func newCLI(in io.Reader, out, errOut io.Writer, catalog Catalog, inspector doct
 		authLogin:     newAuthLoginProviderSelector(),
 		policyReview:  newPolicyReviewSelectorWithStyle,
 		policyNotify:  terminal.WritePermissionInboxNotification,
+		serviceNotify: terminal.WriteServiceReviewNotification,
 	}
 }
 
@@ -289,7 +292,7 @@ func (c *CLI) RunContext(ctx context.Context, args []string) int {
 		// A delimiter-led root invocation selects the existing catalog-owned
 		// root entry; the delimiter remains available to the typed parser.
 		commandArgs = append([]string{WorkspaceEntryCommandPath}, commandArgs...)
-	} else if c.catalog.programName() == ExposureProgramName && commandArgs[0] != "help" && commandArgs[0] != "list" && commandArgs[0] != "stop" {
+	} else if c.catalog.programName() == ExposureProgramName && commandArgs[0] != "help" && commandArgs[0] != "status" && commandArgs[0] != "stop" {
 		// The helper's primary command is its exact port positional. Canonical
 		// routing still resolves through the program root declaration.
 		commandArgs = append([]string{ExposureProgramName}, commandArgs...)

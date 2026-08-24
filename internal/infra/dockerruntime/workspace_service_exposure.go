@@ -103,12 +103,12 @@ type workspaceServiceControlRequest struct {
 }
 
 type workspaceServiceControlResponse struct {
-	SchemaVersion int                         `json:"schema_version"`
-	ClientID      string                      `json:"client_id,omitempty"`
-	OK            bool                        `json:"ok"`
-	Code          string                      `json:"code,omitempty"`
-	Exposure      *tobari.ServiceExposure     `json:"exposure,omitempty"`
-	List          *tobari.ServiceExposureList `json:"list,omitempty"`
+	SchemaVersion int                             `json:"schema_version"`
+	ClientID      string                          `json:"client_id,omitempty"`
+	OK            bool                            `json:"ok"`
+	Code          string                          `json:"code,omitempty"`
+	Exposure      *tobari.ServiceExposure         `json:"exposure,omitempty"`
+	Status        *tobari.ServiceAttachmentStatus `json:"status,omitempty"`
 }
 
 type workspaceServicePending struct {
@@ -121,6 +121,7 @@ type workspaceServiceExposureRuntime struct {
 	listener *net.TCPListener
 	cancel   context.CancelFunc
 	active   map[net.Conn]struct{}
+	closing  bool
 }
 
 type workspaceServiceController struct {
@@ -143,14 +144,21 @@ type workspaceServiceController struct {
 	closed           bool
 	done             chan struct{}
 	once             sync.Once
+	closeReceipt     tobari.ServiceCleanupReceipt
+	closeErr         error
 }
 
 type serviceRendezvousRecord struct {
 	SchemaVersion int    `json:"schema_version"`
 	AttachmentID  string `json:"attachment_id"`
+	ContextID     string `json:"context_id"`
+	WorkspaceID   string `json:"workspace_id"`
+	Context       string `json:"context"`
+	ProjectRoot   string `json:"project_root"`
 	Nonce         string `json:"nonce"`
 	SocketName    string `json:"socket_name"`
 	OwnerPID      int    `json:"owner_pid"`
+	OwnerUID      int    `json:"owner_uid"`
 }
 
 type serviceRendezvousRequest struct {
@@ -159,15 +167,20 @@ type serviceRendezvousRequest struct {
 	AttachmentID  string `json:"attachment_id"`
 	Nonce         string `json:"nonce"`
 	RequestID     string `json:"request_id,omitempty"`
+	ExposureID    string `json:"exposure_id,omitempty"`
 	ReviewerPID   int    `json:"reviewer_pid"`
 }
 
 type serviceRendezvousResponse struct {
-	SchemaVersion int                     `json:"schema_version"`
-	OK            bool                    `json:"ok"`
-	Code          string                  `json:"code,omitempty"`
-	Requests      []tobari.ServiceRequest `json:"requests,omitempty"`
-	Exposure      *tobari.ServiceExposure `json:"exposure,omitempty"`
+	SchemaVersion int                      `json:"schema_version"`
+	AttachmentID  string                   `json:"attachment_id"`
+	ContextID     string                   `json:"context_id"`
+	WorkspaceID   string                   `json:"workspace_id"`
+	OK            bool                     `json:"ok"`
+	Code          string                   `json:"code,omitempty"`
+	Requests      []tobari.ServiceRequest  `json:"requests"`
+	Exposures     []tobari.ServiceExposure `json:"exposures"`
+	Exposure      *tobari.ServiceExposure  `json:"exposure,omitempty"`
 }
 
 func serviceEntropy(prefix string, bytesCount int) (string, error) {
@@ -237,7 +250,12 @@ func (r *Runtime) startWorkspaceServiceControllerForPrincipal(ctx context.Contex
 		_ = controller.Close(ctx)
 		return nil, err
 	}
-	record := serviceRendezvousRecord{SchemaVersion: 1, AttachmentID: attachmentID, Nonce: nonce, SocketName: socketName, OwnerPID: os.Getpid()}
+	record := serviceRendezvousRecord{
+		SchemaVersion: 1, AttachmentID: attachmentID,
+		ContextID: principal.contextID, WorkspaceID: principal.workspaceID,
+		Context: principal.contextPresentation, ProjectRoot: principal.projectRoot,
+		Nonce: nonce, SocketName: socketName, OwnerPID: os.Getpid(), OwnerUID: os.Getuid(),
+	}
 	if err := writeAtomicJSON(controller.recordPath, record); err != nil {
 		_ = controller.Close(ctx)
 		return nil, err
@@ -304,9 +322,9 @@ func (c *workspaceServiceController) handleControl(request workspaceServiceContr
 	switch request.Operation {
 	case "request":
 		c.submit(request)
-	case "list":
-		list := c.snapshotExposures()
-		c.respond(workspaceServiceControlResponse{SchemaVersion: 1, ClientID: request.ClientID, OK: true, List: &list})
+	case "status":
+		status := c.snapshotAttachmentStatus()
+		c.respond(workspaceServiceControlResponse{SchemaVersion: 1, ClientID: request.ClientID, OK: true, Status: &status})
 	case "stop":
 		code := ""
 		err := c.stop(request.ExposureID)
@@ -351,7 +369,12 @@ func (c *workspaceServiceController) submit(input workspaceServiceControlRequest
 		c.respond(workspaceServiceControlResponse{SchemaVersion: 1, ClientID: input.ClientID, Code: "service_request_failed"})
 		return
 	}
-	request := tobari.ServiceRequest{SchemaVersion: 1, ID: requestID, AttachmentID: c.attachmentID, ProjectID: c.principal.workspaceID, WorkspaceManifestID: c.principal.contextID, Workspace: c.principal.projectRoot, TargetPort: input.Port, State: tobari.ServiceStatePending}
+	request := tobari.ServiceRequest{
+		SchemaVersion: 1, ID: requestID, AttachmentID: c.attachmentID,
+		ContextID: c.principal.contextID, WorkspaceID: c.principal.workspaceID,
+		Context: c.principal.contextPresentation, ProjectRoot: c.principal.projectRoot,
+		TargetPort: input.Port, State: tobari.ServiceStatePending,
+	}
 	c.pending[requestID] = &workspaceServicePending{request: request, clientID: input.ClientID}
 	c.mu.Unlock()
 }
@@ -387,10 +410,14 @@ func (c *workspaceServiceController) snapshotRequests() []tobari.ServiceRequest 
 	return result
 }
 
-func (c *workspaceServiceController) snapshotExposures() tobari.ServiceExposureList {
+func (c *workspaceServiceController) snapshotAttachmentStatus() tobari.ServiceAttachmentStatus {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	result := tobari.ServiceExposureList{AttachmentID: c.attachmentID, Exposures: []tobari.ServiceExposure{}}
+	result := tobari.ServiceAttachmentStatus{SchemaVersion: 1, Scope: tobari.ServiceAttachmentScope, AttachmentID: c.attachmentID, Pending: []tobari.ServicePendingStatus{}, Exposures: []tobari.ServiceExposure{}}
+	for _, pending := range c.pending {
+		result.Pending = append(result.Pending, tobari.ServicePendingStatus{TargetPort: pending.request.TargetPort, State: tobari.ServiceStatePending})
+	}
+	sort.Slice(result.Pending, func(i, j int) bool { return result.Pending[i].TargetPort < result.Pending[j].TargetPort })
 	for _, active := range c.exposures {
 		exposure := active.exposure
 		exposure.Connections = len(active.active)
@@ -401,6 +428,10 @@ func (c *workspaceServiceController) snapshotExposures() tobari.ServiceExposureL
 	}
 	sort.Slice(result.Exposures, func(i, j int) bool { return result.Exposures[i].ID < result.Exposures[j].ID })
 	return result
+}
+
+func (c *workspaceServiceController) snapshotExposures() tobari.ServiceAttachmentStatus {
+	return c.snapshotAttachmentStatus()
 }
 
 func (c *workspaceServiceController) allow(requestID string) (tobari.ServiceExposure, error) {
@@ -425,8 +456,26 @@ func (c *workspaceServiceController) allow(requestID string) (tobari.ServiceExpo
 		c.mu.Unlock()
 		return tobari.ServiceExposure{}, err
 	}
+	originLabel, err := serviceEntropy("", 16)
+	if err != nil {
+		_ = listener.Close()
+		c.mu.Unlock()
+		return tobari.ServiceExposure{}, err
+	}
 	hostPort := listener.Addr().(*net.TCPAddr).Port
-	exposure := tobari.ServiceExposure{SchemaVersion: 1, ID: exposureID, RequestID: requestID, AttachmentID: c.attachmentID, ProjectID: c.principal.workspaceID, WorkspaceManifestID: c.principal.contextID, Workspace: c.principal.projectRoot, TargetPort: pending.request.TargetPort, HostPort: hostPort, URL: "http://127.0.0.1:" + strconv.Itoa(hostPort), State: tobari.ServiceStateListening}
+	accessURL, err := tobari.ServiceExposureURL(hostPort, originLabel)
+	if err != nil {
+		_ = listener.Close()
+		c.mu.Unlock()
+		return tobari.ServiceExposure{}, err
+	}
+	exposure := tobari.ServiceExposure{
+		SchemaVersion: 1, ID: exposureID, RequestID: requestID, AttachmentID: c.attachmentID,
+		ContextID: c.principal.contextID, WorkspaceID: c.principal.workspaceID,
+		Context: c.principal.contextPresentation, ProjectRoot: c.principal.projectRoot,
+		TargetPort: pending.request.TargetPort, HostPort: hostPort, URL: accessURL,
+		State: tobari.ServiceStateListening,
+	}
 	exposureContext, cancel := context.WithCancel(c.attachmentCtx)
 	active := &workspaceServiceExposureRuntime{exposure: exposure, listener: listener, cancel: cancel, active: map[net.Conn]struct{}{}}
 	c.exposures[exposureID] = active
@@ -462,14 +511,40 @@ func (c *workspaceServiceController) stop(exposureID string) error {
 		c.mu.Unlock()
 		return errors.New("exposure not found")
 	}
-	delete(c.exposures, exposureID)
-	active.cancel()
+	if active.closing {
+		c.mu.Unlock()
+		return errors.New("exposure is already closing")
+	}
+	active.closing = true
 	_ = active.listener.Close()
+	active.cancel()
+	connections := make([]net.Conn, 0, len(active.active))
 	for connection := range active.active {
-		_ = connection.Close()
+		connections = append(connections, connection)
 	}
 	c.mu.Unlock()
-	return nil
+	for _, connection := range connections {
+		_ = connection.Close()
+	}
+	deadline := time.Now().Add(workspaceServiceShutdownTimeout)
+	for {
+		c.mu.Lock()
+		current, exists := c.exposures[exposureID]
+		if !exists || current != active {
+			c.mu.Unlock()
+			return errors.New("exposure owner changed during stop")
+		}
+		if len(active.active) == 0 {
+			delete(c.exposures, exposureID)
+			c.mu.Unlock()
+			return nil
+		}
+		c.mu.Unlock()
+		if time.Now().After(deadline) {
+			return errors.New("service exposure streams did not close")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 func (c *workspaceServiceController) serveExposure(ctx context.Context, active *workspaceServiceExposureRuntime) {
@@ -480,7 +555,7 @@ func (c *workspaceServiceController) serveExposure(ctx context.Context, active *
 		}
 		c.mu.Lock()
 		current, exists := c.exposures[active.exposure.ID]
-		if c.closed || !exists || current != active || len(active.active) >= workspaceServiceConnectionLimit {
+		if c.closed || !exists || current != active || active.closing || len(active.active) >= workspaceServiceConnectionLimit {
 			c.mu.Unlock()
 			_ = connection.Close()
 			return
@@ -527,11 +602,12 @@ func (c *workspaceServiceController) handleRendezvous(connection *net.UnixConn) 
 	if decodeStrictJSON(bytes.TrimSuffix(line, []byte{'\n'}), &request) != nil || request.SchemaVersion != 1 || request.ReviewerPID != peerPID || request.AttachmentID != c.attachmentID || request.Nonce != c.nonce {
 		return
 	}
-	response := serviceRendezvousResponse{SchemaVersion: 1}
+	response := serviceRendezvousResponse{SchemaVersion: 1, AttachmentID: c.attachmentID, ContextID: c.principal.contextID, WorkspaceID: c.principal.workspaceID, Requests: []tobari.ServiceRequest{}, Exposures: []tobari.ServiceExposure{}}
 	switch request.Operation {
 	case "snapshot":
 		response.OK = true
 		response.Requests = c.snapshotRequests()
+		response.Exposures = c.snapshotExposures().Exposures
 	case "allow":
 		exposure, err := c.allow(request.RequestID)
 		response.OK = err == nil
@@ -546,6 +622,12 @@ func (c *workspaceServiceController) handleRendezvous(connection *net.UnixConn) 
 		if err != nil {
 			response.Code = "service_request_stale"
 		}
+	case "stop":
+		err := c.stop(request.ExposureID)
+		response.OK = err == nil
+		if err != nil {
+			response.Code = "service_exposure_stale"
+		}
 	default:
 		response.Code = "invalid_service_operation"
 	}
@@ -554,26 +636,43 @@ func (c *workspaceServiceController) handleRendezvous(connection *net.UnixConn) 
 }
 
 func (c *workspaceServiceController) Close(ctx context.Context) error {
+	_, err := c.CloseWithReceipt(ctx)
+	return err
+}
+
+func (c *workspaceServiceController) CloseWithReceipt(_ context.Context) (tobari.ServiceCleanupReceipt, error) {
 	if c == nil {
-		return nil
+		return tobari.ServiceCleanupReceipt{SchemaVersion: 1}, nil
 	}
 	c.once.Do(func() {
+		c.closeReceipt.SchemaVersion = 1
+		if c.workspaceSocket == "" {
+			return
+		}
 		c.mu.Lock()
 		c.closed = true
-		pending := c.pending
-		c.pending = map[string]*workspaceServicePending{}
-		exposures := c.exposures
+		pending := make(map[string]*workspaceServicePending, len(c.pending))
+		for id, request := range c.pending {
+			pending[id] = request
+		}
+		exposures := make(map[string]*workspaceServiceExposureRuntime, len(c.exposures))
+		for id, active := range c.exposures {
+			exposures[id] = active
+		}
 		connections := []net.Conn{}
 		for _, active := range exposures {
+			active.closing = true
 			for connection := range active.active {
 				connections = append(connections, connection)
 			}
 		}
-		c.exposures = map[string]*workspaceServiceExposureRuntime{}
 		c.mu.Unlock()
+		// Withdraw pending requests and close listener admission before
+		// terminating streams. Owner state remains until closure is confirmed.
+		c.closeReceipt.PendingWithdrawnCount = len(pending)
 		for _, active := range exposures {
-			active.cancel()
 			_ = active.listener.Close()
+			active.cancel()
 		}
 		for _, connection := range connections {
 			_ = connection.Close()
@@ -581,6 +680,29 @@ func (c *workspaceServiceController) Close(ctx context.Context) error {
 		for _, request := range pending {
 			c.respond(workspaceServiceControlResponse{SchemaVersion: 1, ClientID: request.clientID, Code: "service_attachment_closed"})
 		}
+		deadline := time.Now().Add(workspaceServiceShutdownTimeout)
+		for {
+			c.mu.Lock()
+			remaining := 0
+			for _, active := range exposures {
+				remaining += len(active.active)
+			}
+			c.mu.Unlock()
+			if remaining == 0 {
+				c.closeReceipt.ExposureClosedCount = len(exposures)
+				c.closeReceipt.StreamClosedCount = len(connections)
+				break
+			}
+			if time.Now().After(deadline) {
+				c.closeErr = errors.New("service exposure streams did not close during attachment teardown")
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		c.mu.Lock()
+		c.pending = map[string]*workspaceServicePending{}
+		c.exposures = map[string]*workspaceServiceExposureRuntime{}
+		c.mu.Unlock()
 		if c.rendezvous != nil {
 			_ = c.rendezvous.Close()
 		}
@@ -592,12 +714,15 @@ func (c *workspaceServiceController) Close(ctx context.Context) error {
 		}
 		_ = os.Remove(c.recordPath)
 		_ = os.Remove(c.rendezvousSocket)
-		select {
-		case <-c.done:
-		case <-time.After(workspaceServiceShutdownTimeout):
+		if c.done != nil {
+			select {
+			case <-c.done:
+			case <-time.After(workspaceServiceShutdownTimeout):
+				c.closeErr = errors.New("service attachment control did not stop")
+			}
 		}
 	})
-	return nil
+	return c.closeReceipt, c.closeErr
 }
 
 // ServiceExposureClient is the attachment-local helper adapter.
@@ -657,26 +782,32 @@ func (c *ServiceExposureClient) RequestService(ctx context.Context, port int) (t
 	}
 	return *response.Exposure, nil
 }
-func (c *ServiceExposureClient) ListServiceExposures(ctx context.Context) (tobari.ServiceExposureList, error) {
-	response, err := c.call(ctx, workspaceServiceControlRequest{SchemaVersion: 1, Operation: "list"})
+func (c *ServiceExposureClient) AttachmentServiceStatus(ctx context.Context) (tobari.ServiceAttachmentStatus, error) {
+	response, err := c.call(ctx, workspaceServiceControlRequest{SchemaVersion: 1, Operation: "status"})
 	if err != nil {
-		return tobari.ServiceExposureList{}, err
+		return tobari.ServiceAttachmentStatus{}, err
 	}
-	if response.List == nil {
-		return tobari.ServiceExposureList{}, errors.New("missing service exposure list")
+	if response.Status == nil {
+		return tobari.ServiceAttachmentStatus{}, errors.New("missing service attachment status")
 	}
-	return *response.List, nil
+	return *response.Status, nil
 }
 func (c *ServiceExposureClient) StopServiceExposure(ctx context.Context, id string) error {
 	_, err := c.call(ctx, workspaceServiceControlRequest{SchemaVersion: 1, Operation: "stop", ExposureID: id})
 	return err
 }
-func (*ServiceExposureClient) ListServiceRequests(context.Context) (tobari.ServiceRequestList, error) {
-	return tobari.ServiceRequestList{}, errors.New("host review is unavailable inside the Workspace")
+func (*ServiceExposureClient) ReviewServiceRequests(context.Context) (tobari.ServiceReviewSnapshot, error) {
+	return tobari.ServiceReviewSnapshot{}, errors.New("host review is unavailable inside the Workspace")
+}
+func (*ServiceExposureClient) ServiceStatus(context.Context) (tobari.ServiceStatusSnapshot, error) {
+	return tobari.ServiceStatusSnapshot{}, errors.New("host status is unavailable inside the Workspace")
 }
 func (*ServiceExposureClient) AllowServiceRequest(context.Context, string) (tobari.ServiceExposure, error) {
 	return tobari.ServiceExposure{}, errors.New("host review is unavailable inside the Workspace")
 }
 func (*ServiceExposureClient) DenyServiceRequest(context.Context, string) error {
 	return errors.New("host review is unavailable inside the Workspace")
+}
+func (*ServiceExposureClient) OpenServiceExposure(context.Context, string) (tobari.ServiceOpenResult, error) {
+	return tobari.ServiceOpenResult{}, errors.New("host browser opening is unavailable inside the Workspace")
 }

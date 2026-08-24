@@ -91,6 +91,7 @@ const (
 	selectorKeyEnter
 	selectorKeyCreate
 	selectorKeyAllow
+	selectorKeyOpen
 	selectorKeyTemplate
 	selectorKeyExact
 	selectorKeyDeny
@@ -471,6 +472,8 @@ func readSelectorKeyOnce(ctx context.Context, in io.Reader) (selectorKey, error)
 		return selectorKey{kind: selectorKeyCreate}, nil
 	case 'a', 'A':
 		return selectorKey{kind: selectorKeyAllow}, nil
+	case 'o', 'O':
+		return selectorKey{kind: selectorKeyOpen}, nil
 	case 't', 'T':
 		return selectorKey{kind: selectorKeyTemplate}, nil
 	case 'e', 'E':

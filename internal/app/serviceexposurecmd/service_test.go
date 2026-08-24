@@ -13,6 +13,7 @@ type servicePortStub struct {
 	allowID      string
 	denyID       string
 	stopID       string
+	openID       string
 	exposure     tobari.ServiceExposure
 }
 
@@ -20,15 +21,21 @@ func (p *servicePortStub) RequestService(context.Context, int) (tobari.ServiceEx
 	p.requestCalls++
 	return p.exposure, nil
 }
-func (p *servicePortStub) ListServiceExposures(context.Context) (tobari.ServiceExposureList, error) {
-	return tobari.ServiceExposureList{AttachmentID: p.exposure.AttachmentID, Exposures: []tobari.ServiceExposure{p.exposure}}, nil
+func (p *servicePortStub) AttachmentServiceStatus(context.Context) (tobari.ServiceAttachmentStatus, error) {
+	return tobari.ServiceAttachmentStatus{SchemaVersion: 1, Scope: tobari.ServiceAttachmentScope, AttachmentID: p.exposure.AttachmentID, Pending: []tobari.ServicePendingStatus{}, Exposures: []tobari.ServiceExposure{p.exposure}}, nil
 }
 func (p *servicePortStub) StopServiceExposure(_ context.Context, id string) error {
 	p.stopID = id
 	return nil
 }
-func (p *servicePortStub) ListServiceRequests(context.Context) (tobari.ServiceRequestList, error) {
-	return tobari.ServiceRequestList{Scope: "live_attachments", Requests: []tobari.ServiceRequest{}}, nil
+func serviceObservation() tobari.ServiceOwnerObservation {
+	return tobari.ServiceOwnerObservation{Scope: tobari.ServiceHostScope, Anchor: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Coverage: tobari.ServiceBoundedWindow, Observation: tobari.ServiceObservationComplete}
+}
+func (p *servicePortStub) ReviewServiceRequests(context.Context) (tobari.ServiceReviewSnapshot, error) {
+	return tobari.ServiceReviewSnapshot{SchemaVersion: 1, ServiceOwnerObservation: serviceObservation(), Requests: []tobari.ServiceRequest{}}, nil
+}
+func (p *servicePortStub) ServiceStatus(context.Context) (tobari.ServiceStatusSnapshot, error) {
+	return tobari.ServiceStatusSnapshot{SchemaVersion: 1, ServiceOwnerObservation: serviceObservation(), Requests: []tobari.ServiceRequest{}, Exposures: []tobari.ServiceExposure{p.exposure}}, nil
 }
 func (p *servicePortStub) AllowServiceRequest(_ context.Context, id string) (tobari.ServiceExposure, error) {
 	p.allowID = id
@@ -38,9 +45,14 @@ func (p *servicePortStub) DenyServiceRequest(_ context.Context, id string) error
 	p.denyID = id
 	return nil
 }
+func (p *servicePortStub) OpenServiceExposure(_ context.Context, id string) (tobari.ServiceOpenResult, error) {
+	p.openID = id
+	return tobari.ServiceOpenResult{SchemaVersion: 1, ID: id, URL: p.exposure.URL, Outcome: tobari.ServiceOpenRequested}, nil
+}
 
 func serviceExposureFixture() tobari.ServiceExposure {
-	return tobari.ServiceExposure{SchemaVersion: 1, ID: "exp_0123456789abcdef0123456789abcdef", RequestID: "srq_0123456789abcdef0123456789abcdef", AttachmentID: "att_0123456789abcdef0123456789abcdef", ProjectID: "01234567-89ab-7cde-8f01-23456789abcd", WorkspaceManifestID: "fedcba98-7654-7321-8abc-def012345678", Workspace: "/tmp/project", TargetPort: 3000, HostPort: 54321, URL: "http://127.0.0.1:54321", State: tobari.ServiceStateListening}
+	url, _ := tobari.ServiceExposureURL(54321, "0123456789abcdef0123456789abcdef")
+	return tobari.ServiceExposure{SchemaVersion: 1, ID: "exp_0123456789abcdef0123456789abcdef", RequestID: "srq_0123456789abcdef0123456789abcdef", AttachmentID: "att_0123456789abcdef0123456789abcdef", ContextID: "01234567-89ab-7cde-8f01-23456789abcd", WorkspaceID: "fedcba98-7654-7321-8abc-def012345678", Context: "restricted", ProjectRoot: "/tmp/project", TargetPort: 3000, HostPort: 54321, URL: url, State: tobari.ServiceStateListening}
 }
 
 func serviceIntent(command string, effect operation.Effect, access operation.Declaration) operation.Intent {
@@ -65,6 +77,9 @@ func TestServiceUsesFixedCreateAndOpaqueReferenceMutationBindings(t *testing.T) 
 	}
 	if err := service.Stop(context.Background(), serviceIntent("stop", operation.EffectWrite, operation.DeclarationYes), port.exposure.ID); err != nil || port.stopID != port.exposure.ID {
 		t.Fatalf("Stop() error = %v, id = %q", err, port.stopID)
+	}
+	if result, err := service.Open(context.Background(), serviceIntent("service open", operation.EffectWrite, operation.DeclarationNo), port.exposure.ID); err != nil || port.openID != port.exposure.ID || result.Outcome != tobari.ServiceOpenRequested {
+		t.Fatalf("Open() = %#v, %v, id = %q", result, err, port.openID)
 	}
 }
 

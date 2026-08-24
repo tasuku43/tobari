@@ -62,7 +62,7 @@ func TestBatchDPublicPathSetAndResearchDeltaAreExact(t *testing.T) {
 		"context create", "context delete", "context enter", "context list", "context show", "doctor", "help",
 		"policy allow", "policy candidates", "policy deny", "policy reset", "policy rules", "review permissions", "review runtimes", "review services",
 		"runtime build", "runtime create", "runtime delete", "runtime history", "runtime list", "runtime prune apply", "runtime prune dry-run", "runtime restore", "runtime show",
-		"service allow", "service deny", "service requests", "status", "template copy", "template create", "template default set", "template delete", "template list", "template runtime set", "template show", "tobari", "version",
+		"service allow", "service deny", "service open", "service status", "service stop", "status", "template copy", "template create", "template default set", "template delete", "template list", "template runtime set", "template show", "tobari", "version",
 		"workspace delete", "workspace list", "workspace status",
 	}
 	if buildIdentityHasBroker() {

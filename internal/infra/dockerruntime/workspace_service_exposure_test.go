@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +22,16 @@ import (
 )
 
 type serviceExposureRunner struct{ recordingRunner }
+
+type fixedServiceBrowser struct {
+	outcome tobari.ServiceOpenOutcome
+	targets []string
+}
+
+func (b *fixedServiceBrowser) Dispatch(_ context.Context, target string) tobari.ServiceOpenOutcome {
+	b.targets = append(b.targets, target)
+	return b.outcome
+}
 
 func (r *serviceExposureRunner) RunWorkspaceServiceControl(ctx context.Context, _ []string, _ []string, in io.Reader, out, _ io.Writer) error {
 	if _, err := io.WriteString(out, `{"schema_version":1,"ready":true}`+"\n"); err != nil {
@@ -95,15 +106,22 @@ func TestWorkspaceServiceOwnerRendezvousExactAuthorityAndTeardown(t *testing.T) 
 			}
 			go func() {
 				defer connection.Close()
-				line, _ := bufio.NewReader(connection).ReadString('\n')
-				reached <- line
+				header, _ := readServiceHeader(bufio.NewReader(connection))
+				reached <- string(header)
 				_, _ = io.WriteString(connection, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK")
 			}()
 		}
 	}()
 	clientID := strings.Repeat("a", 32)
 	controller.submit(workspaceServiceControlRequest{SchemaVersion: 1, Operation: "request", ClientID: clientID, Port: target.Addr().(*net.TCPAddr).Port})
-	pending, err := runtime.ListServiceRequests(context.Background())
+	anchor, err := runtime.anchorServiceOwners(context.Background())
+	if err != nil || len(anchor.records) != 1 {
+		t.Fatalf("owner anchor=%+v err=%v", anchor, err)
+	}
+	if _, err := runtime.callServiceOwner(context.Background(), anchor.records[0], serviceRendezvousRequest{Operation: "snapshot"}); err != nil {
+		t.Fatalf("owner snapshot call: %v", err)
+	}
+	pending, err := runtime.ReviewServiceRequests(context.Background())
 	if err != nil || len(pending.Requests) != 1 {
 		t.Fatalf("pending=%+v err=%v", pending, err)
 	}
@@ -130,7 +148,7 @@ func TestWorkspaceServiceOwnerRendezvousExactAuthorityAndTeardown(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = fmt.Fprintf(valid, "GET /ready HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nConnection: close\r\n\r\n", exposure.HostPort)
+	_, _ = fmt.Fprintf(valid, "GET /ready HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", testServiceAuthority(t, exposure))
 	response, _ := io.ReadAll(valid)
 	valid.Close()
 	if !strings.Contains(string(response), "200 OK") || !strings.HasSuffix(string(response), "OK") {
@@ -138,7 +156,7 @@ func TestWorkspaceServiceOwnerRendezvousExactAuthorityAndTeardown(t *testing.T) 
 	}
 	select {
 	case line := <-reached:
-		if line != "GET /ready HTTP/1.1\r\n" {
+		if !strings.HasPrefix(line, "GET /ready HTTP/1.1\r\n") || !strings.Contains(line, "\r\nHost: "+testServiceAuthority(t, exposure)+"\r\n") {
 			t.Fatalf("request=%q", line)
 		}
 	case <-time.After(time.Second):
@@ -183,7 +201,7 @@ func newTestServiceController(t *testing.T, runner *serviceExposureRunner) (*Run
 func allowTestService(t *testing.T, runtime *Runtime, controller *workspaceServiceController, port int) tobari.ServiceExposure {
 	t.Helper()
 	controller.submit(workspaceServiceControlRequest{SchemaVersion: 1, Operation: "request", ClientID: strings.Repeat("b", 32), Port: port})
-	pending, err := runtime.ListServiceRequests(context.Background())
+	pending, err := runtime.ReviewServiceRequests(context.Background())
 	if err != nil || len(pending.Requests) != 1 {
 		t.Fatalf("pending=%+v err=%v", pending, err)
 	}
@@ -192,6 +210,15 @@ func allowTestService(t *testing.T, runtime *Runtime, controller *workspaceServi
 		t.Fatal(err)
 	}
 	return exposure
+}
+
+func testServiceAuthority(t *testing.T, exposure tobari.ServiceExposure) string {
+	t.Helper()
+	label, port, err := tobari.ParseServiceExposureURL(exposure.URL)
+	if err != nil || port != exposure.HostPort {
+		t.Fatalf("exposure URL=%q port=%d err=%v", exposure.URL, exposure.HostPort, err)
+	}
+	return "svc-" + label + ".localhost:" + strconv.Itoa(port)
 }
 
 func TestWorkspaceServiceHelperCancellationClosesControlConnection(t *testing.T) {
@@ -268,7 +295,7 @@ func TestWorkspaceServiceReturnsFixed502AndRecordsPassiveUnavailableState(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = fmt.Fprintf(connection, "GET / HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nConnection: close\r\n\r\n", exposure.HostPort)
+	_, _ = fmt.Fprintf(connection, "GET / HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", testServiceAuthority(t, exposure))
 	response, _ := io.ReadAll(connection)
 	connection.Close()
 	if string(response) != string(workspaceServiceUnavailableResponse) || bytes.Contains(response, []byte(strconv.Itoa(port))) {
@@ -281,12 +308,18 @@ func TestWorkspaceServiceReturnsFixed502AndRecordsPassiveUnavailableState(t *tes
 }
 
 func TestWorkspaceServiceRejectsAmbiguousHeadersAndWrongKeepaliveAuthority(t *testing.T) {
-	authority := "127.0.0.1:54321"
+	authority := "svc-0123456789abcdef0123456789abcdef.localhost:54321"
 	for name, raw := range map[string]string{
+		"absent host":          "GET / HTTP/1.1\r\nUser-Agent: test\r\n\r\n",
 		"duplicate host":       "GET / HTTP/1.1\r\nHost: " + authority + "\r\nHost: " + authority + "\r\n\r\n",
 		"transfer plus length": "POST / HTTP/1.1\r\nHost: " + authority + "\r\nTransfer-Encoding: chunked\r\nContent-Length: 4\r\n\r\n",
 		"folded":               "GET / HTTP/1.1\r\nHost: " + authority + "\r\n X: y\r\n\r\n",
 		"absolute mismatch":    "GET http://localhost:54321/ HTTP/1.1\r\nHost: " + authority + "\r\n\r\n",
+		"numeric loopback":     "GET / HTTP/1.1\r\nHost: 127.0.0.1:54321\r\n\r\n",
+		"bare localhost":       "GET / HTTP/1.1\r\nHost: localhost:54321\r\n\r\n",
+		"sibling origin":       "GET / HTTP/1.1\r\nHost: svc-ffffffffffffffffffffffffffffffff.localhost:54321\r\n\r\n",
+		"wrong port":           "GET / HTTP/1.1\r\nHost: svc-0123456789abcdef0123456789abcdef.localhost:54322\r\n\r\n",
+		"noncanonical case":    "GET / HTTP/1.1\r\nHost: SVC-0123456789ABCDEF0123456789ABCDEF.LOCALHOST:54321\r\n\r\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			header := []byte(raw)
@@ -295,6 +328,11 @@ func TestWorkspaceServiceRejectsAmbiguousHeadersAndWrongKeepaliveAuthority(t *te
 				t.Fatal("ambiguous request passed")
 			}
 		})
+	}
+	exactAbsolute := []byte("GET http://" + authority + "/ready HTTP/1.1\r\nHost: " + authority + "\r\n\r\n")
+	request, err := http.ReadRequest(bufio.NewReader(bytes.NewReader(exactAbsolute)))
+	if err != nil || validateServiceRequestHeader(exactAbsolute, request, authority) != nil {
+		t.Fatalf("exact absolute-form authority was rejected: %v", err)
 	}
 
 	runtime, controller := newTestServiceController(t, &serviceExposureRunner{})
@@ -318,7 +356,7 @@ func TestWorkspaceServiceRejectsAmbiguousHeadersAndWrongKeepaliveAuthority(t *te
 	}()
 	exposure := allowTestService(t, runtime, controller, target.Addr().(*net.TCPAddr).Port)
 	host, _ := net.DialTimeout("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(exposure.HostPort)), time.Second)
-	_, _ = fmt.Fprintf(host, "GET /one HTTP/1.1\r\nHost: 127.0.0.1:%d\r\n\r\nGET /two HTTP/1.1\r\nHost: localhost:%d\r\n\r\n", exposure.HostPort, exposure.HostPort)
+	_, _ = fmt.Fprintf(host, "GET /one HTTP/1.1\r\nHost: %s\r\n\r\nGET /two HTTP/1.1\r\nHost: localhost:%d\r\n\r\n", testServiceAuthority(t, exposure), exposure.HostPort)
 	reader := bufio.NewReader(host)
 	_, _ = readServiceHeader(reader)
 	body := make([]byte, 2)
@@ -359,7 +397,7 @@ func TestWorkspaceServiceWebSocketUpgradeRelaysBoundedBackpressureWithoutLoss(t 
 	}
 	defer host.Close()
 	_ = host.SetDeadline(time.Now().Add(10 * time.Second))
-	_, _ = fmt.Fprintf(host, "GET /socket HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n", exposure.HostPort)
+	_, _ = fmt.Fprintf(host, "GET /socket HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n", testServiceAuthority(t, exposure))
 	header, err := readServiceHeader(bufio.NewReader(host))
 	if err != nil || !bytes.Contains(header, []byte("101 Switching Protocols")) {
 		t.Fatalf("upgrade=%q err=%v", header, err)
@@ -381,19 +419,19 @@ func TestWorkspaceServicePendingCancellationDenyAndForeignStopCreateNoListener(t
 	client := strings.Repeat("c", 32)
 	controller.submit(workspaceServiceControlRequest{SchemaVersion: 1, Operation: "request", ClientID: client, Port: 3000})
 	controller.withdrawClient(client)
-	requests, err := runtime.ListServiceRequests(context.Background())
+	requests, err := runtime.ReviewServiceRequests(context.Background())
 	if err != nil || len(requests.Requests) != 0 || len(controller.snapshotExposures().Exposures) != 0 {
 		t.Fatalf("withdraw requests=%+v exposures=%+v err=%v", requests, controller.snapshotExposures(), err)
 	}
 	controller.submit(workspaceServiceControlRequest{SchemaVersion: 1, Operation: "request", ClientID: client, Port: 3001})
-	requests, _ = runtime.ListServiceRequests(context.Background())
+	requests, _ = runtime.ReviewServiceRequests(context.Background())
 	if len(requests.Requests) != 1 {
 		t.Fatalf("deny setup=%+v", requests)
 	}
 	if err := runtime.DenyServiceRequest(context.Background(), requests.Requests[0].ID); err != nil {
 		t.Fatal(err)
 	}
-	requests, _ = runtime.ListServiceRequests(context.Background())
+	requests, _ = runtime.ReviewServiceRequests(context.Background())
 	if len(requests.Requests) != 0 || len(controller.snapshotExposures().Exposures) != 0 {
 		t.Fatalf("deny retained authority: requests=%+v exposures=%+v", requests, controller.snapshotExposures())
 	}
@@ -414,7 +452,7 @@ func TestWorkspaceServicePendingCancellationDenyAndForeignStopCreateNoListener(t
 	connection.Close()
 }
 
-func TestWorkspaceServiceConcurrentOwnersAndForgedRegistryCleanup(t *testing.T) {
+func TestWorkspaceServiceConcurrentOwnersAndUnsafeRegistryFailWithoutReadCleanup(t *testing.T) {
 	base := t.TempDir()
 	runner := &serviceExposureRunner{}
 	runtime, err := newRuntimeWithData(base+"/config", base+"/state", base+"/data", runner)
@@ -435,14 +473,14 @@ func TestWorkspaceServiceConcurrentOwnersAndForgedRegistryCleanup(t *testing.T) 
 	defer second.Close(context.Background())
 	first.submit(workspaceServiceControlRequest{SchemaVersion: 1, Operation: "request", ClientID: strings.Repeat("d", 32), Port: 3000})
 	second.submit(workspaceServiceControlRequest{SchemaVersion: 1, Operation: "request", ClientID: strings.Repeat("e", 32), Port: 3001})
-	requests, err := runtime.ListServiceRequests(context.Background())
+	requests, err := runtime.ReviewServiceRequests(context.Background())
 	if err != nil || len(requests.Requests) != 2 || requests.Requests[0].AttachmentID == requests.Requests[1].AttachmentID {
 		t.Fatalf("concurrent requests=%+v err=%v", requests, err)
 	}
 	if err := first.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	requests, _ = runtime.ListServiceRequests(context.Background())
+	requests, _ = runtime.ReviewServiceRequests(context.Background())
 	if len(requests.Requests) != 1 || requests.Requests[0].AttachmentID != second.attachmentID {
 		t.Fatalf("owner exit affected peer=%+v", requests)
 	}
@@ -455,13 +493,131 @@ func TestWorkspaceServiceConcurrentOwnersAndForgedRegistryCleanup(t *testing.T) 
 	if err := os.Symlink(second.recordPath, symlink); err != nil {
 		t.Fatal(err)
 	}
-	_ = runtime.liveServiceRecords(context.Background())
+	if _, err := runtime.ReviewServiceRequests(context.Background()); err == nil {
+		t.Fatal("unsafe registry did not fail closed")
+	}
 	for _, path := range []string{forged, symlink} {
-		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("unsafe record remains %s: %v", path, err)
+		if _, err := os.Lstat(path); err != nil {
+			t.Fatalf("read cleaned unsafe record %s: %v", path, err)
 		}
 	}
 	if _, err := os.Lstat(second.recordPath); err != nil {
 		t.Fatalf("symlink cleanup followed target: %v", err)
+	}
+}
+
+func TestWorkspaceServiceObservationDistinguishesPartialUnavailableAndKnownEmpty(t *testing.T) {
+	runtime, controller := newTestServiceController(t, &serviceExposureRunner{})
+	controller.submit(workspaceServiceControlRequest{SchemaVersion: 1, Operation: "request", ClientID: strings.Repeat("f", 32), Port: 3000})
+	staleAttachment, err := newAttachmentEpochID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleNonce, err := serviceEntropy("", 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := serviceRendezvousRecord{
+		SchemaVersion: 1, AttachmentID: staleAttachment,
+		ContextID: controller.principal.contextID, WorkspaceID: controller.principal.workspaceID,
+		Context: controller.principal.contextPresentation, ProjectRoot: controller.principal.projectRoot,
+		Nonce: staleNonce, SocketName: "owner-" + staleNonce[:32] + ".sock", OwnerPID: os.Getpid(), OwnerUID: os.Getuid(),
+	}
+	stalePath := filepath.Join(runtime.serviceExposureLiveDirectory(), staleAttachment+".json")
+	if err := writeAtomicJSON(stalePath, stale); err != nil {
+		t.Fatal(err)
+	}
+
+	status, err := runtime.ServiceStatus(context.Background())
+	if err != nil || status.Observation != tobari.ServiceObservationPartial || status.ObservedOwnerCount != 1 || status.UnavailableOwnerCount != 1 || len(status.Requests) != 1 {
+		t.Fatalf("partial status=%+v err=%v", status, err)
+	}
+	if _, err := os.Lstat(stalePath); err != nil {
+		t.Fatalf("read removed unavailable owner: %v", err)
+	}
+	if err := runtime.DenyServiceRequest(context.Background(), status.Requests[0].ID); err == nil {
+		t.Fatal("exact action proceeded through incomplete owner observation")
+	}
+	if err := controller.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	status, err = runtime.ServiceStatus(context.Background())
+	if err != nil || status.Observation != tobari.ServiceObservationUnavailable || status.ObservedOwnerCount != 0 || status.UnavailableOwnerCount != 1 {
+		t.Fatalf("unavailable status=%+v err=%v", status, err)
+	}
+	if err := os.Remove(stalePath); err != nil {
+		t.Fatal(err)
+	}
+	status, err = runtime.ServiceStatus(context.Background())
+	if err != nil || status.Observation != tobari.ServiceObservationComplete || status.ObservedOwnerCount != 0 || status.UnavailableOwnerCount != 0 || len(status.Requests) != 0 || len(status.Exposures) != 0 {
+		t.Fatalf("known-empty status=%+v err=%v", status, err)
+	}
+}
+
+func TestWorkspaceServiceAttachmentCleanupReportsOnlyConfirmedBoundedCounts(t *testing.T) {
+	runtime, controller := newTestServiceController(t, &serviceExposureRunner{})
+	target, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer target.Close()
+	accepted := make(chan struct{})
+	release := make(chan struct{})
+	go func() {
+		connection, acceptErr := target.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer connection.Close()
+		_, _ = readServiceHeader(bufio.NewReader(connection))
+		close(accepted)
+		<-release
+	}()
+	exposure := allowTestService(t, runtime, controller, target.Addr().(*net.TCPAddr).Port)
+	host, err := net.DialTimeout("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(exposure.HostPort)), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = fmt.Fprintf(host, "GET /hold HTTP/1.1\r\nHost: %s\r\n\r\n", testServiceAuthority(t, exposure))
+	select {
+	case <-accepted:
+	case <-time.After(time.Second):
+		t.Fatal("relay did not reach target")
+	}
+	close(release)
+	receipt, err := controller.CloseWithReceipt(context.Background())
+	_ = host.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.SchemaVersion != 1 || receipt.PendingWithdrawnCount != 0 || receipt.ExposureClosedCount != 1 || receipt.StreamClosedCount != 1 {
+		t.Fatalf("cleanup receipt=%+v", receipt)
+	}
+	if _, err := os.Lstat(controller.recordPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("confirmed cleanup retained owner state: %v", err)
+	}
+}
+
+func TestWorkspaceServiceOpenReResolvesLiveOwnerAndReportsBoundedDispatchOutcome(t *testing.T) {
+	for _, outcome := range []tobari.ServiceOpenOutcome{tobari.ServiceOpenNotDispatched, tobari.ServiceOpenRequested, tobari.ServiceOpenOutcomeUnknown} {
+		t.Run(string(outcome), func(t *testing.T) {
+			runtime, controller := newTestServiceController(t, &serviceExposureRunner{})
+			exposure := allowTestService(t, runtime, controller, 3000)
+			browser := &fixedServiceBrowser{outcome: outcome}
+			runtime.serviceBrowser = browser
+			result, err := runtime.OpenServiceExposure(context.Background(), exposure.ID)
+			if err != nil || result.ID != exposure.ID || result.URL != exposure.URL || result.Outcome != outcome || !reflect.DeepEqual(browser.targets, []string{exposure.URL}) {
+				t.Fatalf("open result=%+v targets=%v err=%v", result, browser.targets, err)
+			}
+			if err := runtime.StopServiceExposure(context.Background(), exposure.ID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := runtime.OpenServiceExposure(context.Background(), exposure.ID); err == nil {
+				t.Fatal("stopped exposure retained browser authority")
+			}
+			if !reflect.DeepEqual(browser.targets, []string{exposure.URL}) {
+				t.Fatalf("stale open reached browser: %v", browser.targets)
+			}
+		})
 	}
 }

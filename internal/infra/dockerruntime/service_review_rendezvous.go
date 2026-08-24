@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -18,50 +19,124 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
-func validServiceRendezvousRecord(entry string, record serviceRendezvousRecord) bool {
-	return record.SchemaVersion == 1 && record.OwnerPID > 0 && len(record.Nonce) == 64 &&
-		entry == record.AttachmentID+".json" && record.SocketName == "owner-"+record.Nonce[:32]+".sock" &&
-		!strings.ContainsAny(record.SocketName, `/\`) && tobari.ValidateAttachmentEpochID(record.AttachmentID) == nil
+type serviceOwnerAnchor struct {
+	value   string
+	records []serviceRendezvousRecord
 }
 
-func (r *Runtime) liveServiceRecords(ctx context.Context) []serviceRendezvousRecord {
+func serviceOwnerRowsMatch(record serviceRendezvousRecord, response serviceRendezvousResponse) bool {
+	for _, request := range response.Requests {
+		if request.Validate() != nil || request.State != tobari.ServiceStatePending ||
+			request.AttachmentID != record.AttachmentID || request.ContextID != record.ContextID || request.WorkspaceID != record.WorkspaceID ||
+			request.Context != record.Context || request.ProjectRoot != record.ProjectRoot {
+			return false
+		}
+	}
+	for _, exposure := range response.Exposures {
+		if exposure.Validate() != nil || exposure.AttachmentID != record.AttachmentID ||
+			exposure.ContextID != record.ContextID || exposure.WorkspaceID != record.WorkspaceID ||
+			exposure.Context != record.Context || exposure.ProjectRoot != record.ProjectRoot {
+			return false
+		}
+	}
+	if response.Exposure != nil {
+		exposure := *response.Exposure
+		if exposure.Validate() != nil || exposure.AttachmentID != record.AttachmentID ||
+			exposure.ContextID != record.ContextID || exposure.WorkspaceID != record.WorkspaceID ||
+			exposure.Context != record.Context || exposure.ProjectRoot != record.ProjectRoot {
+			return false
+		}
+	}
+	return true
+}
+
+func validServiceRendezvousRecord(entry string, record serviceRendezvousRecord) bool {
+	contextID, contextErr := tobari.ParseContextID(record.ContextID)
+	workspaceID, workspaceErr := tobari.ParseWorkspaceID(record.WorkspaceID)
+	return record.SchemaVersion == 1 && record.OwnerPID > 0 && record.OwnerUID == os.Getuid() && len(record.Nonce) == 64 &&
+		entry == record.AttachmentID+".json" && record.SocketName == "owner-"+record.Nonce[:32]+".sock" &&
+		!strings.ContainsAny(record.SocketName, `/\`) && tobari.ValidateAttachmentEpochID(record.AttachmentID) == nil &&
+		contextErr == nil && workspaceErr == nil && contextID.Validate() == nil && workspaceID.Validate() == nil &&
+		tobari.ValidateName(record.Context) == nil && tobari.ValidateCanonicalRoot(record.ProjectRoot) == nil
+}
+
+func readExactServiceOwnerRecord(path string, entry os.DirEntry) (serviceRendezvousRecord, error) {
+	before, err := os.Lstat(path)
+	if err != nil || before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() || before.Mode().Perm() != 0o600 || before.Size() > workspaceServiceMessageLimit {
+		return serviceRendezvousRecord{}, fmt.Errorf("service owner record is unsafe")
+	}
+	if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+		return serviceRendezvousRecord{}, fmt.Errorf("service owner registry entry is unsafe")
+	}
+	opened, err := os.Open(path) // #nosec G304 -- path is one bounded anchored registry entry and identity is verified before decoding.
+	if err != nil {
+		return serviceRendezvousRecord{}, err
+	}
+	defer opened.Close()
+	openedInfo, err := opened.Stat()
+	if err != nil || !openedInfo.Mode().IsRegular() || openedInfo.Mode().Perm() != 0o600 || !os.SameFile(before, openedInfo) {
+		return serviceRendezvousRecord{}, fmt.Errorf("service owner record changed before read")
+	}
+	data, err := io.ReadAll(io.LimitReader(opened, workspaceServiceMessageLimit+1))
+	if err != nil || len(data) > workspaceServiceMessageLimit {
+		return serviceRendezvousRecord{}, fmt.Errorf("service owner record exceeds its bound")
+	}
+	after, err := os.Lstat(path)
+	if err != nil || !os.SameFile(before, after) || after.Size() != before.Size() || after.Mode() != before.Mode() {
+		return serviceRendezvousRecord{}, fmt.Errorf("service owner record changed during read")
+	}
+	var record serviceRendezvousRecord
+	if decodeStrictJSON(data, &record) != nil || !validServiceRendezvousRecord(entry.Name(), record) {
+		return serviceRendezvousRecord{}, fmt.Errorf("service owner record is invalid")
+	}
+	return record, nil
+}
+
+// anchorServiceOwners takes one immutable directory-entry anchor. Reads never
+// remove or repair records; an unsafe or contradictory owner fails the task.
+func (r *Runtime) anchorServiceOwners(ctx context.Context) (serviceOwnerAnchor, error) {
+	if err := ctx.Err(); err != nil {
+		return serviceOwnerAnchor{}, err
+	}
+	anchor, err := serviceEntropy("", 32)
+	if err != nil {
+		return serviceOwnerAnchor{}, err
+	}
 	directory := r.serviceExposureLiveDirectory()
+	if err := requirePrivateDirectory(directory); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return serviceOwnerAnchor{value: anchor, records: []serviceRendezvousRecord{}}, nil
+		}
+		return serviceOwnerAnchor{}, fmt.Errorf("inspect service owner registry: %w", err)
+	}
 	entries, err := os.ReadDir(directory)
 	if err != nil {
-		return []serviceRendezvousRecord{}
+		return serviceOwnerAnchor{}, fmt.Errorf("read service owner registry: %w", err)
 	}
-	records := []serviceRendezvousRecord{}
+	result := serviceOwnerAnchor{value: anchor, records: make([]serviceRendezvousRecord, 0, len(entries))}
+	attachments, sockets, nonces := map[string]struct{}{}, map[string]struct{}{}, map[string]struct{}{}
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-			continue
+		if !strings.HasSuffix(entry.Name(), ".json") || filepath.Base(entry.Name()) != entry.Name() {
+			return serviceOwnerAnchor{}, fault.New(fault.KindContract, "unsafe_service_owner", "service owner registry contains an unsafe entry", false)
 		}
-		path := filepath.Join(directory, entry.Name())
-		info, err := os.Lstat(path)
-		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
-			_ = os.Remove(path)
-			continue
+		record, err := readExactServiceOwnerRecord(filepath.Join(directory, entry.Name()), entry)
+		if err != nil {
+			return serviceOwnerAnchor{}, fault.Wrap(fault.KindContract, "unsafe_service_owner", "service owner registry is unsafe", false, err)
 		}
-		data, err := os.ReadFile(path) // #nosec G304 -- one lstat-verified regular 0600 entry below the owner-only live-record directory.
-		if err != nil || len(data) > workspaceServiceMessageLimit {
-			_ = os.Remove(path)
-			continue
+		if _, duplicate := attachments[record.AttachmentID]; duplicate {
+			return serviceOwnerAnchor{}, fault.New(fault.KindContract, "duplicate_service_owner", "service attachment authority is duplicated", false)
 		}
-		var record serviceRendezvousRecord
-		if decodeStrictJSON(data, &record) != nil || !validServiceRendezvousRecord(entry.Name(), record) {
-			_ = os.Remove(path)
-			continue
+		if _, duplicate := sockets[record.SocketName]; duplicate {
+			return serviceOwnerAnchor{}, fault.New(fault.KindContract, "duplicate_service_owner", "service owner endpoint is duplicated", false)
 		}
-		probeContext, cancel := context.WithTimeout(ctx, workspaceServiceSetupTimeout)
-		_, probeErr := r.callServiceOwner(probeContext, record, serviceRendezvousRequest{Operation: "snapshot"})
-		cancel()
-		if probeErr != nil {
-			_ = os.Remove(path)
-			continue
+		if _, duplicate := nonces[record.Nonce]; duplicate {
+			return serviceOwnerAnchor{}, fault.New(fault.KindContract, "duplicate_service_owner", "service owner nonce is duplicated", false)
 		}
-		records = append(records, record)
+		attachments[record.AttachmentID], sockets[record.SocketName], nonces[record.Nonce] = struct{}{}, struct{}{}, struct{}{}
+		result.records = append(result.records, record)
 	}
-	sort.Slice(records, func(i, j int) bool { return records[i].AttachmentID < records[j].AttachmentID })
-	return records
+	sort.Slice(result.records, func(i, j int) bool { return result.records[i].AttachmentID < result.records[j].AttachmentID })
+	return result, nil
 }
 
 func (r *Runtime) callServiceOwner(ctx context.Context, record serviceRendezvousRecord, request serviceRendezvousRequest) (serviceRendezvousResponse, error) {
@@ -75,7 +150,7 @@ func (r *Runtime) callServiceOwner(ctx context.Context, record serviceRendezvous
 	}
 	defer connection.Close()
 	peerPID, peerUID, err := servicePeerIdentity(connection.(*net.UnixConn))
-	if err != nil || peerPID != record.OwnerPID || (peerUID >= 0 && peerUID != os.Getuid()) {
+	if err != nil || peerPID != record.OwnerPID || (peerUID >= 0 && peerUID != record.OwnerUID) {
 		return serviceRendezvousResponse{}, errors.New("service owner peer identity mismatch")
 	}
 	_ = connection.SetDeadline(time.Now().Add(workspaceServiceSetupTimeout))
@@ -92,37 +167,78 @@ func (r *Runtime) callServiceOwner(ctx context.Context, record serviceRendezvous
 		return serviceRendezvousResponse{}, errors.New("invalid service owner response")
 	}
 	var response serviceRendezvousResponse
-	if decodeStrictJSON(bytes.TrimSuffix(line, []byte{'\n'}), &response) != nil || response.SchemaVersion != 1 || !response.OK {
-		return response, errors.New("service owner rejected action")
+	if decodeStrictJSON(bytes.TrimSuffix(line, []byte{'\n'}), &response) != nil || response.SchemaVersion != 1 || !response.OK ||
+		response.AttachmentID != record.AttachmentID || response.ContextID != record.ContextID || response.WorkspaceID != record.WorkspaceID ||
+		response.Requests == nil || response.Exposures == nil || !serviceOwnerRowsMatch(record, response) {
+		return response, errors.New("service owner rejected action or contradicted its identity")
 	}
 	return response, nil
 }
 
-func (r *Runtime) ListServiceRequests(ctx context.Context) (tobari.ServiceRequestList, error) {
-	result := tobari.ServiceRequestList{Scope: "live_attachments", Requests: []tobari.ServiceRequest{}}
-	for _, record := range r.liveServiceRecords(ctx) {
-		response, err := r.callServiceOwner(ctx, record, serviceRendezvousRequest{Operation: "snapshot"})
-		if err != nil {
+func observationFor(anchor string, observed, unavailable int) tobari.ServiceOwnerObservation {
+	state := tobari.ServiceObservationComplete
+	if unavailable > 0 && observed > 0 {
+		state = tobari.ServiceObservationPartial
+	} else if unavailable > 0 {
+		state = tobari.ServiceObservationUnavailable
+	}
+	return tobari.ServiceOwnerObservation{Scope: tobari.ServiceHostScope, Anchor: anchor, Coverage: tobari.ServiceBoundedWindow, Observation: state, ObservedOwnerCount: observed, UnavailableOwnerCount: unavailable}
+}
+
+func (r *Runtime) collectServiceStatus(ctx context.Context) (tobari.ServiceStatusSnapshot, error) {
+	anchor, err := r.anchorServiceOwners(ctx)
+	if err != nil {
+		return tobari.ServiceStatusSnapshot{}, err
+	}
+	requests, exposures := []tobari.ServiceRequest{}, []tobari.ServiceExposure{}
+	observed, unavailable := 0, 0
+	for _, record := range anchor.records {
+		callContext, cancel := context.WithTimeout(ctx, workspaceServiceSetupTimeout)
+		response, callErr := r.callServiceOwner(callContext, record, serviceRendezvousRequest{Operation: "snapshot"})
+		cancel()
+		if callErr != nil {
+			unavailable++
 			continue
 		}
-		result.Requests = append(result.Requests, response.Requests...)
+		observed++
+		requests = append(requests, response.Requests...)
+		exposures = append(exposures, response.Exposures...)
 	}
-	sort.Slice(result.Requests, func(i, j int) bool { return result.Requests[i].ID < result.Requests[j].ID })
+	sort.Slice(requests, func(i, j int) bool { return requests[i].ID < requests[j].ID })
+	sort.Slice(exposures, func(i, j int) bool { return exposures[i].ID < exposures[j].ID })
+	result := tobari.ServiceStatusSnapshot{SchemaVersion: 1, ServiceOwnerObservation: observationFor(anchor.value, observed, unavailable), Requests: requests, Exposures: exposures}
 	if err := result.Validate(); err != nil {
-		return tobari.ServiceRequestList{}, err
+		return tobari.ServiceStatusSnapshot{}, fault.Wrap(fault.KindContract, "invalid_service_status", "service owner snapshot is contradictory", false, err)
 	}
 	return result, nil
 }
 
-func (r *Runtime) findServiceRequestOwner(ctx context.Context, id string) (serviceRendezvousRecord, error) {
+func (r *Runtime) ReviewServiceRequests(ctx context.Context) (tobari.ServiceReviewSnapshot, error) {
+	status, err := r.collectServiceStatus(ctx)
+	if err != nil {
+		return tobari.ServiceReviewSnapshot{}, err
+	}
+	result := tobari.ServiceReviewSnapshot{SchemaVersion: 1, ServiceOwnerObservation: status.ServiceOwnerObservation, Requests: status.Requests}
+	return result, result.Validate()
+}
+
+func (r *Runtime) ServiceStatus(ctx context.Context) (tobari.ServiceStatusSnapshot, error) {
+	return r.collectServiceStatus(ctx)
+}
+
+func (r *Runtime) resolveServiceRequestOwner(ctx context.Context, id string) (serviceRendezvousRecord, error) {
 	if tobari.ValidateServiceRequestID(id) != nil {
 		return serviceRendezvousRecord{}, fault.New(fault.KindInvalidInput, "invalid_service_request", "service request reference is invalid", false)
 	}
+	anchor, err := r.anchorServiceOwners(ctx)
+	if err != nil {
+		return serviceRendezvousRecord{}, err
+	}
 	var matched *serviceRendezvousRecord
-	for _, record := range r.liveServiceRecords(ctx) {
-		response, err := r.callServiceOwner(ctx, record, serviceRendezvousRequest{Operation: "snapshot"})
-		if err != nil {
-			continue
+	for _, record := range anchor.records {
+		response, callErr := r.callServiceOwner(ctx, record, serviceRendezvousRequest{Operation: "snapshot"})
+		if callErr != nil {
+			return serviceRendezvousRecord{}, fault.Wrap(fault.KindUnavailable, "service_observation_incomplete", "service request ownership cannot be resolved exactly", false, callErr)
 		}
 		for _, request := range response.Requests {
 			if request.ID == id {
@@ -140,8 +256,39 @@ func (r *Runtime) findServiceRequestOwner(ctx context.Context, id string) (servi
 	return *matched, nil
 }
 
+func (r *Runtime) resolveServiceExposureOwner(ctx context.Context, id string) (serviceRendezvousRecord, tobari.ServiceExposure, error) {
+	if tobari.ValidateServiceExposureID(id) != nil {
+		return serviceRendezvousRecord{}, tobari.ServiceExposure{}, fault.New(fault.KindInvalidInput, "invalid_service_exposure", "service exposure reference is invalid", false)
+	}
+	anchor, err := r.anchorServiceOwners(ctx)
+	if err != nil {
+		return serviceRendezvousRecord{}, tobari.ServiceExposure{}, err
+	}
+	var matched *serviceRendezvousRecord
+	var exposure tobari.ServiceExposure
+	for _, record := range anchor.records {
+		response, callErr := r.callServiceOwner(ctx, record, serviceRendezvousRequest{Operation: "snapshot"})
+		if callErr != nil {
+			return serviceRendezvousRecord{}, tobari.ServiceExposure{}, fault.Wrap(fault.KindUnavailable, "service_observation_incomplete", "service exposure ownership cannot be resolved exactly", false, callErr)
+		}
+		for _, candidate := range response.Exposures {
+			if candidate.ID == id {
+				if matched != nil {
+					return serviceRendezvousRecord{}, tobari.ServiceExposure{}, fault.New(fault.KindContract, "ambiguous_service_exposure", "service exposure reference is not unique", false)
+				}
+				copy := record
+				matched, exposure = &copy, candidate
+			}
+		}
+	}
+	if matched == nil {
+		return serviceRendezvousRecord{}, tobari.ServiceExposure{}, fault.New(fault.KindNotFound, "service_exposure_not_found", "service exposure is no longer active", false)
+	}
+	return *matched, exposure, nil
+}
+
 func (r *Runtime) AllowServiceRequest(ctx context.Context, id string) (tobari.ServiceExposure, error) {
-	record, err := r.findServiceRequestOwner(ctx, id)
+	record, err := r.resolveServiceRequestOwner(ctx, id)
 	if err != nil {
 		return tobari.ServiceExposure{}, err
 	}
@@ -149,13 +296,14 @@ func (r *Runtime) AllowServiceRequest(ctx context.Context, id string) (tobari.Se
 	if err != nil {
 		return tobari.ServiceExposure{}, fault.Wrap(fault.KindRejected, "service_request_stale", "service request changed before approval", false, err)
 	}
-	if response.Exposure == nil {
-		return tobari.ServiceExposure{}, errors.New("service owner omitted exposure")
+	if response.Exposure == nil || response.Exposure.RequestID != id || response.Exposure.AttachmentID != record.AttachmentID {
+		return tobari.ServiceExposure{}, fault.New(fault.KindContract, "invalid_service_exposure", "service owner returned contradictory exposure authority", false)
 	}
 	return *response.Exposure, nil
 }
+
 func (r *Runtime) DenyServiceRequest(ctx context.Context, id string) error {
-	record, err := r.findServiceRequestOwner(ctx, id)
+	record, err := r.resolveServiceRequestOwner(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -166,13 +314,35 @@ func (r *Runtime) DenyServiceRequest(ctx context.Context, id string) error {
 	return nil
 }
 
-// Host review has no attachment-local helper scope for these operations.
+func (r *Runtime) StopServiceExposure(ctx context.Context, id string) error {
+	record, _, err := r.resolveServiceExposureOwner(ctx, id)
+	if err != nil {
+		return err
+	}
+	_, err = r.callServiceOwner(ctx, record, serviceRendezvousRequest{Operation: "stop", ExposureID: id})
+	if err != nil {
+		return fault.Wrap(fault.KindRejected, "service_exposure_stale", "service exposure changed before stop completed", false, err)
+	}
+	return nil
+}
+
+func (r *Runtime) OpenServiceExposure(ctx context.Context, id string) (tobari.ServiceOpenResult, error) {
+	_, exposure, err := r.resolveServiceExposureOwner(ctx, id)
+	if err != nil {
+		return tobari.ServiceOpenResult{}, err
+	}
+	dispatchContext, cancel := context.WithTimeout(ctx, workspaceServiceSetupTimeout)
+	defer cancel()
+	outcome := r.dispatchServiceExposureBrowser(dispatchContext, exposure.URL)
+	result := tobari.ServiceOpenResult{SchemaVersion: 1, ID: exposure.ID, URL: exposure.URL, Outcome: outcome}
+	return result, result.Validate()
+}
+
+// Host composition cannot originate an attachment-local helper request or
+// inspect the helper's current-attachment-only status.
 func (*Runtime) RequestService(context.Context, int) (tobari.ServiceExposure, error) {
 	return tobari.ServiceExposure{}, errors.New("service requests originate inside an attached Workspace")
 }
-func (*Runtime) ListServiceExposures(context.Context) (tobari.ServiceExposureList, error) {
-	return tobari.ServiceExposureList{}, errors.New("service exposure inventory is attachment-local")
-}
-func (*Runtime) StopServiceExposure(context.Context, string) error {
-	return errors.New("service exposure stop is attachment-local")
+func (*Runtime) AttachmentServiceStatus(context.Context) (tobari.ServiceAttachmentStatus, error) {
+	return tobari.ServiceAttachmentStatus{}, errors.New("service attachment status is available only inside its Workspace")
 }

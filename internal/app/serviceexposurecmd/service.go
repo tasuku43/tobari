@@ -13,11 +13,13 @@ import (
 
 type Port interface {
 	RequestService(context.Context, int) (tobari.ServiceExposure, error)
-	ListServiceExposures(context.Context) (tobari.ServiceExposureList, error)
+	AttachmentServiceStatus(context.Context) (tobari.ServiceAttachmentStatus, error)
 	StopServiceExposure(context.Context, string) error
-	ListServiceRequests(context.Context) (tobari.ServiceRequestList, error)
+	ReviewServiceRequests(context.Context) (tobari.ServiceReviewSnapshot, error)
+	ServiceStatus(context.Context) (tobari.ServiceStatusSnapshot, error)
 	AllowServiceRequest(context.Context, string) (tobari.ServiceExposure, error)
 	DenyServiceRequest(context.Context, string) error
+	OpenServiceExposure(context.Context, string) (tobari.ServiceOpenResult, error)
 }
 
 type ownedPolicy struct{}
@@ -75,30 +77,44 @@ func (s *Service) Request(ctx context.Context, intent operation.Intent, port int
 	return result, nil
 }
 
-func (s *Service) List(ctx context.Context) (tobari.ServiceExposureList, error) {
+func (s *Service) AttachmentStatus(ctx context.Context) (tobari.ServiceAttachmentStatus, error) {
 	if err := s.requirePort(); err != nil {
-		return tobari.ServiceExposureList{}, err
+		return tobari.ServiceAttachmentStatus{}, err
 	}
-	result, err := s.port.ListServiceExposures(ctx)
+	result, err := s.port.AttachmentServiceStatus(ctx)
 	if err != nil {
-		return tobari.ServiceExposureList{}, err
+		return tobari.ServiceAttachmentStatus{}, err
 	}
 	if err := result.Validate(); err != nil {
-		return tobari.ServiceExposureList{}, fault.Wrap(fault.KindContract, "invalid_service_exposure_list", "service exposure list is invalid", false, err)
+		return tobari.ServiceAttachmentStatus{}, fault.Wrap(fault.KindContract, "invalid_service_attachment_status", "service attachment status is invalid", false, err)
 	}
 	return result, nil
 }
 
-func (s *Service) Pending(ctx context.Context) (tobari.ServiceRequestList, error) {
+func (s *Service) Review(ctx context.Context) (tobari.ServiceReviewSnapshot, error) {
 	if err := s.requirePort(); err != nil {
-		return tobari.ServiceRequestList{}, err
+		return tobari.ServiceReviewSnapshot{}, err
 	}
-	result, err := s.port.ListServiceRequests(ctx)
+	result, err := s.port.ReviewServiceRequests(ctx)
 	if err != nil {
-		return tobari.ServiceRequestList{}, err
+		return tobari.ServiceReviewSnapshot{}, err
 	}
 	if err := result.Validate(); err != nil {
-		return tobari.ServiceRequestList{}, fault.Wrap(fault.KindContract, "invalid_service_request_list", "service request list is invalid", false, err)
+		return tobari.ServiceReviewSnapshot{}, fault.Wrap(fault.KindContract, "invalid_service_review", "service review snapshot is invalid", false, err)
+	}
+	return result, nil
+}
+
+func (s *Service) Status(ctx context.Context) (tobari.ServiceStatusSnapshot, error) {
+	if err := s.requirePort(); err != nil {
+		return tobari.ServiceStatusSnapshot{}, err
+	}
+	result, err := s.port.ServiceStatus(ctx)
+	if err != nil {
+		return tobari.ServiceStatusSnapshot{}, err
+	}
+	if err := result.Validate(); err != nil {
+		return tobari.ServiceStatusSnapshot{}, fault.Wrap(fault.KindContract, "invalid_service_status", "service status snapshot is invalid", false, err)
 	}
 	return result, nil
 }
@@ -148,4 +164,25 @@ func (s *Service) Stop(ctx context.Context, intent operation.Intent, exposureID 
 	return s.mutator.Invoke(ctx, mutationRequest(intent, target), func(actionContext context.Context, _ operation.Intent) error {
 		return s.port.StopServiceExposure(actionContext, exposureID)
 	})
+}
+
+func (s *Service) Open(ctx context.Context, intent operation.Intent, exposureID string) (tobari.ServiceOpenResult, error) {
+	if err := s.requirePort(); err != nil {
+		return tobari.ServiceOpenResult{}, err
+	}
+	target := operation.TargetRef{Kind: tobari.ServiceExposureKind, ID: exposureID}
+	intent.Target = target
+	var result tobari.ServiceOpenResult
+	err := s.mutator.Invoke(ctx, mutationRequest(intent, target), func(actionContext context.Context, _ operation.Intent) error {
+		var err error
+		result, err = s.port.OpenServiceExposure(actionContext, exposureID)
+		return err
+	})
+	if err != nil {
+		return tobari.ServiceOpenResult{}, err
+	}
+	if err := result.Validate(); err != nil {
+		return tobari.ServiceOpenResult{}, fault.Wrap(fault.KindContract, "invalid_service_open_result", "service open result is invalid", false, err)
+	}
+	return result, nil
 }

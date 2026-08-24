@@ -3,216 +3,209 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/app/serviceexposurecmd"
-	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
-	"github.com/tasuku43/tobari/internal/infra/systemdoctor"
 )
 
 type cliServiceExposurePort struct {
-	requestPort  int
-	pendingCalls int
-	stopped      string
-	allowed      string
-	denied       string
-	exposure     tobari.ServiceExposure
-	requests     tobari.ServiceRequestList
+	exposure    tobari.ServiceExposure
+	review      tobari.ServiceReviewSnapshot
+	status      tobari.ServiceStatusSnapshot
+	attachment  tobari.ServiceAttachmentStatus
+	reviewCalls int
+	events      []string
 }
 
-func cliExposureFixture() tobari.ServiceExposure {
-	return tobari.ServiceExposure{SchemaVersion: 1, ID: "exp_0123456789abcdef0123456789abcdef", RequestID: "srq_0123456789abcdef0123456789abcdef", AttachmentID: "att_0123456789abcdef0123456789abcdef", ProjectID: "01234567-89ab-7cde-8f01-23456789abcd", WorkspaceManifestID: "fedcba98-7654-7321-8abc-def012345678", Workspace: "/tmp/project", TargetPort: 3000, HostPort: 54321, URL: "http://127.0.0.1:54321", State: tobari.ServiceStateListening}
-}
-
-func (p *cliServiceExposurePort) RequestService(_ context.Context, port int) (tobari.ServiceExposure, error) {
-	p.requestPort = port
+func (p *cliServiceExposurePort) RequestService(context.Context, int) (tobari.ServiceExposure, error) {
+	p.events = append(p.events, "request")
 	return p.exposure, nil
 }
-func (p *cliServiceExposurePort) ListServiceExposures(context.Context) (tobari.ServiceExposureList, error) {
-	return tobari.ServiceExposureList{AttachmentID: p.exposure.AttachmentID, Exposures: []tobari.ServiceExposure{p.exposure}}, nil
+func (p *cliServiceExposurePort) AttachmentServiceStatus(context.Context) (tobari.ServiceAttachmentStatus, error) {
+	return p.attachment, nil
 }
 func (p *cliServiceExposurePort) StopServiceExposure(_ context.Context, id string) error {
-	p.stopped = id
+	p.events = append(p.events, "stop:"+id)
 	return nil
 }
-func (p *cliServiceExposurePort) ListServiceRequests(context.Context) (tobari.ServiceRequestList, error) {
-	p.pendingCalls++
-	return p.requests, nil
+func (p *cliServiceExposurePort) ReviewServiceRequests(context.Context) (tobari.ServiceReviewSnapshot, error) {
+	p.reviewCalls++
+	return p.review, nil
 }
-
+func (p *cliServiceExposurePort) ServiceStatus(context.Context) (tobari.ServiceStatusSnapshot, error) {
+	return p.status, nil
+}
 func (p *cliServiceExposurePort) AllowServiceRequest(_ context.Context, id string) (tobari.ServiceExposure, error) {
-	p.allowed = id
+	p.events = append(p.events, "allow:"+id)
 	return p.exposure, nil
 }
 func (p *cliServiceExposurePort) DenyServiceRequest(_ context.Context, id string) error {
-	p.denied = id
+	p.events = append(p.events, "deny:"+id)
 	return nil
 }
-
-func TestReviewIsPureCatalogNamespaceAndRetiredPathsHaveNoFallback(t *testing.T) {
-	port := &cliServiceExposurePort{}
-	var stdout, stderr bytes.Buffer
-	command := newCLI(strings.NewReader("s\n"), &stdout, &stderr, DefaultCatalog(), systemdoctor.New())
-	command.serviceExposure = serviceexposurecmd.New(port)
-
-	if code := command.RunContext(context.Background(), []string{"review"}); code != ExitOK {
-		t.Fatalf("review namespace code=%d stderr=%q", code, stderr.String())
-	}
-	for _, want := range []string{"Commands in namespace review:", "permissions", "runtimes", "services"} {
-		if !strings.Contains(stdout.String(), want) {
-			t.Fatalf("review namespace missing %q: %q", want, stdout.String())
-		}
-	}
-	if port.pendingCalls != 0 || port.allowed != "" || port.denied != "" {
-		t.Fatalf("bare namespace reached service adapter: %+v", port)
-	}
-	if _, found := DefaultCatalog().lookupRegistered("review"); found {
-		t.Fatal("review remains a registered selector")
-	}
-	if _, found := DefaultCatalog().lookupRegistered("policy review"); found {
-		t.Fatal("policy review remains registered")
-	}
-	selected, exact := DefaultCatalog().Select("review")
-	if exact || len(selected) != 3 || selected[0].Path != "review permissions" || selected[1].Path != "review runtimes" || selected[2].Path != "review services" {
-		t.Fatalf("review namespace exact=%t commands=%+v", exact, selected)
-	}
-	stdout.Reset()
-	stderr.Reset()
-	if code := command.RunContext(context.Background(), []string{"help", "review", "--format=agent"}); code != ExitOK {
-		t.Fatalf("review agent help code=%d stderr=%q", code, stderr.String())
-	}
-	if !strings.Contains(stdout.String(), `"path":"review permissions"`) ||
-		!strings.Contains(stdout.String(), `"path":"review runtimes"`) ||
-		!strings.Contains(stdout.String(), `"path":"review services"`) ||
-		strings.Contains(stdout.String(), `"path":"policy review"`) {
-		t.Fatalf("review agent help=%q", stdout.String())
-	}
-	if port.pendingCalls != 0 {
-		t.Fatalf("review help reached service adapter %d times", port.pendingCalls)
-	}
-
-	for _, args := range [][]string{{"policy", "review"}, {"review", "unknown"}} {
-		stdout.Reset()
-		stderr.Reset()
-		if code := command.RunContext(context.Background(), args); code != ExitUsage {
-			t.Fatalf("retired/unknown path %q code=%d stdout=%q stderr=%q", args, code, stdout.String(), stderr.String())
-		}
-	}
-	if port.pendingCalls != 0 || port.allowed != "" || port.denied != "" {
-		t.Fatalf("retired paths reached service adapter: %+v", port)
-	}
+func (p *cliServiceExposurePort) OpenServiceExposure(_ context.Context, id string) (tobari.ServiceOpenResult, error) {
+	p.events = append(p.events, "open:"+id)
+	return tobari.ServiceOpenResult{SchemaVersion: 1, ID: id, URL: p.exposure.URL, Outcome: tobari.ServiceOpenRequested}, nil
 }
 
-func TestServiceExposureCatalogSeparatesProgramsAndClosesReferenceFlows(t *testing.T) {
+func cliServiceFixture() (*cliServiceExposurePort, tobari.ServiceRequest) {
+	request := tobari.ServiceRequest{SchemaVersion: 1, ID: "srq_0123456789abcdef0123456789abcdef", AttachmentID: "att_0123456789abcdef0123456789abcdef", ContextID: "01912345-6789-7abc-8def-0123456789a1", WorkspaceID: "01912345-6789-7abc-8def-0123456789a2", Context: "restricted", ProjectRoot: "/projects/app", TargetPort: 3000, State: tobari.ServiceStatePending}
+	url, _ := tobari.ServiceExposureURL(54321, "0123456789abcdef0123456789abcdef")
+	exposure := tobari.ServiceExposure{SchemaVersion: 1, ID: "exp_0123456789abcdef0123456789abcdef", RequestID: request.ID, AttachmentID: request.AttachmentID, ContextID: request.ContextID, WorkspaceID: request.WorkspaceID, Context: request.Context, ProjectRoot: request.ProjectRoot, TargetPort: request.TargetPort, HostPort: 54321, URL: url, State: tobari.ServiceStateListening}
+	observation := tobari.ServiceOwnerObservation{Scope: tobari.ServiceHostScope, Anchor: strings.Repeat("a", 64), Coverage: tobari.ServiceBoundedWindow, Observation: tobari.ServiceObservationComplete, ObservedOwnerCount: 1}
+	return &cliServiceExposurePort{
+		exposure:   exposure,
+		review:     tobari.ServiceReviewSnapshot{SchemaVersion: 1, ServiceOwnerObservation: observation, Requests: []tobari.ServiceRequest{request}},
+		status:     tobari.ServiceStatusSnapshot{SchemaVersion: 1, ServiceOwnerObservation: observation, Requests: []tobari.ServiceRequest{request}, Exposures: []tobari.ServiceExposure{exposure}},
+		attachment: tobari.ServiceAttachmentStatus{SchemaVersion: 1, Scope: tobari.ServiceAttachmentScope, AttachmentID: request.AttachmentID, Pending: []tobari.ServicePendingStatus{{TargetPort: request.TargetPort, State: tobari.ServiceStatePending}}, Exposures: []tobari.ServiceExposure{exposure}},
+	}, request
+}
+
+func serviceCLIForTest(input string, port *cliServiceExposurePort) (*CLI, *bytes.Buffer, *bytes.Buffer) {
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	command := newCLI(strings.NewReader(input), out, errOut, DefaultCatalog(), nil)
+	command.serviceExposure = serviceexposurecmd.New(port)
+	return command, out, errOut
+}
+
+func TestServiceCatalogFixesTaskPartitionAndRecursiveReferenceGraph(t *testing.T) {
 	catalog := DefaultCatalog()
-	if err := catalog.Validate(); err != nil {
-		t.Fatal(err)
+	for _, path := range []string{"review services", "service status", "service allow", "service deny", "service open", "service stop"} {
+		if _, ok := catalog.Lookup(path); !ok {
+			t.Errorf("missing %s", path)
+		}
+	}
+	for _, retired := range []string{"service requests", "list"} {
+		if _, ok := catalog.Lookup(retired); ok {
+			t.Errorf("retired host path remains: %s", retired)
+		}
 	}
 	helper := catalog.ForProgram(ExposureProgramName)
-	for _, path := range []string{ExposureProgramName, "list", "stop", "help"} {
-		if _, found := helper.Lookup(path); !found {
-			t.Errorf("helper command %q missing", path)
+	for _, path := range []string{ExposureProgramName, "status", "stop", "help"} {
+		if _, ok := helper.Lookup(path); !ok {
+			t.Errorf("missing helper %s", path)
 		}
 	}
-	if _, found := helper.Lookup("review"); found {
-		t.Fatal("host review leaked into Workspace helper")
+	if _, ok := helper.Lookup("list"); ok {
+		t.Fatal("retired helper list alias remains")
 	}
-	if _, found := catalog.Lookup(ExposureProgramName); found {
-		t.Fatal("Workspace helper leaked into host routing")
+	review, _ := catalog.Lookup("review services")
+	if review.Agent.Interactive == nil || review.Agent.Interactive.Confirmation != "explicit_action" || review.Agent.Interactive.SelectionReferenceKind != tobari.ServiceRequestKind {
+		t.Fatalf("review workflow = %#v", review.Agent.Interactive)
 	}
-	request, _ := helper.Lookup(ExposureProgramName)
-	if request.Effect != operation.EffectCreate || request.Agent.FixedTarget == nil || request.Agent.FixedTarget.Kind != tobari.ServiceAttachmentServicesKind || len(request.ProducedRefs()) != 1 || request.ProducedRefs()[0].Kind != tobari.ServiceExposureKind {
-		t.Fatalf("request contract = %+v refs=%+v", request.Agent, request.ProducedRefs())
-	}
-	stop, _ := helper.Lookup("stop")
-	if stop.Agent.Mutation == nil || stop.Agent.Mutation.TargetIDInput != "exposure-ref" || len(stop.ConsumedRefs()) != 1 {
-		t.Fatalf("stop contract = %+v", stop.Agent)
-	}
-	review, _ := catalog.lookupRegistered("review services")
-	if review.Agent.Interactive == nil || strings.Join(review.Agent.Interactive.ActionCommands, ",") != "service allow,service deny" {
-		t.Fatalf("review workflow = %+v", review.Agent.Interactive)
+	status, _ := catalog.Lookup("service status")
+	got := status.ProducedRefs()
+	want := []ProducedRef{{Kind: tobari.ServiceRequestKind, Field: "requests[].id"}, {Kind: tobari.ServiceExposureKind, Field: "exposures[].id"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("status refs = %#v, want %#v", got, want)
 	}
 }
 
-func TestExposureHelperPreservesOpaqueReferenceAndDoesNotRouteHostCLI(t *testing.T) {
-	exposure := cliExposureFixture()
-	port := &cliServiceExposurePort{exposure: exposure, requests: tobari.ServiceRequestList{Scope: "live_attachments", Requests: []tobari.ServiceRequest{}}}
-	var stdout, stderr bytes.Buffer
-	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog().ForProgram(ExposureProgramName), systemdoctor.New())
-	command.serviceExposure = serviceexposurecmd.New(port)
-	if code := command.RunContext(context.Background(), []string{"3000"}); code != ExitOK {
-		t.Fatalf("request code = %d stderr=%q", code, stderr.String())
+func TestServiceStatusAndHelperStatusHaveDistinctSchemaOneJSON(t *testing.T) {
+	port, _ := cliServiceFixture()
+	command, out, _ := serviceCLIForTest("", port)
+	if code := runCLI(command, []string{"service", "status", "--format=json"}); code != ExitOK {
+		t.Fatalf("host status code=%d output=%s", code, out.String())
 	}
-	if port.requestPort != 3000 || !strings.Contains(stdout.String(), exposure.ID) || !strings.Contains(stdout.String(), "tobari-expose stop "+exposure.ID) || !strings.Contains(stderr.String(), expectedSurfaceText("tobari review services")) {
-		t.Fatalf("request output=%q stderr=%q port=%d", stdout.String(), stderr.String(), port.requestPort)
+	var host map[string]json.RawMessage
+	if err := json.Unmarshal(out.Bytes(), &host); err != nil || host["service_status"] == nil || host["schema_version"] == nil {
+		t.Fatalf("host JSON = %s, %v", out.String(), err)
 	}
-	stdout.Reset()
-	stderr.Reset()
-	if code := command.RunContext(context.Background(), []string{"stop", exposure.ID}); code != ExitOK || port.stopped != exposure.ID {
-		t.Fatalf("stop code=%d id=%q stderr=%q", code, port.stopped, stderr.String())
+	helper, helperOut, helperErr := serviceCLIForTest("", port)
+	helper.catalog = DefaultCatalog().ForProgram(ExposureProgramName)
+	if code := runCLI(helper, []string{"status"}); code != ExitOK {
+		t.Fatalf("helper status code=%d output=%s error=%s", code, helperOut.String(), helperErr.String())
 	}
-	if code := command.RunContext(context.Background(), []string{"review", "services"}); code != ExitUsage {
-		t.Fatalf("host command routed by helper: %d", code)
+	if strings.Contains(helperOut.String(), port.review.Requests[0].ID) {
+		t.Fatal("helper pending state exposed host mutation reference")
 	}
-}
-
-func TestExposureHelperRejectsInvalidPortBeforeChannelCall(t *testing.T) {
-	port := &cliServiceExposurePort{exposure: cliExposureFixture()}
-	var stderr bytes.Buffer
-	command := newCLI(strings.NewReader(""), &bytes.Buffer{}, &stderr, DefaultCatalog().ForProgram(ExposureProgramName), systemdoctor.New())
-	command.serviceExposure = serviceexposurecmd.New(port)
-	if code := command.RunContext(context.Background(), []string{"80"}); code != ExitUsage || port.requestPort != 0 {
-		t.Fatalf("invalid port code=%d calls=%d", code, port.requestPort)
-	}
-	if !strings.Contains(stderr.String(), "tobari-expose help tobari-expose") || strings.Contains(stderr.String(), "tobari help tobari-expose") {
-		t.Fatalf("helper recovery=%q", stderr.String())
+	if !strings.Contains(helperOut.String(), port.exposure.ID) {
+		t.Fatal("helper status omitted exact stop reference")
 	}
 }
 
-func TestServiceReviewUsesFreshOpaqueSelectionAndImmediateDecision(t *testing.T) {
-	exposure := cliExposureFixture()
-	request := tobari.ServiceRequest{SchemaVersion: 1, ID: exposure.RequestID, AttachmentID: exposure.AttachmentID, ProjectID: exposure.ProjectID, WorkspaceManifestID: exposure.WorkspaceManifestID, Workspace: exposure.Workspace, TargetPort: exposure.TargetPort, State: tobari.ServiceStatePending}
-	for _, test := range []struct {
-		name, input string
-		wantAllow   bool
-		wantDeny    bool
-	}{
-		{name: "allow once", input: "1\na\ny\n", wantAllow: true},
-		{name: "deny", input: "1\nd\ny\n", wantDeny: true},
-		{name: "back", input: "b\n"},
-		{name: "cancel confirmation", input: "1\na\nn\nb\n"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			port := &cliServiceExposurePort{exposure: exposure, requests: tobari.ServiceRequestList{Scope: "live_attachments", Requests: []tobari.ServiceRequest{request}}}
-			var output bytes.Buffer
-			command := newCLI(strings.NewReader(test.input), &output, &bytes.Buffer{}, DefaultCatalog(), systemdoctor.New())
-			command.serviceExposure = serviceexposurecmd.New(port)
-			if code := runServiceReviewLoop(context.Background(), command); code != ExitOK {
-				t.Fatalf("review code=%d output=%q", code, output.String())
-			}
-			if (port.allowed == request.ID) != test.wantAllow || (port.denied == request.ID) != test.wantDeny {
-				t.Fatalf("allow=%q deny=%q", port.allowed, port.denied)
-			}
-			if (test.wantAllow || test.wantDeny) && !strings.Contains(output.String(), request.ID) {
-				t.Fatalf("opaque request missing from review: %q", output.String())
-			}
-		})
+func TestExposureHelperWritesOnlyOneFinalSuccessJSONToStdout(t *testing.T) {
+	port, _ := cliServiceFixture()
+	helper, out, errOut := serviceCLIForTest("", port)
+	helper.catalog = DefaultCatalog().ForProgram(ExposureProgramName)
+	if code := runCLI(helper, []string{"3000"}); code != ExitOK {
+		t.Fatalf("helper create code=%d output=%s error=%s", code, out.String(), errOut.String())
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(out.Bytes(), &document); err != nil || document["schema_version"] == nil || document["exposure"] == nil {
+		t.Fatalf("helper stdout=%q err=%v", out.String(), err)
+	}
+	if strings.Contains(out.String(), "Waiting") || !strings.Contains(errOut.String(), "Waiting for trusted-host review") || strings.Count(strings.TrimSpace(out.String()), "\n") != 0 {
+		t.Fatalf("helper stdout=%q stderr=%q", out.String(), errOut.String())
+	}
+	helper, _, _ = serviceCLIForTest("", port)
+	helper.catalog = DefaultCatalog().ForProgram(ExposureProgramName)
+	if code := runCLI(helper, []string{"3000", "--format=json"}); code != ExitUsage {
+		t.Fatalf("helper accepted undeclared format flag: code=%d", code)
 	}
 }
 
-func TestRedirectedServiceReviewIsReadOnlyAndExhaustive(t *testing.T) {
-	exposure := cliExposureFixture()
-	request := tobari.ServiceRequest{SchemaVersion: 1, ID: exposure.RequestID, AttachmentID: exposure.AttachmentID, ProjectID: exposure.ProjectID, WorkspaceManifestID: exposure.WorkspaceManifestID, Workspace: exposure.Workspace, TargetPort: exposure.TargetPort, State: tobari.ServiceStatePending}
-	port := &cliServiceExposurePort{exposure: exposure, requests: tobari.ServiceRequestList{Scope: "live_attachments", Requests: []tobari.ServiceRequest{request}}}
-	var output bytes.Buffer
-	command := newCLI(strings.NewReader("1\na\ny\n"), &output, &bytes.Buffer{}, DefaultCatalog(), systemdoctor.New())
-	command.serviceExposure = serviceexposurecmd.New(port)
-	if code := command.RunContext(context.Background(), []string{"review", "services"}); code != ExitOK {
-		t.Fatalf("redirected review code=%d", code)
+func TestServiceReviewJSONIsReadOnlyAndWatchFailsBeforeRead(t *testing.T) {
+	port, _ := cliServiceFixture()
+	command, out, _ := serviceCLIForTest("", port)
+	if code := runCLI(command, []string{"review", "services", "--format=json"}); code != ExitOK {
+		t.Fatalf("review JSON code=%d output=%s", code, out.String())
 	}
-	if port.allowed != "" || port.denied != "" || !strings.Contains(output.String(), request.ID) {
-		t.Fatalf("redirected review mutated or omitted request: allow=%q deny=%q output=%q", port.allowed, port.denied, output.String())
+	if port.reviewCalls != 1 || len(port.events) != 0 {
+		t.Fatalf("review calls=%d events=%v", port.reviewCalls, port.events)
+	}
+	port.reviewCalls = 0
+	command, _, _ = serviceCLIForTest("", port)
+	if code := runCLI(command, []string{"review", "services", "--watch"}); code == ExitOK {
+		t.Fatal("redirected watch passed")
+	}
+	if port.reviewCalls != 0 {
+		t.Fatalf("redirected watch read owners %d times", port.reviewCalls)
+	}
+}
+
+func TestServiceLineFallbackUsesOneFullTokenAsConfirmation(t *testing.T) {
+	port, request := cliServiceFixture()
+	command, out, _ := serviceCLIForTest("allow\n", port)
+	choice, err := selectServiceReviewLine(context.Background(), command, port.review)
+	if err != nil || choice.action != "allow" || choice.request.ID != request.ID {
+		t.Fatalf("choice=%#v err=%v", choice, err)
+	}
+	if strings.Contains(out.String(), "Confirm") || strings.Contains(out.String(), "[y/N]") {
+		t.Fatalf("redundant confirmation remains: %s", out.String())
+	}
+	key, err := readSelectorKeyOnce(context.Background(), strings.NewReader("o"))
+	if err != nil || key.kind != selectorKeyOpen {
+		t.Fatalf("raw open key = %#v %v", key, err)
+	}
+}
+
+func TestServiceAllowThenOpenSettlesAllowFirstAndNeverReplaysIt(t *testing.T) {
+	port, request := cliServiceFixture()
+	command, out, _ := serviceCLIForTest("", port)
+	code := applyServiceReviewChoice(context.Background(), command, serviceReviewChoice{request: request, action: "open"})
+	if code != ExitOK || !reflect.DeepEqual(port.events, []string{"allow:" + request.ID, "open:" + port.exposure.ID}) {
+		t.Fatalf("code=%d events=%v output=%s", code, port.events, out.String())
+	}
+	if !strings.Contains(out.String(), "Workspace service ready") || !strings.Contains(out.String(), "Browser open requested") {
+		t.Fatalf("combined output=%s", out.String())
+	}
+}
+
+func TestServiceDirectJSONActionsConsumeExactRefsWithoutConfirmFlags(t *testing.T) {
+	port, request := cliServiceFixture()
+	command, out, _ := serviceCLIForTest("", port)
+	if code := runCLI(command, []string{"service", "allow", "--id", request.ID, "--format=json"}); code != ExitOK {
+		t.Fatalf("allow code=%d output=%s", code, out.String())
+	}
+	if got := port.events; !reflect.DeepEqual(got, []string{"allow:" + request.ID}) {
+		t.Fatalf("events=%v", got)
+	}
+	if strings.Contains(out.String(), "confirm") {
+		t.Fatalf("redundant confirmation output=%s", out.String())
 	}
 }
