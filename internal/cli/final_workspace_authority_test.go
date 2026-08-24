@@ -387,9 +387,8 @@ func TestBareStatusSchemaThreeOwnsFinalDefaultPairContract(t *testing.T) {
 		}
 	}
 	wantFields := []string{
-		"authority_state", "project_root", "default_template_state", "workspace_template_id", "template_name",
-		"desired_template_generation", "desired_template_revision", "desired_template_policy_slice_digest", "active_template_policy_slice_digest",
-		"context_id", "current_policy_memory_revision", "active_policy_memory_revision", "workspace_id", "workspace_ref", "workspace_home", "applied_entry",
+		"task", "authority_state", "project_root", "default_template_state", "template", "context", "workspace", "runtime", "cluster",
+		"permissions", "services", "login_validity", "siblings", "next", "attention",
 	}
 	gotFields := make([]string, len(spec.Agent.Output.Fields))
 	for index, field := range spec.Agent.Output.Fields {
@@ -398,16 +397,20 @@ func TestBareStatusSchemaThreeOwnsFinalDefaultPairContract(t *testing.T) {
 	if !reflect.DeepEqual(gotFields, wantFields) {
 		t.Errorf("bare status fields = %v, want %v", gotFields, wantFields)
 	}
-	for _, name := range []string{"active_template_policy_slice_digest", "active_policy_memory_revision", "workspace_id", "workspace_home", "applied_entry"} {
+	for _, name := range []string{"template", "context"} {
 		field, ok := findFinalOutputField(spec.Agent.Output.Fields, name)
 		if !ok || !field.Nullable {
 			t.Errorf("bare status field %q = %+v found=%t, want nullable", name, field, ok)
 		}
 	}
-	if field, ok := findFinalOutputField(spec.Agent.Output.Fields, "workspace_ref"); !ok || !field.Optional || field.Nullable {
+	workspace, ok := findFinalOutputField(spec.Agent.Output.Fields, "workspace")
+	if !ok {
+		t.Fatal("bare status workspace object is absent")
+	}
+	if field, ok := findFinalOutputField(workspace.Fields, "workspace_ref"); !ok || !field.Optional || field.Nullable {
 		t.Errorf("bare status workspace_ref = %+v found=%t, want optional non-null opaque reference", field, ok)
 	}
-	if got, want := spec.ProducedRefs(), []ProducedRef{{Kind: tobari.WorkspaceReferenceKind, Field: "workspace_ref"}}; !reflect.DeepEqual(got, want) {
+	if got, want := spec.ProducedRefs(), []ProducedRef{{Kind: tobari.WorkspaceReferenceKind, Field: "workspace.workspace_ref"}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("bare status ProducedRefs() = %+v, want %+v", got, want)
 	}
 	if got := spec.ConsumedRefs(); len(got) != 0 {

@@ -5,59 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
-
-type finalDefaultPairProjection struct {
-	AuthorityState                   string                        `json:"authority_state"`
-	ProjectRoot                      string                        `json:"project_root"`
-	DefaultTemplateState             string                        `json:"default_template_state"`
-	WorkspaceTemplateID              *string                       `json:"workspace_template_id"`
-	TemplateName                     *string                       `json:"template_name"`
-	DesiredTemplateGeneration        *uint64                       `json:"desired_template_generation"`
-	DesiredTemplateRevision          *string                       `json:"desired_template_revision"`
-	DesiredTemplatePolicySliceDigest *string                       `json:"desired_template_policy_slice_digest"`
-	ActiveTemplatePolicySliceDigest  *string                       `json:"active_template_policy_slice_digest"`
-	ContextID                        *string                       `json:"context_id"`
-	CurrentPolicyMemoryRevision      *string                       `json:"current_policy_memory_revision"`
-	ActivePolicyMemoryRevision       *string                       `json:"active_policy_memory_revision"`
-	WorkspaceID                      *string                       `json:"workspace_id"`
-	WorkspaceRef                     *string                       `json:"workspace_ref,omitempty"`
-	WorkspaceHome                    *string                       `json:"workspace_home"`
-	AppliedEntry                     *tobari.WorkspaceAppliedEntry `json:"applied_entry"`
-}
-
-func finalDefaultPairFrom(status workspaceauthoritycmd.DefaultPairStatus) (finalDefaultPairProjection, error) {
-	if err := status.Validate(); err != nil {
-		return finalDefaultPairProjection{}, err
-	}
-	result := finalDefaultPairProjection{AuthorityState: status.AuthorityState, ProjectRoot: status.ProjectRoot, DefaultTemplateState: status.DefaultTemplateState, AppliedEntry: status.AppliedEntry}
-	if status.DefaultTemplateState == "selected" {
-		templateID, name := string(status.WorkspaceTemplateID), status.TemplateName
-		generation, revision, policy := status.DesiredTemplateGeneration, string(status.DesiredTemplateRevision), string(status.DesiredTemplatePolicySliceDigest)
-		result.WorkspaceTemplateID, result.TemplateName = &templateID, &name
-		result.DesiredTemplateGeneration, result.DesiredTemplateRevision, result.DesiredTemplatePolicySliceDigest = &generation, &revision, &policy
-	}
-	if status.ContextID != "" {
-		contextID, memory := string(status.ContextID), string(status.CurrentPolicyMemoryRevision)
-		result.ContextID, result.CurrentPolicyMemoryRevision = &contextID, &memory
-	}
-	if status.ActiveTemplatePolicySliceDigest != nil {
-		value := string(*status.ActiveTemplatePolicySliceDigest)
-		result.ActiveTemplatePolicySliceDigest = &value
-	}
-	if status.ActivePolicyMemoryRevision != nil {
-		value := string(*status.ActivePolicyMemoryRevision)
-		result.ActivePolicyMemoryRevision = &value
-	}
-	if status.WorkspaceID != "" {
-		id, ref, home := string(status.WorkspaceID), status.WorkspaceRef, status.WorkspaceHome
-		result.WorkspaceID, result.WorkspaceRef, result.WorkspaceHome = &id, &ref, &home
-	}
-	return result, nil
-}
 
 func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {
 	if c == nil || c.finalDefaultPair == nil {
@@ -85,14 +35,10 @@ func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, 
 }
 
 func runFinalDefaultPairStatus(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
-	if c == nil || c.finalDefaultPair == nil {
+	if c == nil || c.statusHome == nil {
 		return c.fail(ctx, missingRuntimeFault())
 	}
-	status, err := c.finalDefaultPair.Status(ctx)
-	if err != nil {
-		return c.fail(ctx, err)
-	}
-	projection, err := finalDefaultPairFrom(status)
+	status, err := c.statusHome.Snapshot(ctx)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -101,34 +47,45 @@ func runFinalDefaultPairStatus(ctx context.Context, c *CLI, command CommandSpec,
 		return code
 	}
 	if format == successFormatJSON {
-		encoded, err := marshalCommandJSON(command.Path, map[string]any{"schema_version": 3, "status": projection})
+		encoded, err := marshalCommandJSON(command.Path, map[string]any{"schema_version": tobari.StatusHomeSchemaVersion, "status": status})
 		if err != nil {
 			return c.fail(ctx, err)
 		}
 		return c.emitResult(ctx, append(encoded, '\n'))
 	}
+	return c.emitResult(ctx, renderStatusHome(status))
+}
+
+func renderStatusHome(status tobari.StatusHomeSnapshot) []byte {
 	var text strings.Builder
-	fmt.Fprintf(&text, "Final authority %s\nProject %s\nDefault Template %s\n", projection.AuthorityState, safeExternalText(projection.ProjectRoot), projection.DefaultTemplateState)
-	if projection.ContextID != nil {
-		fmt.Fprintf(&text, "Context %s\nDesired Template generation %d\nDesired Template revision %s\nDesired Template policy %s\n", *projection.ContextID, *projection.DesiredTemplateGeneration, *projection.DesiredTemplateRevision, *projection.DesiredTemplatePolicySliceDigest)
-	}
-	if projection.ActiveTemplatePolicySliceDigest != nil {
-		fmt.Fprintf(&text, "Active Template policy %s\n", *projection.ActiveTemplatePolicySliceDigest)
+	fmt.Fprintf(&text, "Project   %s\n", safeExternalText(status.ProjectRoot))
+	if status.Template == nil {
+		text.WriteString("Template  no default Template\nCurrent   no Context or Workspace\n")
 	} else {
-		text.WriteString("Active Template policy absent\n")
+		fmt.Fprintf(&text, "Template  %s · generation %d\n", safeExternalText(status.Template.Name), status.Template.Generation)
+		if status.Context == nil {
+			text.WriteString("Current   Context absent\n")
+		} else {
+			fmt.Fprintf(&text, "Current   Context selected · Workspace %s\n", status.Workspace.Presence)
+			fmt.Fprintf(&text, "Policy    Template %s · Memory %s\n", status.Context.TemplatePolicyActivation, status.Context.PolicyMemoryActivation)
+			fmt.Fprintf(&text, "Workspace %s · entry %s · runtime %s · %s\n", status.Workspace.Presence, status.Workspace.EntryState, status.Workspace.ObservedRuntimeState, status.Workspace.AttachmentState)
+			fmt.Fprintf(&text, "Runtime   %s · %s · native %s\n", status.Runtime.Authority, status.Runtime.Availability, status.Runtime.Compatibility)
+			fmt.Fprintf(&text, "Cluster   %s · receipt %s\n", status.Cluster.Runtime, status.Cluster.Receipt)
+			fmt.Fprintf(&text, "Review    %d permissions · %d services pending · %d active\n", status.Permissions.PendingCount, status.Services.PendingCount, status.Services.ActiveCount)
+		}
 	}
-	if projection.CurrentPolicyMemoryRevision != nil {
-		fmt.Fprintf(&text, "Current Policy Memory %s\n", *projection.CurrentPolicyMemoryRevision)
+	if len(status.Siblings) > 0 {
+		fmt.Fprintf(&text, "Other     %d same-root Contexts\n", len(status.Siblings))
 	}
-	if projection.ActivePolicyMemoryRevision != nil {
-		fmt.Fprintf(&text, "Active Policy Memory %s\n", *projection.ActivePolicyMemoryRevision)
-	} else {
-		text.WriteString("Active Policy Memory absent\n")
+	if status.Next.Path != nil {
+		path := *status.Next.Path
+		if path == WorkspaceEntryCommandPath {
+			fmt.Fprintf(&text, "Next      tobari — %s\n", status.Next.Reason)
+		} else {
+			fmt.Fprintf(&text, "Next      tobari %s — %s\n", path, status.Next.Reason)
+		}
+	} else if status.Next.Guidance != nil {
+		fmt.Fprintf(&text, "Next      %s — %s\n", *status.Next.Guidance, status.Next.Reason)
 	}
-	if projection.AppliedEntry != nil {
-		fmt.Fprintf(&text, "Applied entry %s / %s\n", projection.AppliedEntry.TemplateRevision, projection.AppliedEntry.EntrySliceDigest)
-	} else {
-		text.WriteString("Applied entry absent\n")
-	}
-	return c.emitResult(ctx, []byte(text.String()))
+	return []byte(text.String())
 }

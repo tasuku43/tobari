@@ -60,7 +60,7 @@ func TestADR0084WholeCatalogReferenceGraphIsExact(t *testing.T) {
 		{Program: ProgramName, Command: "context list", Kind: tobari.ContextReferenceKind, Endpoint: "items[].context_ref"},
 		{Program: ProgramName, Command: "context show", Kind: tobari.ContextReferenceKind, Endpoint: "context_ref"},
 		{Program: ProgramName, Command: "context enter", Kind: tobari.WorkspaceReferenceKind, Endpoint: "workspace_ref"},
-		{Program: ProgramName, Command: "status", Kind: tobari.WorkspaceReferenceKind, Endpoint: "workspace_ref"},
+		{Program: ProgramName, Command: "status", Kind: tobari.WorkspaceReferenceKind, Endpoint: "workspace.workspace_ref"},
 		{Program: ProgramName, Command: "workspace list", Kind: tobari.WorkspaceReferenceKind, Endpoint: "items[].workspace_ref"},
 		{Program: ProgramName, Command: "workspace status", Kind: tobari.WorkspaceReferenceKind, Endpoint: "workspace_ref"},
 		{Program: ProgramName, Command: "policy candidates", Kind: tobari.PolicyCandidateKind, Endpoint: "id"},

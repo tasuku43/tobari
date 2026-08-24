@@ -226,6 +226,46 @@ func (r *Runtime) ServiceStatus(ctx context.Context) (tobari.ServiceStatusSnapsh
 	return r.collectServiceStatus(ctx)
 }
 
+// ObserveStatusServices returns only counts for one exact selected Workspace.
+// It never returns a request/exposure reference, URL, or port and contacts at
+// most the one matching live owner from the bounded registry anchor.
+func (r *Runtime) ObserveStatusServices(ctx context.Context, contextID tobari.ContextID, workspaceID tobari.WorkspaceID) (tobari.ServiceSummary, error) {
+	if contextID.Validate() != nil || workspaceID.Validate() != nil {
+		return tobari.ServiceSummary{}, fmt.Errorf("status Service scope is invalid")
+	}
+	anchor, err := r.anchorServiceOwners(ctx)
+	if err != nil {
+		return tobari.ServiceSummary{}, err
+	}
+	status := tobari.ServiceStatusSnapshot{SchemaVersion: 1, ServiceOwnerObservation: observationFor(anchor.value, 0, 0), Requests: []tobari.ServiceRequest{}, Exposures: []tobari.ServiceExposure{}}
+	var selected *serviceRendezvousRecord
+	for _, record := range anchor.records {
+		if record.ContextID != string(contextID) || record.WorkspaceID != string(workspaceID) {
+			continue
+		}
+		if selected != nil {
+			return tobari.ServiceSummary{}, fmt.Errorf("status Service owner scope is ambiguous")
+		}
+		copy := record
+		selected = &copy
+	}
+	if selected != nil {
+		callContext, cancel := context.WithTimeout(ctx, workspaceServiceSetupTimeout)
+		response, callErr := r.callServiceOwner(callContext, *selected, serviceRendezvousRequest{Operation: "snapshot"})
+		cancel()
+		if callErr != nil {
+			status.ServiceOwnerObservation = observationFor(anchor.value, 0, 1)
+		} else {
+			status.ServiceOwnerObservation = observationFor(anchor.value, 1, 0)
+			status.Requests, status.Exposures = response.Requests, response.Exposures
+		}
+	}
+	if err := status.Validate(); err != nil {
+		return tobari.ServiceSummary{}, err
+	}
+	return status.SummaryFor(contextID, workspaceID)
+}
+
 func (r *Runtime) resolveServiceRequestOwner(ctx context.Context, id string) (serviceRendezvousRecord, error) {
 	if tobari.ValidateServiceRequestID(id) != nil {
 		return serviceRendezvousRecord{}, fault.New(fault.KindInvalidInput, "invalid_service_request", "service request reference is invalid", false)

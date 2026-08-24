@@ -6,169 +6,108 @@ import (
 	"encoding/json"
 	"reflect"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
 
-	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
+	"github.com/tasuku43/tobari/internal/app/statuscmd"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
-type finalDefaultPairStatusFixture struct {
-	observation tobari.FinalDefaultPairObservation
+type statusHomePortFixture struct{ observation tobari.StatusHomeObservation }
+
+func (f statusHomePortFixture) ObserveStatusHome(context.Context) (tobari.StatusHomeObservation, error) {
+	return f.observation, nil
 }
 
-func (f finalDefaultPairStatusFixture) ObserveFinalCanonicalProjectRoot(context.Context) (string, error) {
-	return f.observation.ProjectRoot, nil
-}
-
-func (f finalDefaultPairStatusFixture) ObserveFinalDefaultPair(context.Context, string) (tobari.FinalDefaultPairObservation, error) {
-	return f.observation.Clone(), nil
-}
-
-func (finalDefaultPairStatusFixture) InitializeFinalDefaultPair(context.Context, string, tobari.WorkspaceTemplateBody) (tobari.FinalDefaultPairPublication, error) {
-	panic("status must not initialize final authority")
-}
-
-func TestBareStatusJSONExecutesSchemaThreeDesiredActiveAppliedContract(t *testing.T) {
-	fresh, err := tobari.NewFinalDefaultPairObservation(tobari.WorkspaceAuthorityCollection{}, false, "/workspace/fresh")
-	if err != nil {
+func TestStatusHomeFreshJSONAndHumanAreCWDFirstAndZeroAuthority(t *testing.T) {
+	observation := tobari.StatusHomeObservation{Present: false, ProjectRoot: "/workspace/fresh"}
+	jsonOutput := runStatusHomeFixture(t, observation, "json")
+	var document struct {
+		SchemaVersion int                        `json:"schema_version"`
+		Status        map[string]json.RawMessage `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(jsonOutput), &document); err != nil {
 		t.Fatal(err)
 	}
-	inactiveSnapshot, _, _, _, _ := finalDesiredActiveSnapshotFixture(t, false)
-	inactive := finalDefaultPairObservationFixture(t, inactiveSnapshot)
-	activeSnapshot, _, activeTemplate, activeMemory, applied := finalDesiredActiveSnapshotFixture(t, true)
-	active := finalDefaultPairObservationFixture(t, activeSnapshot)
-
-	for _, test := range []struct {
-		name        string
-		observation tobari.FinalDefaultPairObservation
-		wantKeys    []string
-		wantNull    []string
-		wantValues  map[string]any
-	}{
-		{
-			name: "fresh final empty", observation: fresh,
-			wantKeys:   finalDefaultPairStatusKeys(false),
-			wantNull:   []string{"active_policy_memory_revision", "active_template_policy_slice_digest", "applied_entry", "context_id", "current_policy_memory_revision", "desired_template_generation", "desired_template_policy_slice_digest", "desired_template_revision", "template_name", "workspace_home", "workspace_id", "workspace_template_id"},
-			wantValues: map[string]any{"authority_state": "empty", "default_template_state": "absent", "project_root": "/workspace/fresh"},
-		},
-		{
-			name: "selected inactive", observation: inactive,
-			wantKeys: finalDefaultPairStatusKeys(false),
-			wantNull: []string{"active_policy_memory_revision", "active_template_policy_slice_digest", "applied_entry", "workspace_home", "workspace_id"},
-			wantValues: map[string]any{
-				"authority_state": "initialized", "default_template_state": "selected", "project_root": inactiveSnapshot.Context.ProjectRoot,
-				"workspace_template_id": inactiveSnapshot.Template.ID, "template_name": inactiveSnapshot.Template.Name,
-				"desired_template_generation": inactiveSnapshot.Template.Current.Generation, "desired_template_revision": inactiveSnapshot.Template.Current.Revision,
-				"desired_template_policy_slice_digest": inactiveSnapshot.Template.Current.Slices.PolicySliceDigest,
-				"context_id":                           inactiveSnapshot.Context.ID, "current_policy_memory_revision": inactiveSnapshot.PolicyMemory.Revision,
-			},
-		},
-		{
-			name: "A active B desired", observation: active,
-			wantKeys: finalDefaultPairStatusKeys(true), wantNull: []string{},
-			wantValues: map[string]any{
-				"authority_state": "initialized", "default_template_state": "selected", "project_root": activeSnapshot.Context.ProjectRoot,
-				"workspace_template_id": activeSnapshot.Template.ID, "template_name": activeSnapshot.Template.Name,
-				"desired_template_generation": activeSnapshot.Template.Current.Generation, "desired_template_revision": activeSnapshot.Template.Current.Revision,
-				"desired_template_policy_slice_digest": activeSnapshot.Template.Current.Slices.PolicySliceDigest,
-				"active_template_policy_slice_digest":  activeTemplate, "context_id": activeSnapshot.Context.ID,
-				"current_policy_memory_revision": activeSnapshot.PolicyMemory.Revision, "active_policy_memory_revision": activeMemory,
-				"workspace_id": activeSnapshot.Workspace.ID, "workspace_ref": mustFinalWorkspaceRef(t, activeSnapshot.Workspace.ID),
-				"workspace_home": activeSnapshot.Workspace.Home, "applied_entry": applied,
-			},
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			out := runBareStatusFixture(t, test.observation, "json")
-			var document struct {
-				SchemaVersion int                        `json:"schema_version"`
-				Status        map[string]json.RawMessage `json:"status"`
-			}
-			if err := json.Unmarshal([]byte(out), &document); err != nil {
-				t.Fatal(err)
-			}
-			if document.SchemaVersion != 3 {
-				t.Fatalf("schema_version=%d, want 3", document.SchemaVersion)
-			}
-			if got := sortedDefaultPairJSONKeys(document.Status); !reflect.DeepEqual(got, test.wantKeys) {
-				t.Fatalf("status keys=%v, want %v; output=%s", got, test.wantKeys, out)
-			}
-			for _, name := range test.wantNull {
-				if got := document.Status[name]; string(got) != "null" {
-					t.Errorf("status.%s=%s, want null", name, got)
-				}
-			}
-			for name, want := range test.wantValues {
-				assertJSONFieldEqual(t, document.Status, name, want)
-			}
-		})
+	if document.SchemaVersion != tobari.StatusHomeSchemaVersion {
+		t.Fatalf("schema_version=%d", document.SchemaVersion)
+	}
+	wantKeys := []string{"attention", "authority_state", "cluster", "context", "default_template_state", "login_validity", "next", "permissions", "project_root", "runtime", "services", "siblings", "task", "template", "workspace"}
+	if got := sortedStatusKeys(document.Status); !reflect.DeepEqual(got, wantKeys) {
+		t.Fatalf("status keys=%v want=%v\n%s", got, wantKeys, jsonOutput)
+	}
+	for name, want := range map[string]string{"authority_state": `"empty"`, "default_template_state": `"absent"`, "project_root": `"/workspace/fresh"`, "template": "null", "context": "null"} {
+		if got := string(document.Status[name]); got != want {
+			t.Errorf("status.%s=%s want=%s", name, got, want)
+		}
+	}
+	human := runStatusHomeFixture(t, observation, "text")
+	for _, want := range []string{"Project   /workspace/fresh", "Template  no default Template", "Current   no Context or Workspace", "Next      tobari"} {
+		if !strings.Contains(human, want) {
+			t.Errorf("human output missing %q: %q", want, human)
+		}
+	}
+	for _, rejected := range []string{"Manifest", "--manifest", "Auth Broker", "service URL"} {
+		if strings.Contains(human, rejected) {
+			t.Errorf("human output exposed %q: %q", rejected, human)
+		}
 	}
 }
 
-func TestBareStatusHumanExecutesFreshInactiveAndPendingAxisSemantics(t *testing.T) {
-	fresh, err := tobari.NewFinalDefaultPairObservation(tobari.WorkspaceAuthorityCollection{}, false, "/workspace/fresh")
-	if err != nil {
+func TestStatusHomeJSONPreservesIndependentTemplateContextWorkspaceAxes(t *testing.T) {
+	snapshot, _, activeTemplate, activeMemory, applied := finalDesiredActiveSnapshotFixture(t, true)
+	observation := statusObservationFromSnapshot(t, snapshot)
+	observation.Live.Runtime = tobari.StatusRuntimeObservation{Authority: tobari.StatusRuntimeAuthorityReady, Availability: tobari.RuntimeAvailabilityAvailable, Compatibility: tobari.StatusNativeCompatible}
+	observation.Live.Workspace = tobari.StatusWorkspaceObservation{State: tobari.StatusWorkspaceRuntimeRunning}
+	observation.Live.Attachment = tobari.StatusAttachmentDetached
+	service := tobari.ServiceSummary{SchemaVersion: 1, Observation: tobari.ServiceObservationComplete, PendingCount: 0, ActiveCount: 0, UnavailableOwnerCount: 0, Attention: false}
+	observation.Live.Services = &service
+	out := runStatusHomeFixture(t, observation, "json")
+	var document struct {
+		Status tobari.StatusHomeSnapshot `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(out), &document); err != nil {
 		t.Fatal(err)
 	}
-	inactiveSnapshot, _, _, _, _ := finalDesiredActiveSnapshotFixture(t, false)
-	activeSnapshot, _, activeTemplate, activeMemory, applied := finalDesiredActiveSnapshotFixture(t, true)
-
-	for _, test := range []struct {
-		name        string
-		observation tobari.FinalDefaultPairObservation
-		want        []string
-		reject      []string
-	}{
-		{
-			name: "fresh final empty", observation: fresh,
-			want:   []string{"Final authority empty", "Project /workspace/fresh", "Default Template absent", "Active Template policy absent", "Active Policy Memory absent", "Applied entry absent"},
-			reject: []string{"Desired Template revision", "Current Policy Memory"},
-		},
-		{
-			name: "selected inactive", observation: finalDefaultPairObservationFixture(t, inactiveSnapshot),
-			want: []string{
-				"Final authority initialized", "Default Template selected", "Context " + string(inactiveSnapshot.Context.ID),
-				"Desired Template generation " + strconv.FormatUint(inactiveSnapshot.Template.Current.Generation, 10),
-				"Desired Template revision " + string(inactiveSnapshot.Template.Current.Revision),
-				"Desired Template policy " + string(inactiveSnapshot.Template.Current.Slices.PolicySliceDigest),
-				"Active Template policy absent", "Current Policy Memory " + string(inactiveSnapshot.PolicyMemory.Revision),
-				"Active Policy Memory absent", "Applied entry absent",
-			},
-		},
-		{
-			name: "A active B desired", observation: finalDefaultPairObservationFixture(t, activeSnapshot),
-			want: []string{
-				"Desired Template generation " + strconv.FormatUint(activeSnapshot.Template.Current.Generation, 10),
-				"Desired Template revision " + string(activeSnapshot.Template.Current.Revision),
-				"Active Template policy " + string(activeTemplate), "Current Policy Memory " + string(activeSnapshot.PolicyMemory.Revision),
-				"Active Policy Memory " + string(activeMemory), "Applied entry " + string(applied.TemplateRevision) + " / " + string(applied.EntrySliceDigest),
-			},
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			out := runBareStatusFixture(t, test.observation, "text")
-			for _, want := range test.want {
-				if !strings.Contains(out, want) {
-					t.Errorf("human status missing %q: %q", want, out)
-				}
-			}
-			for _, rejected := range test.reject {
-				if strings.Contains(out, rejected) {
-					t.Errorf("human status inferred %q from absent authority: %q", rejected, out)
-				}
-			}
-		})
+	status := document.Status
+	if status.Template == nil || status.Template.Revision != snapshot.Template.Current.Revision || status.Context == nil || status.Context.ActiveTemplatePolicy == nil || *status.Context.ActiveTemplatePolicy != activeTemplate || status.Context.ActivePolicyMemory == nil || *status.Context.ActivePolicyMemory != activeMemory {
+		t.Fatalf("independent desired/active axes lost: %+v", status)
+	}
+	if status.Workspace.AppliedEntry == nil || !reflect.DeepEqual(*status.Workspace.AppliedEntry, applied) || status.Workspace.EntryState != tobari.StatusEntryPending || status.Workspace.ObservedRuntimeState != tobari.StatusWorkspaceRuntimeRunning {
+		t.Fatalf("applied/live axes lost: %+v", status.Workspace)
+	}
+	for _, forbidden := range []string{"manifest", "workspace_home", "image\"", "last_used", "service_request_ref", "service_exposure_ref", "snapshot_path", "\"url\"", "\"port\""} {
+		if strings.Contains(out, forbidden) {
+			t.Fatalf("status leaked retired/private/inferred field %q: %s", forbidden, out)
+		}
+	}
+	human := runStatusHomeFixture(t, observation, "text")
+	if !strings.Contains(human, "Current   Context selected · Workspace present") || !strings.Contains(human, "Next      tobari —") {
+		t.Fatalf("human Current/Next separation is unclear: %q", human)
 	}
 }
 
-func runBareStatusFixture(t *testing.T, observation tobari.FinalDefaultPairObservation, format string) string {
+func TestStatusHomeWorkspaceWithoutAppliedEntryKeepsOptionalLiveAxesNotObserved(t *testing.T) {
+	snapshot, _, _, _, _ := finalDesiredActiveSnapshotFixture(t, true)
+	snapshot.Workspace.LastSuccessfulEntry = nil
+	observation := statusObservationFromSnapshot(t, snapshot)
+	out := runStatusHomeFixture(t, observation, "json")
+	var document struct {
+		Status tobari.StatusHomeSnapshot `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(out), &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.Status.Workspace.Presence != "present" || document.Status.Workspace.EntryState != tobari.StatusEntryAbsent || document.Status.Workspace.ObservedRuntimeState != tobari.StatusWorkspaceRuntimeNotObserved || document.Status.Workspace.AttachmentState != tobari.StatusAttachmentNotObserved {
+		t.Fatalf("unapplied Workspace axes=%+v", document.Status.Workspace)
+	}
+}
+
+func runStatusHomeFixture(t *testing.T, observation tobari.StatusHomeObservation, format string) string {
 	t.Helper()
-	fixture := finalDefaultPairStatusFixture{observation: observation.Clone()}
 	var out, errOut bytes.Buffer
 	command := newCLI(strings.NewReader(""), &out, &errOut, DefaultCatalog(), nil)
-	command.finalDefaultPair = workspaceauthoritycmd.NewDefaultPairService(fixture, fixture, workspaceauthoritycmd.NewContextService(nil))
+	command.statusHome = statuscmd.New(statusHomePortFixture{observation: observation})
 	args := []string{"status"}
 	if format == "json" {
 		args = append(args, "--format=json")
@@ -179,48 +118,26 @@ func runBareStatusFixture(t *testing.T, observation tobari.FinalDefaultPairObser
 	return out.String()
 }
 
-func finalDefaultPairObservationFixture(t *testing.T, snapshot tobari.ContextAuthoritySnapshot) tobari.FinalDefaultPairObservation {
+func statusObservationFromSnapshot(t *testing.T, snapshot tobari.ContextAuthoritySnapshot) tobari.StatusHomeObservation {
 	t.Helper()
-	template := snapshot.Template.Clone()
-	value := snapshot.Clone()
-	result := tobari.FinalDefaultPairObservation{
-		SchemaVersion: tobari.FinalDefaultPairObservationSchemaVersion, CollectionPresent: true,
-		CollectionGeneration: 9, CollectionRevision: tobari.SemanticDigest("sha256:" + strings.Repeat("9", 64)),
-		ProjectRoot: snapshot.Context.ProjectRoot, DefaultTemplate: &template, Context: &value,
+	record := tobari.WorkspaceAuthorityContextRecord{Context: snapshot.Context, PolicyMemory: snapshot.PolicyMemory, ActiveTemplatePolicy: snapshot.ActiveTemplatePolicy, ActivePolicyMemory: snapshot.ActivePolicyMemory, ActivePolicyMemoryRef: snapshot.ActivePolicyMemoryRef}
+	workspaces := []tobari.WorkspaceBinding{}
+	if snapshot.Workspace != nil {
+		workspaces = append(workspaces, *snapshot.Workspace)
 	}
-	if err := result.Validate(); err != nil {
+	defaultID := snapshot.Template.ID
+	collection, _, err := tobari.PublishWorkspaceAuthorityCollection([]tobari.WorkspaceTemplate{snapshot.Template}, []tobari.WorkspaceAuthorityContextRecord{record}, workspaces, []tobari.PolicyCandidateAuthority{}, &defaultID, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	return result
+	return tobari.StatusHomeObservation{Collection: collection, Present: true, ProjectRoot: snapshot.Context.ProjectRoot}
 }
 
-func finalDefaultPairStatusKeys(withWorkspaceRef bool) []string {
-	result := []string{
-		"active_policy_memory_revision", "active_template_policy_slice_digest", "applied_entry", "authority_state", "context_id",
-		"current_policy_memory_revision", "default_template_state", "desired_template_generation", "desired_template_policy_slice_digest",
-		"desired_template_revision", "project_root", "template_name", "workspace_home", "workspace_id", "workspace_template_id",
-	}
-	if withWorkspaceRef {
-		result = append(result, "workspace_ref")
-	}
-	sort.Strings(result)
-	return result
-}
-
-func sortedDefaultPairJSONKeys(values map[string]json.RawMessage) []string {
+func sortedStatusKeys(values map[string]json.RawMessage) []string {
 	result := make([]string, 0, len(values))
 	for key := range values {
 		result = append(result, key)
 	}
 	sort.Strings(result)
-	return result
-}
-
-func mustFinalWorkspaceRef(t *testing.T, id tobari.WorkspaceID) string {
-	t.Helper()
-	result, err := tobari.WorkspaceRef(id)
-	if err != nil {
-		t.Fatal(err)
-	}
 	return result
 }

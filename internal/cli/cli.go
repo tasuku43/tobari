@@ -15,6 +15,7 @@ import (
 	"github.com/tasuku43/tobari/internal/app/permissionwaitcmd"
 	"github.com/tasuku43/tobari/internal/app/runtimecmd"
 	"github.com/tasuku43/tobari/internal/app/serviceexposurecmd"
+	"github.com/tasuku43/tobari/internal/app/statuscmd"
 	"github.com/tasuku43/tobari/internal/app/tobaricmd"
 	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
@@ -71,6 +72,7 @@ type CLI struct {
 	finalAuth              *authcmd.FinalContextService
 	completion             *completioncmd.Service
 	serviceExposure        *serviceexposurecmd.Service
+	statusHome             *statuscmd.Service
 	serviceExposureInitErr error
 	researchCLIState
 	permissionWait        *permissionwaitcmd.Service
@@ -187,6 +189,12 @@ func New(lifetime context.Context, in io.Reader, out, errOut io.Writer) *CLI {
 		return command
 	}
 	command.finalDefaultPair = workspaceauthoritycmd.NewDefaultPairService(defaultPair, mutator, command.finalContexts)
+	statusHome, err := workspaceauthoritystore.NewStatusHomeAdapter(authorityStore, runtime, runtime)
+	if err != nil {
+		command.doctor = doctorcmd.New(systemdoctor.New(err))
+		return command
+	}
+	command.statusHome = statuscmd.New(statusHome)
 	command.finalProjectRoot = runtime
 	command.runtime = runtimecmd.New(runtime)
 	command.completion = completioncmd.New(runtime)
