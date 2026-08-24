@@ -54,6 +54,8 @@ for claim in \
     exit 1
   fi
 done
+# The claim intentionally matches the literal shell variable in the sourced helper.
+# shellcheck disable=SC2016
 for claim in \
   'run_tobari review services --format=json' \
   'run_tobari service allow --id "$request_ref" --format=json' \
