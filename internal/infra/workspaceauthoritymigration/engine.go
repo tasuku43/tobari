@@ -130,6 +130,7 @@ type Engine struct {
 	preflight          PreflightPort
 	rename             func(string, string) error
 	removeAll          func(string) error
+	syncRootParent     func(string) error
 	afterJournalRename func() error
 	afterStageMkdir    func() error
 	afterStageWrite    func() error
@@ -139,7 +140,10 @@ func New(finalRoot, transactionRoot string, preflight PreflightPort) (*Engine, e
 	if !exactAbsoluteChild(finalRoot) || !exactAbsoluteChild(transactionRoot) || preflight == nil || pathsOverlap(finalRoot, transactionRoot) {
 		return nil, fmt.Errorf("Workspace authority migration paths or preflight are invalid")
 	}
-	return &Engine{finalRoot: finalRoot, transactionRoot: transactionRoot, preflight: preflight, rename: os.Rename, removeAll: os.RemoveAll}, nil
+	return &Engine{
+		finalRoot: finalRoot, transactionRoot: transactionRoot, preflight: preflight,
+		rename: os.Rename, removeAll: os.RemoveAll, syncRootParent: syncDirectory,
+	}, nil
 }
 
 // Apply is also the sole forward recovery seam. A repeated call resumes the
@@ -780,12 +784,20 @@ func (e *Engine) ensureTransactionRoot() error {
 	if err != nil || !safeDirectory(info) {
 		return fmt.Errorf("Workspace authority migration parent must be a real owner-only directory")
 	}
-	if err := os.Mkdir(e.transactionRoot, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
-		return err
+	if err := os.Mkdir(e.transactionRoot, 0o700); err != nil {
+		if !errors.Is(err, os.ErrExist) {
+			return err
+		}
 	}
 	info, err = os.Lstat(e.transactionRoot)
 	if err != nil || !safeDirectory(info) {
 		return fmt.Errorf("Workspace authority migration root must be a real owner-only directory")
+	}
+	// This precedes the lock because the lock file itself lives inside this
+	// root. Repeating parent fsync for an existing exact root changes no store
+	// contents and closes the first-run two-process initialization race.
+	if err := e.syncRootParent(parent); err != nil {
+		return fmt.Errorf("durably publish Workspace authority migration root: %w", err)
 	}
 	return nil
 }

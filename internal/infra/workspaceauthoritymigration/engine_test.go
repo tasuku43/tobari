@@ -763,6 +763,106 @@ func TestEngineLockSurvivesStaleFileAndExcludesConcurrentHolder(t *testing.T) {
 	assertPredecessorSelected(t, fixture)
 }
 
+func TestEngineDurablyPublishesNewTransactionRootBeforeJournalOrAuthority(t *testing.T) {
+	fixture := newMigrationFixture(t, false)
+	parentSyncCalls := 0
+	fixture.engine.syncRootParent = func(string) error {
+		parentSyncCalls++
+		return errors.New("synthetic parent-directory fsync failure")
+	}
+	if _, err := fixture.engine.Apply(context.Background()); err == nil {
+		t.Fatal("migration proceeded without durable transaction-root publication")
+	}
+	if parentSyncCalls != 1 {
+		t.Fatalf("parent sync calls=%d", parentSyncCalls)
+	}
+	if pathExists(fixture.engine.journalPath()) || pathExists(fixture.finalRoot) || pathExists(fixture.finalRoot+finalStageSuffix) || !pathExists(fixture.cutoff) {
+		t.Fatal("transaction-root durability failure reached journal or authority mutation")
+	}
+
+	fixture.engine.syncRootParent = syncDirectory
+	if _, err := fixture.engine.Apply(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	assertFinalSelected(t, fixture)
+}
+
+func TestEngineResyncsExistingTransactionRootParentWithoutChangingContents(t *testing.T) {
+	fixture := newMigrationFixture(t, false)
+	if err := fixture.engine.ensureTransactionRoot(); err != nil {
+		t.Fatal(err)
+	}
+	writeFixtureFile(t, filepath.Join(fixture.transaction, "preserved"), []byte("unchanged"))
+	parentSyncCalls := 0
+	fixture.engine.syncRootParent = func(parent string) error {
+		parentSyncCalls++
+		return syncDirectory(parent)
+	}
+	if err := fixture.engine.ensureTransactionRoot(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(fixture.transaction, "preserved"))
+	if err != nil || string(data) != "unchanged" || parentSyncCalls != 1 {
+		t.Fatalf("existing root changed: data=%q calls=%d err=%v", data, parentSyncCalls, err)
+	}
+}
+
+func TestConcurrentFirstRunCannotReachEffectsBeforeParentDurability(t *testing.T) {
+	fixture := newMigrationFixture(t, false)
+	second, err := New(fixture.finalRoot, fixture.transaction, fixture.port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entered := make(chan struct{}, 2)
+	release := make(chan struct{})
+	blockedSync := func(parent string) error {
+		entered <- struct{}{}
+		<-release
+		return syncDirectory(parent)
+	}
+	fixture.engine.syncRootParent = blockedSync
+	second.syncRootParent = blockedSync
+	results := make(chan error, 2)
+	for _, engine := range []*Engine{fixture.engine, second} {
+		go func(engine *Engine) {
+			_, err := engine.Apply(context.Background())
+			results <- err
+		}(engine)
+	}
+	<-entered
+	<-entered
+	if pathExists(fixture.engine.journalPath()) || pathExists(fixture.finalRoot) || pathExists(fixture.finalRoot+finalStageSuffix) || !pathExists(fixture.cutoff) {
+		t.Fatal("concurrent first run reached journal or authority before parent durability")
+	}
+	close(release)
+	successes := 0
+	for range 2 {
+		if err := <-results; err == nil {
+			successes++
+		}
+	}
+	if successes == 0 {
+		t.Fatal("neither concurrent invocation completed after parent durability")
+	}
+	assertFinalSelected(t, fixture)
+}
+
+func TestExistingTransactionRootStillFailsClosedWhenParentSyncFails(t *testing.T) {
+	fixture := newMigrationFixture(t, false)
+	if err := fixture.engine.ensureTransactionRoot(); err != nil {
+		t.Fatal(err)
+	}
+	fixture.engine.syncRootParent = func(string) error {
+		return errors.New("synthetic existing-root parent sync failure")
+	}
+	if _, err := fixture.engine.Apply(context.Background()); err == nil {
+		t.Fatal("existing root advanced after parent durability failed")
+	}
+	if pathExists(fixture.engine.journalPath()) || pathExists(fixture.finalRoot) || !pathExists(fixture.cutoff) {
+		t.Fatal("existing-root parent sync failure reached journal or authority")
+	}
+}
+
 func prepareAndPublishCandidate(t *testing.T, fixture *migrationFixture) migrationJournal {
 	t.Helper()
 	if err := fixture.engine.ensureTransactionRoot(); err != nil {

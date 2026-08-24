@@ -353,6 +353,12 @@ contract and source inspection plus the product-owner lifecycle decisions above.
   advisory lock. A pathname left by SIGKILL is reusable, while a live holder is
   excluded. Journal and source rename errors are classified by exact read-back
   before resume decisions.
+- Every Apply/Rollback validates the transaction root and fsyncs its
+  already-validated parent directory before acquiring the root-local lock or
+  reaching any journal, final publication, or predecessor move. Repeating the
+  parent fsync changes no existing-root contents and closes the first-run race
+  where a second process could otherwise observe an uncommitted directory
+  entry and advance effects before its durability was established.
 - Standard Workspace homes are declared outside every mutation/backup path and
   are neither read nor transformed. Linux filesystem root-key material is one
   required exact research source; macOS Keychain recovery material has no
