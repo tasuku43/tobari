@@ -136,13 +136,13 @@ only that a deliberate fresh request is reasonable and remains subject to a
 new Gateway decision. The child retains direct ownership of its TTY while
 review remains in the separate trusted-host terminal.
 
-Routine users reason about network authority in three layers: **Workspace Manifest
-Access** is the creation-time destination and method Boundary plus routine
-traffic admitted inside it; **remembered Workspace decisions** are reviewed
-Allow and exact Deny choices retained for one Workspace Manifest and Workspace until
+Routine users reason about network authority in three layers: **Workspace Template
+policy** is the desired destination and method Boundary plus routine traffic
+admitted inside it; **remembered Context decisions** are reviewed Allow and
+exact Deny choices retained in Context Policy Memory for one Context and Workspace until
 reset; and **this-session Host Loopback access** is exact attachment authority
 that ends with its owning attachment. The third layer is a separate closed
-policy branch. Ordinary Workspace Manifest, baseline, remembered, and Advanced authority
+policy branch. Ordinary Template, Policy Memory, baseline, and Advanced authority
 cannot decide Host Loopback, and attachment authority cannot decide ordinary
 external traffic. Detailed source, owner, lifetime, and precedence remain
 available to contributors without becoming routine setup vocabulary.
@@ -805,7 +805,7 @@ administration project.
   the denial without weakening orthogonal invariants.
 - Every denial also declares its closed destination kind and authority
   lifetime. Ordinary upstream candidates remain persistent learned-policy
-  proposals. A Host Loopback candidate instead binds its Workspace Manifest, project,
+  proposals. A Host Loopback candidate instead binds its Context ID, Workspace ID,
   Attachment Epoch, target port, and exact HTTP effect and can
   produce only an attachment-scoped decision. Matching host, port, method,
   path, or display text cannot convert one lifetime into the other.

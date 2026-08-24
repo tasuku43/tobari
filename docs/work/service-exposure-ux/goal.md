@@ -25,7 +25,7 @@
   completed WP08 Catalog/output contracts in [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md),
   completed [ADR 0080 Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md),
   [ADR 0082 release and research build surfaces](../../decisions/0082-release-and-research-build-surfaces.md),
-  [Host Loopback Name](../host-loopback-name/goal.md),
+  [ADR 0083 Host Loopback authority](../../decisions/0083-name-the-physical-host-loopback-authority.md),
   the accepted [permission-resume and attachment-session contract](../../decisions/0081-observe-reviewed-permission-from-an-attached-workspace.md), and
   [Status Home](../status-home/goal.md)
 

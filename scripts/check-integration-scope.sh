@@ -97,6 +97,7 @@ fi
 # The Host Loopback slice must use the final Context identity and a bound
 # Context reference for entry. Frozen private context wire keys are checked
 # separately and do not authorize a predecessor public alias.
+# shellcheck disable=SC2016
 for claim in \
   'context create --template "$template_ref"' \
   'context enter --id "$context_ref"'; do

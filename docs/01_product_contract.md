@@ -66,22 +66,23 @@ random host IPv4-loopback port. The returned URL is exactly
 rewriting Host, Origin, redirects, cookies, headers, or content. The helper can
 list current-attachment exposures and stop one only with its unchanged opaque
 reference. Attachment exit closes the listener and streams. This grants no
-Workspace Manifest policy, remembered decision, Host Loopback authority, LAN access,
+Template policy, Context Policy Memory decision, Host Loopback authority, LAN access,
 automatic discovery, requested host port, health probe, or browser opening.
 
 Routine permission guidance presents three layers and no implementation-source
 inventory:
 
-1. **Workspace Manifest Access** is the immutable creation-time destination and method
-   Boundary together with the routine client traffic admitted inside it.
-2. **Remembered Workspace decisions** are trusted-host reviewed Allow and exact
-   Deny choices bound to the Workspace Manifest and Workspace until explicit reset.
+1. **Workspace Template policy** is the desired destination and method Boundary
+   together with the routine client traffic admitted inside it.
+2. **Remembered Context decisions** are trusted-host reviewed Allow and exact
+   Deny choices retained in Context Policy Memory for one Context and Workspace
+   until explicit reset.
 3. **This-session Host Loopback access** is an exact decision bound to the
    active attachment and removed when its owning host process exits.
 
 Host Loopback is a separate closed policy branch rather than a temporary
-widening of Workspace Manifest Access. Ordinary Workspace Manifest policy, native readiness,
-remembered decisions, and Advanced Rego neither authorize nor deny it;
+widening of Template or Context authority. Ordinary Template policy, Context
+Policy Memory, native readiness, and Advanced Rego neither authorize nor deny it;
 Attachment Grants neither authorize nor deny ordinary external traffic.
 
 The user-facing entry point is the current project directory: a Workspace either
@@ -204,8 +205,8 @@ is added explicitly.
   port selects the same physical-host IPv4 loopback port for an active attachment.
 - **Attachment Epoch:** one unguessable trusted-host identity owned by the
   `tobari` process that established the active Host Loopback route.
-- **Attachment Grant:** one exact reviewed Allow or Deny bound to a Workspace Manifest,
-  Workspace, Attachment Epoch, target port, and exact HTTP effect. It is
+- **Attachment Grant:** one exact reviewed Allow or Deny bound to a Context ID,
+  Workspace ID, Attachment Epoch, target port, and exact HTTP effect. It is
   Workspace-wide for that attachment and is not a learned policy rule.
 - **Auth Broker:** the research non-root credential-resolution daemon. It owns
   encrypted Workspace Manifest vault access, has no TCP listener, starts locked, and

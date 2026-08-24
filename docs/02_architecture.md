@@ -645,7 +645,7 @@ make authority transferable between them.
 | remembered Allow | Workspace Manifest, Workspace, and exact or explicitly reviewed one-segment-template ordinary effect | until explicit reset | trusted host user | unresolved Guided authority only; cannot exceed the Boundary or exact-Deny tier |
 | Advanced Rego | one Advanced Workspace Manifest's generic ordinary request input | current owner-authored policy revision | advanced trusted host user | consulted only while ordinary authority remains unresolved; cannot exceed the Boundary or exact-Deny tier |
 | ordinary default deny or exact-review result | unresolved valid ordinary effect | per request | Tobari evaluator | final ordinary result; missing or invalid identity instead receives the non-learnable fail-closed default |
-| Attachment Deny | active principal-owned route, Workspace Manifest, Workspace, Attachment Epoch, and exact Host Loopback effect | owning attachment | trusted host user | first policy decision in the separate Host Loopback branch |
+| Attachment Deny | active principal-owned route, Context ID, Workspace ID, Attachment Epoch, and exact Host Loopback effect | owning attachment | trusted host user | first policy decision in the separate Host Loopback branch |
 | Attachment Allow | same exact Host Loopback identity | owning attachment | trusted host user; route owned by the host attachment process | after Attachment Deny and before attachment review |
 | exact attachment review | unresolved valid Host Loopback effect | owning attachment | Tobari evaluator and trusted host user | final Host Loopback result; review creates no durable learned rule |
 
@@ -671,7 +671,7 @@ active principal-owned route and Attachment Epoch
 
 The Gateway resolves the active route and epoch before creating the OPA input,
 and opens its authenticated one-shot bridge only after OPA Allow. The host
-relay revalidates active route, Workspace Manifest/Workspace principal, epoch, target port,
+relay revalidates active route, Context/Workspace principal, epoch, target port,
 and Attachment Allow before dialing `127.0.0.1`. Ordinary destination/method
 ceilings, baseline and native rules, remembered Allow/exact Deny, and Advanced
 Rego are inapplicable to this branch. Conversely, Attachment Deny, Allow, and

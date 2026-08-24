@@ -9,8 +9,8 @@
   [docs/04](../../04_harness.md), the completed WP08 Catalog/output contracts
   in [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md), completed
   [ADR 0080 Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md), completed WP04
-  [ADR 0082 build surfaces](../../decisions/0082-release-and-research-build-surfaces.md), WP05
-  [host-loopback name](../host-loopback-name/goal.md), WP07
+  [ADR 0082 build surfaces](../../decisions/0082-release-and-research-build-surfaces.md), completed WP05
+  [ADR 0083 Host Loopback authority](../../decisions/0083-name-the-physical-host-loopback-authority.md), WP07
   [first-use recovery](../first-use-progress-recovery/goal.md), and WP09
   [service exposure](../service-exposure-ux/goal.md)
 - Implementation state: Planned after all upstream implementations through

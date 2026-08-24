@@ -413,7 +413,8 @@ JSON `overall_status`, `adoption_state`, or equivalent lossy authority exists.
   owning discovery paths. WP06 adds no Runtime lifecycle types or planner.
 - [ADR 0082](../../decisions/0082-release-and-research-build-surfaces.md): supplies release/research surface exclusion;
   research auth/serve never appears in release status.
-- `host-loopback-name` (WP05): supplies final private host authority vocabulary;
+- [ADR 0083](../../decisions/0083-name-the-physical-host-loopback-authority.md)
+  (completed WP05): supplies final private host authority vocabulary;
   the retired name is excluded from output and fixtures.
 - `first-use-progress-recovery` (WP07): supplies wait/progress state; WP06 does
   not pre-implement it.

@@ -66,8 +66,8 @@ external DNS, Broker, upstream, or relay. Removing that negative guard requires
 a separate ADR and negative safety evidence.
 
 `.internal` is not authority. Host Loopback access is the conjunction of exact
-hostname, port, method and path, the host-derived Workspace Manifest and
-Workspace principal, a live canonical interactive Attachment Epoch, an exact
+hostname, port, method and path, the host-derived Context ID and Workspace ID,
+a live canonical interactive Attachment Epoch, an exact
 trusted-host Attachment Grant, and fresh route revalidation. Ordinary external
 policy cannot decide this branch, and attachment authority cannot decide
 ordinary external or sibling `.internal` traffic.
@@ -87,8 +87,8 @@ schema V2, contain only the new authority, and issue fresh opaque IDs. Route ID
 V2 directly binds the exact hostname; there is no independent authority-
 revision concept. ADR 0081's frozen compatibility key spellings remain exact:
 private Host Loopback records continue to use `context`, `context_id`, and
-`project_id` where that wire already does, while those values mean Workspace
-Manifest and Workspace identity. They are not public aliases, and
+`project_id` where that wire already does, while those values mean Context and
+Workspace identity. They are not public aliases, and
 `project_id` never names a project root.
 
 Host Loopback remains a dependent capability of ADR 0081's canonical
@@ -110,8 +110,8 @@ mutation and explicit reset-and-recreate guidance; attachment startup,
 Fresh final entry and teardown retain the lock order `lifecycle ->
 interactive-attachment -> host-loopback`. Entry publishes its canonical
 session before Host Loopback, so one final session owner fences concurrent
-route/grant creation and cleanup. Manifest/Template publication, Runtime
-lifecycle, learned policy, AppliedEntry, and observed state neither own nor
+route/grant creation and cleanup. Context/Template publication, Policy Memory,
+Runtime lifecycle, applied state, and observed state neither own nor
 inherit attachment authority.
 
 ### TLS and CA

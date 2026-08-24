@@ -533,7 +533,8 @@ These are accepted design facts, not current implementation claims:
   only bounded Service counts/attention/observation state there; it supplies no
   ref, URL, port, or action. WP06 consumes this summary only after WP09
   implementation.
-- `docs/work/host-loopback-name/` owns the opposite-direction physical-host
+- [ADR 0083](../../decisions/0083-name-the-physical-host-loopback-authority.md)
+  owns the opposite-direction physical-host
   authority spelling and `host.tobari.internal`. Neither appears as a Service
   parameter, alias, hostname, authority field, or output label.
 - [ADR 0081](../../decisions/0081-observe-reviewed-permission-from-an-attached-workspace.md)

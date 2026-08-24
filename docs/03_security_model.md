@@ -477,10 +477,10 @@ No lower tier can override a terminal decision.
 Host Loopback does not enter that order. Gateway must first resolve an active
 principal-owned route and Attachment Epoch. OPA then applies exact Attachment
 Deny, exact Attachment Allow, and exact attachment review in that order.
-Ordinary Workspace Manifest ceilings, baseline/native authority, remembered Allow/exact
-Deny, and Advanced Rego are inapplicable. Attachment decisions are likewise
+Template policy, Context Policy Memory, baseline/native authority, and
+Advanced Rego are inapplicable. Attachment decisions are likewise
 inapplicable to ordinary traffic. Gateway opens the bridge only after Allow;
-the relay revalidates the active principal, epoch, target port, and Allow before
+the relay revalidates the active Context/Workspace principal, epoch, target port, and Allow before
 physical-host I/O. Closing the owning attachment closes the relay before route
 and grant removal, making stale or mismatched attachment material inert.
 
