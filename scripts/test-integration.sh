@@ -764,12 +764,24 @@ cleanup() {
       if [[ -f $test_root/state/tobari/cluster-reconcile.json ]]; then
         run_tobari cluster up >/dev/null 2>&1 || true
       fi
-      [[ -n ${work_ref:-} ]] && run_tobari workspace delete --id "$work_ref" --confirm=delete --force >/dev/null 2>&1 || true
-      [[ -n ${restricted_ref:-} ]] && run_tobari workspace delete --id "$restricted_ref" --confirm=delete --force >/dev/null 2>&1 || true
-      [[ -n ${other_ref:-} ]] && run_tobari workspace delete --id "$other_ref" --confirm=delete --force >/dev/null 2>&1 || true
-      [[ -n ${default_context_ref:-} ]] && run_tobari context delete --id "$default_context_ref" --confirm=delete >/dev/null 2>&1 || true
-      [[ -n ${restricted_context_ref:-} ]] && run_tobari context delete --id "$restricted_context_ref" --confirm=delete >/dev/null 2>&1 || true
-      [[ -n ${other_context_ref:-} ]] && run_tobari context delete --id "$other_context_ref" --confirm=delete >/dev/null 2>&1 || true
+      if [[ -n ${work_ref:-} ]]; then
+        run_tobari workspace delete --id "$work_ref" --confirm=delete --force >/dev/null 2>&1 || true
+      fi
+      if [[ -n ${restricted_ref:-} ]]; then
+        run_tobari workspace delete --id "$restricted_ref" --confirm=delete --force >/dev/null 2>&1 || true
+      fi
+      if [[ -n ${other_ref:-} ]]; then
+        run_tobari workspace delete --id "$other_ref" --confirm=delete --force >/dev/null 2>&1 || true
+      fi
+      if [[ -n ${default_context_ref:-} ]]; then
+        run_tobari context delete --id "$default_context_ref" --confirm=delete >/dev/null 2>&1 || true
+      fi
+      if [[ -n ${restricted_context_ref:-} ]]; then
+        run_tobari context delete --id "$restricted_context_ref" --confirm=delete >/dev/null 2>&1 || true
+      fi
+      if [[ -n ${other_context_ref:-} ]]; then
+        run_tobari context delete --id "$other_context_ref" --confirm=delete >/dev/null 2>&1 || true
+      fi
       run_tobari cluster down --purge >/dev/null 2>&1 || true
     fi
     # Keep an exact-name Docker fallback for failures in the lifecycle code
