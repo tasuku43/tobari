@@ -833,6 +833,28 @@ finish() {
       run_tobari cluster status --format json >&2 || true
       echo "integration diagnostics: doctor" >&2
       run_tobari doctor --format json >&2 || true
+      echo "integration diagnostics: final lifecycle journal phases" >&2
+      python3 - "$test_root/state" <<'PY' >&2 || true
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+names = {"bootstrap.json", "settlement.json", "activation.json", "cluster-reconcile.json"}
+for path in sorted(root.rglob("*")):
+    if path.name not in names or not path.is_file():
+        continue
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        print(f"{path.relative_to(root)} unreadable={type(error).__name__}")
+        continue
+    fields = []
+    for key in ("phase", "effect_class", "operation"):
+        if key in document:
+            fields.append(f"{key}={document[key]}")
+    print(f"{path.relative_to(root)} " + " ".join(fields))
+PY
     fi
     for container in tobari-auth-broker tobari-gateway tobari-opa "$mock_name" "$auth_mock_name" "$work_container" "$other_container" "$restricted_container"; do
       [[ -n $container ]] || continue
