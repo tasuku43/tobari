@@ -565,7 +565,28 @@ func finalPolicyMemoryRows(authority tobari.WorkspacePolicyProjectionContext) ([
 		return allows, denies, graphql, nil
 	}
 	for _, rule := range authority.PolicyMemory.Rules {
-		encoded, err := json.Marshal(rule.Body)
+		var encoded []byte
+		var err error
+		switch rule.Decision {
+		case tobari.PolicyMemoryAllow:
+			var projected tobari.LearnedPolicyRule
+			projected, err = tobari.NewLearnedPolicyRuleFromPolicyMemory(
+				authority.ContextID, authority.Presentation, authority.Principal.WorkspaceID, authority.ProjectRoot, rule,
+			)
+			if err == nil {
+				encoded, err = json.Marshal(projected)
+			}
+		case tobari.PolicyMemoryDeny:
+			var projected tobari.PolicyDenyRule
+			projected, err = tobari.NewPolicyDenyRuleFromPolicyMemory(
+				authority.ContextID, authority.Presentation, authority.Principal.WorkspaceID, authority.ProjectRoot, rule,
+			)
+			if err == nil {
+				encoded, err = json.Marshal(projected)
+			}
+		default:
+			err = fmt.Errorf("final Policy Memory decision is invalid")
+		}
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -573,11 +594,6 @@ func finalPolicyMemoryRows(authority tobari.WorkspacePolicyProjectionContext) ([
 		if err := json.Unmarshal(encoded, &row); err != nil {
 			return nil, nil, nil, err
 		}
-		row["id"] = rule.ID
-		row["context_id"] = string(authority.ContextID)
-		row["context"] = authority.Presentation
-		row["project_id"] = string(authority.Principal.WorkspaceID)
-		row["project_root"] = authority.ProjectRoot
 		if rule.Decision == tobari.PolicyMemoryAllow {
 			allows = append(allows, row)
 		} else {

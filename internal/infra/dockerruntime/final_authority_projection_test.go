@@ -85,7 +85,11 @@ func TestFinalAggregateContextBindsMemoryToCurrentProjectedWorkspace(t *testing.
 		t.Fatal(err)
 	}
 	allowsA, deniesA, _, err := finalPolicyMemoryRows(planA.Contexts[0])
-	if err != nil || len(allowsA) != 1 || len(deniesA) != 0 || allowsA[0]["project_id"] != string(finalProjectionWorkspaceA) {
+	allowID := ""
+	if len(allowsA) == 1 {
+		allowID, _ = allowsA[0]["id"].(string)
+	}
+	if err != nil || len(allowsA) != 1 || len(deniesA) != 0 || allowsA[0]["project_id"] != string(finalProjectionWorkspaceA) || !strings.HasPrefix(allowID, "plr_") {
 		t.Fatalf("Workspace A rows=%#v denies=%#v err=%v", allowsA, deniesA, err)
 	}
 
