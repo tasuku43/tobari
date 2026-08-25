@@ -833,6 +833,8 @@ finish() {
       run_tobari cluster status --format json >&2 || true
       echo "integration diagnostics: doctor" >&2
       run_tobari doctor --format json >&2 || true
+      echo "integration diagnostics: state inventory" >&2
+      find "$test_root/config/tobari" "$test_root/state" -maxdepth 3 -print >&2 || true
       echo "integration diagnostics: final lifecycle journal phases" >&2
       find "$test_root/state" -type f \( -name bootstrap.json -o -name settlement.json -o -name activation.json -o -name cluster-reconcile.json \) -exec grep -H -Eo '"(phase|effect_class|operation)":"[^"]*"' {} + >&2 || true
     fi
@@ -1134,9 +1136,7 @@ if [[ $host_loopback_only != true ]]; then
 JSON
   chmod 0600 "$config_directory/auth/providers/$synthetic_provider.json"
 fi
-  for legacy in "$config_directory/contexts" "$test_root/state/roots" "$test_root/state/instances" "$test_root/state/auth/projects" "$test_root/state/state.json" "$test_root/state/projects.json" "$test_root/state/cluster-reconcile.json" "$config_directory/migrations" "$test_root/state/migrations"; do
-    [[ -e $legacy || -L $legacy ]] && echo "integration diagnostics: legacy=${legacy#$test_root/}" >&2
-  done
+  find "$config_directory" "$test_root/state" -maxdepth 3 -print >&2
 start_cluster >/dev/null
 
 # These assertions intentionally inspect the assembled runtime rather than
