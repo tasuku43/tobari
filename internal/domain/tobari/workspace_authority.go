@@ -901,7 +901,7 @@ func (b PolicyMemoryRuleBody) Validate(decision PolicyMemoryDecision) error {
 	if err := b.PolicyProtocolIdentity.Validate(); err != nil {
 		return err
 	}
-	if err := (ManifestPolicyAuthority{Scheme: b.Scheme, Host: b.Host, Port: b.Port}).Validate(); err != nil {
+	if err := validatePolicyMemoryDestinationAuthority(ManifestPolicyAuthority{Scheme: b.Scheme, Host: b.Host, Port: b.Port}); err != nil {
 		return err
 	}
 	if !httpMethodPattern.MatchString(b.Method) {
@@ -1007,6 +1007,87 @@ func (r PolicyMemoryRule) Clone() PolicyMemoryRule {
 	result := r
 	result.Body = r.Body.Clone()
 	return result
+}
+
+// NewLearnedPolicyRuleFromPolicyMemory projects one current Context-owned
+// Allow into the legacy-free policy candidate matcher. The project scope is
+// supplied by the current observing Workspace because Policy Memory survives
+// Workspace replacement and deliberately stores no stale Workspace identity.
+func NewLearnedPolicyRuleFromPolicyMemory(
+	contextID ContextID, contextName string, projectID WorkspaceID, projectRoot string, rule PolicyMemoryRule,
+) (LearnedPolicyRule, error) {
+	if err := rule.Validate(contextID); err != nil {
+		return LearnedPolicyRule{}, err
+	}
+	if rule.Decision != PolicyMemoryAllow {
+		return LearnedPolicyRule{}, fmt.Errorf("Policy Memory rule is not an Allow")
+	}
+	if err := validatePolicyScope(string(contextID), contextName, projectRoot); err != nil {
+		return LearnedPolicyRule{}, err
+	}
+	if err := projectID.Validate(); err != nil {
+		return LearnedPolicyRule{}, err
+	}
+	body := rule.Body
+	result := LearnedPolicyRule{
+		PolicyProtocolIdentity: body.PolicyProtocolIdentity,
+		Match:                  body.Match,
+		WorkspaceManifestID:    string(contextID),
+		WorkspaceManifestName:  contextName,
+		ProjectID:              string(projectID),
+		ProjectRoot:            projectRoot,
+		Host:                   body.Host,
+		Port:                   body.Port,
+		Method:                 body.Method,
+		Path:                   body.Path,
+		Segments:               append([]string{}, body.Segments...),
+		Examples:               append([]string{}, body.Examples...),
+		SourceCandidates:       append([]string{}, body.SourceCandidates...),
+	}
+	result.ID = learnedRuleIDWithIdentity(
+		result.Match, result.WorkspaceManifestID, result.ProjectID, result.Host, result.Port,
+		result.Method, result.Path, result.Examples, result.SourceCandidates, result.PolicyProtocolIdentity,
+	)
+	return result, result.Validate()
+}
+
+// NewPolicyDenyRuleFromPolicyMemory projects one current Context-owned Deny
+// into the exact-deny matcher used to suppress repeat candidates. The current
+// Workspace supplies the live project binding; no historical Workspace is
+// reconstructed from Policy Memory evidence.
+func NewPolicyDenyRuleFromPolicyMemory(
+	contextID ContextID, contextName string, projectID WorkspaceID, projectRoot string, rule PolicyMemoryRule,
+) (PolicyDenyRule, error) {
+	if err := rule.Validate(contextID); err != nil {
+		return PolicyDenyRule{}, err
+	}
+	if rule.Decision != PolicyMemoryDeny {
+		return PolicyDenyRule{}, fmt.Errorf("Policy Memory rule is not a Deny")
+	}
+	if err := validatePolicyScope(string(contextID), contextName, projectRoot); err != nil {
+		return PolicyDenyRule{}, err
+	}
+	if err := projectID.Validate(); err != nil {
+		return PolicyDenyRule{}, err
+	}
+	body := rule.Body
+	result := PolicyDenyRule{
+		PolicyProtocolIdentity: body.PolicyProtocolIdentity,
+		WorkspaceManifestID:    string(contextID),
+		WorkspaceManifestName:  contextName,
+		ProjectID:              string(projectID),
+		ProjectRoot:            projectRoot,
+		Host:                   body.Host,
+		Port:                   body.Port,
+		Method:                 body.Method,
+		Path:                   body.Path,
+		SourceCandidates:       append([]string{}, body.SourceCandidates...),
+	}
+	result.ID = policyDenyRuleIDWithIdentity(
+		result.WorkspaceManifestID, result.ProjectID, result.Host, result.Port,
+		result.Method, result.Path, result.SourceCandidates, result.PolicyProtocolIdentity,
+	)
+	return result, result.Validate()
 }
 
 type PolicyMemoryRevision struct {

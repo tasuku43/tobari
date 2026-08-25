@@ -129,15 +129,29 @@ func NewPolicyCandidateAuthorityListWithAttachments(
 	present bool,
 	attachments []PolicyCandidate,
 ) (PolicyCandidateAuthorityList, error) {
+	return NewPolicyCandidateAuthorityListWithObservations(collection, present, nil, attachments)
+}
+
+// NewPolicyCandidateAuthorityListWithObservations joins current final
+// authority candidates with bounded Gateway observations. Observed persistent
+// candidates are read-only evidence and are never added to the durable final
+// envelope; only an explicit policy mutation can consume one. Attachment
+// candidates remain a separate Host Loopback authority branch.
+func NewPolicyCandidateAuthorityListWithObservations(
+	collection WorkspaceAuthorityCollection,
+	present bool,
+	observed []PolicyCandidateAuthority,
+	attachments []PolicyCandidate,
+) (PolicyCandidateAuthorityList, error) {
 	result, err := newPolicyCandidateAuthorityList(collection, present)
 	if err != nil {
 		return PolicyCandidateAuthorityList{}, err
 	}
-	if len(attachments) == 0 {
+	if len(observed) == 0 && len(attachments) == 0 {
 		return result, result.Validate()
 	}
 	if !present {
-		return PolicyCandidateAuthorityList{}, fmt.Errorf("attachment-local candidates require final authority")
+		return PolicyCandidateAuthorityList{}, fmt.Errorf("observed candidates require final authority")
 	}
 	contexts := make(map[ContextID]ContextBinding, len(collection.Contexts))
 	templates := make(map[WorkspaceTemplateID]string, len(collection.Templates))
@@ -150,6 +164,41 @@ func NewPolicyCandidateAuthorityListWithAttachments(
 	}
 	for _, workspace := range collection.Workspaces {
 		workspaces[workspace.ID] = workspace
+	}
+	seen := make(map[string]struct{}, len(result.Items))
+	for _, item := range result.Items {
+		seen[item.ID] = struct{}{}
+	}
+	for index := range observed {
+		candidate := observed[index]
+		if err := candidate.Validate(); err != nil {
+			return PolicyCandidateAuthorityList{}, err
+		}
+		if _, duplicate := seen[candidate.ID]; duplicate {
+			continue
+		}
+		binding, contextFound := contexts[candidate.ContextID]
+		workspace, workspaceFound := workspaces[candidate.ObservingWorkspaceID]
+		templateName, templateFound := templates[binding.TemplateID]
+		if !contextFound || !workspaceFound || !templateFound || workspace.ContextID != candidate.ContextID ||
+			workspace.ProjectRoot != binding.ProjectRoot {
+			return PolicyCandidateAuthorityList{}, fmt.Errorf("observed candidate does not belong to current final authority")
+		}
+		contextRef, contextErr := ContextRef(candidate.ContextID)
+		templateRef, templateErr := WorkspaceTemplateRef(binding.TemplateID)
+		workspaceRef, workspaceErr := WorkspaceRef(candidate.ObservingWorkspaceID)
+		if contextErr != nil || templateErr != nil || workspaceErr != nil {
+			return PolicyCandidateAuthorityList{}, fmt.Errorf("observed candidate references are invalid")
+		}
+		result.Items = append(result.Items, PolicyCandidateAuthorityView{
+			ID: candidate.ID, Context: templateName, Template: templateName, ProjectRoot: binding.ProjectRoot,
+			ObservingWorkspace: workspace.ProjectRoot, ContextRef: contextRef, TemplateRef: templateRef,
+			ObservingWorkspaceRef: workspaceRef, Effect: candidate.Effect.Clone(), Authority: candidate.Clone(),
+			ContextAuthority: binding, ContextID: candidate.ContextID, TemplateID: binding.TemplateID,
+			ObservingWorkspaceID: candidate.ObservingWorkspaceID, TemplateName: templateName,
+			ObservingProjectRoot: workspace.ProjectRoot,
+		})
+		seen[candidate.ID] = struct{}{}
 	}
 	for index := range attachments {
 		candidate := attachments[index]
@@ -164,6 +213,9 @@ func NewPolicyCandidateAuthorityListWithAttachments(
 		if !contextFound || !workspaceFound || !templateFound || workspace.ContextID != contextID ||
 			candidate.ProjectRoot != workspace.ProjectRoot || candidate.WorkspaceManifestName != templateName {
 			return PolicyCandidateAuthorityList{}, fmt.Errorf("attachment-local candidate does not belong to current final authority")
+		}
+		if _, duplicate := seen[candidate.ID]; duplicate {
+			return PolicyCandidateAuthorityList{}, fmt.Errorf("observed candidate IDs are ambiguous")
 		}
 		contextRef, _ := ContextRef(contextID)
 		templateRef, _ := WorkspaceTemplateRef(binding.TemplateID)
@@ -183,6 +235,7 @@ func NewPolicyCandidateAuthorityListWithAttachments(
 			ContextID: contextID, TemplateID: binding.TemplateID, ObservingWorkspaceID: workspaceID,
 			TemplateName: templateName, ObservingProjectRoot: workspace.ProjectRoot,
 		})
+		seen[candidate.ID] = struct{}{}
 	}
 	sort.Slice(result.Items, func(i, j int) bool { return result.Items[i].ID < result.Items[j].ID })
 	return result, result.Validate()

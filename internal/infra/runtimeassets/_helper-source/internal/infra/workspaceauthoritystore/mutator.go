@@ -68,6 +68,10 @@ type PolicyMemoryActivationAuthority interface {
 	ConfirmPolicyMemoryActive(context.Context, tobari.WorkspaceAuthorityCollection, tobari.ContextID, tobari.PolicyMemoryActivationReceipt) error
 }
 
+type policyCandidateObservationAuthority interface {
+	ListPolicyCandidatesIncludingAttachments(context.Context) (tobari.PolicyCandidateAuthorityList, error)
+}
+
 // FinalAuthoritySettlementAuthority owns the one shared Gateway/principal/OPA
 // settlement beneath the installation lifecycle decision. It receives exact
 // complete previous/next envelopes and one unchanged decision reference; its
@@ -94,6 +98,7 @@ type Mutator struct {
 	bootstrapSource   WorkspaceTemplateBootstrapSourceAuthority
 	researchAuth      FinalContextCredentialAuthority
 	credentialAbsence ContextCredentialAbsenceAuthority
+	candidateRead     policyCandidateObservationAuthority
 	clock             func() time.Time
 	entropy           io.Reader
 
@@ -358,6 +363,12 @@ func NewMutator(
 		mutator.bootstrapSource = bootstrap
 	}
 	return mutator, nil
+}
+
+func (m *Mutator) bindPolicyCandidateObservation(reader policyCandidateObservationAuthority) {
+	if m != nil {
+		m.candidateRead = reader
+	}
 }
 
 func (m *Mutator) CreateWorkspaceTemplate(ctx context.Context, name string, body tobari.WorkspaceTemplateBody) (created tobari.WorkspaceTemplate, resultErr error) {
@@ -918,6 +929,24 @@ func (m *Mutator) applyPolicyCandidate(ctx context.Context, ref string, decision
 		for index := range current.PendingCandidates {
 			if current.PendingCandidates[index].ID == ref {
 				candidateIndex = index
+				break
+			}
+		}
+		if candidateIndex < 0 && m.candidateRead != nil {
+			observed, err := m.candidateRead.ListPolicyCandidatesIncludingAttachments(ctx)
+			if err != nil {
+				return effectPlan{}, err
+			}
+			if !observed.CollectionPresent || observed.CollectionGeneration != current.Generation || observed.CollectionRevision != current.Revision {
+				return effectPlan{}, fmt.Errorf("observed Policy candidate authority changed before mutation")
+			}
+			for _, item := range observed.Items {
+				if item.ID != ref || item.AttachmentAuthority != nil {
+					continue
+				}
+				candidate := item.Authority.Clone()
+				current.PendingCandidates = append(current.PendingCandidates, candidate)
+				candidateIndex = len(current.PendingCandidates) - 1
 				break
 			}
 		}

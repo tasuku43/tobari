@@ -78,6 +78,25 @@ func contextPolicyReservedHost(host string) bool {
 	return false
 }
 
+// validatePolicyMemoryDestinationAuthority accepts the reserved RFC 2606
+// names used by local synthetic Gateway fixtures as observed Policy Memory
+// effects. They remain invalid Template authorities; non-public runtime names
+// such as localhost, .internal, .local, and .test stay rejected here.
+func validatePolicyMemoryDestinationAuthority(a ManifestPolicyAuthority) error {
+	if a.Scheme != "https" && a.Scheme != "http" {
+		return fmt.Errorf("Policy Memory authority scheme is invalid")
+	}
+	if a.Port < 1 || a.Port > 65535 || contextPolicyIPv4Literal(a.Host) || !validNormalizedPolicyHost(a.Host) || !strings.Contains(a.Host, ".") ||
+		(contextPolicyReservedHost(a.Host) && !contextPolicySyntheticExampleHost(a.Host)) {
+		return fmt.Errorf("Policy Memory authority is not an exact external destination")
+	}
+	return nil
+}
+
+func contextPolicySyntheticExampleHost(host string) bool {
+	return host == "example.com" || host == "example.net" || host == "example.org" || strings.HasSuffix(host, ".example")
+}
+
 type ManifestPolicyExactRule struct {
 	Scheme               string `json:"scheme"`
 	Host                 string `json:"host"`

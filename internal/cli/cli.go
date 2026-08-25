@@ -41,6 +41,27 @@ type finalWorkspaceAuthorityAdapter struct {
 	*workspaceauthoritystore.HostLoopbackPolicyAdapter
 }
 
+type finalPolicyAuthorityAdapter struct {
+	*finalWorkspaceAuthorityAdapter
+	*workspaceauthoritystore.FinalPolicyCandidateAdapter
+}
+
+func (a *finalPolicyAuthorityAdapter) ListPolicyCandidatesIncludingAttachments(ctx context.Context) (tobari.PolicyCandidateAuthorityList, error) {
+	return a.FinalPolicyCandidateAdapter.ListPolicyCandidatesIncludingAttachments(ctx)
+}
+
+func (a *finalPolicyAuthorityAdapter) ApplyAttachmentPolicyCandidate(ctx context.Context, ref string, decision tobari.PolicyMemoryDecision) (tobari.AttachmentGrantPublication, bool, error) {
+	return a.FinalPolicyCandidateAdapter.ApplyAttachmentPolicyCandidate(ctx, ref, decision)
+}
+
+func (a *finalPolicyAuthorityAdapter) AllowPolicyCandidateByReference(ctx context.Context, ref string) (tobari.PolicyCandidatePublication, error) {
+	return a.FinalPolicyCandidateAdapter.AllowPolicyCandidateByReference(ctx, ref)
+}
+
+func (a *finalPolicyAuthorityAdapter) DenyPolicyCandidateByReference(ctx context.Context, ref string) (tobari.PolicyCandidatePublication, error) {
+	return a.FinalPolicyCandidateAdapter.DenyPolicyCandidateByReference(ctx, ref)
+}
+
 type finalDefaultPairEntry interface {
 	Observe(context.Context) (tobari.FinalDefaultPairObservation, error)
 	Resolve(context.Context, operation.Intent, *tobari.WorkspaceTemplateBody) (workspaceauthoritycmd.DefaultPairResolution, error)
@@ -201,11 +222,17 @@ func New(lifetime context.Context, in io.Reader, out, errOut io.Writer) *CLI {
 		Store: authorityStore, Mutator: mutator, ContextEntryAdapter: entry,
 		HostLoopbackPolicyAdapter: hostLoopbackPolicy,
 	}
+	finalPolicyAuthority, err := workspaceauthoritystore.NewFinalPolicyCandidateAdapter(authorityStore, runtime, mutator, hostLoopbackPolicy)
+	if err != nil {
+		command.doctor = doctorcmd.New(systemdoctor.New(err))
+		return command
+	}
+	finalPolicyPort := &finalPolicyAuthorityAdapter{finalWorkspaceAuthorityAdapter: finalAuthority, FinalPolicyCandidateAdapter: finalPolicyAuthority}
 	command.authorityStore = authorityStore
 	command.finalTemplates = workspaceauthoritycmd.NewTemplateService(finalAuthority)
 	command.finalContexts = workspaceauthoritycmd.NewContextService(finalAuthority)
 	command.finalWorkspaces = workspaceauthoritycmd.NewWorkspaceService(finalAuthority)
-	command.finalPolicy = workspaceauthoritycmd.NewPolicyMemoryService(finalAuthority)
+	command.finalPolicy = workspaceauthoritycmd.NewPolicyMemoryService(finalPolicyPort)
 	defaultPair, err := workspaceauthoritystore.NewDefaultPairAdapter(authorityStore, runtime)
 	if err != nil {
 		command.doctor = doctorcmd.New(systemdoctor.New(err))
