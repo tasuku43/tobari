@@ -338,7 +338,12 @@ func TestFinalRootPreservesCanonicalWorkspaceEntryRecoveryFault(t *testing.T) {
 	if code := command.RunContext(context.Background(), nil); code != ExitUnavailable {
 		t.Fatalf("entry fault exit=%d stderr=%q", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "workspace_entry_interrupted") || !strings.Contains(stderr.String(), "tobari status") || strings.Contains(stderr.String(), "undeclared_fault_contract") {
+	spec, found := command.catalog.Lookup("status")
+	if !found {
+		t.Fatal("status recovery command is absent from the Catalog")
+	}
+	expectedInvocation := recoveryCommandForProgram(spec.programName(), spec.Path)
+	if !strings.Contains(stderr.String(), "workspace_entry_interrupted") || !evaluatorNextHasInvocation(stderr.String(), expectedInvocation) || strings.Contains(stderr.String(), "undeclared_fault_contract") {
 		t.Fatalf("entry recovery was not preserved: stderr=%q", stderr.String())
 	}
 }
