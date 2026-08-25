@@ -700,9 +700,12 @@ candidate_id_for_effect() {
     'import json,sys
 workspace_id,scheme,host,port,method,path=sys.argv[1:]
 print(next(item["id"] for item in json.load(sys.stdin)["policy_candidates"]
-           if item.get("workspace_id") == workspace_id and item.get("scheme") == scheme
-           and item.get("host") == host and item.get("port") == int(port)
-           and item.get("method") == method and item.get("path") == path))' \
+           if item.get("observing_workspace_id", item.get("workspace_id")) == workspace_id
+           and item.get("effect", item).get("scheme") == scheme
+           and item.get("effect", item).get("host") == host
+           and item.get("effect", item).get("port") == int(port)
+           and item.get("effect", item).get("method") == method
+           and item.get("effect", item).get("path") == path))' \
     "$workspace_id" "$scheme" "$host" "$port" "$method" "$path"
 }
 
@@ -743,11 +746,13 @@ graphql_candidate_id_for_effect() {
     'import json,sys
 workspace_id,scheme,host,port,operation_type,root_field=sys.argv[1:]
 print(next(item["id"] for item in json.load(sys.stdin)["policy_candidates"]
-           if item.get("workspace_id") == workspace_id and item.get("scheme") == scheme
-           and item.get("host") == host and item.get("port") == int(port)
-           and item.get("protocol") == "graphql"
-           and item.get("graphql_operation_type") == operation_type
-           and item.get("graphql_root_field") == root_field))' \
+           if item.get("observing_workspace_id", item.get("workspace_id")) == workspace_id
+           and item.get("effect", item).get("scheme") == scheme
+           and item.get("effect", item).get("host") == host
+           and item.get("effect", item).get("port") == int(port)
+           and item.get("effect", item).get("protocol") == "graphql"
+           and item.get("effect", item).get("graphql_operation_type") == operation_type
+           and item.get("effect", item).get("graphql_root_field") == root_field))' \
     "$workspace_id" "$scheme" "$host" "$port" "$operation_type" "$root_field"
 }
 
