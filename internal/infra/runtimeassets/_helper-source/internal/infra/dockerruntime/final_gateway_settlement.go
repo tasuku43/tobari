@@ -64,6 +64,10 @@ type finalGatewaySettlementCandidate struct {
 	GatewayArtifact    tobari.SemanticDigest              `json:"gateway_artifact_digest"`
 }
 
+func finalAuthBrokerNetworkNames() []string {
+	return []string{"tobari-control", "tobari-egress"}
+}
+
 func (c finalGatewaySettlementCandidate) validate(runtime *Runtime) error {
 	if runtime == nil || c.Plan.Validate() != nil || !imageIDPattern.MatchString(c.GatewayImageID) ||
 		!imageIDPattern.MatchString(c.OPAImageID) || c.Profile.Validate() != nil || c.Compose.Validate() != nil ||
@@ -80,11 +84,18 @@ func (c finalGatewaySettlementCandidate) validate(runtime *Runtime) error {
 		return fmt.Errorf("final Gateway settlement carries reviewed-set identity outside reviewed mode")
 	}
 	if brokerRuntimeEnabled {
-		if c.AuthBrokerImage == "" || !imageIDPattern.MatchString(c.AuthBrokerImageID) || len(c.AuthBrokerNetworks) != 1 || c.AuthBrokerNetworks[0].Name != "tobari-control" {
+		wantNetworks := finalAuthBrokerNetworkNames()
+		if c.AuthBrokerImage == "" || !imageIDPattern.MatchString(c.AuthBrokerImageID) || len(c.AuthBrokerNetworks) != len(wantNetworks) {
 			return fmt.Errorf("final Gateway settlement Auth Broker successor authority is incomplete")
 		}
-		if address, err := netip.ParseAddr(c.AuthBrokerNetworks[0].Address); err != nil || !address.Is4() || !address.IsGlobalUnicast() {
-			return fmt.Errorf("final Gateway settlement Auth Broker topology is invalid")
+		for index, network := range c.AuthBrokerNetworks {
+			if network.Name != wantNetworks[index] {
+				return fmt.Errorf("final Gateway settlement Auth Broker topology is invalid")
+			}
+			address, err := netip.ParseAddr(network.Address)
+			if err != nil || !address.Is4() || !address.IsGlobalUnicast() {
+				return fmt.Errorf("final Gateway settlement Auth Broker topology is invalid")
+			}
 		}
 	} else if c.AuthBrokerImage != "" || c.AuthBrokerImageID != "" || len(c.AuthBrokerNetworks) != 0 {
 		return fmt.Errorf("release final Gateway settlement contains Auth Broker authority")
@@ -496,18 +507,20 @@ func (r *Runtime) prepareFinalGatewaySettlement(
 		if observeErr != nil {
 			return finalGatewaySettlementJournal{}, observeErr
 		}
-		if !missing && broker.NetworkAddresses["tobari-control"] != "" {
-			candidate.AuthBrokerNetworks = []FinalGatewayNetworkAddress{{Name: "tobari-control", Address: broker.NetworkAddresses["tobari-control"]}}
+		if !missing {
+			candidate.AuthBrokerNetworks = componentNetworkRows(broker)
 		} else if stopped, stoppedPresent, stoppedErr := r.readFinalClusterStopped(r.finalClusterStoppedReceiptPath()); stoppedErr != nil {
 			return finalGatewaySettlementJournal{}, stoppedErr
 		} else if stoppedPresent && stopped.AuthBroker != nil {
 			candidate.AuthBrokerNetworks = componentNetworkRows(*stopped.AuthBroker)
 		} else {
-			address, selectErr := r.selectFinalGatewayNetworkAddress(ctx, "tobari-control", "")
-			if selectErr != nil {
-				return finalGatewaySettlementJournal{}, selectErr
+			for _, network := range finalAuthBrokerNetworkNames() {
+				address, selectErr := r.selectFinalGatewayNetworkAddress(ctx, network, "")
+				if selectErr != nil {
+					return finalGatewaySettlementJournal{}, selectErr
+				}
+				candidate.AuthBrokerNetworks = append(candidate.AuthBrokerNetworks, FinalGatewayNetworkAddress{Name: network, Address: address})
 			}
-			candidate.AuthBrokerNetworks = []FinalGatewayNetworkAddress{{Name: "tobari-control", Address: address}}
 		}
 	}
 	opaControl := opa.NetworkAddresses["tobari-control"]
