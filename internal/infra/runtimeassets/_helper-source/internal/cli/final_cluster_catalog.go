@@ -20,11 +20,7 @@ func finalClusterUpSpec() CommandSpec {
 				"The final authority collection is valid and any interrupted same-action cluster activation can be recovered.",
 			},
 			FixedTarget: fixedClusterTarget(),
-			Errors: mutationCommandErrors("cluster up", "cluster status",
-				classifiedCommandError(fault.KindContract, "invalid_cluster_reconciliation_result", false, fault.PhaseVerification, fault.ChangeUnknown, "cluster status", "Inspect final authority and component state."),
-				declaredCommandError(fault.KindUnavailable, "cluster_reconcile_interrupted", false, "cluster status", "Inspect the retained final activation decision."),
-				declaredCommandError(fault.KindInternal, "missing_port", false, "doctor", "Configure the final cluster lifecycle adapter."),
-			),
+			Errors:      finalClusterUpErrors(),
 			Mutation: &MutationContract{
 				TargetKind: tobari.ClusterTargetKind, TargetInputs: []string{},
 				Impact: operation.Impact{Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo},
@@ -32,6 +28,31 @@ func finalClusterUpSpec() CommandSpec {
 		},
 		handler: runFinalClusterUp,
 	}
+}
+
+func finalClusterUpErrors() []CommandError {
+	errors := []CommandError{
+		classifiedCommandError(fault.KindContract, "invalid_cluster_reconciliation_result", false, fault.PhaseVerification, fault.ChangeUnknown, "cluster status", "Inspect final authority and component state."),
+		declaredCommandError(fault.KindUnavailable, "cluster_reconcile_interrupted", false, "cluster status", "Inspect the retained final activation decision."),
+		declaredCommandError(fault.KindInternal, "missing_port", false, "doctor", "Configure the final cluster lifecycle adapter."),
+	}
+	if buildIdentityHasBroker() {
+		errors = append(errors,
+			declaredCommandError(fault.KindUnavailable, "credential_companion_unavailable", true, "cluster status", "Inspect shared authentication-service state before reconciliation."),
+			declaredCommandError(fault.KindUnavailable, "auth_broker_unavailable", true, "cluster status", "Inspect shared-cluster state before another broker reconciliation."),
+			declaredCommandError(fault.KindUnavailable, "auth_broker_request_failed", false, "cluster status", "Inspect partial shared-cluster state before another reconcile."),
+			declaredCommandError(fault.KindContract, "auth_broker_unlock_failed", false, "doctor", "Inspect Auth Broker and root-key provider state."),
+			declaredCommandError(fault.KindUnavailable, "root_key_unavailable", false, "doctor", "Inspect the host root-key provider."),
+			declaredCommandError(fault.KindRejected, "root_key_missing_with_vault", false, "doctor", "Restore the original root key or explicitly remove local authentication state."),
+			declaredCommandError(fault.KindRejected, "root_key_unsafe", false, "doctor", "Repair unsafe root-key or Auth Broker state paths."),
+			declaredCommandError(fault.KindUnavailable, "keychain_denied", false, "doctor", "Inspect trusted-host root-key readiness before cluster reconciliation."),
+			declaredCommandError(fault.KindRejected, "auth_vault_invalid", false, "doctor", "Inspect the final Context vault integrity without printing its contents."),
+			declaredCommandError(fault.KindUnsupported, "auth_vault_version_unsupported", false, "doctor", "Upgrade or repair the unsupported final Context vault."),
+			declaredCommandError(fault.KindRejected, "invalid_provider_manifest", false, "doctor", "Repair the owner-controlled provider manifest collection."),
+			declaredCommandError(fault.KindRejected, "ambiguous_provider_http_binding", false, "doctor", "Remove the overlapping exact provider HTTP binding."),
+		)
+	}
+	return mutationCommandErrors("cluster up", "cluster status", errors...)
 }
 
 func finalClusterStatusSpec() CommandSpec {
