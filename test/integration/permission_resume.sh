@@ -4,7 +4,8 @@
 
 verify_live_permission_observation_snapshot() {
   local expected_allow=$1 policy_input query output _
-  policy_input='{"schema_version":1,"principal":{"cluster":"default","context_id":"'"$default_manifest_id"'","project_id":"'"$work_id"'"},"request":{"authority":{"scheme":"https","host":"mock-upstream","port":8080},"method":"GET","path":{"raw":"/permission-resume","segments":["permission-resume"]},"query":{},"headers":{}},"authorization":{"broker_provider":null}}'
+  # Frozen Gateway v2 retains workspace_manifest_id as a non-authoritative ContextID wire field.
+  policy_input='{"schema_version":1,"principal":{"cluster":"default","context_id":"'"$default_context_id"'","project_id":"'"$work_id"'"},"request":{"authority":{"scheme":"https","host":"mock-upstream","port":8080},"method":"GET","path":{"raw":"/permission-resume","segments":["permission-resume"]},"query":{},"headers":{}},"authorization":{"broker_provider":null}}'
   query='[result | observation := http.send({"method":"post","url":"http://127.0.0.1:8181/v1/data/tobari/http/permission_wait_observation","headers":{"content-type":"application/json"},"body":{"input":'"$policy_input"'}}); observation.status_code == 200; object.get(observation.body, "result", null) != null; result := observation.body.result][0]'
   for _ in $(seq 1 120); do
     output=$(docker exec tobari-opa /opa eval --fail --format raw "$query")
@@ -48,7 +49,7 @@ verify_permission_resume_handoff() {
   run_project test -s /var/lib/tobari/permission-denial.json >/dev/null 2>&1 ||
     fail "eligible ordinary denial did not publish a permission-resume handoff"
   permission_denial=$(run_project cat /var/lib/tobari/permission-denial.json)
-  PERMISSION_DENIAL="$permission_denial" python3 - "$default_manifest_id" "$work_id" <<'PY'
+  PERMISSION_DENIAL="$permission_denial" python3 - "$default_context_id" "$work_id" <<'PY'
 import json
 import os
 import re

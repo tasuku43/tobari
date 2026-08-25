@@ -22,6 +22,7 @@ fi
 set +e
 PATH="$fixture_root/bin:$PATH" \
   TOBARI_TEST_DOCKER_LOG="$docker_log" \
+  TOBARI_INTEGRATION_DOCKER_CONTEXT=fake-integration-context \
   bash scripts/test-integration.sh >"$output" 2>&1
 status=$?
 set -e

@@ -283,7 +283,14 @@ run_authbroker() {
 }
 
 run_integration() {
-  docker version >/dev/null
+  local integration_context=${TOBARI_INTEGRATION_DOCKER_CONTEXT:-${DOCKER_CONTEXT:-}}
+  [[ -n $integration_context && $integration_context != default ]] || {
+    echo "check integration: TOBARI_INTEGRATION_DOCKER_CONTEXT must name an explicit non-default Docker context" >&2
+    return 1
+  }
+  docker --context "$integration_context" version >/dev/null
+  export DOCKER_CONTEXT="$integration_context"
+  export TOBARI_INTEGRATION_DOCKER_CONTEXT="$integration_context"
   ./scripts/test-integration.sh
 }
 

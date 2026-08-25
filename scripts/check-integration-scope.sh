@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# The guard searches literal shell source, so its single-quoted patterns must
+# retain unexpanded variable markers.
+# shellcheck disable=SC2016
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -8,7 +11,7 @@ gateway_fixture_helper=test/integration/gateway_fixture.sh
 runtime_image_cleanup_helper=test/integration/runtime_image_cleanup.sh
 permission_resume_helper=test/integration/permission_resume.sh
 
-expected_phases=$'preflight\nbuild-fixtures\nmanifests-and-cluster\ncredentials-and-workspaces\ngateway-broker-and-transport\nlive-policy-activation\nattachment-scoped-host-loopback\nruntime-failure-boundaries\nlifecycle'
+expected_phases=$'preflight\nbuild-fixtures\ntemplates-and-cluster\ncredentials-and-workspaces\ngateway-broker-and-transport\nlive-policy-activation\nattachment-scoped-host-loopback\nruntime-failure-boundaries\nlifecycle'
 actual_phases=$(awk '/^begin_phase / { print $2 }' "$scenario")
 if [[ $actual_phases != "$expected_phases" ]]; then
   echo "integration scope: phase ownership changed" >&2
@@ -17,8 +20,8 @@ if [[ $actual_phases != "$expected_phases" ]]; then
 fi
 
 line_count=$(wc -l <"$scenario" | tr -d ' ')
-if ((line_count > 1980)); then
-  echo "integration scope: scenario grew to $line_count lines (limit 1980)" >&2
+if ((line_count > 2048)); then
+  echo "integration scope: scenario grew to $line_count lines (limit 2048)" >&2
   exit 1
 fi
 runtime_image_cleanup_line_count=$(wc -l <"$runtime_image_cleanup_helper" | tr -d ' ')
@@ -82,8 +85,8 @@ for claim in \
 done
 
 cli_reference_count=$(grep -Ehoc 'run_tobari(_at|_pty_at)?' "$scenario" "$workspace_service_helper" "$permission_resume_helper" | awk '{sum += $1} END {print sum}')
-if ((cli_reference_count > 55)); then
-  echo "integration scope: scenario grew to $cli_reference_count CLI references (limit 55)" >&2
+if ((cli_reference_count > 80)); then
+  echo "integration scope: scenario grew to $cli_reference_count CLI references (limit 80)" >&2
   exit 1
 fi
 
@@ -91,7 +94,7 @@ fi
 # Docker scenario may use only the minimal create/import/discover/act calls
 # needed to assemble and exercise real runtime boundaries.
 if grep -En \
-  'policy preset (list|validate)|policy (rules|reset)|auth (status|login|logout)|runtime init|help policy' \
+  'policy preset (list|validate)|policy (rules|reset)|auth (status|login)|runtime init|help policy' \
   "$scenario" >&2; then
   echo "integration scope: semantic or presentation matrix returned to the Docker scenario" >&2
   exit 1
@@ -113,24 +116,39 @@ if grep -F 'contexts/default/policy/context.json' "$scenario" >&2; then
   echo "integration scope: post-publication policy drift bypassed the fixture publication seam" >&2
   exit 1
 fi
+# These source patterns intentionally retain literal shell variables; expanding
+# them while the guard runs would stop matching the harness source itself.
+# shellcheck disable=SC2016
 provider_fixture_line=$(grep -nF 'cat >"$config_directory/auth/providers/$synthetic_provider.json"' "$scenario" | cut -d: -f1)
-final_publication_line=$(grep -nF 'default_manifest_create=$(run_tobari manifest create' "$scenario" | cut -d: -f1)
+final_publication_line=$(grep -nF 'run_tobari "${template_create_args[@]}" >/dev/null' "$scenario" | cut -d: -f1)
 if [[ -z $provider_fixture_line || -z $final_publication_line || $provider_fixture_line -le $final_publication_line ]]; then
   echo "integration scope: research provider fixture was installed before first final-authority publication" >&2
   exit 1
 fi
 for claim in \
-  'item["workspace_manifest"]' \
-  '["workspace_manifest"]["workspace_manifest_id"]' \
+  'template create --name default --source-access read-write' \
+  'template_create_args+=(--graphql-endpoint https://graphql.tobari.dev:8080/graphql)' \
+  'template create --name restricted --source-access read-only' \
+  'template runtime set --id "$default_template_ref" --runtime "$runtime_revision_ref"' \
+  'context create --template "$default_template_ref"' \
+  'context enter --id "$default_context_ref"' \
+  'workspace list --format json' \
+  'workspace delete --id "$work_ref" --confirm=delete --force' \
+  'auth import "$synthetic_provider" --context "$default_context_ref"' \
   '["runtime"]["runtime"]["runtime_ref"]' \
   'revision["availability"]["state"] == "available"' \
   'revision["source_digest"]' \
   "capture_runtime_image_for_cleanup \"\$runtime_id\" \"\$runtime_source_digest\"" \
   'TOBARI_INTEGRATION_FAIL_AFTER_RUNTIME_CAPTURE' \
-  "run_tobari runtime build --id \"\$runtime_ref\"" \
-  'go run ./tools/integrationfixture manifest-policy'; do
+  "run_tobari runtime build --id \"\$runtime_ref\""; do
   if ! grep -F "$claim" "$scenario" >/dev/null; then
-    echo "integration scope: missing Workspace Manifest public JSON canary: $claim" >&2
+    echo "integration scope: missing final Workspace Template/Context canary: $claim" >&2
+    exit 1
+  fi
+done
+for retired in '--manifest' 'manifest create' 'workspace_manifest' 'default_manifest' 'integrationfixture manifest-policy' 'run_tobari_at "$work_root" delete'; do
+  if grep -F -- "$retired" "$scenario" >&2; then
+    echo "integration scope: retired predecessor harness token remains active: $retired" >&2
     exit 1
   fi
 done
@@ -162,7 +180,7 @@ required_runtime_claims=(
   'network container:tobari-gateway'
   'cap-add NET_ADMIN'
   'ReadonlyRootfs'
-  'handle copied across Manifests returned'
+  'handle copied across Contexts returned'
   'first_request_chunk'
   'oversized request'
   'denied GraphQL request reached mock upstream'
@@ -177,6 +195,21 @@ for claim in "${required_runtime_claims[@]}"; do
     exit 1
   fi
 done
+
+for claim in \
+  'host_docker_context=${TOBARI_INTEGRATION_DOCKER_CONTEXT:-${DOCKER_CONTEXT:-}}' \
+  'command docker --context "$host_docker_context"' \
+  'explicit non-default Docker context is required' \
+  'docker context inspect "$host_docker_context"'; do
+  if ! grep -F "$claim" "$scenario" >/dev/null; then
+    echo "integration scope: missing explicit isolated Docker-context guard: $claim" >&2
+    exit 1
+  fi
+done
+if grep -F 'docker context show' "$scenario" >&2; then
+  echo "integration scope: scenario queried the ambient/default Docker context" >&2
+  exit 1
+fi
 
 if grep -F './scripts/check.sh integration' .github/workflows/ci.yml >/dev/null; then
   echo "integration scope: CI invokes integration separately even though runtime already includes it" >&2

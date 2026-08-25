@@ -25,6 +25,15 @@ other_root=
 work_id=
 other_id=
 restricted_id=
+work_ref=
+other_ref=
+restricted_ref=
+default_context_ref=
+restricted_context_ref=
+other_context_ref=
+default_context_id=
+restricted_context_id=
+other_context_id=
 work_container=
 other_container=
 restricted_container=
@@ -40,7 +49,11 @@ phase_started=$SECONDS
 host_service_server_pid=
 host_service_attachment_pid=
 host_docker_config=${DOCKER_CONFIG:-$HOME/.docker}
-host_docker_context=${DOCKER_CONTEXT:-$(docker context show)}
+host_docker_context=${TOBARI_INTEGRATION_DOCKER_CONTEXT:-${DOCKER_CONTEXT:-}}
+docker() {
+  [[ -n ${host_docker_context:-} && $host_docker_context != default ]] || { echo "integration: explicit non-default Docker context is required" >&2; return 1; }
+  command docker --context "$host_docker_context" "$@"
+}
 begin_phase() {
   local next_phase=$1
   if [[ -n $current_phase ]]; then
@@ -338,15 +351,15 @@ network_for_id() {
   python3 -c 'import sys; print("tobari-" + sys.argv[1][:13].replace("-", "") + "-net")' "$id"
 }
 
-id_for_root() {
-  local root=$1
-  local manifest=${2:-}
+workspace_field_for_context() {
+  local field=$1
+  local context_id=$2
   python3 -c \
     'import json,sys
-root,manifest=sys.argv[1:]
-print(next(item["workspace_id"] for item in json.load(sys.stdin)["workspaces"]
-           if item["project_root"] == root and (not manifest or item["workspace_manifest"] == manifest)))' \
-    "$root" "$manifest"
+field,context_id=sys.argv[1:]
+print(next(item[field] for item in json.load(sys.stdin)["workspaces"]["items"]
+           if item["context_id"] == context_id))' \
+    "$field" "$context_id"
 }
 
 run_project() {
@@ -450,10 +463,10 @@ run_final_host_loopback_evaluator() {
   work_root=$test_root/user/workspace
   mkdir -p "$work_root"
 
-  run_tobari template create --name default --format json >/dev/null
+  run_tobari template create --name default --source-access read-write --format json >/dev/null
   local template_list template_ref context_create context_ref context_id
   template_list=$(run_tobari template list --format json)
-  template_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["templates"]["items"][0]["template_ref"])' <<<"$template_list")
+  template_ref=$(python3 -c 'import json,sys; print(next(item["template_ref"] for item in json.load(sys.stdin)["templates"]["items"] if item["name"] == sys.argv[1]))' default <<<"$template_list")
   context_create=$(run_tobari_at "$work_root" context create --template "$template_ref" --format json)
   context_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_ref"])' <<<"$context_create")
   context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_id"])' <<<"$context_create")
@@ -751,11 +764,12 @@ cleanup() {
       if [[ -f $test_root/state/tobari/cluster-reconcile.json ]]; then
         run_tobari cluster up >/dev/null 2>&1 || true
       fi
-      run_tobari_at "$work_root" delete --force >/dev/null 2>&1 || true
-			run_tobari_at "$work_root" delete --manifest restricted --force >/dev/null 2>&1 || true
-  if [[ -n $other_root ]]; then
-        run_tobari_at "$other_root" delete --manifest restricted --force >/dev/null 2>&1 || true
-      fi
+      [[ -n ${work_ref:-} ]] && run_tobari workspace delete --id "$work_ref" --confirm=delete --force >/dev/null 2>&1 || true
+      [[ -n ${restricted_ref:-} ]] && run_tobari workspace delete --id "$restricted_ref" --confirm=delete --force >/dev/null 2>&1 || true
+      [[ -n ${other_ref:-} ]] && run_tobari workspace delete --id "$other_ref" --confirm=delete --force >/dev/null 2>&1 || true
+      [[ -n ${default_context_ref:-} ]] && run_tobari context delete --id "$default_context_ref" --confirm=delete >/dev/null 2>&1 || true
+      [[ -n ${restricted_context_ref:-} ]] && run_tobari context delete --id "$restricted_context_ref" --confirm=delete >/dev/null 2>&1 || true
+      [[ -n ${other_context_ref:-} ]] && run_tobari context delete --id "$other_context_ref" --confirm=delete >/dev/null 2>&1 || true
       run_tobari cluster down --purge >/dev/null 2>&1 || true
     fi
     # Keep an exact-name Docker fallback for failures in the lifecycle code
@@ -865,6 +879,10 @@ trap finish EXIT
 begin_phase preflight
 command -v docker >/dev/null || fail "docker is required"
 command -v python3 >/dev/null || fail "python3 is required"
+[[ -n $host_docker_context && $host_docker_context != default ]] ||
+  fail "TOBARI_INTEGRATION_DOCKER_CONTEXT must name an explicit non-default Docker context"
+docker context inspect "$host_docker_context" >/dev/null 2>&1 ||
+  fail "Docker context $host_docker_context is unavailable"
 docker version >/dev/null 2>&1 || fail "Docker Engine is unavailable"
 if [[ $(uname -s) == Darwin ]]; then
   test_keychain_service="io.tobari.integration.$$"
@@ -1008,10 +1026,8 @@ if [[ $host_loopback_only != true ]]; then
     created_dev_runtime_tag=true
   fi
 fi
-begin_phase manifests-and-cluster
-if [[ $host_loopback_only == true ]]; then
-  runtime_selection=standard
-else
+begin_phase templates-and-cluster
+if [[ $host_loopback_only != true ]]; then
   runtime_create=$(run_tobari runtime create --name "$runtime_name" --format json)
   runtime_source_path=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["source_path"])' <<<"$runtime_create")
   runtime_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["runtime_ref"])' <<<"$runtime_create")
@@ -1036,19 +1052,37 @@ PY
     'import json,sys; revision=json.load(sys.stdin)["runtime"]["runtime"]["revisions"][-1]; assert revision["availability"]["state"] == "available"; assert revision["source_digest"]; assert revision["revision_ref"]; assert all(key not in revision for key in ("image", "image_digest", "snapshot_path", "revision"))' \
     <<<"$runtime_build"
   runtime_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["id"])' <<<"$runtime_build")
+  runtime_revision_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["revisions"][-1]["revision_ref"])' <<<"$runtime_build")
   runtime_source_digest=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["revisions"][-1]["source_digest"])' <<<"$runtime_build")
   capture_runtime_image_for_cleanup "$runtime_id" "$runtime_source_digest"
   if [[ ${TOBARI_INTEGRATION_FAIL_AFTER_RUNTIME_CAPTURE:-false} == true ]]; then
     fail "injected failure after managed Runtime cleanup authority capture"
   fi
-  runtime_selection="$runtime_name@1"
 fi
-default_manifest_create=$(run_tobari manifest create --name default --runtime "$runtime_selection" \
-  --mode guided --source-access read-write --native-readiness enabled --format json)
-default_manifest_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["workspace_manifest"]["workspace_manifest_id"])' \
-  <<<"$default_manifest_create")
-run_tobari manifest create --name restricted --runtime "$runtime_selection" \
-  --mode guided --source-access read-only --native-readiness enabled --format json >/dev/null
+template_create_args=(template create --name default --source-access read-write --format json)
+if [[ $host_loopback_only != true ]]; then
+  template_create_args+=(--graphql-endpoint https://graphql.tobari.dev:8080/graphql)
+fi
+run_tobari "${template_create_args[@]}" >/dev/null
+template_list=$(run_tobari template list --format json)
+default_template_ref=$(python3 -c 'import json,sys; print(next(item["template_ref"] for item in json.load(sys.stdin)["templates"]["items"] if item["name"] == "default"))' <<<"$template_list")
+run_tobari template default set --id "$default_template_ref" --format json >/dev/null
+if [[ $host_loopback_only != true ]]; then
+  run_tobari template create --name restricted --source-access read-only --format json >/dev/null
+  template_list=$(run_tobari template list --format json)
+  restricted_template_ref=$(python3 -c 'import json,sys; print(next(item["template_ref"] for item in json.load(sys.stdin)["templates"]["items"] if item["name"] == "restricted"))' <<<"$template_list")
+  run_tobari template runtime set --id "$default_template_ref" --runtime "$runtime_revision_ref" --format json >/dev/null
+  run_tobari template runtime set --id "$restricted_template_ref" --runtime "$runtime_revision_ref" --format json >/dev/null
+  default_context_create=$(run_tobari_at "$work_root" context create --template "$default_template_ref" --format json)
+  restricted_context_create=$(run_tobari_at "$work_root" context create --template "$restricted_template_ref" --format json)
+  other_context_create=$(run_tobari_at "$other_root" context create --template "$restricted_template_ref" --format json)
+  default_context_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_ref"])' <<<"$default_context_create")
+  restricted_context_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_ref"])' <<<"$restricted_context_create")
+  other_context_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_ref"])' <<<"$other_context_create")
+  default_context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_id"])' <<<"$default_context_create")
+  restricted_context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_id"])' <<<"$restricted_context_create")
+  other_context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_id"])' <<<"$other_context_create")
+fi
 # Install research provider fixtures only after first final-authority publication.
 if [[ $host_loopback_only != true ]]; then
   mkdir -p "$config_directory/auth/providers"
@@ -1079,10 +1113,6 @@ if [[ $host_loopback_only != true ]]; then
 JSON
   chmod 0600 "$config_directory/auth/providers/$synthetic_provider.json"
 fi
-go run ./tools/integrationfixture manifest-policy \
-  --config-directory "$config_directory" \
-  --manifest default \
-  --graphql-endpoint https://graphql.tobari.dev:8080/graphql
 start_cluster >/dev/null
 
 # These assertions intentionally inspect the assembled runtime rather than
@@ -1138,17 +1168,22 @@ gateway_projection_mode=$(docker exec tobari-gateway stat -c '%a:%u' /run/tobari
 
 begin_phase credentials-and-workspaces
 printf '%s' "$synthetic_default_secret" | \
-  run_tobari auth import "$synthetic_provider" --manifest default --format json >/dev/null
+  run_tobari auth import "$synthetic_provider" --context "$default_context_ref" --format json >/dev/null
 printf '%s' "$synthetic_restricted_secret" | \
-  run_tobari auth import "$synthetic_provider" --manifest restricted --format json >/dev/null
+  run_tobari auth import "$synthetic_provider" --context "$restricted_context_ref" --format json >/dev/null
+printf '%s' "$synthetic_restricted_secret" | \
+  run_tobari auth import "$synthetic_provider" --context "$other_context_ref" --format json >/dev/null
 container_work_root="/var/lib/tobari/${work_root#"$test_root/user/"}"
-enter_tobari_at "$work_root"
-enter_tobari_at "$work_root" --manifest restricted
-enter_tobari_at "$other_root" --manifest restricted
-list_json=$(run_tobari_at "$work_root" list --format json)
-work_id=$(id_for_root "$work_root" default <<<"$list_json")
-restricted_id=$(id_for_root "$work_root" restricted <<<"$list_json")
-other_id=$(id_for_root "$other_root" restricted <<<"$list_json")
+enter_tobari_at "$work_root" context enter --id "$default_context_ref"
+enter_tobari_at "$work_root" context enter --id "$restricted_context_ref"
+enter_tobari_at "$other_root" context enter --id "$other_context_ref"
+list_json=$(run_tobari workspace list --format json)
+work_ref=$(workspace_field_for_context workspace_ref "$default_context_id" <<<"$list_json")
+restricted_ref=$(workspace_field_for_context workspace_ref "$restricted_context_id" <<<"$list_json")
+other_ref=$(workspace_field_for_context workspace_ref "$other_context_id" <<<"$list_json")
+work_id=$(workspace_field_for_context workspace_id "$default_context_id" <<<"$list_json")
+restricted_id=$(workspace_field_for_context workspace_id "$restricted_context_id" <<<"$list_json")
+other_id=$(workspace_field_for_context workspace_id "$other_context_id" <<<"$list_json")
 work_container=$(container_for_id "$work_id")
 restricted_container=$(container_for_id "$restricted_id")
 work_network=$(network_for_id "$work_id")
@@ -1182,7 +1217,7 @@ if len(workspace_addresses) != len(set(workspace_addresses)):
 if set(addresses) & set(workspace_addresses):
     raise SystemExit("project principal registry overlapped Workspace and Gateway endpoints")
 if {item["context"] for item in bindings} != {"default", "restricted"}:
-    raise SystemExit(f"predecessor registry Manifest bindings are incomplete: {bindings!r}")
+    raise SystemExit(f"Context bindings are incomplete: {bindings!r}")
 PY
 
 work_gateway_ip=$(python3 - "$config_directory/principal-registry/principals.json" "$work_id" <<'PY'
@@ -1230,53 +1265,53 @@ workspace_default_route=$(docker run --rm --network "container:$work_container" 
   --cap-drop ALL --security-opt no-new-privileges:true --entrypoint ip "$gateway_image_id" -4 route show default)
 assert_contains "$workspace_default_route" "default via $work_gateway_ip" "Workspace guarded default route"
 
-work_status=$(run_tobari_at "$work_root" status --format json)
-work_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["workspace_home"])' <<<"$work_status")
-restricted_status=$(run_tobari_at "$work_root" status --manifest restricted --format json)
-restricted_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["workspace_home"])' <<<"$restricted_status")
-other_status=$(run_tobari_at "$other_root" status --manifest restricted --format json)
-other_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["workspace_home"])' <<<"$other_status")
-[[ $work_home != "$restricted_home" && $work_home != "$other_home" && $restricted_home != "$other_home" ]] || fail "Workspace Manifest-bound Workspaces share a home directory"
-printf 'shared-project-files\n' >"$work_root/manifest-sharing-canary"
-assert_contains "$(run_restricted_project cat "$container_work_root/manifest-sharing-canary")" "shared-project-files" "same-root cross-Manifest project file sharing"
+work_status=$(run_tobari workspace status --id "$work_ref" --format json)
+work_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["workspace"]["workspace_home"])' <<<"$work_status")
+restricted_status=$(run_tobari workspace status --id "$restricted_ref" --format json)
+restricted_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["workspace"]["workspace_home"])' <<<"$restricted_status")
+other_status=$(run_tobari workspace status --id "$other_ref" --format json)
+other_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["workspace"]["workspace_home"])' <<<"$other_status")
+[[ $work_home != "$restricted_home" && $work_home != "$other_home" && $restricted_home != "$other_home" ]] || fail "Context-bound Workspaces share a home directory"
+printf 'shared-project-files\n' >"$work_root/context-sharing-canary"
+assert_contains "$(run_restricted_project cat "$container_work_root/context-sharing-canary")" "shared-project-files" "same-root cross-Context project file sharing"
 
-# Source access applies only to the selected live source bind. Both Workspace Manifests
+# Source access applies only to the selected live source bind. Both Templates
 # observe the same host tree, while Workspace home and tmpfs remain writable.
 [[ $(docker inspect --format \
   "{{range .Mounts}}{{if eq .Destination \"$container_work_root\"}}{{.RW}}{{end}}{{end}}" \
-  "$work_container") == true ]] || fail "read-write Manifest source bind is not writable"
+  "$work_container") == true ]] || fail "read-write Template source bind is not writable"
 [[ $(docker inspect --format \
   "{{range .Mounts}}{{if eq .Destination \"$container_work_root\"}}{{.RW}}{{end}}{{end}}" \
-  "$restricted_container") == false ]] || fail "read-only Manifest source bind is writable"
+  "$restricted_container") == false ]] || fail "read-only Template source bind is writable"
 if docker inspect --format '{{range .Mounts}}{{println .Destination .RW}}{{end}}' "$restricted_container" | \
   awk -v root="$container_work_root" '$1 == root && $2 == "true" {found=1} END {exit found ? 0 : 1}'; then
-  fail "read-only Manifest exposes a writable alias for the selected source"
+  fail "read-only Template exposes a writable alias for the selected source"
 fi
-assert_contains "$(run_restricted_project cat "$container_work_root/manifest-sharing-canary")" \
-  "shared-project-files" "read-only Manifest source read"
+assert_contains "$(run_restricted_project cat "$container_work_root/context-sharing-canary")" \
+  "shared-project-files" "read-only Template source read"
 for mutation in \
-  "printf changed > '$container_work_root/manifest-sharing-canary'" \
+  "printf changed > '$container_work_root/context-sharing-canary'" \
   "printf created > '$container_work_root/read-only-create'" \
-  "rm '$container_work_root/manifest-sharing-canary'" \
-  "mv '$container_work_root/manifest-sharing-canary' '$container_work_root/read-only-rename'" \
-  "chmod 0600 '$container_work_root/manifest-sharing-canary'" \
+  "rm '$container_work_root/context-sharing-canary'" \
+  "mv '$container_work_root/context-sharing-canary' '$container_work_root/read-only-rename'" \
+  "chmod 0600 '$container_work_root/context-sharing-canary'" \
   "git -C '$container_work_root' init"; do
   if run_restricted_project sh -c "$mutation" >/dev/null 2>&1; then
-    fail "read-only Manifest allowed source mutation: $mutation"
+    fail "read-only Template allowed source mutation: $mutation"
   fi
 done
 run_project sh -c "printf observed > '$container_work_root/read-write-observation'"
 assert_contains "$(run_restricted_project cat "$container_work_root/read-write-observation")" \
-  "observed" "read-only Manifest observation of read-write Manifest change"
+  "observed" "read-only Template observation of read-write Template change"
 printf 'host-observed\n' >"$work_root/host-observation"
 assert_contains "$(run_restricted_project cat "$container_work_root/host-observation")" \
-  "host-observed" "read-only Manifest observation of host change"
+  "host-observed" "read-only Template observation of host change"
 run_restricted_project sh -c 'printf home-write > /var/lib/tobari/source-access-home'
 run_restricted_project sh -c 'printf tmp-write > /tmp/source-access-tmp'
 assert_contains "$(run_restricted_project cat /var/lib/tobari/source-access-home)" \
-  "home-write" "read-only Manifest writable home"
+  "home-write" "read-only Template writable home"
 assert_contains "$(run_restricted_project cat /tmp/source-access-tmp)" \
-  "tmp-write" "read-only Manifest writable tmpfs"
+  "tmp-write" "read-only Template writable tmpfs"
 
 assert_resource_bounds "$work_container"
 assert_resource_bounds "$restricted_container"
@@ -1296,9 +1331,9 @@ for projected_handle in "$work_auth_handle" "$restricted_auth_handle" "$other_au
     fail "Workspace did not receive one versioned opaque authentication handle"
 done
 [[ $work_auth_handle != "$restricted_auth_handle" ]] ||
-  fail "same-root Workspaces in different Manifests received the same handle"
+  fail "same-root Workspaces in different Contexts received the same handle"
 [[ $restricted_auth_handle != "$other_auth_handle" ]] ||
-  fail "different projects in one Manifest received the same handle"
+  fail "different projects in one Context received the same handle"
 [[ $(docker inspect --format '{{len .NetworkSettings.Networks}}' tobari-auth-broker) == 2 ]] ||
   fail "Auth Broker did not retain exactly control and bounded refresh egress networks"
 for project_network in "$work_network" "$restricted_network" "$other_network"; do
@@ -1329,7 +1364,7 @@ if docker exec "$other_container" test -e /var/lib/tobari/tool-auth-state; then
   fail "tool authentication state leaked to another project"
 fi
 if docker exec "$restricted_container" test -e /var/lib/tobari/tool-auth-state; then
-  fail "tool authentication state leaked across Manifests on the same root"
+  fail "tool authentication state leaked across Contexts on the same root"
 fi
 
 if run_project test -e "$container_work_root/credentials"; then
@@ -1407,7 +1442,7 @@ work_auth_handle=$(run_project printenv SYNTHETIC_TOKEN)
 restricted_auth_handle=$(run_restricted_project printenv SYNTHETIC_TOKEN)
 other_auth_handle=$(run_other_project printenv SYNTHETIC_TOKEN)
 
-default_vault="$test_root/state/tobari/auth/contexts/$default_manifest_id/vault.enc"
+default_vault="$test_root/state/tobari/auth/contexts/$default_context_id/vault.enc"
 python3 - "$default_vault" "$(id -u)" <<'PY'
 import os
 import stat
@@ -1415,10 +1450,10 @@ import sys
 
 info = os.lstat(sys.argv[1])
 if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
-    raise SystemExit("default Manifest vault is not a regular non-symlink file")
+    raise SystemExit("default Context vault is not a regular non-symlink file")
 if info.st_uid != int(sys.argv[2]) or stat.S_IMODE(info.st_mode) != 0o600:
     raise SystemExit(
-        f"default Manifest vault ownership/mode is {info.st_uid}:{stat.S_IMODE(info.st_mode):03o}"
+        f"default Context vault ownership/mode is {info.st_uid}:{stat.S_IMODE(info.st_mode):03o}"
     )
 PY
 
@@ -1454,10 +1489,10 @@ default_broker_response=$(run_project sh -c \
   'curl -fsS -H "X-Synthetic-Auth: $SYNTHETIC_TOKEN" https://api.synthetic.example/brokered-default')
 default_broker_digest=$(printf 'Bearer %s' "$synthetic_default_secret" | shasum -a 256 | awk '{print $1}')
 assert_contains "$default_broker_response" '"authorization_present":true' \
-  "default Manifest brokered upstream response"
+  "default Context brokered upstream response"
 assert_contains "$default_broker_response" \
   "\"authorization_sha256\":\"$default_broker_digest\"" \
-  "default Manifest brokered credential digest"
+  "default Context brokered credential digest"
 [[ $(docker inspect --format '{{.Id}}' tobari-opa) == "$opa_before_policy_activation" ]] ||
   fail "live policy activation recreated OPA"
 
@@ -1467,7 +1502,7 @@ restricted_broker_denial=$(run_restricted_project sh -c \
   'curl -sS -w "\n%{http_code}" -H "X-Synthetic-Auth: $SYNTHETIC_TOKEN" https://api.synthetic.example/brokered-restricted')
 restricted_broker_denial_status=${restricted_broker_denial##*$'\n'}
 [[ $restricted_broker_denial_status == 403 ]] ||
-  fail "restricted Manifest brokered request returned $restricted_broker_denial_status instead of policy denial"
+  fail "restricted Context brokered request returned $restricted_broker_denial_status instead of policy denial"
 if docker logs "$auth_mock_name" 2>&1 | grep -F '"/brokered-restricted"' >/dev/null; then
   fail "restricted policy-denied brokered request reached the synthetic upstream"
 fi
@@ -1483,9 +1518,9 @@ restricted_broker_response=$(run_restricted_project sh -c \
 restricted_broker_digest=$(printf 'Bearer %s' "$synthetic_restricted_secret" | shasum -a 256 | awk '{print $1}')
 assert_contains "$restricted_broker_response" \
   "\"authorization_sha256\":\"$restricted_broker_digest\"" \
-  "restricted Manifest brokered credential digest"
+  "restricted Context brokered credential digest"
 if [[ $restricted_broker_response == *"$default_broker_digest"* ]]; then
-  fail "one shared Auth Broker crossed Manifest credential authority"
+  fail "one shared Auth Broker crossed Context credential authority"
 fi
 
 copied_context_result=$(printf '%s\n' "$work_auth_handle" | \
@@ -1493,7 +1528,7 @@ copied_context_result=$(printf '%s\n' "$work_auth_handle" | \
     'IFS= read -r copied; curl -sS -w "\n%{http_code}" -H "X-Synthetic-Auth: $copied" https://api.synthetic.example/copied-context')
 copied_context_status=${copied_context_result##*$'\n'}
 [[ $copied_context_status == 403 ]] ||
-  fail "handle copied across Manifests returned $copied_context_status instead of 403"
+  fail "handle copied across Contexts returned $copied_context_status instead of 403"
 
 copied_project_result=$(printf '%s\n' "$restricted_auth_handle" | \
   docker exec -i "$other_container" sh -c \
@@ -1622,7 +1657,7 @@ document = json.load(sys.stdin)
 endpoint = {"scheme": "https", "host": "graphql.tobari.dev", "port": 8080, "path": "/graphql"}
 if endpoint not in document["contexts"][context_id]["graphql_endpoints"]:
     raise SystemExit("declared GraphQL endpoint is absent from the live Gateway projection")
-' "$default_manifest_id" <<<"$graphql_projection"
+' "$default_context_id" <<<"$graphql_projection"
 graphql_body='{"query":"mutation Change { closeIssue updateIssue }","variables":{"value":"runtime-canary"}}'
 graphql_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -H 'content-type: application/json' --data-binary "$graphql_body" \
@@ -1927,13 +1962,11 @@ set +e
 run_tobari cluster down >/dev/null 2>&1
 down_with_projects_status=$?
 set -e
-[[ $down_with_projects_status != 0 ]] || fail "cluster down succeeded while Manifest-bound Workspaces remained"
+[[ $down_with_projects_status != 0 ]] || fail "cluster down succeeded while Context-bound Workspaces remained"
 [[ $(docker inspect --format '{{.State.Running}}' tobari-gateway) == true ]] || fail "refused cluster down stopped the shared Gateway"
-docker rm -f "$work_container" >/dev/null
-docker network disconnect -f "$work_network" tobari-gateway >/dev/null 2>&1 || true
-docker network rm "$work_network" >/dev/null 2>&1 || true
-run_tobari_at "$work_root" delete --force >/dev/null
+run_tobari workspace delete --id "$work_ref" --confirm=delete --force >/dev/null
 work_id=
+work_ref=
 work_container=
 [[ ! -e "$work_home/tool-auth-state" ]] || fail "delete did not remove tool authentication state"
 python3 - "$config_directory/principal-registry/principals.json" "$restricted_id" "$other_id" <<'PY'
@@ -1945,11 +1978,13 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 if {item["project_id"] for item in bindings} != set(sys.argv[2:]):
     raise SystemExit(f"deleted project principal was not removed: {bindings!r}")
 PY
-run_tobari_at "$work_root" delete --manifest restricted --force >/dev/null
+run_tobari workspace delete --id "$restricted_ref" --confirm=delete --force >/dev/null
 restricted_id=
+restricted_ref=
 restricted_container=
-run_tobari_at "$other_root" delete --manifest restricted --force >/dev/null
+run_tobari workspace delete --id "$other_ref" --confirm=delete --force >/dev/null
 other_id=
+other_ref=
 other_container=
 python3 - "$config_directory/principal-registry/principals.json" <<'PY'
 import json
@@ -1961,6 +1996,15 @@ if bindings:
     raise SystemExit(f"project principal registry was not cleared: {bindings!r}")
 PY
 
+run_tobari auth logout "$synthetic_provider" --context "$default_context_ref" --format json >/dev/null
+run_tobari auth logout "$synthetic_provider" --context "$restricted_context_ref" --format json >/dev/null
+run_tobari auth logout "$synthetic_provider" --context "$other_context_ref" --format json >/dev/null
+run_tobari context delete --id "$default_context_ref" --confirm=delete >/dev/null
+run_tobari context delete --id "$restricted_context_ref" --confirm=delete >/dev/null
+run_tobari context delete --id "$other_context_ref" --confirm=delete >/dev/null
+default_context_ref=
+restricted_context_ref=
+other_context_ref=
 run_tobari cluster down --purge >/dev/null
 run_tobari cluster down >/dev/null
 
