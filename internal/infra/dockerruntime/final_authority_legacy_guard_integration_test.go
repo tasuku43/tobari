@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -28,6 +29,16 @@ func (g *blockingLegacyAuthorityGuard) ConfirmNoPreReleaseLegacyAuthority(ctx co
 		g.afterFirst()
 	}
 	return err
+}
+
+type countingLifecycleAuthority struct {
+	runtime *dockerruntime.Runtime
+	calls   int
+}
+
+func (a *countingLifecycleAuthority) WithLifecycleLock(ctx context.Context, action func(context.Context) error) error {
+	a.calls++
+	return a.runtime.WithLifecycleLock(ctx, action)
 }
 
 func TestConfigOnlyLegacyResearchAuthorityBlocksFreshFinalStoreWithoutMutation(t *testing.T) {
@@ -271,17 +282,29 @@ func TestConfigOnlyLegacyAuthorityRejectsTemplateCreateBeforeLifecycleLock(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := workspaceauthoritystore.NewFinalOnly(filepath.Join(stateHome, "tobari", "workspace-authority"), runtime)
+	guard := &blockingLegacyAuthorityGuard{runtime: runtime}
+	store, err := workspaceauthoritystore.NewFinalOnly(filepath.Join(stateHome, "tobari", "workspace-authority"), guard)
 	if err != nil {
 		t.Fatal(err)
 	}
-	mutator, err := workspaceauthoritystore.NewMutator(context.Background(), store, runtime, runtime, runtime, runtime, runtime)
+	lifecycle := &countingLifecycleAuthority{runtime: runtime}
+	mutator, err := workspaceauthoritystore.NewMutator(context.Background(), store, lifecycle, runtime, runtime, runtime, runtime)
 	if err != nil {
 		t.Fatal(err)
+	}
+	body := legacyGuardTemplateBody()
+	if err := body.Validate(); err != nil {
+		t.Fatalf("legacy Template fixture is invalid: %v", err)
 	}
 	before := legacyGuardTree(t, root)
-	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "standard", tobari.WorkspaceTemplateBody{}); err == nil || !errors.Is(err, tobari.ErrPreReleaseLegacyAuthority) {
+	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "standard", body); err == nil || !errors.Is(err, tobari.ErrPreReleaseLegacyAuthority) {
 		t.Fatalf("legacy Template create error = %v", err)
+	}
+	if guard.calls != 1 {
+		t.Fatalf("legacy guard calls = %d, want one pre-lock observation", guard.calls)
+	}
+	if lifecycle.calls != 0 {
+		t.Fatalf("legacy Template create entered lifecycle lock %d times", lifecycle.calls)
 	}
 	after := legacyGuardTree(t, root)
 	if !reflect.DeepEqual(before, after) {
@@ -295,6 +318,28 @@ func TestConfigOnlyLegacyAuthorityRejectsTemplateCreateBeforeLifecycleLock(t *te
 		if _, err := os.Lstat(forbidden); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("legacy Template create created %q: %v", forbidden, err)
 		}
+	}
+}
+
+func legacyGuardTemplateBody() tobari.WorkspaceTemplateBody {
+	return tobari.WorkspaceTemplateBody{
+		Boundary: tobari.WorkspaceTemplateBoundary{
+			SourceAccess:       tobari.ManifestSourceAccessReadWrite,
+			DestinationCeiling: tobari.ManifestPolicyDestinationCeiling{Mode: "exact", Authorities: []tobari.ManifestPolicyAuthority{{Scheme: "https", Host: "api.example.dev", Port: 443}}},
+			MethodPolicy:       tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview, Overrides: []tobari.ManifestMethodOverride{{Method: "GET", Decision: tobari.ManifestMethodAllow}}},
+		},
+		Policy: tobari.WorkspaceTemplatePolicyBody{
+			AgentProfile: tobari.DefaultProfile, Mode: tobari.ManifestPolicyModeGuided, NativeReadiness: tobari.ManifestNativeReadinessEnabled,
+			BaselineGrants: []tobari.ManifestPolicyExactRule{}, BaselineTemplates: []tobari.ManifestPolicyPathTemplateRule{},
+			MCPBaselineGrants: []tobari.ManifestPolicyMCPRule{}, BaselineDenies: []tobari.ManifestPolicyExactRule{},
+			GraphQLEndpoints: []tobari.ManifestPolicyExactRule{}, MCPEndpoints: []tobari.ManifestPolicyExactRule{},
+		},
+		EntryDefaults: tobari.WorkspaceTemplateEntryDefaults{Runtime: tobari.RuntimeBinding{
+			RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName,
+			Revision: "sha256:" + strings.Repeat("f", 64), Ordinal: 1, Image: tobari.OfficialRuntimeBase,
+		}},
+		SessionDefaults:  tobari.WorkspaceTemplateSessionDefaults{ShellEnvironment: []tobari.ManifestShellEnvironmentSetting{}},
+		CreationDefaults: tobari.WorkspaceTemplateCreationDefaults{},
 	}
 }
 
