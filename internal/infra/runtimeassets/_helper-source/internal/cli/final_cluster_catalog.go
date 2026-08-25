@@ -38,9 +38,12 @@ func finalClusterUpErrors() []CommandError {
 	}
 	if buildIdentityHasBroker() {
 		errors = append(errors,
+			declaredCommandError(fault.KindUnavailable, "auth_broker_image_unavailable", true, "doctor", "Inspect Docker image availability before reconciling the shared cluster."),
+			declaredCommandError(fault.KindContract, "auth_broker_image_incompatible", false, "doctor", "Inspect the Auth Broker image API, digest, entrypoint, user, and architecture contract."),
 			declaredCommandError(fault.KindUnavailable, "credential_companion_unavailable", true, "cluster status", "Inspect shared authentication-service state before reconciliation."),
 			declaredCommandError(fault.KindUnavailable, "auth_broker_unavailable", true, "cluster status", "Inspect shared-cluster state before another broker reconciliation."),
 			declaredCommandError(fault.KindUnavailable, "auth_broker_request_failed", false, "cluster status", "Inspect partial shared-cluster state before another reconcile."),
+			declaredCommandError(fault.KindUnavailable, "auth_broker_locked", false, "cluster status", "Inspect the locked Auth Broker state before another reconciliation."),
 			declaredCommandError(fault.KindContract, "auth_broker_unlock_failed", false, "doctor", "Inspect Auth Broker and root-key provider state."),
 			declaredCommandError(fault.KindUnavailable, "root_key_unavailable", false, "doctor", "Inspect the host root-key provider."),
 			declaredCommandError(fault.KindRejected, "root_key_missing_with_vault", false, "doctor", "Restore the original root key or explicitly remove local authentication state."),
