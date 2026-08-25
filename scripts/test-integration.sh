@@ -455,6 +455,13 @@ start_cluster() {
     return 0
   fi
   printf '%s\n' "$output" >&2
+  if [[ $host_loopback_only != true ]] && docker inspect tobari-auth-broker >/dev/null 2>&1; then
+    echo "integration diagnostics: Auth Broker companion status" >&2
+    docker exec tobari-auth-broker python3 -m authbroker.control companion_status 2>&1 |
+      sed -E 's/"epoch_id":"[^"]*"/"epoch_id":"[redacted]"/g' >&2 || true
+    echo "integration diagnostics: Auth Broker processes" >&2
+    docker top tobari-auth-broker -eo pid,args >&2 || true
+  fi
   return 1
 }
 
