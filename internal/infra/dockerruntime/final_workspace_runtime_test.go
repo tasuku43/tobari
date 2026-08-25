@@ -255,6 +255,7 @@ func TestFinalWorkspaceContainerUsesDurableWorkspaceIPAndGatewayDNS(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	spec.AuthEnvironment = []string{"SYNTHETIC_TOKEN=tobari-h1_" + strings.Repeat("A", 43)}
 	container, network, _ := tobari.ProjectResourceNames(string(plan.Workspace.ID))
 	if err := runtime.ensureFinalWorkspaceContainer(context.Background(), plan, spec, container, network, plan.Network.WorkspaceIP, plan.Network.GatewayIP); err != nil {
 		t.Fatal(err)
@@ -269,6 +270,9 @@ func TestFinalWorkspaceContainerUsesDurableWorkspaceIPAndGatewayDNS(t *testing.T
 		if !found {
 			t.Fatalf("create args omit exact topology %v: %v", exact, runner.createArgs)
 		}
+	}
+	if !slices.Contains(runner.createArgs, "SYNTHETIC_TOKEN=tobari-h1_"+strings.Repeat("A", 43)) {
+		t.Fatalf("create args omit exact research authentication projection: %v", runner.createArgs)
 	}
 }
 

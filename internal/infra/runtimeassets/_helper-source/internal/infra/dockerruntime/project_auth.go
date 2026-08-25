@@ -131,6 +131,18 @@ func (r *Runtime) reconcileProjectAuth(
 	ctx context.Context,
 	instance tobari.Workspace,
 ) (projectAuthProjection, error) {
+	return r.reconcileProjectAuthAtHome(ctx, instance, r.projectHomePath(instance.ID))
+}
+
+// reconcileProjectAuthAtHome keeps the Broker projection decision identical
+// for the predecessor runtime and the final Workspace runtime while allowing
+// each owner to bind projected files to its own exact home path. The final
+// authority runtime does not have a predecessor instances directory.
+func (r *Runtime) reconcileProjectAuthAtHome(
+	ctx context.Context,
+	instance tobari.Workspace,
+	homePath string,
+) (projectAuthProjection, error) {
 	if err := instance.Validate(); err != nil {
 		return projectAuthProjection{}, err
 	}
@@ -256,7 +268,7 @@ func (r *Runtime) reconcileProjectAuth(
 	sort.Slice(desired.Providers, func(left, right int) bool {
 		return desired.Providers[left].Provider < desired.Providers[right].Provider
 	})
-	if err := r.reconcileProjectAuthFiles(instance, desired.Files, desired.JSONMerges, desired.Providers); err != nil {
+	if err := r.reconcileProjectAuthFilesAtHome(instance, homePath, desired.Files, desired.JSONMerges, desired.Providers); err != nil {
 		return projectAuthProjection{}, err
 	}
 	return desired, nil
@@ -278,11 +290,21 @@ func (r *Runtime) reconcileProjectAuthFiles(
 	desiredJSONMerges []projectAuthJSONMerge,
 	providers []projectAuthProviderBinding,
 ) error {
+	return r.reconcileProjectAuthFilesAtHome(instance, r.projectHomePath(instance.ID), desired, desiredJSONMerges, providers)
+}
+
+func (r *Runtime) reconcileProjectAuthFilesAtHome(
+	instance tobari.Workspace,
+	homePath string,
+	desired []projectAuthFile,
+	desiredJSONMerges []projectAuthJSONMerge,
+	providers []projectAuthProviderBinding,
+) error {
 	registry, err := r.readProjectAuthRegistry(instance.ID)
 	if err != nil {
 		return err
 	}
-	home, err := os.OpenRoot(r.projectHomePath(instance.ID))
+	home, err := os.OpenRoot(homePath)
 	if err != nil {
 		return fmt.Errorf("open Workspace home for authentication projection: %w", err)
 	}

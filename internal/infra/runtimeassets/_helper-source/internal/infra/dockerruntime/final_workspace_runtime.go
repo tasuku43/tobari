@@ -54,6 +54,11 @@ type finalWorkspaceRuntimeSpec struct {
 	Network          tobari.WorkspaceRuntimeNetworkAuthority  `json:"network_authority"`
 	Resources        []string                                 `json:"resources"`
 	LifetimeCommand  []string                                 `json:"lifetime_command"`
+	// AuthEnvironment is an effect-time research projection. It is deliberately
+	// absent from the final runtime authority digest: the Broker issues a fresh
+	// opaque handle only after the reviewed entry plan is durable and before the
+	// container effect. Release builds leave this field empty.
+	AuthEnvironment []string `json:"-"`
 }
 
 type finalWorkspaceEntryRecord struct {
@@ -547,6 +552,31 @@ func (r *Runtime) finalWorkspaceProfileDigest(profile string) (tobari.SemanticDi
 	return tobari.SemanticDigest(digest), err
 }
 
+func (r *Runtime) reconcileFinalWorkspaceAuth(ctx context.Context, plan tobari.WorkspaceEntryReconciliationPlan, spec finalWorkspaceRuntimeSpec) (projectAuthProjection, error) {
+	if _, err := os.Lstat(r.authProviderProjectionPath()); errors.Is(err, os.ErrNotExist) {
+		return projectAuthProjection{Environment: []string{}, Files: []projectAuthFile{}, JSONMerges: []projectAuthJSONMerge{}, Providers: []projectAuthProviderBinding{}}, nil
+	} else if err != nil {
+		return projectAuthProjection{}, fmt.Errorf("inspect final Workspace authentication projection: %w", err)
+	}
+	instance := tobari.Workspace{
+		SchemaVersion:         tobari.WorkspaceStateSchemaVersion,
+		ID:                    string(plan.Workspace.ID),
+		Root:                  plan.Workspace.ProjectRoot,
+		WorkspaceManifestID:   string(plan.Workspace.ContextID),
+		WorkspaceManifestName: tobari.DefaultManifestName,
+		Profile:               tobari.DefaultProfile,
+		Image:                 spec.ImageSelector,
+		CreationApplied: tobari.WorkspaceCreationApplied{
+			CreationDefaultsRevision: string(plan.Workspace.CreationDefaults),
+			AppliedAt:                time.Unix(1, 0).UTC(),
+		},
+	}
+	if err := instance.Validate(); err != nil {
+		return projectAuthProjection{}, fmt.Errorf("final Workspace authentication owner: %w", err)
+	}
+	return r.reconcileProjectAuthAtHome(ctx, instance, spec.WorkspaceHome)
+}
+
 func (r *Runtime) finalWorkspaceGitConfig(ctx context.Context, setting *tobari.ManifestGitIdentitySetting, root string) ([]byte, error) {
 	var identity *projectGitIdentity
 	if setting != nil && setting.Source != tobari.ManifestGitIdentityDefault {
@@ -648,6 +678,11 @@ func (r *Runtime) ReconcileWorkspaceEntry(ctx context.Context, plan tobari.Works
 		if err := r.prepareFinalWorkspaceFiles(plan, spec, gitConfig); err != nil {
 			return err
 		}
+		authProjection, err := r.reconcileFinalWorkspaceAuth(ctx, plan, spec)
+		if err != nil {
+			return err
+		}
+		spec.AuthEnvironment = append([]string(nil), authProjection.Environment...)
 		containerID, err := r.reconcileFinalWorkspaceDocker(ctx, plan, spec)
 		if err != nil {
 			return err
@@ -1065,6 +1100,9 @@ func (r *Runtime) ensureFinalWorkspaceContainer(ctx context.Context, plan tobari
 		"--label", projectSpecLabel + "=" + string(plan.Applied.ResolvedSpec),
 	}
 	args = append(args, projectResourceDockerArgs()...)
+	for _, environment := range spec.AuthEnvironment {
+		args = append(args, "--env", environment)
+	}
 	args = append(args, spec.ImageID)
 	args = append(args, projectLifetimeCommand()...)
 	if output, err := r.runner.Output(ctx, args, os.Environ()); err != nil {

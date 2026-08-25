@@ -801,13 +801,14 @@ data source: it cannot supply an ID, policy rule, Runtime binding, principal,
 session, or credential.
 
 The fixed inventory is explicit rather than a directory walk. Predecessor
-Context/Workspace roots and journals, auth-projects, cluster reconciliation,
-and migration roots are legacy-only. Projection, principal, auth, Workspace
-profile/home, Host Loopback, interactive-attachment, and service-exposure roots
-are checked for absence only before first final publication because their final
-owners may create them later. Each later owner validates its own exact schema;
-the presence guard does not. WP03 Runtime catalog/material/lifecycle roots are
-not legacy Workspace authority and remain available across the cut.
+Context/Workspace roots and journals, cluster reconciliation, and migration
+roots are legacy-only. Projection, principal, auth (including the lazily
+created research Workspace-auth registry), Workspace profile/home, Host
+Loopback, interactive-attachment, and service-exposure roots are checked for
+absence only before first final publication because their final owners may
+create them later. Each later owner validates its own exact schema; the
+presence guard does not. WP03 Runtime catalog/material/lifecycle roots are not
+legacy Workspace authority and remain available across the cut.
 
 Legacy, unsafe, partial, or changing presence returns one typed reset-and-
 recreate fault before state-directory, lock, final-envelope, Docker, OPA,

@@ -18,14 +18,14 @@ type preReleaseLegacyAuthorityInventory struct {
 // WP03 remains valid final authority and is not predecessor Workspace state.
 // The second set is reused by final adapters, so only a clean first envelope
 // may establish their lineage; their owning adapters validate exact schemas
-// after initialization.
+// after initialization. The research Workspace authentication registry is
+// created lazily by final Workspace entry, not by initial cluster bootstrap.
 func (r *Runtime) preReleaseLegacyAuthorityPaths() preReleaseLegacyAuthorityInventory {
 	return preReleaseLegacyAuthorityInventory{
 		legacyOnly: []string{
 			r.contextsDirectory(),
 			r.rootsDirectory(),
 			r.instancesDirectory(),
-			filepath.Join(r.stateDirectory, "auth", "projects"),
 			r.statePath(),
 			r.projectJournalPath(),
 			r.clusterJournalPath(),
@@ -36,6 +36,7 @@ func (r *Runtime) preReleaseLegacyAuthorityPaths() preReleaseLegacyAuthorityInve
 			r.aggregateRoot(),
 			r.principalRegistryDirectory(),
 			filepath.Join(r.stateDirectory, "auth"),
+			filepath.Join(r.stateDirectory, "auth", "projects"),
 			filepath.Join(r.configDirectory, "auth"),
 			filepath.Join(r.dataDirectory, "profiles"),
 			r.hostLoopbackDirectory(),
