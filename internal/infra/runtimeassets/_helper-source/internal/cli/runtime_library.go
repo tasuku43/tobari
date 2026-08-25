@@ -401,12 +401,8 @@ func renderRuntimeReport(path string, result tobari.RuntimeReport, format succes
 	if result.Built {
 		writeContextCardValue(&output, color, "Build", "revision created · no Workspace Template changed", styleAccent)
 	}
-	if path == "runtime build" {
-		if len(manifest.Revisions) != 0 {
-			head := manifest.Revisions[len(manifest.Revisions)-1]
-			selection := fmt.Sprintf("%s@%d", manifest.Name, head.Ordinal)
-			writeContextCardValue(&output, color, "Next", ProgramName+" manifest runtime set --runtime "+safeExternalText(selection), styleAccent)
-		}
+	if path == "runtime build" && (result.Built || result.NoChange) && len(manifest.Revisions) != 0 {
+		writeContextCardValue(&output, color, "Next", ProgramName+" template list", styleAccent)
 	}
 	return []byte(output.String()), nil
 }

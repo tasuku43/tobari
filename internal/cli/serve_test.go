@@ -70,6 +70,12 @@ func TestServeCatalogDeclaresClosedPublicSurface(t *testing.T) {
 	if len(spec.Agent.Inputs) != 1 || spec.Agent.Inputs[0].Name != "--no-open" {
 		t.Fatalf("serve inputs = %#v", spec.Agent.Inputs)
 	}
+	if len(spec.Agent.Prerequisites) != 1 ||
+		strings.Contains(spec.Agent.Prerequisites[0], "Workspace Manifest") ||
+		!strings.Contains(spec.Agent.Prerequisites[0], "Workspace Template") ||
+		!strings.Contains(spec.Agent.Prerequisites[0], "Context Policy Memory") {
+		t.Fatalf("serve prerequisite vocabulary = %#v", spec.Agent.Prerequisites)
+	}
 }
 
 func TestServePreservesComposedSnapshotReadFaults(t *testing.T) {

@@ -2183,7 +2183,7 @@ func policyClusterReadinessErrors() []CommandError {
 		declaredCommandError(fault.KindUnavailable, "cluster_status_failed", false, "cluster status", "Inspect the shared cluster before using policy data."),
 		declaredCommandError(fault.KindUnavailable, "cluster_not_ready", false, "cluster up", "Reconcile the shared cluster explicitly."),
 		declaredCommandError(fault.KindInternal, "manifest_read_failed", false, "context list", "Inspect final Context authority before using policy data."),
-		declaredCommandError(fault.KindRejected, "manifest_mismatch", false, "cluster up", "Reconcile the shared cluster's all-Workspace Manifest projection."),
+		declaredCommandError(fault.KindRejected, "manifest_mismatch", false, "cluster up", "Reconcile the shared cluster's Context policy projection."),
 	}
 }
 

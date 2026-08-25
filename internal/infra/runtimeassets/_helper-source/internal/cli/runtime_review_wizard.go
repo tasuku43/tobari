@@ -132,7 +132,7 @@ func chooseRuntimeBuild(ctx context.Context, c *CLI) (string, error) {
 			details: details,
 			information: []string{
 				"Changed source creates one immutable revision; unchanged source creates none.",
-				"No Workspace Manifest Runtime binding will change.",
+				"No Workspace Template Runtime binding will change.",
 			},
 			prompt: "Action",
 			options: []configurationWizardOption{
@@ -181,7 +181,7 @@ func confirmRuntimeBuildRecovery(ctx context.Context, c *CLI, recovery tobari.Ru
 		},
 		information: []string{
 			"Re-observe and resume only the retained journal authority.",
-			"No Workspace Manifest, Workspace ID, home, or applied receipt is removed.",
+			"No Workspace Template, Context, Workspace, home, or AppliedEntry is removed.",
 		},
 		prompt: "Action",
 		options: []configurationWizardOption{
@@ -214,7 +214,7 @@ func confirmRuntimeDeleteRecovery(ctx context.Context, c *CLI, runtime tobari.Ru
 		},
 		information: []string{
 			"Resume only the exact retained whole-Runtime deletion journal.",
-			"Source, snapshots, and history continue forward to deletion; Workspace Manifests, Workspaces, IDs, homes, and applied receipts remain preserved.",
+			"Source, snapshots, and history continue forward to deletion; Workspace Templates, Contexts, Workspaces, IDs, homes, and AppliedEntries remain preserved.",
 		},
 		prompt: "Action",
 		options: []configurationWizardOption{
@@ -256,7 +256,7 @@ func chooseRuntimeCreateBase(ctx context.Context, c *CLI, targetName string) (st
 		information: []string{
 			"Copy one current editable source tree without building it.",
 			"Revisions, history, and lineage are not copied.",
-			"The new Runtime is standalone and no Workspace Manifest binding changes.",
+			"The new Runtime is standalone and no Workspace Template binding changes.",
 		},
 		prompt: "Source Base", options: options, initial: 0,
 	})

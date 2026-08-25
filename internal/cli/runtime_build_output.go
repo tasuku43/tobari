@@ -99,16 +99,16 @@ func (o *runtimeBuildOutput) WriteFailureSummary() {
 			_, _ = fmt.Fprintf(o.out, "  The candidate image %s may remain locally; Tobari did not remove it.\n\n", escapeTSVCell(o.metadata.CandidateImage))
 		}
 	case tobari.RuntimeBuildSelectionUncertain:
-		_, _ = io.WriteString(o.out, "State:\n  Runtime promotion could not be confirmed; inspect the selected Workspace Manifest before retrying.\n\n")
+		_, _ = io.WriteString(o.out, "State:\n  Runtime promotion could not be confirmed; review current Runtime authority before retrying.\n\n")
 	case tobari.RuntimeBuildSelectionPromoted:
-		_, _ = io.WriteString(o.out, "State:\n  The runtime image was promoted, but the final Workspace Manifest report failed.\n\n")
+		_, _ = io.WriteString(o.out, "State:\n  The Runtime image was promoted, but the final Runtime report failed.\n\n")
 	}
 
 	_, _ = io.WriteString(o.out, "Next:\n")
 	if o.metadata.Selection == tobari.RuntimeBuildSelectionUnchanged {
 		_, _ = fmt.Fprintf(o.out, "  Fix the Dockerfile or Docker problem, then run:\n  %s\n", invocationForPath("runtime build"))
 	} else {
-		_, _ = fmt.Fprintf(o.out, "  Inspect the selected Workspace Manifest with:\n  %s\n", invocationForPath("manifest show"))
+		_, _ = fmt.Fprintf(o.out, "  Review current Runtime authority with:\n  %s\n", invocationForPath("review runtimes"))
 	}
 }
 
@@ -252,9 +252,9 @@ func runtimeBuildStageLabel(stage tobari.RuntimeBuildStage) string {
 	case tobari.RuntimeBuildStageInspect:
 		return "Inspect built image identity"
 	case tobari.RuntimeBuildStagePromote:
-		return "Promote runtime image to default Workspace Manifest"
+		return "Publish Runtime revision"
 	case tobari.RuntimeBuildStageReport:
-		return "Read promoted Workspace Manifest state"
+		return "Read Runtime lifecycle state"
 	default:
 		return "Runtime build"
 	}

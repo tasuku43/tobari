@@ -46,6 +46,124 @@ func TestRuntimeLifecycleCommandsPublishOnlySemanticRevisionProjection(t *testin
 	}
 }
 
+func TestRuntimePublicSurfaceUsesFinalAuthorityAndOpaqueNext(t *testing.T) {
+	for _, path := range []string{"runtime list", "runtime show", "runtime create", "runtime history", "review runtimes", "runtime build", "runtime restore", "runtime delete", "runtime prune dry-run", "runtime prune apply"} {
+		spec, found := DefaultCatalog().Lookup(path)
+		if !found {
+			t.Fatalf("Runtime Catalog path %q is absent", path)
+		}
+		encoded, err := json.Marshal(spec)
+		if err != nil {
+			t.Fatalf("marshal Runtime Catalog path %q: %v", path, err)
+		}
+		assertNoRetiredManifestPublicLanguage(t, "Catalog "+path, string(encoded))
+	}
+
+	manifest := readyRuntimeManifest()
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.runtime = runtimecmd.New(&runtimeCatalogCLI{
+		manifest:     manifest,
+		list:         runtimeReviewList(manifest),
+		buildCreates: true,
+	})
+	if code := command.RunContext(context.Background(), []string{"runtime", "build", "--id", manifest.ID}); code != ExitOK {
+		t.Fatalf("runtime build code = %d, stderr = %q", code, stderr.String())
+	}
+	output := stdout.String()
+	if !strings.Contains(output, invocationForPath("template list")) {
+		t.Fatalf("runtime build Next did not use Template discovery: %q", output)
+	}
+	if !strings.Contains(output, tobari.RuntimeRevisionRef(manifest.ID, manifest.Revisions[0].Revision)) {
+		t.Fatalf("runtime build omitted its opaque revision reference: %q", output)
+	}
+	for _, retired := range []string{"Workspace Manifest", "manifest show", "manifest runtime set", "--manifest"} {
+		if strings.Contains(output, retired) {
+			t.Fatalf("runtime build output retains retired language %q: %q", retired, output)
+		}
+	}
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, "Next") && strings.Contains(line, manifest.Name+"@1") {
+			t.Fatalf("runtime build Next reconstructed a name@ordinal selector: %q", line)
+		}
+	}
+}
+
+func TestRuntimeBuildFailureGuidanceUsesFinalRuntimeReconciliation(t *testing.T) {
+	manifest := readyRuntimeManifest()
+	for _, selection := range []tobari.RuntimeBuildSelectionState{
+		tobari.RuntimeBuildSelectionUncertain,
+		tobari.RuntimeBuildSelectionPromoted,
+	} {
+		t.Run(string(selection), func(t *testing.T) {
+			var output bytes.Buffer
+			diagnostics := newRuntimeBuildOutput(&output, false)
+			diagnostics.Report(tobari.RuntimeBuildProgress{
+				Stage:                 tobari.RuntimeBuildStageReport,
+				Status:                tobari.RuntimeBuildProgressFailed,
+				WorkspaceManifestName: "default",
+				Dockerfile:            "/config/runtimes/frontend/Dockerfile",
+				PreviousImage:         manifest.Revisions[0].Image,
+				CandidateImage:        manifest.Revisions[0].Image,
+				Selection:             selection,
+			})
+			diagnostics.WriteFailureSummary()
+			text := output.String()
+			if !strings.Contains(text, invocationForPath("review runtimes")) {
+				t.Fatalf("failure guidance lacks Runtime reconciliation: %q", text)
+			}
+			for _, retired := range []string{"Workspace Manifest", "manifest show", "manifest runtime set", "--manifest"} {
+				if strings.Contains(text, retired) {
+					t.Fatalf("failure guidance retains retired language %q: %q", retired, text)
+				}
+			}
+		})
+	}
+}
+
+func TestRuntimeRecoveryWizardsUseFinalAuthorityVocabulary(t *testing.T) {
+	manifest := readyRuntimeManifest()
+	for _, test := range []struct {
+		name   string
+		invoke func(*CLI) (bool, error)
+	}{
+		{
+			name: "build",
+			invoke: func(command *CLI) (bool, error) {
+				return confirmRuntimeBuildRecovery(context.Background(), command, tobari.RuntimeBuildRecovery{
+					RuntimeID: manifest.ID, RuntimeRef: tobari.RuntimeRef(manifest.ID), Name: manifest.Name,
+					Kind: tobari.RuntimeBuildRecoveryPublication,
+				})
+			},
+		},
+		{
+			name: "delete",
+			invoke: func(command *CLI) (bool, error) {
+				return confirmRuntimeDeleteRecovery(context.Background(), command, tobari.RuntimeSummaryFrom(manifest))
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			command := newCLI(strings.NewReader("\n"), &stdout, &stderr, DefaultCatalog(), nil)
+			command.config = &terminalContextConfigurationWizard{style: false}
+			confirmed, err := test.invoke(command)
+			if err != nil || !confirmed {
+				t.Fatalf("recovery review = %t/%v, stderr = %q", confirmed, err, stderr.String())
+			}
+			text := stderr.String()
+			for _, retired := range []string{"Workspace Manifest", "manifest show", "manifest runtime set", "--manifest"} {
+				if strings.Contains(text, retired) {
+					t.Fatalf("recovery review retains retired language %q: %q", retired, text)
+				}
+			}
+			if !strings.Contains(text, "Workspace Template") || !strings.Contains(text, "Context") {
+				t.Fatalf("recovery review omitted final authority wording: %q", text)
+			}
+		})
+	}
+}
+
 func TestRuntimeLifecycleHumanOutputNeverLeaksInfrastructureIdentity(t *testing.T) {
 	manifest := readyRuntimeManifest()
 	commands := [][]string{

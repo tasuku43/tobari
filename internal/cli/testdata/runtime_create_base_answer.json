@@ -23,7 +23,7 @@
     "build history is not copied",
     "Revisions, history, and lineage are not copied",
     "standalone",
-    "no Workspace Manifest binding changes"
+    "no Workspace Template binding changes"
   ],
   "chooser_unsupported_inferences": [
     "head frontend@2",

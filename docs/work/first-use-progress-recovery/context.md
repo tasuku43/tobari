@@ -89,6 +89,28 @@ first-use review and cannot reach a safe Workspace.
   runtimes` remains the exact human discovery seam for restore/build choices.
 - Authentication bytes remain opaque to Tobari standard first use.
 
+## Bounded executable-surface corrective evidence (2026-08-25)
+
+- This corrective reuses the active WP10 packet and starts from exact final-
+  authority HEAD `4f7f11825ca27d8adb512291a0f5fd385ec6abd7` (parent
+  `a3a549e9f525eb6166c6357f0539f1ed7865bd39`); it adds no packet or public
+  concept.
+- The research-tag reproduction was `go test -tags='tobari_dev
+  tobari_research' ./internal/cli -run TestPublicVocabulary -count=1`, which
+  identified reachable retired Manifest language in the research Catalog.
+- The bounded correction keeps Runtime revision references opaque, sends
+  successful Runtime build text to the existing `template list` discovery
+  path, sends uncertain or promoted post-effect failures to `review runtimes`,
+  and updates active Runtime and research `serve` wording to Template,
+  Context, Workspace, and Policy Memory authority.
+- The unchanged `manifest_changed` schema-1 field remains legacy JSON only;
+  dormant predecessor handlers and their private state vocabulary are outside
+  this corrective.
+- Standard and research focused CLI tests, the relevant race test, the helper
+  source byte check, and `git diff --check` pass. Repository gate failures are
+  tracked separately when they originate in the pre-existing packet hygiene
+  guard.
+
 ## Compatibility and schemas
 
 - Pre-public clean break: no Manifest alias, migration, or dual reader.

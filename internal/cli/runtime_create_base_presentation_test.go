@@ -17,7 +17,7 @@ import (
 
 const (
 	runtimeCreateBaseFixtureSHA256 = "8d77153c950b130d13c94a1895c747f650b9de0882939d60a589609a47e9fc0c"
-	runtimeCreateBaseAnswerSHA256  = "7aa98fd5f5fa1566368081abc9f5031b498a6a6269f92f475d030bf8961ce811"
+	runtimeCreateBaseAnswerSHA256  = "d565f85b7473100f1b4f33169f530bf28b2df1a79a2c7d0aab53e351410abc17"
 )
 
 type runtimeCreateBaseFixture struct {
