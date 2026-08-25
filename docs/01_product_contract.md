@@ -359,7 +359,7 @@ The public commands are:
 | `policy reset --id <policy-rule-ref> [--format text|json]` | act | write | Remove one exact current remembered decision and activate the resulting Policy Memory |
 | `template list [--format text|json]` | discover | read | Return the exhaustive final Workspace Template collection |
 | `template show [--name <name>] [--format text|json]` | discover | read | Return one final Template and its exact current immutable revision |
-| `template create --name <name> [--format text|json]` | act | create | Create one fresh Template from the reviewed built-in standard body |
+| `template create --name <name> [--source-access read-only\|read-write] [--graphql-endpoint <https-url>] [--format text|json]` | act | create | Create one fresh Template from the reviewed standard body with immutable source access and an optional bounded exact GraphQL endpoint |
 | `template copy --from <template-revision-ref> --name <name> [--format text|json]` | act | create | Create one independent Template from one exact retained revision |
 | `template default set --id <template-ref> [--format text|json]` | act | write | Select the default Workspace Template |
 | `template delete --id <template-ref> --confirm=delete [--format text|json]` | act | write | Delete one unused Workspace Template |
@@ -716,9 +716,14 @@ review runs through `tobari review permissions` in a separate host terminal.
   complete valid setting group. Partial input fails before mutation. The action
   revalidates the referenced Template under the lifecycle lock, so mutable name
   or default-selection changes cannot retarget the write.
-- `template create --name NAME` creates one fresh Template from the reviewed
-  built-in standard body. `template copy --from <template-revision-ref> --name
-  NAME` is the distinct one-time copy initializer. Copy revalidates the exact
+- `template create --name NAME [--source-access read-only|read-write]
+  [--graphql-endpoint <https-url>]` creates one fresh Template from the
+  reviewed standard body. Source access defaults to `read-write` and is fixed
+  in the immutable Boundary. The optional GraphQL value must be one exact
+  HTTPS URL with an explicit port and path; it becomes the existing bounded
+  POST endpoint rule and remains subject to the Template destination and
+  method ceilings. `template copy --from <template-revision-ref> --name NAME`
+  is the distinct one-time copy initializer. Copy revalidates the exact
   retained revision and copies no Context, Policy Memory, Workspace, home,
   authentication, attachment, applied/failure/observed state, default
   selection, or lineage. Neither action reconciles Docker or the cluster.

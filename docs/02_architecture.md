@@ -347,7 +347,11 @@ and atomically publishes one validated complete envelope. A bounded
 predecessor-presence guard may classify only path/type/owner facts; it never
 decodes or adopts the private predecessor serialization.
 
-Template creation is a fixed-target create. Template copy consumes one exact
+Template creation is a fixed-target create. It starts from the reviewed
+standard complete body and may bind the existing read-only/read-write source
+access choice plus one exact bounded HTTPS GraphQL endpoint at creation. The
+endpoint is stored as the existing POST policy rule and remains under the
+Boundary's destination and method ceilings. Template copy consumes one exact
 `workspace-template-revision` reference and issues a fresh identity at
 generation 1 with no lineage. Template writes consume one
 `workspace-template` reference; Runtime binding additionally consumes one

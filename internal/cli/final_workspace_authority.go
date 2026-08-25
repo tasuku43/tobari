@@ -11,16 +11,18 @@ import (
 )
 
 type finalTemplateProjection struct {
-	TemplateRef        string `json:"template_ref,omitempty"`
-	CurrentRevisionRef string `json:"current_revision_ref,omitempty"`
-	TemplateID         string `json:"workspace_template_id"`
-	Name               string `json:"name"`
-	Generation         uint64 `json:"generation"`
-	Revision           string `json:"revision"`
-	RuntimeID          string `json:"runtime_id"`
-	RuntimeRevision    string `json:"runtime_revision"`
-	PolicySliceDigest  string `json:"policy_slice_digest,omitempty"`
-	EntrySliceDigest   string `json:"entry_slice_digest,omitempty"`
+	TemplateRef        string                           `json:"template_ref,omitempty"`
+	CurrentRevisionRef string                           `json:"current_revision_ref,omitempty"`
+	TemplateID         string                           `json:"workspace_template_id"`
+	Name               string                           `json:"name"`
+	Generation         uint64                           `json:"generation"`
+	Revision           string                           `json:"revision"`
+	RuntimeID          string                           `json:"runtime_id"`
+	RuntimeRevision    string                           `json:"runtime_revision"`
+	SourceAccess       string                           `json:"source_access"`
+	GraphQLEndpoints   []tobari.ManifestPolicyExactRule `json:"graphql_endpoints"`
+	PolicySliceDigest  string                           `json:"policy_slice_digest,omitempty"`
+	EntrySliceDigest   string                           `json:"entry_slice_digest,omitempty"`
 }
 
 type finalContextProjection struct {
@@ -80,11 +82,29 @@ func projectTemplate(view interface{ Validate() error }) error { return view.Val
 
 func finalTemplateFrom(viewTemplate tobari.WorkspaceTemplate, templateRef, revisionRef string, exposeRevisionRef bool) finalTemplateProjection {
 	revision := viewTemplate.Current
-	result := finalTemplateProjection{TemplateRef: templateRef, TemplateID: string(viewTemplate.ID), Name: viewTemplate.Name, Generation: revision.Generation, Revision: string(revision.Revision), RuntimeID: revision.Slices.RuntimeID, RuntimeRevision: string(revision.Slices.RuntimeRevision), PolicySliceDigest: string(revision.Slices.PolicySliceDigest), EntrySliceDigest: string(revision.Slices.EntrySliceDigest)}
+	result := finalTemplateProjection{TemplateRef: templateRef, TemplateID: string(viewTemplate.ID), Name: viewTemplate.Name, Generation: revision.Generation, Revision: string(revision.Revision), RuntimeID: revision.Slices.RuntimeID, RuntimeRevision: string(revision.Slices.RuntimeRevision), SourceAccess: string(revision.Body.Boundary.SourceAccess), GraphQLEndpoints: append([]tobari.ManifestPolicyExactRule{}, revision.Body.Policy.GraphQLEndpoints...), PolicySliceDigest: string(revision.Slices.PolicySliceDigest), EntrySliceDigest: string(revision.Slices.EntrySliceDigest)}
 	if exposeRevisionRef {
 		result.CurrentRevisionRef = revisionRef
 	}
 	return result
+}
+
+func finalTemplateGraphQLEndpointText(endpoints []tobari.ManifestPolicyExactRule) string {
+	if len(endpoints) == 0 {
+		return "none"
+	}
+	values := make([]string, len(endpoints))
+	for index, endpoint := range endpoints {
+		values[index] = safeExternalText(fmt.Sprintf("%s://%s:%d%s", endpoint.Scheme, endpoint.Host, endpoint.Port, endpoint.Path))
+	}
+	return strings.Join(values, ", ")
+}
+
+func finalTemplateText(value finalTemplateProjection, includeReferences bool) []byte {
+	if includeReferences {
+		return []byte(fmt.Sprintf("Template %s\nReference %s\nRevision %s\nSource access %s\nGraphQL endpoints %s\n", safeExternalText(value.Name), value.TemplateRef, value.CurrentRevisionRef, value.SourceAccess, finalTemplateGraphQLEndpointText(value.GraphQLEndpoints)))
+	}
+	return []byte(fmt.Sprintf("Template %s\nGeneration %d\nRevision %s\nSource access %s\nGraphQL endpoints %s\n", safeExternalText(value.Name), value.Generation, value.Revision, value.SourceAccess, finalTemplateGraphQLEndpointText(value.GraphQLEndpoints)))
 }
 
 func finalContextFrom(snapshot tobari.ContextAuthoritySnapshot, contextRef string) (finalContextProjection, error) {
@@ -179,7 +199,7 @@ func runFinalTemplateList(ctx context.Context, c *CLI, command CommandSpec, _ op
 		items[i] = finalTemplateFrom(item.Template, item.TemplateRef, item.CurrentRevisionRef, false)
 		items[i].PolicySliceDigest = ""
 		items[i].EntrySliceDigest = ""
-		fmt.Fprintf(&text, "%s  %s  generation %d\n", item.TemplateRef, safeExternalText(item.Template.Name), item.Template.Current.Generation)
+		fmt.Fprintf(&text, "%s  %s  generation %d  source %s\n", item.TemplateRef, safeExternalText(item.Template.Name), item.Template.Current.Generation, item.Template.Current.Body.Boundary.SourceAccess)
 	}
 	output, err := finalAuthorityOutput(command.Path, "templates", map[string]any{"items": items}, format, []byte(text.String()))
 	if err != nil {
@@ -201,7 +221,7 @@ func runFinalTemplateShow(ctx context.Context, c *CLI, command CommandSpec, _ op
 		return code
 	}
 	value := finalTemplateFrom(result.Template, result.TemplateRef, result.CurrentRevisionRef, true)
-	text := []byte(fmt.Sprintf("Template %s\nReference %s\nRevision %s\n", safeExternalText(value.Name), value.TemplateRef, value.CurrentRevisionRef))
+	text := finalTemplateText(value, true)
 	output, err := finalAuthorityOutput(command.Path, "template", value, format, text)
 	if err != nil {
 		return c.fail(ctx, err)
@@ -216,6 +236,9 @@ func runFinalTemplateCreate(ctx context.Context, c *CLI, command CommandSpec, in
 	body, err := c.reviewedStandardTemplateBody(ctx)
 	if err != nil {
 		return c.fail(ctx, err)
+	}
+	if err := applyTemplateCreateInputs(&body, inputs); err != nil {
+		return c.failUsage(ctx, "invalid_arguments", "template create options are invalid: "+err.Error()+"; usage: "+command.Usage(), "help "+command.Path, "Correct the creation options.")
 	}
 	intent.Target = operation.TargetRef{Kind: tobari.WorkspaceTemplateCatalogTargetKind, ParentID: tobari.WorkspaceTemplateCatalogTargetID}
 	intent.Impact = command.Agent.Mutation.Impact
@@ -245,11 +268,30 @@ func (c *CLI) emitFinalTemplateMutation(ctx context.Context, command CommandSpec
 		return code
 	}
 	value := finalTemplateFrom(template, "", "", false)
-	output, err := finalAuthorityOutput(command.Path, "template", value, format, []byte(fmt.Sprintf("Template %s\nGeneration %d\nRevision %s\n", safeExternalText(template.Name), template.Current.Generation, template.Current.Revision)))
+	output, err := finalAuthorityOutput(command.Path, "template", value, format, finalTemplateText(value, false))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
 	return c.emitMutationResult(ctx, command, output)
+}
+
+func applyTemplateCreateInputs(body *tobari.WorkspaceTemplateBody, inputs ParsedInputs) error {
+	if body == nil {
+		return fmt.Errorf("Template body is unavailable")
+	}
+	sourceAccess := inputs.One("--source-access")
+	if sourceAccess == "" {
+		sourceAccess = string(tobari.ManifestSourceAccessReadWrite)
+	}
+	body.Boundary.SourceAccess = tobari.ManifestSourceAccess(sourceAccess)
+	if inputs.Provided("--graphql-endpoint") {
+		endpoint, err := tobari.ParseBoundedGraphQLEndpoint(inputs.One("--graphql-endpoint"))
+		if err != nil {
+			return err
+		}
+		body.Policy.GraphQLEndpoints = append(body.Policy.GraphQLEndpoints, endpoint)
+	}
+	return body.Validate()
 }
 
 func runFinalTemplateDefaultSet(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {

@@ -957,8 +957,12 @@ is nonretryable and points to read-only reconciliation.
 
 ### Final resource mutations
 
-- `template create --name NAME` is one fixed-target create from the reviewed
-  built-in body. It starts no Docker operation.
+- `template create --name NAME [--source-access read-only|read-write]
+  [--graphql-endpoint <https-url>]` is one fixed-target create from the
+  reviewed standard body. Source access is an immutable Boundary choice;
+  the optional endpoint is parsed as one exact HTTPS URL with an explicit
+  port/path and then checked by the existing destination and method ceilings
+  before publication. It starts no Docker operation.
 - `template copy --from <template-revision-ref> --name NAME` revalidates the
   exact retained immutable revision and creates a fresh TemplateID at
   generation 1. It copies no Context, Policy Memory, Workspace, home,

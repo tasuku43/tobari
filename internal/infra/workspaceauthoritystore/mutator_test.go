@@ -616,6 +616,31 @@ func TestWorkspaceTemplateRuntimeChangeResolvesExactRevisionUnderLifecycleBefore
 	}
 }
 
+func TestMutatorRejectsInvalidTemplateCreationBeforePublication(t *testing.T) {
+	store, mutator, lifecycle, _, _ := newMutationFixture(t, nil)
+	body := storeCollectionFixture(t).Templates[0].Current.Body.Clone()
+	invalidBody := body.Clone()
+	invalidBody.Boundary.SourceAccess = "snapshot"
+	beforeAttempts := lifecycle.attempts.Load()
+	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "invalid-body", invalidBody); err == nil {
+		t.Fatal("invalid Template body unexpectedly succeeded")
+	}
+	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "bad/name", body); err == nil {
+		t.Fatal("invalid Template name unexpectedly succeeded")
+	}
+	afterAttempts := lifecycle.attempts.Load()
+	if afterAttempts != beforeAttempts {
+		t.Fatalf("invalid creates entered mutation lifecycle: before=%d after=%d", beforeAttempts, afterAttempts)
+	}
+	collection, present, err := store.ReadComplete(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if present || len(collection.Templates) != 0 || collection.Generation != 0 {
+		t.Fatalf("invalid creates changed authority: present=%t collection=%+v", present, collection)
+	}
+}
+
 func TestMutatorContextCreateDeleteAndWorkspaceRetirementPreserveOwners(t *testing.T) {
 	existing := storeCollectionFixture(t)
 	store, mutator, _, deletion, _ := newMutationFixture(t, &existing)

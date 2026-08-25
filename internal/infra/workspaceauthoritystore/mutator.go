@@ -361,6 +361,12 @@ func NewMutator(
 }
 
 func (m *Mutator) CreateWorkspaceTemplate(ctx context.Context, name string, body tobari.WorkspaceTemplateBody) (created tobari.WorkspaceTemplate, resultErr error) {
+	if err := tobari.ValidateName(name); err != nil {
+		return created, err
+	}
+	if err := body.Validate(); err != nil {
+		return created, err
+	}
 	resultErr = m.mutate(ctx, func(_ context.Context, current tobari.WorkspaceAuthorityCollection, present bool) (tobari.WorkspaceAuthorityCollection, bool, error) {
 		for _, existing := range current.Templates {
 			if existing.Name == name {

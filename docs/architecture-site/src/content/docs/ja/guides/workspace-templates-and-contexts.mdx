@@ -20,8 +20,18 @@ tobari template show --name review --format json
 
 ## 作成またはcopy
 
+read-onlyのsource accessとboundedなexact GraphQL endpointを持つTemplateを作成します。
+
 ```sh
-tobari template create --name review
+tobari template create --name review --source-access read-only --graphql-endpoint https://graphql.example.dev:8443/graphql
+```
+
+書き込み可能なProject rootには`--source-access read-write`を指定します。省略時の既定値も
+`read-write`です。endpointは明示的なportとpathを持つexact HTTPS URLであり、Templateのboundedな
+POST policyとして保存されます。次のContext操作には`template list`または`template show`で得たopaque
+referenceを使います。
+
+```sh
 tobari template show --name default --format json
 tobari template copy --from TEMPLATE_REVISION_REF --name review
 ```

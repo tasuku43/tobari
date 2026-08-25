@@ -161,7 +161,7 @@ func TestFinalTemplateMutationJSONAndHumanMatchNonProducerCatalogShape(t *testin
 	if err := json.Unmarshal(document["template"], &template); err != nil {
 		t.Fatal(err)
 	}
-	wantKeys := []string{"entry_slice_digest", "generation", "name", "policy_slice_digest", "revision", "runtime_id", "runtime_revision", "workspace_template_id"}
+	wantKeys := []string{"entry_slice_digest", "generation", "graphql_endpoints", "name", "policy_slice_digest", "revision", "runtime_id", "runtime_revision", "source_access", "workspace_template_id"}
 	if keys := sortedRawKeys(template); !reflect.DeepEqual(keys, wantKeys) {
 		t.Fatalf("Template mutation keys=%v want=%v output=%s", keys, wantKeys, stdout)
 	}

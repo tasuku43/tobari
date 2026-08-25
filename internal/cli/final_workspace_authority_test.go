@@ -12,12 +12,37 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tasuku43/tobari/internal/app/runtimecmd"
 	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 type finalAuthorityReadFixture struct{}
+
+type finalTemplateCreateCapture struct {
+	calls int
+	name  string
+	body  tobari.WorkspaceTemplateBody
+}
+
+func (f *finalTemplateCreateCapture) CreateWorkspaceTemplate(_ context.Context, name string, body tobari.WorkspaceTemplateBody) (tobari.WorkspaceTemplate, error) {
+	f.calls++
+	f.name, f.body = name, body.Clone()
+	id := tobari.WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789b1")
+	revision, err := tobari.NewWorkspaceTemplateRevision(id, 1, body)
+	if err != nil {
+		return tobari.WorkspaceTemplate{}, err
+	}
+	return tobari.WorkspaceTemplate{SchemaVersion: tobari.WorkspaceTemplateSchemaVersion, ID: id, Name: name, Current: revision, Retained: []tobari.WorkspaceTemplateRevision{revision.Clone()}}, nil
+}
+
+func finalTemplateCreateRuntime() *runtimeCatalogCLI {
+	return &runtimeCatalogCLI{manifest: tobari.RuntimeManifest{
+		SchemaVersion: tobari.RuntimeSchemaVersion, ID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Kind: tobari.RuntimeKindBuiltin,
+		Revisions: []tobari.RuntimeRevision{{Ordinal: 1, Revision: "sha256:" + strings.Repeat("f", 64), Image: tobari.OfficialRuntimeBase, CreatedAt: time.Unix(1, 0).UTC()}},
+	}}
+}
 
 func (finalAuthorityReadFixture) ListWorkspaceTemplates(context.Context) ([]tobari.WorkspaceTemplate, error) {
 	return []tobari.WorkspaceTemplate{}, nil
@@ -137,6 +162,87 @@ func TestFinalWorkspaceAuthorityCatalogOwnsExactReferenceGraph(t *testing.T) {
 	contextEnter, _ := catalog.Lookup("context enter")
 	if !reflect.DeepEqual(contextEnter.Agent.Output.Formats, []OutputFormat{OutputFormatText, OutputFormatJSON}) || contextEnter.Agent.Output.JSONEnvelope != "entry" || contextEnter.Agent.Output.JSONSchemaVersion != 1 {
 		t.Fatalf("context enter output must expose the final entry receipt without writing to child stdout: %+v", contextEnter.Agent.Output)
+	}
+}
+
+func TestFinalTemplateCreateCanPublishReadAccessAndBoundedGraphQLEndpoint(t *testing.T) {
+	const endpoint = "https://graphql.example.dev:8443/graphql"
+	for _, sourceAccess := range []string{"read-only", "read-write"} {
+		t.Run(sourceAccess, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			capture := &finalTemplateCreateCapture{}
+			command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+			command.runtime = runtimecmd.New(finalTemplateCreateRuntime())
+			command.finalTemplates = workspaceauthoritycmd.NewTemplateService(capture)
+			args := []string{"template", "create", "--name", "custom-" + strings.ReplaceAll(sourceAccess, "-", ""), "--source-access", sourceAccess, "--graphql-endpoint", endpoint, "--format", "json"}
+			if code := command.RunContext(context.Background(), args); code != ExitOK {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			if capture.calls != 1 || capture.body.Boundary.SourceAccess != tobari.ManifestSourceAccess(sourceAccess) || len(capture.body.Policy.GraphQLEndpoints) == 0 {
+				t.Fatalf("calls=%d source=%q endpoints=%+v", capture.calls, capture.body.Boundary.SourceAccess, capture.body.Policy.GraphQLEndpoints)
+			}
+			parsed, err := tobari.ParseBoundedGraphQLEndpoint(endpoint)
+			if err != nil || !reflect.DeepEqual(capture.body.Policy.GraphQLEndpoints[len(capture.body.Policy.GraphQLEndpoints)-1], parsed) {
+				t.Fatalf("custom endpoint=%+v parsed=%+v err=%v", capture.body.Policy.GraphQLEndpoints, parsed, err)
+			}
+			var document struct {
+				Template finalTemplateProjection `json:"template"`
+			}
+			if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
+				t.Fatal(err)
+			}
+			if document.Template.SourceAccess != sourceAccess || len(document.Template.GraphQLEndpoints) == 0 {
+				t.Fatalf("result=%+v", document.Template)
+			}
+		})
+	}
+
+	var stdout, stderr bytes.Buffer
+	capture := &finalTemplateCreateCapture{}
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.runtime = runtimecmd.New(finalTemplateCreateRuntime())
+	command.finalTemplates = workspaceauthoritycmd.NewTemplateService(capture)
+	if code := command.RunContext(context.Background(), []string{"template", "create", "--name", "invalid-endpoint", "--graphql-endpoint", "https://graphql.example.dev/graphql"}); code == ExitOK {
+		t.Fatalf("invalid endpoint unexpectedly succeeded: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	if capture.calls != 0 {
+		t.Fatalf("invalid endpoint reached create port: calls=%d", capture.calls)
+	}
+}
+
+func TestFinalTemplateCreateCatalogDeclaresExistingBoundedDimensions(t *testing.T) {
+	spec, found := DefaultCatalog().Lookup("template create")
+	if !found {
+		t.Fatal("template create is absent")
+	}
+	wantArgs := "--name <name> [--source-access read-only|read-write] [--graphql-endpoint <https-url>] [--format text|json]"
+	if spec.Args != wantArgs {
+		t.Fatalf("Args=%q want=%q", spec.Args, wantArgs)
+	}
+	var sourceAccess, endpoint *CommandInput
+	for index := range spec.Agent.Inputs {
+		switch spec.Agent.Inputs[index].Name {
+		case "--source-access":
+			sourceAccess = &spec.Agent.Inputs[index]
+		case "--graphql-endpoint":
+			endpoint = &spec.Agent.Inputs[index]
+		}
+	}
+	if sourceAccess == nil || !reflect.DeepEqual(sourceAccess.AllowedValues, []string{"read-only", "read-write"}) || sourceAccess.DefaultValue == nil || *sourceAccess.DefaultValue != "read-write" {
+		t.Fatalf("source-access input=%+v", sourceAccess)
+	}
+	if endpoint == nil || endpoint.MinimumLength == nil || *endpoint.MinimumLength != 1 || endpoint.ReferenceKind != "" {
+		t.Fatalf("GraphQL endpoint input=%+v", endpoint)
+	}
+	if spec.Agent.Mutation == nil || spec.Agent.Mutation.TargetKind != tobari.WorkspaceTemplateCatalogTargetKind || len(spec.Agent.Mutation.TargetInputs) != 0 || len(spec.ConsumedRefs()) != 0 || len(spec.ProducedRefs()) != 0 {
+		t.Fatalf("create authority contract=%+v consumed=%+v produced=%+v", spec.Agent.Mutation, spec.ConsumedRefs(), spec.ProducedRefs())
+	}
+	fields := map[string]bool{}
+	for _, field := range spec.Agent.Output.Fields {
+		fields[field.Name] = true
+	}
+	if !fields["source_access"] || !fields["graphql_endpoints"] {
+		t.Fatalf("create output fields=%v", fields)
 	}
 }
 

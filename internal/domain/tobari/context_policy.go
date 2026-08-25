@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"regexp"
 	"slices"
 	"sort"
@@ -87,6 +88,25 @@ type ManifestPolicyExactRule struct {
 	Protocol             string `json:"protocol,omitempty"`
 	GraphQLOperationType string `json:"graphql_operation_type,omitempty"`
 	GraphQLRootField     string `json:"graphql_root_field,omitempty"`
+}
+
+// ParseBoundedGraphQLEndpoint converts the public creation URL shape into the
+// existing non-semantic POST endpoint rule. The complete Template body still
+// validates the destination and method ceilings before publication.
+func ParseBoundedGraphQLEndpoint(raw string) (ManifestPolicyExactRule, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" || parsed.Opaque != "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Hostname() == "" || parsed.Port() == "" || parsed.Path == "" || !strings.HasPrefix(parsed.Path, "/") {
+		return ManifestPolicyExactRule{}, fmt.Errorf("GraphQL endpoint must be an exact HTTPS URL with an explicit port and path")
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		return ManifestPolicyExactRule{}, fmt.Errorf("GraphQL endpoint port is invalid")
+	}
+	endpoint := ManifestPolicyExactRule{Scheme: parsed.Scheme, Host: parsed.Hostname(), Port: port, Method: "POST", Path: parsed.EscapedPath()}
+	if err := endpoint.Validate(); err != nil {
+		return ManifestPolicyExactRule{}, fmt.Errorf("GraphQL endpoint is invalid: %w", err)
+	}
+	return endpoint, nil
 }
 
 // ManifestPolicyPathTemplateRule is a reviewed built-in HTTP path shape. It is

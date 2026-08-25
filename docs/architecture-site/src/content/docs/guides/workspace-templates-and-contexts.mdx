@@ -20,11 +20,18 @@ returned by discovery.
 
 ## Create or copy
 
-Create the reviewed built-in setup:
+Create a reviewed setup with immutable read-only source access and one bounded
+exact GraphQL endpoint:
 
 ```sh
-tobari template create --name review
+tobari template create --name review --source-access read-only --graphql-endpoint https://graphql.example.dev:8443/graphql
 ```
+
+Use `--source-access read-write` for a writable Project root, or omit it to
+keep the default. The endpoint must be an exact HTTPS URL with an explicit
+port and path; it is stored in the Template's bounded POST policy. `template
+list` and `template show` expose the resulting opaque references for the next
+Context step.
 
 Copy one exact retained immutable revision:
 

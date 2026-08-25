@@ -43,6 +43,20 @@ func finalJSONOutput(envelope string, fields []OutputField, coverage CollectionC
 		Fields: fields, Delivery: OutputDeliveryComplete, CollectionCoverage: coverage, JSONEnvelope: envelope, JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1}
 }
 
+func finalTemplateGraphQLEndpointFields() []OutputField {
+	return []OutputField{
+		{Name: "scheme", Type: OutputFieldTypeString, Description: "Exact endpoint URL scheme."},
+		{Name: "host", Type: OutputFieldTypeString, Description: "Exact endpoint host."},
+		{Name: "port", Type: OutputFieldTypeInteger, Description: "Exact endpoint port."},
+		{Name: "method", Type: OutputFieldTypeString, Description: "Exact endpoint transport method."},
+		{Name: "path", Type: OutputFieldTypeString, Description: "Exact endpoint path."},
+	}
+}
+
+func finalTemplateGraphQLEndpointOutputField() OutputField {
+	return OutputField{Name: "graphql_endpoints", Type: OutputFieldTypeArray, Description: "Bounded exact GraphQL transport endpoints in the immutable Template policy.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One bounded exact GraphQL endpoint.", Fields: finalTemplateGraphQLEndpointFields()}}
+}
+
 func finalTemplateListFields() []OutputField {
 	return []OutputField{{Name: "items", Type: OutputFieldTypeArray, Description: "Complete final Workspace Template collection.", SemanticScope: "All final Workspace Templates at one coherent observation.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One Workspace Template.", Fields: []OutputField{
 		{Name: "template_ref", Type: OutputFieldTypeString, Description: "Opaque Workspace Template reference.", ReferenceKind: tobari.WorkspaceTemplateReferenceKind},
@@ -52,6 +66,8 @@ func finalTemplateListFields() []OutputField {
 		{Name: "revision", Type: OutputFieldTypeString, Description: "Current complete-body digest."},
 		{Name: "runtime_id", Type: OutputFieldTypeString, Description: "Current Runtime identity."},
 		{Name: "runtime_revision", Type: OutputFieldTypeString, Description: "Current Runtime revision digest."},
+		{Name: "source_access", Type: OutputFieldTypeString, Description: "Immutable direct Project source access: read-only or read-write."},
+		finalTemplateGraphQLEndpointOutputField(),
 	}}}}
 }
 
@@ -64,6 +80,8 @@ func finalTemplateShowFields(includeRevisionRef bool) []OutputField {
 		{Name: "revision", Type: OutputFieldTypeString, Description: "Current complete-body digest."},
 		{Name: "runtime_id", Type: OutputFieldTypeString, Description: "Current Runtime identity."},
 		{Name: "runtime_revision", Type: OutputFieldTypeString, Description: "Current Runtime revision digest."},
+		{Name: "source_access", Type: OutputFieldTypeString, Description: "Immutable direct Project source access: read-only or read-write."},
+		finalTemplateGraphQLEndpointOutputField(),
 		{Name: "policy_slice_digest", Type: OutputFieldTypeString, Description: "Current independent Template-policy slice digest."},
 		{Name: "entry_slice_digest", Type: OutputFieldTypeString, Description: "Current entry-authority slice digest."},
 	}
@@ -142,7 +160,11 @@ func finalTemplateShowSpec() CommandSpec {
 }
 
 func finalTemplateCreateSpec() CommandSpec {
-	return CommandSpec{Path: "template create", Summary: "Create one direct final Workspace Template", Args: "--name <name> [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Create one fresh Template from the reviewed built-in standard body", Inputs: []CommandInput{{Name: "--name", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Unique Template display name.", AllowedValues: []string{}}, formatInput()}, Output: finalJSONOutput("template", finalTemplateMutationFields(), CollectionCoverageNotApplicable), Prerequisites: []string{"The built-in standard Runtime revision is available exactly."}, FixedTarget: &FixedTarget{Kind: tobari.WorkspaceTemplateCatalogTargetKind, ID: tobari.WorkspaceTemplateCatalogTargetID, Description: "This installation's final Workspace Template collection.", Scope: FixedTargetScopeToolLocal}, Errors: finalAuthorityMutationErrors("template create", "template list"), Mutation: &MutationContract{TargetKind: tobari.WorkspaceTemplateCatalogTargetKind, TargetInputs: []string{}, Impact: workspaceauthoritycmd.TemplateCreateImpact()}}, handler: runFinalTemplateCreate}
+	return CommandSpec{Path: "template create", Summary: "Create one direct final Workspace Template", Args: "--name <name> [--source-access read-only|read-write] [--graphql-endpoint <https-url>] [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Create one fresh Template from the reviewed standard body with bounded source access and optional exact GraphQL endpoint", Inputs: []CommandInput{
+		{Name: "--name", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Unique Template display name.", AllowedValues: []string{}},
+		{Name: "--source-access", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Immutable direct Project source access for this Template.", AllowedValues: []string{"read-only", "read-write"}, DefaultValue: stringPointer("read-write")},
+		{Name: "--graphql-endpoint", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: int64Pointer(1), Description: "One exact HTTPS GraphQL endpoint with an explicit port and path; it is bounded by the standard destination and POST method ceilings.", AllowedValues: []string{}},
+		formatInput()}, Output: finalJSONOutput("template", finalTemplateMutationFields(), CollectionCoverageNotApplicable), Prerequisites: []string{"The built-in standard Runtime revision is available exactly."}, FixedTarget: &FixedTarget{Kind: tobari.WorkspaceTemplateCatalogTargetKind, ID: tobari.WorkspaceTemplateCatalogTargetID, Description: "This installation's final Workspace Template collection.", Scope: FixedTargetScopeToolLocal}, Errors: finalAuthorityMutationErrors("template create", "template list"), Mutation: &MutationContract{TargetKind: tobari.WorkspaceTemplateCatalogTargetKind, TargetInputs: []string{}, Impact: workspaceauthoritycmd.TemplateCreateImpact()}}, handler: runFinalTemplateCreate}
 }
 
 func finalTemplateCopySpec() CommandSpec {

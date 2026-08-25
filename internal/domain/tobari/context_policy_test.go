@@ -6,6 +6,38 @@ import (
 	"testing"
 )
 
+func TestParseBoundedGraphQLEndpointUsesExistingExactRuleShape(t *testing.T) {
+	endpoint, err := ParseBoundedGraphQLEndpoint("https://graphql.example.dev:8443/graphql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := ManifestPolicyExactRule{Scheme: "https", Host: "graphql.example.dev", Port: 8443, Method: "POST", Path: "/graphql"}
+	if !reflect.DeepEqual(endpoint, want) {
+		t.Fatalf("endpoint=%+v want=%+v", endpoint, want)
+	}
+	if err := endpoint.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestParseBoundedGraphQLEndpointRejectsUnboundedURLShapes(t *testing.T) {
+	for _, raw := range []string{
+		"http://graphql.example.dev:8443/graphql",
+		"https://graphql.example.dev/graphql",
+		"https://graphql.example.dev:8443/graphql?query=1",
+		"https://user:pass@graphql.example.dev:8443/graphql",
+		"https://graphql.example.dev:8443/graphql#fragment",
+		"https://graphql.example.dev:8443",
+		"https://graphql.example.test:8443/graphql",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			if _, err := ParseBoundedGraphQLEndpoint(raw); err == nil {
+				t.Fatalf("ParseBoundedGraphQLEndpoint(%q) unexpectedly succeeded", raw)
+			}
+		})
+	}
+}
+
 func TestDefaultContextPolicySnapshotIsNormalizedAndStable(t *testing.T) {
 	policy, ok := DefaultContextPolicySnapshot()
 	if !ok {

@@ -85,6 +85,7 @@ type fakePort struct {
 	reset             tobari.PolicyRuleResetPublication
 	reviewed          tobari.PolicyMemoryReviewedSetPublication
 	reviewedSet       tobari.PolicyMemoryReviewedDecisionSet
+	createdBody       tobari.WorkspaceTemplateBody
 	lastRef           string
 	calls             int
 	entryErr          error
@@ -102,8 +103,9 @@ func (f *fakePort) ListWorkspaceTemplates(context.Context) ([]tobari.WorkspaceTe
 func (f *fakePort) DiscoverWorkspaceTemplate(context.Context, string) (tobari.WorkspaceTemplate, error) {
 	return f.template, nil
 }
-func (f *fakePort) CreateWorkspaceTemplate(_ context.Context, _ string, _ tobari.WorkspaceTemplateBody) (tobari.WorkspaceTemplate, error) {
+func (f *fakePort) CreateWorkspaceTemplate(_ context.Context, _ string, body tobari.WorkspaceTemplateBody) (tobari.WorkspaceTemplate, error) {
 	f.calls++
+	f.createdBody = body.Clone()
 	return f.template, nil
 }
 func (f *fakePort) CopyWorkspaceTemplateByRevisionReference(_ context.Context, ref, name string) (tobari.WorkspaceTemplateCopyPublication, error) {
@@ -215,6 +217,35 @@ func TestTemplateActionsKeepExactReferenceAndValidateFreshCopy(t *testing.T) {
 	before := fake.calls
 	if _, err := service.Copy(context.Background(), intent(TaskTemplateCopy, operation.EffectCreate, target, TemplateCreateImpact()), "restricted", "copied"); err == nil || fake.calls != before {
 		t.Fatal("name-selected copy reached port")
+	}
+}
+
+func TestTemplateCreatePassesCompleteBoundaryBodyAndRejectsInvalidBeforePort(t *testing.T) {
+	body := bodyFixture("/items")
+	body.Boundary.SourceAccess = tobari.ManifestSourceAccessReadOnly
+	body.Policy.GraphQLEndpoints = []tobari.ManifestPolicyExactRule{{Scheme: "https", Host: "api.example.dev", Port: 443, Method: "POST", Path: "/graphql"}}
+	revision, err := tobari.NewWorkspaceTemplateRevision(templateID, 1, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakePort{template: tobari.WorkspaceTemplate{SchemaVersion: tobari.WorkspaceTemplateSchemaVersion, ID: templateID, Name: "restricted", Current: revision, Retained: []tobari.WorkspaceTemplateRevision{revision.Clone()}}}
+	service := NewTemplateService(fake)
+	view, err := service.Create(context.Background(), intent(TaskTemplateCreate, operation.EffectCreate, operation.TargetRef{Kind: tobari.WorkspaceTemplateCatalogTargetKind, ParentID: tobari.WorkspaceTemplateCatalogTargetID}, TemplateCreateImpact()), "restricted", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Template.Current.Body.Boundary.SourceAccess != tobari.ManifestSourceAccessReadOnly || !reflect.DeepEqual(fake.createdBody, body) || fake.calls != 1 {
+		t.Fatalf("created body=%+v calls=%d view=%+v", fake.createdBody, fake.calls, view)
+	}
+
+	invalid := body.Clone()
+	invalid.Policy.GraphQLEndpoints = append(invalid.Policy.GraphQLEndpoints, invalid.Policy.GraphQLEndpoints[0])
+	before := fake.calls
+	if _, err := service.Create(context.Background(), intent(TaskTemplateCreate, operation.EffectCreate, operation.TargetRef{Kind: tobari.WorkspaceTemplateCatalogTargetKind, ParentID: tobari.WorkspaceTemplateCatalogTargetID}, TemplateCreateImpact()), "invalid", invalid); err == nil {
+		t.Fatal("invalid duplicate endpoint unexpectedly reached success")
+	}
+	if fake.calls != before {
+		t.Fatalf("invalid body reached create port: calls=%d before=%d", fake.calls, before)
 	}
 }
 
