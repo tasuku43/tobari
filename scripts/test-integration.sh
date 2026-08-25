@@ -713,7 +713,7 @@ allow_exact_effect() {
   local path=$4
   local candidates
   local candidate_id
-  candidates=$(run_tobari policy candidates --tail 1000 --format json)
+  candidates=$(run_tobari policy candidates --format json)
   candidate_id=$(candidate_id_for_effect "$project_id" https "$host" 8080 "$method" "$path" <<<"$candidates")
   run_tobari policy allow --id "$candidate_id" >/dev/null
 }
@@ -726,7 +726,7 @@ deny_exact_effect() {
   local candidates
   local candidate_id
   local output
-  candidates=$(run_tobari policy candidates --tail 1000 --format json)
+  candidates=$(run_tobari policy candidates --format json)
   candidate_id=$(candidate_id_for_effect "$project_id" https "$host" 8080 "$method" "$path" <<<"$candidates")
   output=$(run_tobari policy deny --id "$candidate_id")
   assert_contains "$output" "Permission denied" "explicit integration policy denial"
@@ -1499,7 +1499,7 @@ if docker logs "$auth_mock_name" 2>&1 | grep -F '"/brokered-default"' >/dev/null
   fail "policy-denied brokered request reached the synthetic upstream"
 fi
 
-broker_candidates=$(run_tobari policy candidates --tail 1000 --format json)
+broker_candidates=$(run_tobari policy candidates --format json)
 default_broker_candidate_id=$(candidate_id_for_effect \
   "$work_id" https api.synthetic.example 443 GET /brokered-default <<<"$broker_candidates")
 opa_before_policy_activation=$(docker inspect --format '{{.Id}}' tobari-opa)
@@ -1528,7 +1528,7 @@ if docker logs "$auth_mock_name" 2>&1 | grep -F '"/brokered-restricted"' >/dev/n
   fail "restricted policy-denied brokered request reached the synthetic upstream"
 fi
 
-broker_candidates=$(run_tobari policy candidates --tail 1000 --format json)
+broker_candidates=$(run_tobari policy candidates --format json)
 restricted_broker_candidate_id=$(candidate_id_for_effect \
   "$restricted_id" https api.synthetic.example 443 GET /brokered-restricted <<<"$broker_candidates")
 run_tobari policy allow --id "$restricted_broker_candidate_id" >/dev/null
