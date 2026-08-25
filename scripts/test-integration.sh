@@ -834,27 +834,7 @@ finish() {
       echo "integration diagnostics: doctor" >&2
       run_tobari doctor --format json >&2 || true
       echo "integration diagnostics: final lifecycle journal phases" >&2
-      python3 - "$test_root/state" <<'PY' >&2 || true
-import json
-import pathlib
-import sys
-
-root = pathlib.Path(sys.argv[1])
-names = {"bootstrap.json", "settlement.json", "activation.json", "cluster-reconcile.json"}
-for path in sorted(root.rglob("*")):
-    if path.name not in names or not path.is_file():
-        continue
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as error:
-        print(f"{path.relative_to(root)} unreadable={type(error).__name__}")
-        continue
-    fields = []
-    for key in ("phase", "effect_class", "operation"):
-        if key in document:
-            fields.append(f"{key}={document[key]}")
-    print(f"{path.relative_to(root)} " + " ".join(fields))
-PY
+      python3 -c 'import json,pathlib,sys; root=pathlib.Path(sys.argv[1]); names={"bootstrap.json","settlement.json","activation.json","cluster-reconcile.json"}; [print(f"{path.relative_to(root)} " + " ".join(f"{key}={document[key]}" for key in ("phase","effect_class","operation") if key in document)) for path in sorted(root.rglob("*")) if path.name in names and path.is_file() for document in [json.loads(path.read_text(encoding="utf-8"))]]' "$test_root/state" >&2 || true
     fi
     for container in tobari-auth-broker tobari-gateway tobari-opa "$mock_name" "$auth_mock_name" "$work_container" "$other_container" "$restricted_container"; do
       [[ -n $container ]] || continue
