@@ -29,9 +29,6 @@ func run() int {
 		return cli.RunCredentialCompanionContext(ctx, os.Args[1:], os.Stdin)
 	}
 	command := cli.New(lifetime, os.Stdin, os.Stdout, os.Stderr)
-	if os.Getenv("TOBARI_INTEGRATION_FAULT_DIAGNOSTICS") == "true" {
-		command.EnableIntegrationFaultDiagnostics()
-	}
 	command.Version = version
 	command.Commit = commit
 	return command.RunContext(ctx, os.Args[1:])

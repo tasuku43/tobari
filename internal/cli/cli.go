@@ -118,21 +118,12 @@ type CLI struct {
 	integrationFaultDiagnostics bool
 }
 
-// EnableIntegrationFaultDiagnostics enables one bounded diagnostic line for
-// the integration harness when a runtime fault does not match the catalog.
-// The composition root owns the environment switch; the CLI does not read
-// process or filesystem state.
-func (c *CLI) EnableIntegrationFaultDiagnostics() {
-	if c != nil {
-		c.integrationFaultDiagnostics = true
-	}
-}
-
 // New builds the production CLI with the Docker-backed Tobari runtime.
 func New(lifetime context.Context, in io.Reader, out, errOut io.Writer) *CLI {
 	command := newCLI(in, out, errOut, DefaultCatalog(), systemdoctor.New())
 	command.processLifetime = lifetime
 	command.noColor = noColorFromEnvironment()
+	command.integrationFaultDiagnostics = terminalstyle.IntegrationFaultDiagnosticsRequested()
 	command.config = newContextConfigurationWizardWithStyle(!command.noColor)
 	command.contextCreate = newContextCreateWizardWithStyle(!command.noColor)
 	command.firstUse = newRecommendedFirstUseReviewerWithStyle(!command.noColor)
