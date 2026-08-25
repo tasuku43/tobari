@@ -1103,7 +1103,11 @@ func (r *Runtime) ensureFinalWorkspaceContainer(ctx context.Context, plan tobari
 	for _, environment := range spec.AuthEnvironment {
 		args = append(args, "--env", environment)
 	}
-	args = append(args, spec.ImageID)
+	// Keep the reviewed managed Runtime selector as Docker's image argument.
+	// The immutable image ID remains part of the resolved plan and digest, while
+	// retaining the selector preserves the exact Runtime binding in inspection
+	// and matches the pre-release project container contract.
+	args = append(args, spec.ImageSelector)
 	args = append(args, projectLifetimeCommand()...)
 	if output, err := r.runner.Output(ctx, args, os.Environ()); err != nil {
 		return fmt.Errorf("create final Workspace container: %w: %s", err, boundedDiagnostic(output))

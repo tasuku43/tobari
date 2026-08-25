@@ -274,6 +274,9 @@ func TestFinalWorkspaceContainerUsesDurableWorkspaceIPAndGatewayDNS(t *testing.T
 	if !slices.Contains(runner.createArgs, "SYNTHETIC_TOKEN=tobari-h1_"+strings.Repeat("A", 43)) {
 		t.Fatalf("create args omit exact research authentication projection: %v", runner.createArgs)
 	}
+	if !slices.Contains(runner.createArgs, spec.ImageSelector) {
+		t.Fatalf("create args omit exact managed Runtime selector: %v", runner.createArgs)
+	}
 }
 
 func TestFinalWorkspaceEntryRuntimeDriftFailsBeforeHomeOrDockerEffect(t *testing.T) {
