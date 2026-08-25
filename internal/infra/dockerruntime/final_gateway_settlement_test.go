@@ -36,7 +36,10 @@ func finalSettlementComponentFixture(profile tobari.SharedClusterAppliedProfile)
 	if brokerRuntimeEnabled {
 		candidate.AuthBrokerImage = "tobari-auth-broker:successor"
 		candidate.AuthBrokerImageID = "sha256:" + strings.Repeat("9", 64)
-		candidate.AuthBrokerNetworks = []FinalGatewayNetworkAddress{{Name: "tobari-control", Address: "172.28.0.4"}}
+		candidate.AuthBrokerNetworks = []FinalGatewayNetworkAddress{
+			{Name: "tobari-control", Address: "172.28.0.4"},
+			{Name: "tobari-egress", Address: "172.29.0.4"},
+		}
 	}
 	gateway := appliedClusterComponentObservation{
 		ContainerID: strings.Repeat("d", 64), Owner: ownerValue, Component: "gateway", Role: gatewayRole,
@@ -133,7 +136,7 @@ func TestFinalResearchClosureDriftForcesFullSettlement(t *testing.T) {
 	exact := appliedClusterComponentObservation{
 		ContainerID: strings.Repeat("7", 64), Owner: ownerValue, Component: "auth-broker",
 		ImageID: candidate.AuthBrokerImageID, State: "running", Health: "healthy",
-		NetworkAddresses: map[string]string{"tobari-control": "172.28.0.4"},
+		NetworkAddresses: map[string]string{"tobari-control": "172.28.0.4", "tobari-egress": "172.29.0.4"},
 	}
 	if !selectedFinalResearchClosureExact(candidate, exact, false, "ready", nil) {
 		t.Fatal("same-version healthy research closure is not exact")
@@ -311,7 +314,7 @@ func TestFinalStoppedClusterRestartReplaysOneReplacementAndRetiresReceiptAfterAc
 		stopped.AuthBroker = &appliedClusterComponentObservation{
 			ContainerID: strings.Repeat("7", 64), Owner: ownerValue, Component: "auth-broker",
 			ImageID: "sha256:" + strings.Repeat("8", 64), State: "running", Health: "healthy",
-			NetworkAddresses: map[string]string{"tobari-control": "172.28.0.4"},
+			NetworkAddresses: map[string]string{"tobari-control": "172.28.0.4", "tobari-egress": "172.29.0.4"},
 		}
 		stopped.CompanionState = "ready"
 	}
@@ -423,7 +426,10 @@ func (r *finalSettlementReadinessRunner) Run(_ context.Context, args, _ []string
 	} else if args[len(args)-1] == authBrokerContainer {
 		component, containerID, imageID, role = "auth-broker", strings.Repeat("7", 64), r.candidate.AuthBrokerImageID, ""
 		environment, mounts = nil, nil
-		networks = map[string]json.RawMessage{"tobari-control": json.RawMessage(`{"IPAddress":"172.28.0.4"}`)}
+		networks = map[string]json.RawMessage{
+			"tobari-control": json.RawMessage(`{"IPAddress":"172.28.0.4"}`),
+			"tobari-egress":  json.RawMessage(`{"IPAddress":"172.29.0.4"}`),
+		}
 	}
 	health := "healthy"
 	if r.starting {
@@ -890,7 +896,10 @@ func finalGatewayCoordinatorPlanFixture(
 	if brokerRuntimeEnabled {
 		candidate.AuthBrokerImage = "tobari-auth-broker:successor"
 		candidate.AuthBrokerImageID = "sha256:" + strings.Repeat("9", 64)
-		candidate.AuthBrokerNetworks = []FinalGatewayNetworkAddress{{Name: "tobari-control", Address: "172.28.0.4"}}
+		candidate.AuthBrokerNetworks = []FinalGatewayNetworkAddress{
+			{Name: "tobari-control", Address: "172.28.0.4"},
+			{Name: "tobari-egress", Address: "172.29.0.4"},
+		}
 	}
 	runner.candidate = candidate
 	journal := finalGatewaySettlementJournal{

@@ -294,7 +294,7 @@ func (r *Runtime) ensureFinalClusterBootstrapTopology(ctx context.Context) error
 		{name: opaContainer, label: "OPA", networks: []string{"tobari-control"}, connect: r.ensureOPANetwork},
 	}
 	if brokerRuntimeEnabled {
-		components = append(components, component{name: authBrokerContainer, label: "Auth Broker", networks: []string{"tobari-control"}, connect: r.ensureAuthBrokerNetwork})
+		components = append(components, component{name: authBrokerContainer, label: "Auth Broker", networks: finalAuthBrokerNetworkNames(), connect: r.ensureAuthBrokerNetwork})
 	}
 	components = append(components, component{
 		name: gatewayContainer, label: "Gateway", networks: []string{"tobari-control", "tobari-egress"}, connect: r.ensureGatewayNetwork,
