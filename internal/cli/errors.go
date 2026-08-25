@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
@@ -182,7 +181,7 @@ func (c *CLI) normalizeFault(ctx context.Context, err error) *fault.Error {
 }
 
 func (c *CLI) reportUndeclaredFaultDiagnostic(path string, effect operation.Effect, structured *fault.Error) {
-	if os.Getenv("TOBARI_INTEGRATION_FAULT_DIAGNOSTICS") != "true" || c == nil || c.Err == nil || structured == nil {
+	if c == nil || !c.integrationFaultDiagnostics || c.Err == nil || structured == nil {
 		return
 	}
 	_, _ = fmt.Fprintf(c.Err, "integration diagnostics: observed fault path=%s effect=%s kind=%s code=%s phase=%s change_state=%s retryable=%t\n",

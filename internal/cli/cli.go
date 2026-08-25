@@ -102,19 +102,30 @@ type CLI struct {
 	finalDefaultPair      finalDefaultPairEntry
 	finalEntryReadiness   finalWorkspaceEntryReadiness
 	finalClusterCLIState
-	finalProjectRoot     finalProjectRootAuthority
-	config               contextConfigurationWizard
-	contextCreate        contextCreateWizard
-	firstUse             recommendedFirstUseReviewer
-	runtimeChoice        runtimeChoiceWizard
-	authLogin            authLoginProviderSelector
-	policyReview         func(bool) *policyReviewSelector
-	policyNotify         func(io.Writer, string) error
-	serviceNotify        func(io.Writer, string) error
-	firstUseInteractive  func(io.Reader, io.Writer, io.Writer) bool
-	firstUseTemplateBody func(context.Context) (tobari.WorkspaceTemplateBody, error)
-	firstUseCustomize    func(context.Context, tobari.RecommendedFirstUseDraft) (tobari.WorkspaceTemplateBody, error)
-	noColor              bool
+	finalProjectRoot            finalProjectRootAuthority
+	config                      contextConfigurationWizard
+	contextCreate               contextCreateWizard
+	firstUse                    recommendedFirstUseReviewer
+	runtimeChoice               runtimeChoiceWizard
+	authLogin                   authLoginProviderSelector
+	policyReview                func(bool) *policyReviewSelector
+	policyNotify                func(io.Writer, string) error
+	serviceNotify               func(io.Writer, string) error
+	firstUseInteractive         func(io.Reader, io.Writer, io.Writer) bool
+	firstUseTemplateBody        func(context.Context) (tobari.WorkspaceTemplateBody, error)
+	firstUseCustomize           func(context.Context, tobari.RecommendedFirstUseDraft) (tobari.WorkspaceTemplateBody, error)
+	noColor                     bool
+	integrationFaultDiagnostics bool
+}
+
+// EnableIntegrationFaultDiagnostics enables one bounded diagnostic line for
+// the integration harness when a runtime fault does not match the catalog.
+// The composition root owns the environment switch; the CLI does not read
+// process or filesystem state.
+func (c *CLI) EnableIntegrationFaultDiagnostics() {
+	if c != nil {
+		c.integrationFaultDiagnostics = true
+	}
 }
 
 // New builds the production CLI with the Docker-backed Tobari runtime.
