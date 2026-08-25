@@ -56,7 +56,7 @@ func finalClusterUpErrors() []CommandError {
 			declaredCommandError(fault.KindRejected, "ambiguous_provider_http_binding", false, "doctor", "Remove the overlapping exact provider HTTP binding."),
 		)
 	}
-	return mutationCommandErrors("cluster up", "cluster status", errors...)
+	return append(mutationCommandErrors("cluster up", "cluster status", errors...), declaredCommandError(fault.KindUnavailable, "final_authority_mutation_recovery_required", false, "status", "Read and recover the preserved final-authority decision through the exact initiating command; do not remove authority files manually."))
 }
 
 func finalClusterStatusSpec() CommandSpec {
@@ -93,12 +93,12 @@ func finalClusterDownSpec() CommandSpec {
 				"Canonical global Workspace session ownership is exactly empty; ambiguous ownership fails closed.",
 			},
 			FixedTarget: fixedClusterTarget(),
-			Errors: mutationCommandErrors("cluster down", "cluster status",
+			Errors: append(mutationCommandErrors("cluster down", "cluster status",
 				declaredCommandError(fault.KindRejected, "cluster_not_empty", false, "workspace list", "Delete every final Workspace explicitly."),
 				declaredCommandError(fault.KindUnavailable, "cluster_reconcile_interrupted", false, "cluster status", "Inspect the retained final lifecycle decision."),
 				declaredCommandError(fault.KindContract, "invalid_cluster_down_result", false, "cluster status", "Inspect the final stopped consequence."),
 				declaredCommandError(fault.KindInternal, "missing_port", false, "doctor", "Configure the final cluster lifecycle adapter."),
-			),
+			), declaredCommandError(fault.KindUnavailable, "final_authority_mutation_recovery_required", false, "status", "Read and recover the preserved final-authority decision through the exact initiating command; do not remove authority files manually.")),
 			Mutation: &MutationContract{
 				TargetKind: tobari.ClusterTargetKind, TargetInputs: []string{},
 				Impact: operation.Impact{Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationYes},
@@ -223,8 +223,8 @@ func finalClusterStatusFields() []OutputField {
 	return []OutputField{
 		{Name: "task", Type: OutputFieldTypeString, Description: "Final cluster observation task identity."},
 		{Name: "authority", Type: OutputFieldTypeString, Description: "Whether final collection authority is present.", Enum: []string{"absent", "present"}},
-		{Name: "generation", Type: OutputFieldTypeInteger, Description: "Observed final collection generation; omitted with absent authority."},
-		{Name: "collection_revision", Type: OutputFieldTypeString, Description: "Observed final collection revision; omitted with absent authority."},
+		{Name: "generation", Type: OutputFieldTypeInteger, Optional: true, Description: "Observed final collection generation; omitted with absent authority."},
+		{Name: "collection_revision", Type: OutputFieldTypeString, Optional: true, Description: "Observed final collection revision; omitted with absent authority."},
 		{Name: "template_count", Type: OutputFieldTypeInteger, Description: "Number of retained final Templates."},
 		{Name: "context_count", Type: OutputFieldTypeInteger, Description: "Number of retained final Contexts."},
 		{Name: "workspace_count", Type: OutputFieldTypeInteger, Description: "Number of retained final Workspaces."},

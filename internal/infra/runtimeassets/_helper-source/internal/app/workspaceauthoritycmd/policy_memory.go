@@ -252,6 +252,9 @@ func policyMemoryMutationFault(err error) error {
 	if classified, ok := preReleaseLegacyMutationFault(err); ok {
 		return classified
 	}
+	if classified, ok := finalAuthorityMutationRecoveryFault(err); ok {
+		return classified
+	}
 	if errors.Is(err, tobari.ErrPolicyReviewChanged) {
 		return fault.WithClassification(fault.New(
 			fault.KindRejected, "policy_review_changed", "reviewed Policy Memory authority changed before Apply", false,

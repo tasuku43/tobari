@@ -111,6 +111,12 @@ func recoveryFor(id doctor.CheckID, status doctor.CheckStatus, cause doctor.Obse
 			NextCommand: "help",
 		}
 	}
+	if cause == doctor.ObservationCauseMutationRecoveryRequired {
+		return &doctor.Recovery{
+			Action:      "Read the preserved final-authority decision with status and repeat the exact initiating command; do not remove authority files manually.",
+			NextCommand: "status",
+		}
+	}
 	action := map[doctor.CheckID]string{
 		doctor.CheckIDDockerCLI:             "Install a compatible Docker CLI and ensure docker is available on PATH.",
 		doctor.CheckIDDockerEngine:          "Start or restore the local Docker Engine.",

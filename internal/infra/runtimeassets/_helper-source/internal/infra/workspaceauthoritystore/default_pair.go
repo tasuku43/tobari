@@ -57,3 +57,10 @@ func (a *DefaultPairAdapter) ObserveFinalDefaultPair(ctx context.Context, projec
 	}
 	return tobari.NewFinalDefaultPairObservation(collection, present, projectRoot)
 }
+
+func (a *DefaultPairAdapter) ObserveMutationRecovery(ctx context.Context) (tobari.FinalAuthorityMutationObservation, error) {
+	if a == nil || a.store == nil {
+		return tobari.FinalAuthorityMutationObservation{}, fmt.Errorf("final mutation recovery authority is unavailable")
+	}
+	return a.store.ObserveMutationRecovery(ctx)
+}

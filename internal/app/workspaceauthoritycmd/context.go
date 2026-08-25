@@ -276,6 +276,9 @@ func contextMutationFault(err error) error {
 	if classified, ok := preReleaseLegacyMutationFault(err); ok {
 		return classified
 	}
+	if classified, ok := finalAuthorityMutationRecoveryFault(err); ok {
+		return classified
+	}
 	switch {
 	case errors.Is(err, tobari.ErrWorkspaceTemplateNotFound):
 		return fault.WithClassification(fault.New(fault.KindNotFound, "template_not_found", "Workspace Template no longer exists", false, fault.NextAction{Command: "template list", Reason: "Discover current Template authority."}), fault.PhasePrecondition, fault.ChangeNone)
@@ -288,7 +291,7 @@ func contextMutationFault(err error) error {
 	case errors.Is(err, tobari.ErrWorkspaceEntryReconciliationConfirmed):
 		return fault.WithClassification(fault.Wrap(fault.KindUnavailable, "workspace_entry_attachment_unavailable", "Workspace entry reconciliation is confirmed, but the interactive attachment did not start", false, err, fault.NextAction{Command: "context list", Reason: "Discover the confirmed Context authority before another explicit entry."}), fault.PhaseAttachment, fault.ChangeConfirmed)
 	case errors.Is(err, tobari.ErrWorkspaceEntryInterrupted):
-		return fault.WithClassification(fault.Wrap(fault.KindUnavailable, "workspace_entry_interrupted", "Workspace entry reconciliation requires exact same-Context recovery", false, err, fault.NextAction{Command: "context list", Reason: "Discover the preserved Context authority before another explicit entry."}), fault.PhaseMutation, fault.ChangePartial)
+		return fault.WithClassification(fault.Wrap(fault.KindUnavailable, "workspace_entry_interrupted", "Workspace entry reconciliation requires exact same-Context recovery", false, err, fault.NextAction{Command: "status", Reason: "Read the preserved entry decision, then repeat the exact same-Context entry command."}), fault.PhaseMutation, fault.ChangePartial)
 	case errors.Is(err, tobari.ErrWorkspaceEntryTemplatePolicyInactive):
 		return fault.WithClassification(fault.Wrap(fault.KindRejected, "workspace_entry_template_policy_inactive", "Workspace entry requires the current Template policy activation", false, err, fault.NextAction{Command: "cluster status", Reason: "Read the current Template policy activation before explicit cluster reconciliation."}), fault.PhasePrecondition, fault.ChangeNone)
 	case errors.Is(err, tobari.ErrWorkspaceEntryPolicyMemoryInactive):

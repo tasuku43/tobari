@@ -124,24 +124,36 @@ func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, 
 		return c.failRootBeforeHandoff(ctx, err)
 	}
 
+	resumeEntry, recoveryErr := finalDefaultPairCanResumeEntry(ctx, c.finalDefaultPair, resolution)
+	if recoveryErr != nil {
+		_ = progress.Finish(firstEntryFailureState(recoveryErr))
+		return c.failRootBeforeHandoff(ctx, recoveryErr)
+	}
 	if err := progress.Start(tobari.FirstEntryPrepareProtection); err != nil {
 		return c.failRootBeforeHandoff(ctx, err)
 	}
-	clusterIntent, clusterErr := c.firstEntryClusterIntent()
-	var clusterResult workspaceauthoritycmd.FinalClusterReconciliation
-	if clusterErr == nil {
-		clusterResult, clusterErr = c.finalCluster.Reconcile(ctx, clusterIntent)
-	}
-	if clusterErr != nil {
-		_ = progress.Finish(firstEntryFailureState(clusterErr))
-		return c.failRootBeforeHandoff(ctx, clusterErr)
-	}
-	classificationContext, cancelClassification := firstEntryClassificationContext(c.processLifetime)
-	resolution, err = c.finalDefaultPair.RefreshAfterCluster(classificationContext, resolution, clusterResult)
-	cancelClassification()
-	if err != nil {
-		_ = progress.Finish(firstEntryFailureState(err))
-		return c.failRootBeforeHandoff(ctx, err)
+	if resumeEntry {
+		// The active decision was created only after the prior invocation
+		// confirmed this exact Context's protection. Re-enter it directly so a
+		// pending Workspace decision can reconcile the missing runtime instead
+		// of being blocked by a second, unrelated cluster mutation.
+	} else {
+		clusterIntent, clusterErr := c.firstEntryClusterIntent()
+		var clusterResult workspaceauthoritycmd.FinalClusterReconciliation
+		if clusterErr == nil {
+			clusterResult, clusterErr = c.finalCluster.Reconcile(ctx, clusterIntent)
+		}
+		if clusterErr != nil {
+			_ = progress.Finish(firstEntryFailureState(clusterErr))
+			return c.failRootBeforeHandoff(ctx, clusterErr)
+		}
+		classificationContext, cancelClassification := firstEntryClassificationContext(c.processLifetime)
+		resolution, err = c.finalDefaultPair.RefreshAfterCluster(classificationContext, resolution, clusterResult)
+		cancelClassification()
+		if err != nil {
+			_ = progress.Finish(firstEntryFailureState(err))
+			return c.failRootBeforeHandoff(ctx, err)
+		}
 	}
 	if ctx.Err() != nil {
 		err = rootConfirmedCheckpointInterrupted(ctx.Err())
@@ -169,6 +181,29 @@ func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, 
 	}
 	emitWorkspaceCleanupAttention(c.Err, result.Outcome)
 	return result.Outcome.ExitCode
+}
+
+type finalDefaultPairMutationRecoveryObserver interface {
+	ObserveMutationRecovery(context.Context) (tobari.FinalAuthorityMutationObservation, error)
+}
+
+func finalDefaultPairCanResumeEntry(ctx context.Context, pair finalDefaultPairEntry, resolution workspaceauthoritycmd.DefaultPairResolution) (bool, error) {
+	observer, ok := pair.(finalDefaultPairMutationRecoveryObserver)
+	if !ok {
+		return false, nil
+	}
+	recovery, err := observer.ObserveMutationRecovery(ctx)
+	if err != nil {
+		return false, err
+	}
+	if !recovery.ActiveDecision || recovery.Operation != "context-entry" || resolution.Observation.Context == nil {
+		return false, nil
+	}
+	contextRef, err := tobari.ContextRef(resolution.Observation.Context.Context.ID)
+	if err != nil {
+		return false, err
+	}
+	return recovery.Target == contextRef, nil
 }
 
 func emitWorkspaceCleanupAttention(out io.Writer, outcome tobari.WorkspaceSessionOutcome) {

@@ -353,6 +353,10 @@ func TestContextEntryInterruptionPreservesLastSuccessfulAndSameRefResumesExactDe
 	if _, active, err := mutator.readEffectDecision(); err != nil || !active {
 		t.Fatalf("durable decision active=%t err=%v", active, err)
 	}
+	recovery, err := store.ObserveMutationRecovery(context.Background())
+	if err != nil || !recovery.ActiveDecision || !recovery.StagePresent || recovery.Operation != "context-entry" || recovery.Target != contextRef {
+		t.Fatalf("mutation recovery observation=%#v err=%v", recovery, err)
+	}
 	if _, err := mutator.SetDefaultWorkspaceTemplateByReference(context.Background(), mustTemplateRef(t)); err == nil || !strings.Contains(err.Error(), "active-decision recovery") {
 		t.Fatalf("different mutation was not excluded: %v", err)
 	}

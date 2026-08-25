@@ -93,6 +93,9 @@ func (s *FinalClusterLifecycleService) Down(ctx context.Context, intent operatio
 			if classified, ok := preReleaseLegacyMutationFault(err); ok {
 				return classified
 			}
+			if classified, ok := finalAuthorityMutationRecoveryFault(err); ok {
+				return classified
+			}
 			return err
 		}
 		confirmed, err := newFinalClusterDownResult(plan)

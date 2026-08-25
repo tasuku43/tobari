@@ -142,6 +142,19 @@ func TestFinalTemplatePublicMutationMatrixReachesOneTypedDeltaPort(t *testing.T)
 	}
 }
 
+func TestFinalTemplateRuntimeSetRejectsRawWorkspaceTemplateIDAsInvalidReference(t *testing.T) {
+	port := newFinalTemplateBatchPort(t)
+	runtimeRef := tobari.RuntimeRevisionRef("01912345-6789-7abc-8def-0123456789b7", "sha256:"+strings.Repeat("b", 64))
+	code, stdout, stderr := runFinalTemplateBatchCommand(t, port,
+		"template", "runtime", "set", "--id", string(port.template.ID), "--runtime", runtimeRef, "--format", "json")
+	if code == ExitOK || len(port.changes) != 0 {
+		t.Fatalf("raw Template ID unexpectedly reached the mutation port: code=%d changes=%+v stdout=%q stderr=%q", code, port.changes, stdout, stderr)
+	}
+	if !strings.Contains(stdout+stderr, "invalid_template_ref") || strings.Contains(stdout+stderr, "undeclared_fault_contract") {
+		t.Fatalf("raw Template ID fault=%q%q", stdout, stderr)
+	}
+}
+
 func TestFinalTemplateMutationJSONAndHumanMatchNonProducerCatalogShape(t *testing.T) {
 	port := newFinalTemplateBatchPort(t)
 	templateRef, _ := tobari.WorkspaceTemplateRef(port.template.ID)

@@ -58,11 +58,18 @@ func (a *StatusHomeAdapter) observeStatusHomeAttempt(ctx context.Context) (tobar
 	if err != nil {
 		return tobari.StatusHomeObservation{}, err
 	}
+	recovery, err := a.store.ObserveMutationRecovery(ctx)
+	if err != nil {
+		return tobari.StatusHomeObservation{}, err
+	}
 	root, err := nearestStatusProjectRoot(collection, present, cwdRoot)
 	if err != nil {
 		return tobari.StatusHomeObservation{}, err
 	}
 	result := tobari.StatusHomeObservation{Collection: collection.Clone(), Present: present, ProjectRoot: root}
+	if recovery.ActiveDecision || recovery.StagePresent {
+		result.Live.MutationRecovery = &recovery
+	}
 	selected, err := statusSelectedSnapshot(collection, present, root)
 	if err != nil {
 		return tobari.StatusHomeObservation{}, err

@@ -19,17 +19,23 @@ import (
 )
 
 type exposureHelperAssetRunner struct {
-	architecture string
-	archive      []byte
-	metadata     []byte
-	outputs      [][]string
-	runs         [][]string
-	copyErr      error
+	architecture    string
+	archive         []byte
+	metadata        []byte
+	metadataByImage map[string][]byte
+	outputs         [][]string
+	runs            [][]string
+	copyErr         error
 }
 
 func (r *exposureHelperAssetRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
 	r.outputs = append(r.outputs, append([]string{}, args...))
 	if len(args) >= 2 && args[0] == "image" && args[1] == "inspect" {
+		if r.metadataByImage != nil {
+			if metadata, ok := r.metadataByImage[args[len(args)-1]]; ok {
+				return append([]byte(nil), metadata...), nil
+			}
+		}
 		if r.metadata != nil {
 			return append([]byte(nil), r.metadata...), nil
 		}
@@ -43,6 +49,42 @@ func (r *exposureHelperAssetRunner) Output(_ context.Context, args, _ []string) 
 		return []byte(fmt.Sprintf(`{"Arch":%q,"Os":"linux"}`, r.architecture)), nil
 	}
 	return nil, fmt.Errorf("unexpected output argv: %v", args)
+}
+
+func TestFinalWorkspaceHelpersUseCanonicalBaseForCustomRuntime(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	validSource, err := runtimeassets.ExposureHelperSourceVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	validMetadata := []byte(fmt.Sprintf(
+		`{"architecture":"arm64","os":"linux","exposure_api":"1","exposure_source":%q,"permission_api":"1","permission_source":%q}`,
+		validSource, validSource,
+	))
+	customMetadata := []byte(`{"architecture":"arm64","os":"linux","exposure_api":"","exposure_source":"","permission_api":"","permission_source":""}`)
+	defaultImage := "tobari-runtime:base"
+	customImage := "tobari-runtime-custom:revision"
+	runner := &exposureHelperAssetRunner{
+		architecture: "arm64",
+		archive:      exposureHelperArchive(t, syntheticExposureHelperELF("arm64"), "arm64", nil),
+		metadataByImage: map[string][]byte{
+			defaultImage: validMetadata,
+			customImage:  customMetadata,
+		},
+	}
+	runtime, err := newRuntimeWithData(filepath.Join(base, "config"), filepath.Join(base, "state"), filepath.Join(base, "data"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.ensureFinalWorkspaceHelpers(context.Background(), customImage); err != nil {
+		t.Fatalf("custom Workspace image prevented canonical helper materialization: %v", err)
+	}
+	for _, args := range runner.outputs {
+		if len(args) >= 2 && args[0] == "image" && args[1] == "inspect" && args[len(args)-1] != defaultImage {
+			t.Fatalf("helper identity observation used custom Workspace image: %v", args)
+		}
+	}
 }
 
 func TestWorkspaceHelpersRequireBothVerifiedImageIdentities(t *testing.T) {

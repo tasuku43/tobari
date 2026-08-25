@@ -124,6 +124,7 @@ func TestFinalWorkspaceAuthorityCatalogOwnsExactReferenceGraph(t *testing.T) {
 	}
 
 	wantProduced := map[string][]ProducedRef{
+		"template create":  {{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}},
 		"template list":    {{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "items[].template_ref"}},
 		"template show":    {{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}, {Kind: tobari.WorkspaceTemplateRevisionReferenceKind, Field: "current_revision_ref"}},
 		"context list":     {{Kind: tobari.ContextReferenceKind, Field: "items[].context_ref"}},
@@ -191,7 +192,11 @@ func TestFinalTemplateCreateCanPublishReadAccessAndBoundedGraphQLEndpoint(t *tes
 			if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
 				t.Fatal(err)
 			}
-			if document.Template.SourceAccess != sourceAccess || len(document.Template.GraphQLEndpoints) == 0 {
+			wantTemplateRef, err := tobari.WorkspaceTemplateRef(tobari.WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789b1"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if document.Template.TemplateRef != wantTemplateRef || document.Template.SourceAccess != sourceAccess || len(document.Template.GraphQLEndpoints) == 0 {
 				t.Fatalf("result=%+v", document.Template)
 			}
 		})
@@ -281,7 +286,7 @@ func TestFinalTemplateCreateCatalogDeclaresExistingBoundedDimensions(t *testing.
 	if endpoint == nil || endpoint.MinimumLength == nil || *endpoint.MinimumLength != 1 || endpoint.ReferenceKind != "" {
 		t.Fatalf("GraphQL endpoint input=%+v", endpoint)
 	}
-	if spec.Agent.Mutation == nil || spec.Agent.Mutation.TargetKind != tobari.WorkspaceTemplateCatalogTargetKind || len(spec.Agent.Mutation.TargetInputs) != 0 || len(spec.ConsumedRefs()) != 0 || len(spec.ProducedRefs()) != 0 {
+	if spec.Agent.Mutation == nil || spec.Agent.Mutation.TargetKind != tobari.WorkspaceTemplateCatalogTargetKind || len(spec.Agent.Mutation.TargetInputs) != 0 || len(spec.ConsumedRefs()) != 0 || !reflect.DeepEqual(spec.ProducedRefs(), []ProducedRef{{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}}) {
 		t.Fatalf("create authority contract=%+v consumed=%+v produced=%+v", spec.Agent.Mutation, spec.ConsumedRefs(), spec.ProducedRefs())
 	}
 	fields := map[string]bool{}
@@ -296,7 +301,7 @@ func TestFinalTemplateCreateCatalogDeclaresExistingBoundedDimensions(t *testing.
 func TestFinalTemplateMutationOutputsDoNotProduceDiscoveryReferences(t *testing.T) {
 	catalog := DefaultCatalog()
 	for _, path := range []string{
-		"template create", "template copy", "template default set", "template delete", "template runtime set",
+		"template copy", "template default set", "template delete", "template runtime set",
 		"config shell", "config git", "config bootstrap aws", "config bootstrap kubernetes eks",
 	} {
 		spec, found := catalog.Lookup(path)
@@ -306,6 +311,10 @@ func TestFinalTemplateMutationOutputsDoNotProduceDiscoveryReferences(t *testing.
 		if got := spec.ProducedRefs(); len(got) != 0 {
 			t.Errorf("%s ProducedRefs() = %+v, want no mutation-produced discovery references", path, got)
 		}
+	}
+	create, found := catalog.Lookup("template create")
+	if !found || !reflect.DeepEqual(create.ProducedRefs(), []ProducedRef{{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}}) {
+		t.Errorf("template create must return its confirmed opaque reference: found=%t refs=%+v", found, create.ProducedRefs())
 	}
 	for _, path := range []string{"template list", "template show"} {
 		spec, found := catalog.Lookup(path)

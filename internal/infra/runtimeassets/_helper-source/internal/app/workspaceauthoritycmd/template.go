@@ -379,6 +379,9 @@ func templateMutationFault(err error) error {
 	if classified, ok := preReleaseLegacyMutationFault(err); ok {
 		return classified
 	}
+	if classified, ok := finalAuthorityMutationRecoveryFault(err); ok {
+		return classified
+	}
 	switch {
 	case errors.Is(err, tobari.ErrWorkspaceTemplateExists):
 		return fault.WithClassification(fault.New(fault.KindRejected, "template_exists", "Workspace Template already exists", false, fault.NextAction{Command: "template list", Reason: "Choose another name or inspect the existing Template."}), fault.PhasePrecondition, fault.ChangeNone)

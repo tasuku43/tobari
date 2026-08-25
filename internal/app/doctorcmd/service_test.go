@@ -276,6 +276,23 @@ func TestPreReleaseLegacyCauseUsesOnlyResetRecreateGuidance(t *testing.T) {
 	}
 }
 
+func TestMutationRecoveryCauseUsesStatusAndForbidsManualArtifactRemoval(t *testing.T) {
+	inspector := &fakeInspector{observations: map[doctor.CheckID]doctor.Observation{
+		doctor.CheckIDContext: {
+			Status: doctor.CheckStatusFail, Detail: "preserved mutation decision",
+			Cause: doctor.ObservationCauseMutationRecoveryRequired,
+		},
+	}}
+	report, err := New(inspector).Run(context.Background(), doctorReadIntent(), ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := findDoctorCheck(t, report, doctor.CheckIDContext)
+	if check.Recovery == nil || check.Recovery.NextCommand != "status" || !strings.Contains(check.Recovery.Action, "exact initiating command") || !strings.Contains(check.Recovery.Action, "do not remove") {
+		t.Fatalf("mutation recovery=%+v", check.Recovery)
+	}
+}
+
 func findDoctorCheck(t *testing.T, report doctor.Report, id doctor.CheckID) doctor.Check {
 	t.Helper()
 	for _, check := range report.Checks {

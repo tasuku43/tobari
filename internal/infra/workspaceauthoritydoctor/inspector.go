@@ -17,6 +17,10 @@ type FinalAuthorityReader interface {
 	ReadComplete(context.Context) (tobari.WorkspaceAuthorityCollection, bool, error)
 }
 
+type FinalMutationRecoveryReader interface {
+	ObserveMutationRecovery(context.Context) (tobari.FinalAuthorityMutationObservation, error)
+}
+
 type FinalClusterObserver interface {
 	Observe(context.Context) (tobari.FinalClusterStatus, error)
 }
@@ -76,6 +80,21 @@ func (i *Inspector) ObserveDoctorCheck(ctx context.Context, root string, id doct
 				return doctor.Observation{Status: doctor.CheckStatusFail, Detail: "unsupported pre-release authority is present; reset or recreate the development installation", Cause: doctor.ObservationCauseLegacyStatePresent}, nil
 			}
 			return doctor.Observation{Status: doctor.CheckStatusFail, Detail: "final Workspace authority is invalid, unsafe, or changed during observation"}, nil
+		}
+		if id == doctor.CheckIDContext {
+			if recoveryReader, ok := i.authority.(FinalMutationRecoveryReader); ok {
+				recovery, recoveryErr := recoveryReader.ObserveMutationRecovery(ctx)
+				if recoveryErr != nil {
+					return doctor.Observation{Status: doctor.CheckStatusFail, Detail: "final mutation recovery authority is invalid or unsafe"}, nil
+				}
+				if recovery.ActiveDecision || recovery.StagePresent {
+					return doctor.Observation{
+						Status: doctor.CheckStatusFail,
+						Detail: "a final-authority mutation decision or stage is preserved; recover it through the exact initiating command",
+						Cause:  doctor.ObservationCauseMutationRecoveryRequired,
+					}, nil
+				}
+			}
 		}
 		return i.observeFinal(ctx, id, collection, present)
 	default:

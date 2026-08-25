@@ -16,6 +16,7 @@ const (
 	statusHomePathTemplateList      = "template list"
 	statusHomePathClusterStatus     = "cluster status"
 	statusHomePathClusterUp         = "cluster up"
+	statusHomePathDoctor            = "doctor"
 	statusHomePathReviewRuntimes    = "review runtimes"
 	statusHomePathReviewPermissions = "review permissions"
 	statusHomePathReviewServices    = "review services"
@@ -32,6 +33,7 @@ func StatusHomeRecoveryPaths() []string {
 		statusHomePathTemplateList,
 		statusHomePathClusterStatus,
 		statusHomePathClusterUp,
+		statusHomePathDoctor,
 		statusHomePathReviewRuntimes,
 		statusHomePathReviewPermissions,
 		statusHomePathReviewServices,
@@ -195,33 +197,56 @@ type StatusAttentionItem struct {
 	Inputs      []StatusNextInput `json:"inputs"`
 }
 
+// FinalAuthorityMutationObservation is a read-only view of the reserved
+// final-authority recovery journal. The decision and stage remain private
+// infrastructure artifacts; status and doctor receive only the bounded
+// operation identity needed to select a safe exact recovery command.
+type FinalAuthorityMutationObservation struct {
+	ActiveDecision bool
+	StagePresent   bool
+	Operation      string
+	Target         string
+}
+
+func (o FinalAuthorityMutationObservation) Validate() error {
+	if !o.ActiveDecision && (o.Operation != "" || o.Target != "") {
+		return fmt.Errorf("final-authority mutation observation has identity without an active decision")
+	}
+	if o.ActiveDecision && (o.Operation == "" || o.Target == "") {
+		return fmt.Errorf("final-authority mutation observation is missing active decision identity")
+	}
+	return nil
+}
+
 // StatusHomeSnapshot is the single task-owned aggregate consumed by every
 // presentation. It preserves independent desired, active, applied, and live
 // facts and deliberately has no overall status field.
 type StatusHomeSnapshot struct {
-	Task                 string                   `json:"task"`
-	AuthorityState       string                   `json:"authority_state"`
-	ProjectRoot          string                   `json:"project_root"`
-	DefaultTemplateState string                   `json:"default_template_state"`
-	Template             *StatusHomeTemplate      `json:"template"`
-	Context              *StatusHomeContext       `json:"context"`
-	Workspace            StatusHomeWorkspace      `json:"workspace"`
-	Runtime              StatusRuntimeObservation `json:"runtime"`
-	Cluster              StatusHomeCluster        `json:"cluster"`
-	Permissions          StatusPermissionSummary  `json:"permissions"`
-	Services             StatusServiceSummary     `json:"services"`
-	LoginValidity        StatusObservationState   `json:"login_validity"`
-	Siblings             []StatusHomeSibling      `json:"siblings"`
-	Next                 StatusPrimaryNext        `json:"next"`
-	Attention            []StatusAttentionItem    `json:"attention"`
+	Task                 string                             `json:"task"`
+	AuthorityState       string                             `json:"authority_state"`
+	ProjectRoot          string                             `json:"project_root"`
+	DefaultTemplateState string                             `json:"default_template_state"`
+	Template             *StatusHomeTemplate                `json:"template"`
+	Context              *StatusHomeContext                 `json:"context"`
+	Workspace            StatusHomeWorkspace                `json:"workspace"`
+	Runtime              StatusRuntimeObservation           `json:"runtime"`
+	Cluster              StatusHomeCluster                  `json:"cluster"`
+	Permissions          StatusPermissionSummary            `json:"permissions"`
+	Services             StatusServiceSummary               `json:"services"`
+	LoginValidity        StatusObservationState             `json:"login_validity"`
+	Siblings             []StatusHomeSibling                `json:"siblings"`
+	Next                 StatusPrimaryNext                  `json:"next"`
+	Attention            []StatusAttentionItem              `json:"attention"`
+	mutationRecovery     *FinalAuthorityMutationObservation `json:"-"`
 }
 
 type StatusHomeLiveEvidence struct {
-	Cluster    *FinalClusterStatus
-	Runtime    StatusRuntimeObservation
-	Workspace  StatusWorkspaceObservation
-	Attachment StatusAttachmentState
-	Services   *ServiceSummary
+	Cluster          *FinalClusterStatus
+	Runtime          StatusRuntimeObservation
+	Workspace        StatusWorkspaceObservation
+	Attachment       StatusAttachmentState
+	Services         *ServiceSummary
+	MutationRecovery *FinalAuthorityMutationObservation
 }
 
 type StatusHomeObservation struct {
@@ -243,8 +268,21 @@ func NewStatusHomeSnapshot(collection WorkspaceAuthorityCollection, present bool
 		Permissions: StatusPermissionSummary{Observation: StatusNotObserved}, Services: StatusServiceSummary{Observation: string(StatusNotObserved)},
 		LoginValidity: StatusNotObserved, Siblings: []StatusHomeSibling{}, Attention: []StatusAttentionItem{},
 	}
+	if live.MutationRecovery != nil {
+		if err := live.MutationRecovery.Validate(); err != nil {
+			return StatusHomeSnapshot{}, err
+		}
+		result.mutationRecovery = live.MutationRecovery
+		result.Attention = append(result.Attention, StatusAttentionItem{
+			Kind: "mutation_recovery", Count: 1, Observation: string(StatusObserved),
+			Path: statusHomeMutationRecoveryPath(live.MutationRecovery), Inputs: []StatusNextInput{},
+		})
+		result.Next = statusCommandNext(statusHomeMutationRecoveryPath(live.MutationRecovery), "A preserved final-authority mutation requires its exact recovery command.")
+	}
 	if !present {
-		result.Next = statusCommandNext(statusHomePathEntry, "Review the recommended Template and enter this Project.")
+		if result.mutationRecovery == nil {
+			result.Next = statusCommandNext(statusHomePathEntry, "Review the recommended Template and enter this Project.")
+		}
 		return result, result.Validate()
 	}
 	if err := collection.Validate(); err != nil {
@@ -252,7 +290,9 @@ func NewStatusHomeSnapshot(collection WorkspaceAuthorityCollection, present bool
 	}
 	result.AuthorityState = "initialized"
 	if collection.DefaultTemplateID == nil {
-		result.Next = statusCommandNext(statusHomePathTemplateList, "Choose and set one installation default Template.")
+		if result.mutationRecovery == nil {
+			result.Next = statusCommandNext(statusHomePathTemplateList, "Choose and set one installation default Template.")
+		}
 		return result, result.Validate()
 	}
 	var selected WorkspaceTemplate
@@ -286,7 +326,9 @@ func NewStatusHomeSnapshot(collection WorkspaceAuthorityCollection, present bool
 		result.Siblings = append(result.Siblings, StatusHomeSibling{ContextID: snapshot.Context.ID, TemplateID: snapshot.Template.ID, TemplateName: snapshot.Template.Name, WorkspacePresent: snapshot.Workspace != nil})
 	}
 	if selectedSnapshot == nil {
-		result.Next = statusCommandNext(statusHomePathEntry, "Create the default Template's Context and enter it.")
+		if result.mutationRecovery == nil {
+			result.Next = statusCommandNext(statusHomePathEntry, "Create the default Template's Context and enter it.")
+		}
 		return result, result.Validate()
 	}
 	axes, err := NewContextAuthorityAxes(*selectedSnapshot)
@@ -374,6 +416,9 @@ func statusGuidanceNext(value, reason string) StatusPrimaryNext {
 }
 
 func (s *StatusHomeSnapshot) deriveAttentionAndNext() {
+	if s.mutationRecovery != nil {
+		return
+	}
 	if s.Permissions.PendingCount > 0 {
 		s.Attention = append(s.Attention, StatusAttentionItem{Kind: "permissions", Count: s.Permissions.PendingCount, Observation: string(s.Permissions.Observation), Path: statusHomePathReviewPermissions, Inputs: []StatusNextInput{}})
 	}
@@ -415,6 +460,13 @@ func (s *StatusHomeSnapshot) deriveAttentionAndNext() {
 		return
 	}
 	s.Next = statusCommandNext(statusHomePathEntry, "Enter or resume the current Workspace.")
+}
+
+func statusHomeMutationRecoveryPath(observation *FinalAuthorityMutationObservation) string {
+	if observation != nil && observation.Operation == "context-entry" {
+		return statusHomePathEntry
+	}
+	return statusHomePathDoctor
 }
 
 func (s StatusHomeSnapshot) Validate() error {

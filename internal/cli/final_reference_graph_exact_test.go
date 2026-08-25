@@ -53,6 +53,7 @@ func TestADR0084WholeCatalogReferenceGraphIsExact(t *testing.T) {
 	sortFinalCatalogReferenceEdges(gotConsumed)
 
 	wantProduced := []finalCatalogReferenceEdge{
+		{Program: ProgramName, Command: "template create", Kind: tobari.WorkspaceTemplateReferenceKind, Endpoint: "template_ref"},
 		{Program: ProgramName, Command: "template list", Kind: tobari.WorkspaceTemplateReferenceKind, Endpoint: "items[].template_ref"},
 		{Program: ProgramName, Command: "template show", Kind: tobari.WorkspaceTemplateReferenceKind, Endpoint: "template_ref"},
 		{Program: ProgramName, Command: "template show", Kind: tobari.WorkspaceTemplateRevisionReferenceKind, Endpoint: "current_revision_ref"},
@@ -113,12 +114,13 @@ func TestADR0084WholeCatalogReferenceGraphIsExact(t *testing.T) {
 		}
 	}
 	wantTemplateProducers := []finalCatalogReferenceEdge{
+		{Program: ProgramName, Command: "template create", Kind: tobari.WorkspaceTemplateReferenceKind, Endpoint: "template_ref"},
 		{Program: ProgramName, Command: "template list", Kind: tobari.WorkspaceTemplateReferenceKind, Endpoint: "items[].template_ref"},
 		{Program: ProgramName, Command: "template show", Kind: tobari.WorkspaceTemplateReferenceKind, Endpoint: "template_ref"},
 	}
 	sortFinalCatalogReferenceEdges(wantTemplateProducers)
 	if !reflect.DeepEqual(templateProducers, wantTemplateProducers) {
-		t.Errorf("workspace-template producers = %+v, want only list/show %+v", templateProducers, wantTemplateProducers)
+		t.Errorf("workspace-template producers = %+v, want create/list/show %+v", templateProducers, wantTemplateProducers)
 	}
 }
 

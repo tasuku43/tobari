@@ -135,6 +135,9 @@ func (s *FinalClusterService) Reconcile(ctx context.Context, intent operation.In
 			if classified, ok := preReleaseLegacyMutationFault(err); ok {
 				return classified
 			}
+			if classified, ok := finalAuthorityMutationRecoveryFault(err); ok {
+				return classified
+			}
 			return err
 		}
 		confirmed, err := NewFinalClusterReconciliation(plan)

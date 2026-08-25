@@ -54,6 +54,20 @@ func preReleaseLegacyMutationFault(err error) (error, bool) {
 	return preReleaseLegacyFault(err, fault.PhasePrecondition, fault.ChangeNone), true
 }
 
+func finalAuthorityMutationRecoveryFault(err error) (error, bool) {
+	if !errors.Is(err, tobari.ErrFinalAuthorityMutationRecoveryRequired) {
+		return nil, false
+	}
+	return fault.WithClassification(fault.Wrap(
+		fault.KindUnavailable,
+		"final_authority_mutation_recovery_required",
+		"A preserved final-authority mutation must be recovered through its exact initiating command before another mutation; do not remove authority files manually.",
+		false,
+		err,
+		fault.NextAction{Command: "status", Reason: "Read the preserved final-authority decision and follow the safe recovery command."},
+	), fault.PhasePrecondition, fault.ChangeNone), true
+}
+
 func preReleaseLegacyFault(err error, phase fault.Phase, change fault.ChangeState) error {
 	return fault.WithClassification(fault.Wrap(
 		fault.KindRejected,

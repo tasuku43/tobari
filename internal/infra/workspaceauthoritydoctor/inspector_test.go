@@ -11,15 +11,21 @@ import (
 )
 
 type readerFixture struct {
-	collection tobari.WorkspaceAuthorityCollection
-	present    bool
-	err        error
-	calls      int
+	collection  tobari.WorkspaceAuthorityCollection
+	present     bool
+	err         error
+	calls       int
+	recovery    tobari.FinalAuthorityMutationObservation
+	recoveryErr error
 }
 
 func (r *readerFixture) ReadComplete(context.Context) (tobari.WorkspaceAuthorityCollection, bool, error) {
 	r.calls++
 	return r.collection.Clone(), r.present, r.err
+}
+
+func (r *readerFixture) ObserveMutationRecovery(context.Context) (tobari.FinalAuthorityMutationObservation, error) {
+	return r.recovery, r.recoveryErr
 }
 
 type clusterFixture struct {
@@ -103,6 +109,22 @@ func TestInspectorTreatsFreshFinalAuthorityAsExactEmptyAndUsesTypedClusterStatus
 	image, err := inspector.ObserveDoctorCheck(context.Background(), "/workspace", doctor.CheckIDImageConfig)
 	if err != nil || image.Status != doctor.CheckStatusPass || generic.runtimeCalls != 0 {
 		t.Fatalf("fresh image=%#v Runtime calls=%d err=%v", image, generic.runtimeCalls, err)
+	}
+}
+
+func TestInspectorClassifiesPreservedMutationRecoveryBeforeFinalContextObservation(t *testing.T) {
+	contextRef, err := tobari.ContextRef(tobari.ContextID("01912345-6789-7abc-8def-0123456789ad"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := &readerFixture{recovery: tobari.FinalAuthorityMutationObservation{ActiveDecision: true, Operation: "context-entry", Target: contextRef}}
+	inspector, err := New(reader, &clusterFixture{status: emptyClusterStatus(tobari.FinalClusterRuntimeAbsent)}, &genericFixture{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := inspector.ObserveDoctorCheck(context.Background(), "/workspace", doctor.CheckIDContext)
+	if err != nil || observation.Status != doctor.CheckStatusFail || observation.Cause != doctor.ObservationCauseMutationRecoveryRequired || !strings.Contains(observation.Detail, "exact initiating command") {
+		t.Fatalf("recovery observation=%#v err=%v", observation, err)
 	}
 }
 

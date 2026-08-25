@@ -28,6 +28,10 @@ type DefaultPairInitializePort interface {
 	InitializeFinalDefaultPair(context.Context, string, tobari.WorkspaceTemplateBody) (tobari.FinalDefaultPairPublication, error)
 }
 
+type DefaultPairMutationRecoveryPort interface {
+	ObserveMutationRecovery(context.Context) (tobari.FinalAuthorityMutationObservation, error)
+}
+
 // DefaultPairResolution is one invocation-local receipt for the exact default
 // Template and canonical Project Context selected by root entry. It does not
 // create another durable authority or selection.
@@ -176,12 +180,15 @@ func (defaultPairMutationPolicy) Check(_ context.Context, intent operation.Inten
 type DefaultPairService struct {
 	authority  DefaultPairAuthorityPort
 	initialize DefaultPairInitializePort
+	recovery   DefaultPairMutationRecoveryPort
 	contexts   *ContextService
 	mutator    *execution.Invoker
 }
 
 func NewDefaultPairService(authority DefaultPairAuthorityPort, initialize DefaultPairInitializePort, contexts *ContextService) *DefaultPairService {
-	return &DefaultPairService{authority: authority, initialize: initialize, contexts: contexts, mutator: execution.New(defaultPairMutationPolicy{})}
+	service := &DefaultPairService{authority: authority, initialize: initialize, contexts: contexts, mutator: execution.New(defaultPairMutationPolicy{})}
+	service.recovery, _ = authority.(DefaultPairMutationRecoveryPort)
+	return service
 }
 
 func DefaultPairEnterImpact() operation.Impact {
@@ -208,6 +215,16 @@ func (s *DefaultPairService) Observe(ctx context.Context) (tobari.FinalDefaultPa
 		return tobari.FinalDefaultPairObservation{}, readFault(err, "default_pair_read_failed", "The final default Template and current Project pair could not be observed")
 	}
 	return observation, nil
+}
+
+// ObserveMutationRecovery is a bounded read-only look at the final mutation
+// journal. Root entry uses it only to resume an exact pending Context entry;
+// it never selects another target or clears the journal.
+func (s *DefaultPairService) ObserveMutationRecovery(ctx context.Context) (tobari.FinalAuthorityMutationObservation, error) {
+	if s == nil || s.recovery == nil {
+		return tobari.FinalAuthorityMutationObservation{}, nil
+	}
+	return s.recovery.ObserveMutationRecovery(ctx)
 }
 
 // Resolve confirms an existing complete pair without mutation, or publishes
@@ -398,6 +415,9 @@ func defaultPairMutationFault(err error) error {
 	if classified, ok := preReleaseLegacyMutationFault(err); ok {
 		return classified
 	}
+	if classified, ok := finalAuthorityMutationRecoveryFault(err); ok {
+		return classified
+	}
 	if _, ok := fault.PublicCopy(err); ok {
 		return err
 	}
@@ -406,6 +426,9 @@ func defaultPairMutationFault(err error) error {
 
 func defaultPairInitializationFault(err error) error {
 	if classified, ok := preReleaseLegacyMutationFault(err); ok {
+		return classified
+	}
+	if classified, ok := finalAuthorityMutationRecoveryFault(err); ok {
 		return classified
 	}
 	if err == tobari.ErrDefaultTemplateSelectionRequired {
@@ -418,6 +441,9 @@ func defaultPairInitializationFault(err error) error {
 }
 
 func defaultPairPostInitializationFault(err error, initialized bool) error {
+	if classified, ok := finalAuthorityMutationRecoveryFault(err); ok {
+		return classified
+	}
 	if !initialized {
 		return defaultPairMutationFault(err)
 	}

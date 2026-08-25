@@ -814,7 +814,7 @@ func (r *Runtime) confirmFinalWorkspaceRuntimeAssets(spec finalWorkspaceRuntimeS
 	return nil
 }
 
-func (r *Runtime) ensureFinalWorkspaceHelpers(ctx context.Context, image string) error {
+func (r *Runtime) ensureFinalWorkspaceHelpers(ctx context.Context, _ string) error {
 	version, err := runtimeassets.Version()
 	if err != nil {
 		return err
@@ -825,7 +825,13 @@ func (r *Runtime) ensureFinalWorkspaceHelpers(ctx context.Context, image string)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if err := r.materializeWorkspaceHelpers(ctx, image); err != nil {
+	// These binaries are Tobari-owned runtime assets, not a capability of the
+	// selected managed Workspace image. Managed Runtime compatibility deliberately
+	// covers only the public API, lifetime, user, and entrypoint contract, so a
+	// custom image is not required to carry the helper identity labels. The
+	// canonical base image is prepared by cluster readiness and is the only image
+	// that may supply the host-side helper artifacts.
+	if err := r.materializeWorkspaceHelpers(ctx, r.defaultRuntimeImage()); err != nil {
 		return fmt.Errorf("materialize final Workspace helpers: %w", err)
 	}
 	return r.confirmFinalWorkspaceHelperAssets(runtimeDirectory)

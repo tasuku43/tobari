@@ -186,7 +186,7 @@ func TestBatchDHelpCompletionAndFaultSurfaceRejectsLegacyVocabulary(t *testing.T
 
 func TestBatchDReachableCLISourcesContainNoPredecessorComposition(t *testing.T) {
 	checks := map[string][]string{
-		"cli.go":        {"--manifest", "WorkspaceManifestName", "tobaricmd.New", "contextcmd.New(", "command.tobari =", "command.context ="},
+		"cli.go":        {"--manifest", "WorkspaceManifestName", "tobaricmd.New", "contextcmd.New(", "command.tobari =", "command.context =", "MigrateInstallation(", "planInstallationMigration(", "prepareLegacyMigrationRuntime(", "convertLegacyContextPolicy(", "CreateContext(", "ListContexts(", "runtime.ClusterUp(", "runtime.ClusterDown("},
 		"completion.go": {"--manifest", "rootContextCompletionInput", "completion_manifest_read_failed"},
 	}
 	for file, forbidden := range checks {
@@ -214,6 +214,39 @@ func TestBatchDReachableCLISourcesContainNoPredecessorComposition(t *testing.T) 
 		short := name[strings.LastIndex(name, ".")+1:]
 		if _, forbidden := forbiddenHandlers[short]; forbidden {
 			t.Errorf("public command %s reaches predecessor handler %s", command.Path, short)
+		}
+	}
+}
+
+func TestBatchDReachableFinalAuthoritySourcesContainNoLegacyRuntimeHelpers(t *testing.T) {
+	for _, file := range []string{
+		"../infra/workspaceauthoritystore/store.go",
+		"../infra/workspaceauthoritystore/mutator.go",
+		"../infra/workspaceauthoritystore/entry.go",
+		"../infra/workspaceauthoritystore/default_pair.go",
+		"../infra/workspaceauthoritystore/cluster.go",
+		"../infra/workspaceauthoritystore/cluster_lifecycle.go",
+		"../infra/workspaceauthoritystore/cluster_read.go",
+		"../infra/workspaceauthoritystore/status_home.go",
+		"../infra/workspaceauthoritystore/policy_read.go",
+		"../infra/workspaceauthoritystore/final_policy_candidates.go",
+		"../infra/workspaceauthoritystore/host_loopback_policy.go",
+		"../infra/workspaceauthoritystore/auth.go",
+	} {
+		body, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(body)
+		for _, token := range []string{
+			"MigrateInstallation(", "planInstallationMigration(", "prepareLegacyMigrationRuntime(",
+			"convertLegacyContextPolicy(", "migratePrePlatformSharedClusterState(",
+			"CreateContext(", "ListContexts(", "ResolveContext(", "ObserveContext(",
+			"ReadWorkspaceManifestByID(", "r.ClusterUp(", "r.ClusterDown(",
+		} {
+			if strings.Contains(text, token) {
+				t.Errorf("reachable final authority source %s retains legacy runtime helper %q", file, token)
+			}
 		}
 	}
 }

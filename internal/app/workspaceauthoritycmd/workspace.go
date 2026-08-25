@@ -120,6 +120,9 @@ func workspaceMutationFault(err error) error {
 	if classified, ok := preReleaseLegacyMutationFault(err); ok {
 		return classified
 	}
+	if classified, ok := finalAuthorityMutationRecoveryFault(err); ok {
+		return classified
+	}
 	switch {
 	case errors.Is(err, tobari.ErrWorkspaceBindingNotFound):
 		return fault.WithClassification(fault.New(fault.KindNotFound, "workspace_not_found", "Workspace no longer exists", false, fault.NextAction{Command: "workspace list", Reason: "Discover current Workspace authority."}), fault.PhasePrecondition, fault.ChangeNone)

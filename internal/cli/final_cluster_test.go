@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
+	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 func TestFinalClusterUpPublicResultOwnsOnlyTheCatalogEnvelopeVersion(t *testing.T) {
@@ -31,5 +32,24 @@ func TestFinalClusterDownPublicResultOwnsOnlyTheCatalogEnvelopeVersion(t *testin
 	}
 	if bytes.Count(encoded, []byte(`"schema_version"`)) != 1 {
 		t.Fatalf("cluster-down result must expose exactly one Catalog-owned schema version: %s", encoded)
+	}
+}
+
+func TestFinalClusterStatusJSONOmitsPrivateApplicationSchemaVersion(t *testing.T) {
+	status := tobari.FinalClusterStatus{
+		SchemaVersion: tobari.FinalClusterLifecycleSchemaVersion,
+		Task:          tobari.TaskClusterStatus,
+		Authority:     tobari.FinalClusterAuthorityAbsent,
+		Runtime:       tobari.FinalClusterRuntimeAbsent,
+		Receipt:       tobari.FinalClusterReceiptAbsent,
+		Contexts:      []tobari.FinalClusterContextReceiptObservation{},
+		Components:    []tobari.FinalClusterComponentObservation{},
+	}
+	encoded, err := renderFinalClusterStatus("cluster status", status, successFormatJSON)
+	if err != nil {
+		t.Fatalf("encode final cluster-status result: %v", err)
+	}
+	if bytes.Count(encoded, []byte(`"schema_version"`)) != 1 || bytes.Contains(encoded, []byte(`"cluster":{"schema_version"`)) {
+		t.Fatalf("cluster-status result exposed a private schema version: %s", encoded)
 	}
 }

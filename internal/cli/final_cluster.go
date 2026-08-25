@@ -166,7 +166,7 @@ func renderFinalClusterStatus(path string, status tobari.FinalClusterStatus, for
 		return nil, fault.Wrap(fault.KindContract, "invalid_cluster_status_result", "final cluster status is invalid", false, err)
 	}
 	if format == successFormatJSON {
-		return finalClusterJSON(path, "cluster", status)
+		return finalClusterJSON(path, "cluster", newFinalClusterStatusPublicResult(status))
 	}
 	var output strings.Builder
 	fmt.Fprintf(&output, "Cluster %s\n", status.Runtime)
@@ -184,6 +184,33 @@ func renderFinalClusterStatus(path string, status tobari.FinalClusterStatus, for
 		fmt.Fprintf(&output, "%s  %s%s · identity %s · topology %s\n", finalClusterComponentLabel(component.Name), component.State, health, component.Identity, component.Topology)
 	}
 	return []byte(output.String()), nil
+}
+
+// finalClusterStatusPublicResult omits the domain validation version from the
+// public envelope. The Catalog owns the outer schema_version; publishing the
+// internal result directly would create an undeclared nested field.
+type finalClusterStatusPublicResult struct {
+	Task               string                                         `json:"task"`
+	Authority          tobari.FinalClusterAuthorityState              `json:"authority"`
+	Generation         uint64                                         `json:"generation,omitempty"`
+	CollectionRevision tobari.SemanticDigest                          `json:"collection_revision,omitempty"`
+	TemplateCount      int                                            `json:"template_count"`
+	ContextCount       int                                            `json:"context_count"`
+	WorkspaceCount     int                                            `json:"workspace_count"`
+	Runtime            tobari.FinalClusterRuntimeState                `json:"runtime"`
+	Receipt            tobari.FinalClusterReceiptState                `json:"receipt"`
+	Contexts           []tobari.FinalClusterContextReceiptObservation `json:"contexts"`
+	Components         []tobari.FinalClusterComponentObservation      `json:"components"`
+}
+
+func newFinalClusterStatusPublicResult(status tobari.FinalClusterStatus) finalClusterStatusPublicResult {
+	return finalClusterStatusPublicResult{
+		Task: status.Task, Authority: status.Authority, Generation: status.Generation,
+		CollectionRevision: status.CollectionRevision, TemplateCount: status.TemplateCount,
+		ContextCount: status.ContextCount, WorkspaceCount: status.WorkspaceCount,
+		Runtime: status.Runtime, Receipt: status.Receipt,
+		Contexts: status.Contexts, Components: status.Components,
+	}
 }
 
 func renderFinalClusterUp(path string, result workspaceauthoritycmd.FinalClusterReconciliation, format successFormat) ([]byte, error) {

@@ -109,6 +109,10 @@ type Mutator struct {
 const effectDecisionSchemaVersion = 1
 const maxEffectDecisionBytes = 8 << 20
 
+func finalMutationRecoveryError(detail string) error {
+	return errors.Join(tobari.ErrFinalAuthorityMutationRecoveryRequired, errors.New(detail))
+}
+
 type effectDecision struct {
 	SchemaVersion       int                                                 `json:"schema_version"`
 	Operation           string                                              `json:"operation"`
@@ -1288,7 +1292,7 @@ func (m *Mutator) effectfulMutate(
 		}
 		if active {
 			if decision.Operation != operation || decision.Target != target || requestMatches != nil && !requestMatches(decision) {
-				return fmt.Errorf("another final-authority mutation requires exact same-target recovery")
+				return finalMutationRecoveryError("another final-authority mutation requires exact same-target recovery")
 			}
 			if isResearchAuthOperation(decision.Operation) && decision.AuthResult != nil {
 				if err := m.confirmCommittedEffect(lockedContext, current, decision); err != nil {
@@ -1307,7 +1311,7 @@ func (m *Mutator) effectfulMutate(
 				return m.clearEffectDecision()
 			}
 			if current.Generation != decision.PreviousGeneration || current.Revision != decision.PreviousRevision {
-				return fmt.Errorf("active final-authority mutation crosses unexpected envelope authority")
+				return finalMutationRecoveryError("active final-authority mutation crosses unexpected envelope authority")
 			}
 		}
 
@@ -1891,7 +1895,7 @@ func (m *Mutator) mutate(ctx context.Context, change collectionMutation) error {
 		if _, active, err := m.readEffectDecision(); err != nil {
 			return err
 		} else if active {
-			return fmt.Errorf("final-authority mutation requires exact active-decision recovery")
+			return finalMutationRecoveryError("final-authority mutation requires exact active-decision recovery")
 		}
 		if err := m.reconcileStage(); err != nil {
 			return err

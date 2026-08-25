@@ -34,11 +34,17 @@ type firstEntryPairFixture struct {
 	resolveErr     error
 	refreshErr     error
 	entryErr       error
+	recovery       tobari.FinalAuthorityMutationObservation
+	recoveryErr    error
 }
 
 func (f *firstEntryPairFixture) Observe(context.Context) (tobari.FinalDefaultPairObservation, error) {
 	*f.order = append(*f.order, "observe")
 	return f.observation.Clone(), nil
+}
+
+func (f *firstEntryPairFixture) ObserveMutationRecovery(context.Context) (tobari.FinalAuthorityMutationObservation, error) {
+	return f.recovery, f.recoveryErr
 }
 
 func (f *firstEntryPairFixture) Resolve(_ context.Context, intent operation.Intent, body *tobari.WorkspaceTemplateBody) (workspaceauthoritycmd.DefaultPairResolution, error) {
@@ -186,6 +192,23 @@ func TestFinalRootExistingPairSkipsReviewAndFreshBody(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "✓ Use Context\n") || strings.Contains(stderr.String(), "Save setup") {
 		t.Fatalf("existing progress = %q", stderr.String())
+	}
+}
+
+func TestFinalRootResumesExactPendingContextEntryBeforeClusterMutation(t *testing.T) {
+	command, pair, _, cluster, _, _, stderr, order := newFirstEntryCLI(t, false, false, recommendedFirstUseStart)
+	contextID := tobari.ContextID("01912345-6789-7abc-8def-0123456789ad")
+	contextRef, err := tobari.ContextRef(contextID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pair.resolution.Observation.Context = &tobari.ContextAuthoritySnapshot{Context: tobari.ContextBinding{ID: contextID}}
+	pair.recovery = tobari.FinalAuthorityMutationObservation{ActiveDecision: true, Operation: "context-entry", Target: contextRef}
+	if code := command.RunContext(context.Background(), nil); code != ExitOK {
+		t.Fatalf("resume exit=%d stderr=%q", code, stderr.String())
+	}
+	if !reflect.DeepEqual(*order, []string{"observe", "readiness", "resolve", "entry"}) || pair.entryCalls != 1 || cluster.calls != 0 {
+		t.Fatalf("resume order=%v entry=%d cluster=%d", *order, pair.entryCalls, cluster.calls)
 	}
 }
 

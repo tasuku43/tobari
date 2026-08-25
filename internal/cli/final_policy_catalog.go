@@ -85,6 +85,7 @@ func finalPolicyReadErrors(path string) []CommandError {
 
 func finalPolicyMutationErrors(path, recovery string) []CommandError {
 	return mutationCommandErrors(path, recovery,
+		declaredCommandError(fault.KindUnavailable, "final_authority_mutation_recovery_required", false, "status", "Read and recover the preserved final-authority decision through the exact initiating command; do not remove authority files manually."),
 		declaredCommandError(fault.KindRejected, "legacy_state_present", false, "doctor", "Reset or recreate this pre-release installation before using final Policy Memory."),
 		declaredCommandError(fault.KindInvalidInput, "invalid_policy_candidate_ref", false, "policy candidates", "Use an emitted candidate reference unchanged."),
 		declaredCommandError(fault.KindInvalidInput, "invalid_policy_rule_ref", false, "policy rules", "Use an emitted rule reference unchanged."),

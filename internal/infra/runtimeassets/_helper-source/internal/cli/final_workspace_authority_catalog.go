@@ -21,6 +21,9 @@ func finalAuthorityReadErrors(path, recovery string) []CommandError {
 
 func finalAuthorityMutationErrors(path, recovery string) []CommandError {
 	return mutationCommandErrors(path, recovery,
+		declaredCommandError(fault.KindInvalidInput, "invalid_template_ref", false, "template list", "Use one exact opaque Workspace Template reference emitted by Template discovery."),
+		declaredCommandError(fault.KindInvalidInput, "invalid_runtime_revision_ref", false, "review runtimes", "Use one exact opaque Runtime revision reference emitted by Runtime discovery."),
+		declaredCommandError(fault.KindUnavailable, "final_authority_mutation_recovery_required", false, "status", "Read and recover the preserved final-authority decision through the exact initiating command; do not remove authority files manually."),
 		declaredCommandError(fault.KindRejected, "legacy_state_present", false, "doctor", "Reset or recreate this pre-release installation before initializing final authority."),
 		declaredCommandError(fault.KindNotFound, "authority_not_found", false, recovery, "Discover current final authority references."),
 		declaredCommandError(fault.KindRejected, "authority_in_use", false, recovery, "Remove the exact dependent final authority first."),
@@ -30,7 +33,7 @@ func finalAuthorityMutationErrors(path, recovery string) []CommandError {
 func finalContextEnterErrors(path, recovery string) []CommandError {
 	return append(finalAuthorityMutationErrors(path, recovery),
 		classifiedCommandError(fault.KindUnavailable, "workspace_entry_attachment_unavailable", false, fault.PhaseAttachment, fault.ChangeConfirmed, "context list", "Discover the confirmed Context authority before another explicit entry."),
-		classifiedCommandError(fault.KindUnavailable, "workspace_entry_interrupted", false, fault.PhaseMutation, fault.ChangePartial, "context list", "Discover the preserved Context authority before another explicit entry."),
+		classifiedCommandError(fault.KindUnavailable, "workspace_entry_interrupted", false, fault.PhaseMutation, fault.ChangePartial, "status", "Read the preserved entry decision, then repeat the exact same-Context entry command."),
 		classifiedCommandError(fault.KindRejected, "workspace_entry_template_policy_inactive", false, fault.PhasePrecondition, fault.ChangeNone, "cluster status", "Read the current Template policy activation before explicit cluster reconciliation."),
 		classifiedCommandError(fault.KindRejected, "workspace_entry_policy_memory_inactive", false, fault.PhasePrecondition, fault.ChangeNone, "context list", "Discover current Context authority before explicit policy reconciliation."),
 		classifiedCommandError(fault.KindUnavailable, "workspace_entry_observation_unavailable", false, fault.PhaseObservation, fault.ChangeNotApplicable, "context list", "Discover desired, applied, and active Context authority without reconciling it."),
@@ -94,6 +97,10 @@ func finalTemplateShowFields(includeRevisionRef bool) []OutputField {
 func finalTemplateMutationFields() []OutputField {
 	fields := finalTemplateShowFields(false)
 	return append([]OutputField{}, fields[1:]...)
+}
+
+func finalTemplateCreateFields() []OutputField {
+	return append([]OutputField{}, finalTemplateShowFields(false)...)
 }
 
 func finalContextFields(includeContextRef bool) []OutputField {
@@ -164,7 +171,7 @@ func finalTemplateCreateSpec() CommandSpec {
 		{Name: "--name", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Unique Template display name.", AllowedValues: []string{}},
 		{Name: "--source-access", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Immutable direct Project source access for this Template.", AllowedValues: []string{"read-only", "read-write"}, DefaultValue: stringPointer("read-write")},
 		{Name: "--graphql-endpoint", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: int64Pointer(1), Description: "One exact HTTPS GraphQL endpoint with an explicit port and path; it is bounded by the standard destination and POST method ceilings.", AllowedValues: []string{}},
-		formatInput()}, Output: finalJSONOutput("template", finalTemplateMutationFields(), CollectionCoverageNotApplicable), Prerequisites: []string{"The built-in standard Runtime revision is available exactly."}, FixedTarget: &FixedTarget{Kind: tobari.WorkspaceTemplateCatalogTargetKind, ID: tobari.WorkspaceTemplateCatalogTargetID, Description: "This installation's final Workspace Template collection.", Scope: FixedTargetScopeToolLocal}, Errors: finalAuthorityMutationErrors("template create", "template list"), Mutation: &MutationContract{TargetKind: tobari.WorkspaceTemplateCatalogTargetKind, TargetInputs: []string{}, Impact: workspaceauthoritycmd.TemplateCreateImpact()}}, handler: runFinalTemplateCreate}
+		formatInput()}, Output: finalJSONOutput("template", finalTemplateCreateFields(), CollectionCoverageNotApplicable), Prerequisites: []string{"The built-in standard Runtime revision is available exactly."}, FixedTarget: &FixedTarget{Kind: tobari.WorkspaceTemplateCatalogTargetKind, ID: tobari.WorkspaceTemplateCatalogTargetID, Description: "This installation's final Workspace Template collection.", Scope: FixedTargetScopeToolLocal}, Errors: finalAuthorityMutationErrors("template create", "template list"), Mutation: &MutationContract{TargetKind: tobari.WorkspaceTemplateCatalogTargetKind, TargetInputs: []string{}, Impact: workspaceauthoritycmd.TemplateCreateImpact()}}, handler: runFinalTemplateCreate}
 }
 
 func finalTemplateCopySpec() CommandSpec {

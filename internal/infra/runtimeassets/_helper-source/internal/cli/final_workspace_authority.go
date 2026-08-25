@@ -102,7 +102,11 @@ func finalTemplateGraphQLEndpointText(endpoints []tobari.ManifestPolicyExactRule
 
 func finalTemplateText(value finalTemplateProjection, includeReferences bool) []byte {
 	if includeReferences {
-		return []byte(fmt.Sprintf("Template %s\nReference %s\nRevision %s\nSource access %s\nGraphQL endpoints %s\n", safeExternalText(value.Name), value.TemplateRef, value.CurrentRevisionRef, value.SourceAccess, finalTemplateGraphQLEndpointText(value.GraphQLEndpoints)))
+		revision := value.CurrentRevisionRef
+		if revision == "" {
+			revision = value.Revision
+		}
+		return []byte(fmt.Sprintf("Template %s\nReference %s\nRevision %s\nSource access %s\nGraphQL endpoints %s\n", safeExternalText(value.Name), value.TemplateRef, revision, value.SourceAccess, finalTemplateGraphQLEndpointText(value.GraphQLEndpoints)))
 	}
 	return []byte(fmt.Sprintf("Template %s\nGeneration %d\nRevision %s\nSource access %s\nGraphQL endpoints %s\n", safeExternalText(value.Name), value.Generation, value.Revision, value.SourceAccess, finalTemplateGraphQLEndpointText(value.GraphQLEndpoints)))
 }
@@ -246,7 +250,7 @@ func runFinalTemplateCreate(ctx context.Context, c *CLI, command CommandSpec, in
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	return c.emitFinalTemplateMutation(ctx, command, inputs, view.Template, view.TemplateRef, view.CurrentRevisionRef)
+	return c.emitFinalTemplateMutation(ctx, command, inputs, view.Template, view.TemplateRef, true)
 }
 
 func runFinalTemplateCopy(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {
@@ -259,16 +263,16 @@ func runFinalTemplateCopy(ctx context.Context, c *CLI, command CommandSpec, inte
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	return c.emitFinalTemplateMutation(ctx, command, inputs, view.Template, view.TemplateRef, view.CurrentRevisionRef)
+	return c.emitFinalTemplateMutation(ctx, command, inputs, view.Template, "", false)
 }
 
-func (c *CLI) emitFinalTemplateMutation(ctx context.Context, command CommandSpec, inputs ParsedInputs, template tobari.WorkspaceTemplate, _, _ string) int {
+func (c *CLI) emitFinalTemplateMutation(ctx context.Context, command CommandSpec, inputs ParsedInputs, template tobari.WorkspaceTemplate, templateRef string, includeReferences bool) int {
 	format, code, ok := finalFormat(ctx, c, command, inputs)
 	if !ok {
 		return code
 	}
-	value := finalTemplateFrom(template, "", "", false)
-	output, err := finalAuthorityOutput(command.Path, "template", value, format, finalTemplateText(value, false))
+	value := finalTemplateFrom(template, templateRef, "", false)
+	output, err := finalAuthorityOutput(command.Path, "template", value, format, finalTemplateText(value, includeReferences))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -612,7 +616,7 @@ func (c *CLI) runFinalTemplateBootstrap(ctx context.Context, command CommandSpec
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	return c.emitFinalTemplateMutation(ctx, command, inputs, publication.Template, "", "")
+	return c.emitFinalTemplateMutation(ctx, command, inputs, publication.Template, "", false)
 }
 
 func (c *CLI) runFinalTemplateChange(ctx context.Context, command CommandSpec, intent operation.Intent, inputs ParsedInputs, change tobari.WorkspaceTemplateChange) int {
@@ -630,9 +634,7 @@ func (c *CLI) runFinalTemplateChange(ctx context.Context, command CommandSpec, i
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	templateRef, _ := tobari.WorkspaceTemplateRef(publication.Template.ID)
-	revisionRef, _ := tobari.WorkspaceTemplateRevisionRef(publication.Template.ID, publication.Template.Current.Revision)
-	return c.emitFinalTemplateMutation(ctx, command, inputs, publication.Template, templateRef, revisionRef)
+	return c.emitFinalTemplateMutation(ctx, command, inputs, publication.Template, "", false)
 }
 
 func (c *CLI) reviewedStandardTemplateBody(ctx context.Context) (tobari.WorkspaceTemplateBody, error) {
