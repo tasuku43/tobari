@@ -1,5 +1,5 @@
 {
-  "generated_from": "committed tobari agent help schema 1 at commit a3a549e9f525eb6166c6357f0539f1ed7865bd39",
+  "generated_from": "committed tobari agent help schema 1 at commit 5e4824a610bf92c6ef2f3d3d9ecf1bf0bd751ed2",
   "root": {
     "schema_version": 1,
     "view": "index",
@@ -181,7 +181,7 @@
         "namespace": "template",
         "summary": "Create one direct final Workspace Template",
         "capability_id": "workspace.authority",
-        "outcome": "Create one fresh Template from the reviewed built-in standard body",
+        "outcome": "Create one fresh Template from the reviewed standard body with bounded source access and optional exact GraphQL endpoint",
         "effect": "create",
         "role": "act"
       },
@@ -9226,6 +9226,71 @@
                         "required": true,
                         "nullable": false,
                         "enum": []
+                      },
+                      {
+                        "name": "source_access",
+                        "type": "string",
+                        "description": "Immutable direct Project source access: read-only or read-write.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "graphql_endpoints",
+                        "type": "array",
+                        "description": "Bounded exact GraphQL transport endpoints in the immutable Template policy.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": [],
+                        "items": {
+                          "type": "object",
+                          "description": "One bounded exact GraphQL endpoint.",
+                          "required": true,
+                          "nullable": false,
+                          "enum": [],
+                          "fields": [
+                            {
+                              "name": "scheme",
+                              "type": "string",
+                              "description": "Exact endpoint URL scheme.",
+                              "required": true,
+                              "nullable": false,
+                              "enum": []
+                            },
+                            {
+                              "name": "host",
+                              "type": "string",
+                              "description": "Exact endpoint host.",
+                              "required": true,
+                              "nullable": false,
+                              "enum": []
+                            },
+                            {
+                              "name": "port",
+                              "type": "integer",
+                              "description": "Exact endpoint port.",
+                              "required": true,
+                              "nullable": false,
+                              "enum": []
+                            },
+                            {
+                              "name": "method",
+                              "type": "string",
+                              "description": "Exact endpoint transport method.",
+                              "required": true,
+                              "nullable": false,
+                              "enum": []
+                            },
+                            {
+                              "name": "path",
+                              "type": "string",
+                              "description": "Exact endpoint path.",
+                              "required": true,
+                              "nullable": false,
+                              "enum": []
+                            }
+                          ]
+                        }
                       }
                     ]
                   }
@@ -9452,6 +9517,71 @@
                   "enum": []
                 },
                 {
+                  "name": "source_access",
+                  "type": "string",
+                  "description": "Immutable direct Project source access: read-only or read-write.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": []
+                },
+                {
+                  "name": "graphql_endpoints",
+                  "type": "array",
+                  "description": "Bounded exact GraphQL transport endpoints in the immutable Template policy.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": [],
+                  "items": {
+                    "type": "object",
+                    "description": "One bounded exact GraphQL endpoint.",
+                    "required": true,
+                    "nullable": false,
+                    "enum": [],
+                    "fields": [
+                      {
+                        "name": "scheme",
+                        "type": "string",
+                        "description": "Exact endpoint URL scheme.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "host",
+                        "type": "string",
+                        "description": "Exact endpoint host.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "port",
+                        "type": "integer",
+                        "description": "Exact endpoint port.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "method",
+                        "type": "string",
+                        "description": "Exact endpoint transport method.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "path",
+                        "type": "string",
+                        "description": "Exact endpoint path.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      }
+                    ]
+                  }
+                },
+                {
                   "name": "policy_slice_digest",
                   "type": "string",
                   "description": "Current independent Template-policy slice digest.",
@@ -9588,13 +9718,13 @@
         {
           "path": "template create",
           "summary": "Create one direct final Workspace Template",
-          "usage": "tobari template create --name \u003cname\u003e [--format text|json]",
-          "args": "--name \u003cname\u003e [--format text|json]",
+          "usage": "tobari template create --name \u003cname\u003e [--source-access read-only|read-write] [--graphql-endpoint \u003chttps-url\u003e] [--format text|json]",
+          "args": "--name \u003cname\u003e [--source-access read-only|read-write] [--graphql-endpoint \u003chttps-url\u003e] [--format text|json]",
           "effect": "create",
           "role": "act",
           "contract": {
             "capability_id": "workspace.authority",
-            "outcome": "Create one fresh Template from the reviewed built-in standard body",
+            "outcome": "Create one fresh Template from the reviewed standard body with bounded source access and optional exact GraphQL endpoint",
             "inputs": [
               {
                 "name": "--name",
@@ -9604,6 +9734,29 @@
                 "cardinality": "single",
                 "description": "Unique Template display name.",
                 "allowed_values": []
+              },
+              {
+                "name": "--source-access",
+                "source": "flag",
+                "required": false,
+                "value_kind": "text",
+                "cardinality": "single",
+                "description": "Immutable direct Project source access for this Template.",
+                "allowed_values": [
+                  "read-only",
+                  "read-write"
+                ],
+                "default_value": "read-write"
+              },
+              {
+                "name": "--graphql-endpoint",
+                "source": "flag",
+                "required": false,
+                "value_kind": "text",
+                "cardinality": "single",
+                "description": "One exact HTTPS GraphQL endpoint with an explicit port and path; it is bounded by the standard destination and POST method ceilings.",
+                "allowed_values": [],
+                "minimum_length": 1
               },
               {
                 "name": "--format",
@@ -9673,6 +9826,71 @@
                   "required": true,
                   "nullable": false,
                   "enum": []
+                },
+                {
+                  "name": "source_access",
+                  "type": "string",
+                  "description": "Immutable direct Project source access: read-only or read-write.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": []
+                },
+                {
+                  "name": "graphql_endpoints",
+                  "type": "array",
+                  "description": "Bounded exact GraphQL transport endpoints in the immutable Template policy.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": [],
+                  "items": {
+                    "type": "object",
+                    "description": "One bounded exact GraphQL endpoint.",
+                    "required": true,
+                    "nullable": false,
+                    "enum": [],
+                    "fields": [
+                      {
+                        "name": "scheme",
+                        "type": "string",
+                        "description": "Exact endpoint URL scheme.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "host",
+                        "type": "string",
+                        "description": "Exact endpoint host.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "port",
+                        "type": "integer",
+                        "description": "Exact endpoint port.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "method",
+                        "type": "string",
+                        "description": "Exact endpoint transport method.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "path",
+                        "type": "string",
+                        "description": "Exact endpoint path.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      }
+                    ]
+                  }
                 },
                 {
                   "name": "policy_slice_digest",
@@ -9980,6 +10198,71 @@
                   "required": true,
                   "nullable": false,
                   "enum": []
+                },
+                {
+                  "name": "source_access",
+                  "type": "string",
+                  "description": "Immutable direct Project source access: read-only or read-write.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": []
+                },
+                {
+                  "name": "graphql_endpoints",
+                  "type": "array",
+                  "description": "Bounded exact GraphQL transport endpoints in the immutable Template policy.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": [],
+                  "items": {
+                    "type": "object",
+                    "description": "One bounded exact GraphQL endpoint.",
+                    "required": true,
+                    "nullable": false,
+                    "enum": [],
+                    "fields": [
+                      {
+                        "name": "scheme",
+                        "type": "string",
+                        "description": "Exact endpoint URL scheme.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "host",
+                        "type": "string",
+                        "description": "Exact endpoint host.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "port",
+                        "type": "integer",
+                        "description": "Exact endpoint port.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "method",
+                        "type": "string",
+                        "description": "Exact endpoint transport method.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "path",
+                        "type": "string",
+                        "description": "Exact endpoint path.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      }
+                    ]
+                  }
                 },
                 {
                   "name": "policy_slice_digest",
@@ -10801,6 +11084,71 @@
                   "enum": []
                 },
                 {
+                  "name": "source_access",
+                  "type": "string",
+                  "description": "Immutable direct Project source access: read-only or read-write.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": []
+                },
+                {
+                  "name": "graphql_endpoints",
+                  "type": "array",
+                  "description": "Bounded exact GraphQL transport endpoints in the immutable Template policy.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": [],
+                  "items": {
+                    "type": "object",
+                    "description": "One bounded exact GraphQL endpoint.",
+                    "required": true,
+                    "nullable": false,
+                    "enum": [],
+                    "fields": [
+                      {
+                        "name": "scheme",
+                        "type": "string",
+                        "description": "Exact endpoint URL scheme.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "host",
+                        "type": "string",
+                        "description": "Exact endpoint host.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "port",
+                        "type": "integer",
+                        "description": "Exact endpoint port.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "method",
+                        "type": "string",
+                        "description": "Exact endpoint transport method.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "path",
+                        "type": "string",
+                        "description": "Exact endpoint path.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      }
+                    ]
+                  }
+                },
+                {
                   "name": "policy_slice_digest",
                   "type": "string",
                   "description": "Current independent Template-policy slice digest.",
@@ -11570,6 +11918,71 @@
                   "enum": []
                 },
                 {
+                  "name": "source_access",
+                  "type": "string",
+                  "description": "Immutable direct Project source access: read-only or read-write.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": []
+                },
+                {
+                  "name": "graphql_endpoints",
+                  "type": "array",
+                  "description": "Bounded exact GraphQL transport endpoints in the immutable Template policy.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": [],
+                  "items": {
+                    "type": "object",
+                    "description": "One bounded exact GraphQL endpoint.",
+                    "required": true,
+                    "nullable": false,
+                    "enum": [],
+                    "fields": [
+                      {
+                        "name": "scheme",
+                        "type": "string",
+                        "description": "Exact endpoint URL scheme.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "host",
+                        "type": "string",
+                        "description": "Exact endpoint host.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "port",
+                        "type": "integer",
+                        "description": "Exact endpoint port.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "method",
+                        "type": "string",
+                        "description": "Exact endpoint transport method.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "path",
+                        "type": "string",
+                        "description": "Exact endpoint path.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      }
+                    ]
+                  }
+                },
+                {
                   "name": "policy_slice_digest",
                   "type": "string",
                   "description": "Current independent Template-policy slice digest.",
@@ -11905,6 +12318,71 @@
                   "required": true,
                   "nullable": false,
                   "enum": []
+                },
+                {
+                  "name": "source_access",
+                  "type": "string",
+                  "description": "Immutable direct Project source access: read-only or read-write.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": []
+                },
+                {
+                  "name": "graphql_endpoints",
+                  "type": "array",
+                  "description": "Bounded exact GraphQL transport endpoints in the immutable Template policy.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": [],
+                  "items": {
+                    "type": "object",
+                    "description": "One bounded exact GraphQL endpoint.",
+                    "required": true,
+                    "nullable": false,
+                    "enum": [],
+                    "fields": [
+                      {
+                        "name": "scheme",
+                        "type": "string",
+                        "description": "Exact endpoint URL scheme.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "host",
+                        "type": "string",
+                        "description": "Exact endpoint host.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "port",
+                        "type": "integer",
+                        "description": "Exact endpoint port.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "method",
+                        "type": "string",
+                        "description": "Exact endpoint transport method.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "path",
+                        "type": "string",
+                        "description": "Exact endpoint path.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      }
+                    ]
+                  }
                 },
                 {
                   "name": "policy_slice_digest",
@@ -12244,6 +12722,71 @@
                   "enum": []
                 },
                 {
+                  "name": "source_access",
+                  "type": "string",
+                  "description": "Immutable direct Project source access: read-only or read-write.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": []
+                },
+                {
+                  "name": "graphql_endpoints",
+                  "type": "array",
+                  "description": "Bounded exact GraphQL transport endpoints in the immutable Template policy.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": [],
+                  "items": {
+                    "type": "object",
+                    "description": "One bounded exact GraphQL endpoint.",
+                    "required": true,
+                    "nullable": false,
+                    "enum": [],
+                    "fields": [
+                      {
+                        "name": "scheme",
+                        "type": "string",
+                        "description": "Exact endpoint URL scheme.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "host",
+                        "type": "string",
+                        "description": "Exact endpoint host.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "port",
+                        "type": "integer",
+                        "description": "Exact endpoint port.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "method",
+                        "type": "string",
+                        "description": "Exact endpoint transport method.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "path",
+                        "type": "string",
+                        "description": "Exact endpoint path.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      }
+                    ]
+                  }
+                },
+                {
                   "name": "policy_slice_digest",
                   "type": "string",
                   "description": "Current independent Template-policy slice digest.",
@@ -12579,6 +13122,71 @@
                   "required": true,
                   "nullable": false,
                   "enum": []
+                },
+                {
+                  "name": "source_access",
+                  "type": "string",
+                  "description": "Immutable direct Project source access: read-only or read-write.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": []
+                },
+                {
+                  "name": "graphql_endpoints",
+                  "type": "array",
+                  "description": "Bounded exact GraphQL transport endpoints in the immutable Template policy.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": [],
+                  "items": {
+                    "type": "object",
+                    "description": "One bounded exact GraphQL endpoint.",
+                    "required": true,
+                    "nullable": false,
+                    "enum": [],
+                    "fields": [
+                      {
+                        "name": "scheme",
+                        "type": "string",
+                        "description": "Exact endpoint URL scheme.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "host",
+                        "type": "string",
+                        "description": "Exact endpoint host.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "port",
+                        "type": "integer",
+                        "description": "Exact endpoint port.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "method",
+                        "type": "string",
+                        "description": "Exact endpoint transport method.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      },
+                      {
+                        "name": "path",
+                        "type": "string",
+                        "description": "Exact endpoint path.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": []
+                      }
+                    ]
+                  }
                 },
                 {
                   "name": "policy_slice_digest",
