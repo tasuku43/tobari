@@ -63,20 +63,20 @@ func TestFinalWorkspaceHelpersUseCanonicalBaseForCustomRuntime(t *testing.T) {
 		validSource, validSource,
 	))
 	customMetadata := []byte(`{"architecture":"arm64","os":"linux","exposure_api":"","exposure_source":"","permission_api":"","permission_source":""}`)
-	defaultImage := "tobari-runtime:base"
 	customImage := "tobari-runtime-custom:revision"
 	runner := &exposureHelperAssetRunner{
 		architecture: "arm64",
 		archive:      exposureHelperArchive(t, syntheticExposureHelperELF("arm64"), "arm64", nil),
 		metadataByImage: map[string][]byte{
-			defaultImage: validMetadata,
-			customImage:  customMetadata,
+			customImage: customMetadata,
 		},
 	}
 	runtime, err := newRuntimeWithData(filepath.Join(base, "config"), filepath.Join(base, "state"), filepath.Join(base, "data"), runner)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defaultImage := runtime.defaultRuntimeImage()
+	runner.metadataByImage[defaultImage] = validMetadata
 	if err := runtime.ensureFinalWorkspaceHelpers(context.Background(), customImage); err != nil {
 		t.Fatalf("custom Workspace image prevented canonical helper materialization: %v", err)
 	}
