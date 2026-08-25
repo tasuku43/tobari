@@ -105,3 +105,35 @@ func TestAuthCatalogDeclaresDurableUnknownOutcomeReconciliation(t *testing.T) {
 		}
 	}
 }
+
+func TestAuthRecoveryStartsWithExecutableContextDiscovery(t *testing.T) {
+	catalog := DefaultCatalog()
+	contextList, found := catalog.Lookup(authContextRecoveryCommand)
+	if !found || contextList.Effect != operation.EffectRead || contextList.Role != RoleDiscover {
+		t.Fatalf("context recovery producer = found:%t spec:%+v", found, contextList)
+	}
+	for _, input := range contextList.Agent.Inputs {
+		if input.Required {
+			t.Fatalf("context recovery producer requires %q", input.Name)
+		}
+	}
+	if got := contextList.ProducedRefs(); !reflect.DeepEqual(got, []ProducedRef{{Kind: tobari.ContextReferenceKind, Field: "items[].context_ref"}}) {
+		t.Fatalf("context recovery producer refs=%+v", got)
+	}
+	for _, path := range []string{"auth login", "auth import", "auth logout"} {
+		spec, found := catalog.Lookup(path)
+		if !found {
+			t.Fatalf("catalog lacks %s", path)
+		}
+		for _, declared := range spec.Agent.Errors {
+			for _, action := range declared.NextActions {
+				if action.Command == "auth status" {
+					t.Fatalf("%s error %s retains context-bound recovery", path, declared.Code)
+				}
+				if action.Command == authContextRecoveryCommand && !strings.Contains(action.Reason, "unchanged") {
+					t.Fatalf("%s error %s context recovery reason=%q", path, declared.Code, action.Reason)
+				}
+			}
+		}
+	}
+}

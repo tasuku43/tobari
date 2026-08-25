@@ -8,9 +8,6 @@ import (
 )
 
 func TestDefaultCatalogCausalRecoveryGraph(t *testing.T) {
-	if buildIdentityHasBroker() {
-		t.Skip("WP10 first-entry recovery is a release-surface contract; WP04 owns research-only recovery")
-	}
 	if err := validateCausalRecoveryGraph(DefaultCatalog()); err != nil {
 		t.Fatal(err)
 	}

@@ -14,6 +14,11 @@ import (
 
 const authCapabilityID = "authentication.broker"
 
+const (
+	authContextRecoveryCommand = "context list"
+	authContextRecoveryReason  = "Run context list, then pass its exact Context reference unchanged to auth status."
+)
+
 func authCommandSpecs() []CommandSpec {
 	return []CommandSpec{authLoginSpec(), authImportSpec(), authStatusSpec(), authLogoutSpec()}
 }
@@ -51,7 +56,7 @@ func authLoginSpec() CommandSpec {
 			Inputs:       inputs, Output: finalAuthResultOutput(),
 			Prerequisites: []string{"The exact final Context and reviewed provider authority exist.", "The research Auth Broker is ready and unlocked.", "Interactive login has terminal stdin and stderr; Runtime-backed providers have exact immutable Runtime material."},
 			Errors: authMutationErrors("auth login",
-				declaredCommandError(fault.KindUnsupported, "provider_login_unsupported", false, "auth status", "Inspect providers available for the exact Context."),
+				declaredCommandError(fault.KindUnsupported, "provider_login_unsupported", false, authContextRecoveryCommand, authContextRecoveryReason),
 				declaredCommandError(fault.KindInvalidInput, "auth_login_selector_unavailable", false, "help auth login", "Pass an explicit reviewed provider or use the interactive selector."),
 				declaredCommandError(fault.KindInvalidInput, "auth_login_tty_required", false, "help auth login", "Run the reviewed login from an interactive terminal."),
 			),
@@ -77,7 +82,7 @@ func authImportSpec() CommandSpec {
 			Prerequisites: []string{"The exact final Context and reviewed provider authority exist.", "The research Auth Broker is ready and unlocked.", "Exactly one credential is available on non-terminal stdin."},
 			Errors: authMutationErrors("auth import",
 				declaredCommandError(fault.KindInvalidInput, "invalid_credential_input", false, "help auth import", "Provide one bounded credential through stdin."),
-				declaredCommandError(fault.KindUnsupported, "provider_import_unsupported", false, "auth status", "Inspect the provider's reviewed acquisition mode."),
+				declaredCommandError(fault.KindUnsupported, "provider_import_unsupported", false, authContextRecoveryCommand, authContextRecoveryReason),
 			),
 			Mutation: &MutationContract{TargetKind: authbroker.ContextCredentialTargetKind, TargetInputs: []string{"--context"}, ParentInput: "--context", Impact: authcmd.FinalContextMutationImpact()},
 		}, handler: runAuthImport,
@@ -151,12 +156,20 @@ func finalAuthStatusOutput() CommandOutput {
 
 func authMutationErrors(path string, extras ...CommandError) []CommandError {
 	base := []CommandError{
-		declaredCommandError(fault.KindInvalidInput, "invalid_context_ref", false, "context list", "Choose one current Context reference."),
-		declaredCommandError(fault.KindInvalidInput, "invalid_provider", false, "auth status", "Choose one provider from the exact Context inventory."),
-		declaredCommandError(fault.KindNotFound, "provider_not_installed", false, "auth status", "Inspect reviewed providers for the exact Context."),
-		declaredCommandError(fault.KindUnavailable, "research_auth_mutation_interrupted", false, "auth status", "Reconcile the exact Context credential inventory."),
-		declaredCommandError(fault.KindUnavailable, "research_auth_result_delivery_interrupted", false, "auth status", "Read the exact Context credential inventory before choosing another mutation."),
+		declaredCommandError(fault.KindInvalidInput, "invalid_context_ref", false, authContextRecoveryCommand, authContextRecoveryReason),
+		declaredCommandError(fault.KindInvalidInput, "invalid_provider", false, authContextRecoveryCommand, authContextRecoveryReason),
+		declaredCommandError(fault.KindNotFound, "provider_not_installed", false, authContextRecoveryCommand, authContextRecoveryReason),
+		declaredCommandError(fault.KindUnavailable, "research_auth_mutation_interrupted", false, authContextRecoveryCommand, authContextRecoveryReason),
+		declaredCommandError(fault.KindUnavailable, "research_auth_result_delivery_interrupted", false, authContextRecoveryCommand, authContextRecoveryReason),
 		declaredCommandError(fault.KindRejected, "legacy_state_present", false, "doctor", "Reset or recreate this pre-release installation before using final authority."),
 	}
-	return mutationCommandErrors(path, "auth status", append(base, extras...)...)
+	errors := mutationCommandErrors(path, authContextRecoveryCommand, append(base, extras...)...)
+	for errorIndex := range errors {
+		for actionIndex := range errors[errorIndex].NextActions {
+			if errors[errorIndex].NextActions[actionIndex].Command == authContextRecoveryCommand {
+				errors[errorIndex].NextActions[actionIndex].Reason = authContextRecoveryReason
+			}
+		}
+	}
+	return errors
 }

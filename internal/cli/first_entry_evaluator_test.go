@@ -81,9 +81,10 @@ func verifyFirstEntryEvaluatorRow(t *testing.T, id string, answer struct {
 		if code := command.RunContext(context.Background(), nil); code != ExitUnavailable {
 			t.Fatalf("stopped engine exit=%d stderr=%q", code, stderr.String())
 		}
-		if !reflect.DeepEqual(*order, []string{"observe", "review", "readiness"}) || reviewer.calls != 1 || pair.resolveCalls != 0 || cluster.calls != 0 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "tobari "+answer.ExpectedNext) || !humanOutputHasRow(stderr.String(), "Change state", answer.ExpectedChangeState) {
+		if !reflect.DeepEqual(*order, []string{"observe", "review", "readiness"}) || reviewer.calls != 1 || pair.resolveCalls != 0 || cluster.calls != 0 || stdout.Len() != 0 || !humanOutputHasRow(stderr.String(), "Change state", answer.ExpectedChangeState) {
 			t.Fatalf("stopped engine crossed boundary order=%v resolve=%d cluster=%d stdout=%q stderr=%q", *order, pair.resolveCalls, cluster.calls, stdout.String(), stderr.String())
 		}
+		assertEvaluatorNext(t, stderr.String(), answer.ExpectedNext)
 		command, pair, _, cluster, _, _, stderr, order = newFirstEntryCLI(t, false, false, recommendedFirstUseStart)
 		if code := command.RunContext(context.Background(), nil); code != ExitOK {
 			t.Fatalf("stopped cluster convergence exit=%d stderr=%q", code, stderr.String())
@@ -100,9 +101,10 @@ func verifyFirstEntryEvaluatorRow(t *testing.T, id string, answer struct {
 		if code := command.RunContext(context.Background(), nil); code != ExitContract {
 			t.Fatalf("unknown cluster exit=%d stderr=%q", code, stderr.String())
 		}
-		if pair.entryCalls != 0 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "tobari "+answer.ExpectedNext) || !humanOutputHasRow(stderr.String(), "Change state", answer.ExpectedChangeState) || !humanOutputHasRow(stderr.String(), "Retryable", "no") {
+		if pair.entryCalls != 0 || stdout.Len() != 0 || !humanOutputHasRow(stderr.String(), "Change state", answer.ExpectedChangeState) || !humanOutputHasRow(stderr.String(), "Retryable", "no") {
 			t.Fatalf("unknown cluster entry=%d stdout=%q stderr=%q", pair.entryCalls, stdout.String(), stderr.String())
 		}
+		assertEvaluatorNext(t, stderr.String(), answer.ExpectedNext)
 	case "E4":
 		spec, found := DefaultCatalog().Lookup(answer.ExpectedNext)
 		if !found {
@@ -162,6 +164,40 @@ func verifyFirstEntryEvaluatorRow(t *testing.T, id string, answer struct {
 	default:
 		t.Fatalf("unaccepted evaluator row %q", id)
 	}
+}
+
+func assertEvaluatorNext(t *testing.T, stderr, expectedPath string) {
+	t.Helper()
+	spec, found := DefaultCatalog().Lookup(expectedPath)
+	if !found || spec.Path != expectedPath {
+		t.Fatalf("expected exact Catalog recovery path %q, found=%t spec=%+v", expectedPath, found, spec)
+	}
+	expectedInvocation := recoveryCommandForProgram(spec.programName(), spec.Path)
+	if !evaluatorNextHasInvocation(stderr, expectedInvocation) {
+		t.Fatalf("Catalog recovery path %q was not rendered as %q: stderr=%q", expectedPath, expectedInvocation, stderr)
+	}
+	if buildIdentityHasBroker() {
+		if spec.programName() != ResearchProgramName {
+			t.Fatalf("research Catalog path %q has executable identity %q", expectedPath, spec.programName())
+		}
+		if !evaluatorNextHasInvocation(stderr, ResearchProgramName+" "+expectedPath) {
+			t.Fatalf("research recovery path %q lost executable identity: stderr=%q", expectedPath, stderr)
+		}
+	}
+}
+
+func evaluatorNextHasInvocation(value, invocation string) bool {
+	for _, line := range strings.Split(stripANSIStyles(value), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "Next") {
+			continue
+		}
+		next := strings.TrimSpace(strings.TrimPrefix(line, "Next"))
+		if next == invocation || strings.HasPrefix(next, invocation+" — ") {
+			return true
+		}
+	}
+	return false
 }
 
 func assertEvaluatorStages(t *testing.T, want []string) {
