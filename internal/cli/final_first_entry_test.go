@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
@@ -14,22 +15,25 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
+type firstEntryProcessLifetimeMarker struct{}
+
 type firstEntryPairFixture struct {
-	order         *[]string
-	observation   tobari.FinalDefaultPairObservation
-	resolution    workspaceauthoritycmd.DefaultPairResolution
-	resolveBody   *tobari.WorkspaceTemplateBody
-	session       tobari.WorkspaceSessionRequest
-	outcome       tobari.WorkspaceSessionOutcome
-	resolveCalls  int
-	refreshCalls  int
-	refreshCtxErr error
-	entryCalls    int
-	cancelAt      string
-	cancel        context.CancelFunc
-	resolveErr    error
-	refreshErr    error
-	entryErr      error
+	order          *[]string
+	observation    tobari.FinalDefaultPairObservation
+	resolution     workspaceauthoritycmd.DefaultPairResolution
+	resolveBody    *tobari.WorkspaceTemplateBody
+	session        tobari.WorkspaceSessionRequest
+	outcome        tobari.WorkspaceSessionOutcome
+	resolveCalls   int
+	refreshCalls   int
+	refreshContext context.Context
+	refreshCtxErr  error
+	entryCalls     int
+	cancelAt       string
+	cancel         context.CancelFunc
+	resolveErr     error
+	refreshErr     error
+	entryErr       error
 }
 
 func (f *firstEntryPairFixture) Observe(context.Context) (tobari.FinalDefaultPairObservation, error) {
@@ -52,6 +56,7 @@ func (f *firstEntryPairFixture) Resolve(_ context.Context, intent operation.Inte
 
 func (f *firstEntryPairFixture) RefreshAfterCluster(ctx context.Context, resolution workspaceauthoritycmd.DefaultPairResolution, _ workspaceauthoritycmd.FinalClusterReconciliation) (workspaceauthoritycmd.DefaultPairResolution, error) {
 	f.refreshCalls++
+	f.refreshContext = ctx
 	f.refreshCtxErr = ctx.Err()
 	*f.order = append(*f.order, "refresh")
 	if f.cancelAt == "refresh" && f.cancel != nil {
@@ -133,6 +138,7 @@ func newFirstEntryCLI(t *testing.T, fresh, interactive bool, action recommendedF
 	reviewer := &firstEntryReviewerFixture{order: &order, action: action}
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.processLifetime = context.WithValue(context.Background(), firstEntryProcessLifetimeMarker{}, "injected")
 	command.finalDefaultPair = pair
 	command.finalEntryReadiness = readiness
 	command.finalCluster = cluster
@@ -297,9 +303,18 @@ func TestFinalRootLateCancellationAfterClusterUsesBoundedClassificationAndStopsB
 	if code := command.RunContext(ctx, nil); code != ExitInterrupted {
 		t.Fatalf("late cluster cancellation exit=%d stderr=%q", code, stderr.String())
 	}
+	var deadline time.Time
+	var hasDeadline bool
+	var settlementParent any
+	if pair.refreshContext != nil {
+		deadline, hasDeadline = pair.refreshContext.Deadline()
+		settlementParent = pair.refreshContext.Value(firstEntryProcessLifetimeMarker{})
+	}
+	remaining := time.Until(deadline)
 	if pair.refreshCalls != 1 || pair.refreshCtxErr != nil || pair.entryCalls != 0 || stdout.Len() != 0 ||
+		!hasDeadline || remaining <= 0 || remaining > firstEntryClassificationTimeout || settlementParent != "injected" ||
 		!strings.Contains(stderr.String(), "default_pair_initialized") || !humanOutputHasRow(stderr.String(), "Change state", "partial") || !humanOutputHasRow(stderr.String(), "Retryable", "no") {
-		t.Fatalf("late cluster cancellation refresh=%d refresh_ctx=%v entry=%d stdout=%q stderr=%q", pair.refreshCalls, pair.refreshCtxErr, pair.entryCalls, stdout.String(), stderr.String())
+		t.Fatalf("late cluster cancellation refresh=%d refresh_ctx=%v deadline=%v has_deadline=%v remaining=%v parent=%v entry=%d stdout=%q stderr=%q", pair.refreshCalls, pair.refreshCtxErr, deadline, hasDeadline, remaining, settlementParent, pair.entryCalls, stdout.String(), stderr.String())
 	}
 }
 

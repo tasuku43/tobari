@@ -136,7 +136,7 @@ func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, 
 		_ = progress.Finish(firstEntryFailureState(clusterErr))
 		return c.failRootBeforeHandoff(ctx, clusterErr)
 	}
-	classificationContext, cancelClassification := firstEntryClassificationContext(ctx)
+	classificationContext, cancelClassification := firstEntryClassificationContext(c.processLifetime)
 	resolution, err = c.finalDefaultPair.RefreshAfterCluster(classificationContext, resolution, clusterResult)
 	cancelClassification()
 	if err != nil {
@@ -178,11 +178,8 @@ func emitWorkspaceCleanupAttention(out io.Writer, outcome tobari.WorkspaceSessio
 	_, _ = fmt.Fprintln(out, workspaceCleanupAttention)
 }
 
-func firstEntryClassificationContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	if ctx == nil {
-		return context.WithTimeout(context.Background(), firstEntryClassificationTimeout)
-	}
-	return context.WithTimeout(context.WithoutCancel(ctx), firstEntryClassificationTimeout)
+func firstEntryClassificationContext(processLifetime context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(processLifetime, firstEntryClassificationTimeout)
 }
 
 func rootCancellationAfterResolution(ctx context.Context, resolution workspaceauthoritycmd.DefaultPairResolution) error {

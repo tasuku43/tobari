@@ -77,6 +77,10 @@ type CLI struct {
 	Version string
 	Commit  string
 
+	// processLifetime is injected by the composition root and remains the
+	// parent for bounded settlement after an invocation is canceled.
+	processLifetime context.Context
+
 	catalog                Catalog
 	doctor                 *doctorcmd.Service
 	tobari                 *tobaricmd.Service
@@ -116,6 +120,7 @@ type CLI struct {
 // New builds the production CLI with the Docker-backed Tobari runtime.
 func New(lifetime context.Context, in io.Reader, out, errOut io.Writer) *CLI {
 	command := newCLI(in, out, errOut, DefaultCatalog(), systemdoctor.New())
+	command.processLifetime = lifetime
 	command.noColor = noColorFromEnvironment()
 	command.config = newContextConfigurationWizardWithStyle(!command.noColor)
 	command.contextCreate = newContextCreateWizardWithStyle(!command.noColor)
