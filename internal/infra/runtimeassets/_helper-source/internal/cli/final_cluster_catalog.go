@@ -33,6 +33,7 @@ func finalClusterUpSpec() CommandSpec {
 func finalClusterUpErrors() []CommandError {
 	errors := []CommandError{
 		classifiedCommandError(fault.KindContract, "invalid_cluster_reconciliation_result", false, fault.PhaseVerification, fault.ChangeUnknown, "cluster status", "Inspect final authority and component state."),
+		declaredCommandError(fault.KindRejected, "legacy_state_present", false, "doctor", "Reset or recreate this pre-release installation before initializing final authority."),
 		declaredCommandError(fault.KindUnavailable, "cluster_reconcile_interrupted", false, "cluster status", "Inspect the retained final activation decision."),
 		declaredCommandError(fault.KindInternal, "missing_port", false, "doctor", "Configure the final cluster lifecycle adapter."),
 	}

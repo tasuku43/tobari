@@ -102,20 +102,19 @@ type CLI struct {
 	finalDefaultPair      finalDefaultPairEntry
 	finalEntryReadiness   finalWorkspaceEntryReadiness
 	finalClusterCLIState
-	finalProjectRoot            finalProjectRootAuthority
-	config                      contextConfigurationWizard
-	contextCreate               contextCreateWizard
-	firstUse                    recommendedFirstUseReviewer
-	runtimeChoice               runtimeChoiceWizard
-	authLogin                   authLoginProviderSelector
-	policyReview                func(bool) *policyReviewSelector
-	policyNotify                func(io.Writer, string) error
-	serviceNotify               func(io.Writer, string) error
-	firstUseInteractive         func(io.Reader, io.Writer, io.Writer) bool
-	firstUseTemplateBody        func(context.Context) (tobari.WorkspaceTemplateBody, error)
-	firstUseCustomize           func(context.Context, tobari.RecommendedFirstUseDraft) (tobari.WorkspaceTemplateBody, error)
-	noColor                     bool
-	integrationFaultDiagnostics bool
+	finalProjectRoot     finalProjectRootAuthority
+	config               contextConfigurationWizard
+	contextCreate        contextCreateWizard
+	firstUse             recommendedFirstUseReviewer
+	runtimeChoice        runtimeChoiceWizard
+	authLogin            authLoginProviderSelector
+	policyReview         func(bool) *policyReviewSelector
+	policyNotify         func(io.Writer, string) error
+	serviceNotify        func(io.Writer, string) error
+	firstUseInteractive  func(io.Reader, io.Writer, io.Writer) bool
+	firstUseTemplateBody func(context.Context) (tobari.WorkspaceTemplateBody, error)
+	firstUseCustomize    func(context.Context, tobari.RecommendedFirstUseDraft) (tobari.WorkspaceTemplateBody, error)
+	noColor              bool
 }
 
 // New builds the production CLI with the Docker-backed Tobari runtime.
@@ -123,7 +122,6 @@ func New(lifetime context.Context, in io.Reader, out, errOut io.Writer) *CLI {
 	command := newCLI(in, out, errOut, DefaultCatalog(), systemdoctor.New())
 	command.processLifetime = lifetime
 	command.noColor = noColorFromEnvironment()
-	command.integrationFaultDiagnostics = terminalstyle.IntegrationFaultDiagnosticsRequested()
 	command.config = newContextConfigurationWizardWithStyle(!command.noColor)
 	command.contextCreate = newContextCreateWizardWithStyle(!command.noColor)
 	command.firstUse = newRecommendedFirstUseReviewerWithStyle(!command.noColor)

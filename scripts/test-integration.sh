@@ -450,7 +450,7 @@ create_nested_tobari_at() {
 
 start_cluster() {
   local output
-  if output=$(TOBARI_INTEGRATION_FAULT_DIAGNOSTICS=true run_tobari cluster up 2>&1); then
+  if output=$(run_tobari cluster up 2>&1); then
     printf '%s\n' "$output"
     return 0
   fi
@@ -833,8 +833,6 @@ finish() {
       run_tobari cluster status --format json >&2 || true
       echo "integration diagnostics: doctor" >&2
       run_tobari doctor --format json >&2 || true
-      echo "integration diagnostics: state inventory" >&2
-      find "$test_root/config/tobari" "$test_root/state" -maxdepth 3 -print >&2 || true
       echo "integration diagnostics: final lifecycle journal phases" >&2
       find "$test_root/state" -type f \( -name bootstrap.json -o -name settlement.json -o -name activation.json -o -name cluster-reconcile.json \) -exec grep -H -Eo '"(phase|effect_class|operation)":"[^"]*"' {} + >&2 || true
     fi
@@ -1136,7 +1134,6 @@ if [[ $host_loopback_only != true ]]; then
 JSON
   chmod 0600 "$config_directory/auth/providers/$synthetic_provider.json"
 fi
-  find "$config_directory" "$test_root/state" -maxdepth 3 -print >&2
 start_cluster >/dev/null
 
 # These assertions intentionally inspect the assembled runtime rather than
