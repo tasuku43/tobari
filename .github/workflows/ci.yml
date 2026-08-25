@@ -71,7 +71,7 @@ jobs:
         run: ./scripts/check.sh public
 
   runtime:
-    name: Container policy and integration gate
+    name: Container release-surface gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -89,9 +89,8 @@ jobs:
       - name: Run the container runtime gate
         env:
           DOCKER_CONTEXT: tobari-ci
-          TOBARI_INTEGRATION_DOCKER_CONTEXT: tobari-ci
         run: |
-          ./scripts/check.sh runtime
+          ./scripts/check.sh runtime-release
 
   release:
     name: Release packaging and workflow gate

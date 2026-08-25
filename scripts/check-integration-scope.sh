@@ -224,6 +224,24 @@ if ! awk '
   echo "integration scope: runtime no longer includes the integration boundary" >&2
   exit 1
 fi
+if ! grep -F './scripts/check.sh runtime-release' .github/workflows/ci.yml >/dev/null; then
+  echo "integration scope: CI does not use the explicit release runtime profile" >&2
+  exit 1
+fi
+runtime_release_body=$(awk '
+  /^run_runtime_release\(\)/ { in_runtime_release=1 }
+  in_runtime_release { print }
+  in_runtime_release && /^}/ { exit }
+' scripts/check.sh)
+if ! grep -F 'run_policy' <<<"$runtime_release_body" >/dev/null ||
+  ! grep -F 'run_gateway' <<<"$runtime_release_body" >/dev/null; then
+  echo "integration scope: release runtime profile lost policy or Gateway coverage" >&2
+  exit 1
+fi
+if grep -Eq 'run_authbroker|run_integration' <<<"$runtime_release_body"; then
+  echo "integration scope: release runtime profile re-enabled deferred research tests" >&2
+  exit 1
+fi
 
 # The documented explicit-binary path skips source-image and binary builds, but
 # it still owns a fresh temporary TLS wrapper for this run. Keep certificate

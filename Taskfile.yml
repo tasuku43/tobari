@@ -64,6 +64,11 @@ tasks:
     cmds:
       - ./scripts/check.sh runtime
 
+  runtime:release:
+    desc: Run the release-surface container gate; deferred research runtime tests are excluded.
+    cmds:
+      - ./scripts/check.sh runtime-release
+
   site:install:
     desc: Install the exact public-site dependency graph from its lockfile.
     dir: docs/architecture-site

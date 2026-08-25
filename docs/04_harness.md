@@ -23,6 +23,7 @@ The harness is the executable counterpart of the theses, product contract, archi
 | `gateway` | `task gateway:test` | Enforcement-point feedback | Exact classifier-admission inventory/evidence gate, source-built Gateway image with hash-locked dependencies, exact runtime-input snapshot membership/bytes, and the complete addon/parser test suite |
 | `authbroker` | `task authbroker:test` | Research credential-boundary feedback | Exact runtime-input snapshot membership/bytes, strict broker/provider/root-key Go tests, Python daemon/vault/protocol tests in the pinned image environment, and Auth Broker image metadata |
 | `integration` | `task integration:test` | Research real runtime boundary | The `task build:dev` three-service topology, kernel/network enforcement, Broker isolation, live Gateway/OPA transport and activation, Host Loopback, and resource lifecycle canaries |
+| `runtime-release` | `task runtime:release` | Standard release container gate | Policy and Gateway checks only; explicitly excludes deferred Auth Broker and `task build:dev` integration tests |
 | `runtime` | `task runtime:test` | Complete research container gate | Policy, Gateway, Auth Broker image/protocol, and research integration coverage |
 
 The integration script reports named phase start/completion and elapsed time
@@ -300,7 +301,7 @@ nondeterministic and provider-specific.
 The canonical gate and release packager force module mode and neutralize ambient Go workspace, toolchain, experiment, FIPS, and flag settings before invoking Go. This prevents a local or CI `GOFLAGS` value from silently selecting no tests and keeps agent, developer, and workflow evidence on the same checked command set. A release fixture launches the public profile with hostile values and proves that its first Go-backed check observes only the sanitized contract.
 
 CI is the completion authority. Pull-request and main-push CI run `full`,
-`security`, `public`, `runtime`, and `release` as five independent parallel jobs,
+`security`, `public`, `runtime-release`, and `release` as five independent parallel jobs,
 so the canonical full gate owns the site build and browser tests exactly once.
 One successful main-push CI run is the complete reusable automated source
 evidence for its exact revision. Release preparation validates that workflow
@@ -385,15 +386,16 @@ and performs no mutation on failure. Recording runners reject Docker mutations,
 provider executable names, process managers, application openers, socket probes,
 and any argv outside the fixed read set.
 
-Auth Broker readiness is split deliberately. The required agent-readiness
-scenario delegates its reproducible synthetic authentication proof to `task
-integration:test`; that command is required evidence, not an optional adjacent
-check. It uses synthetic credentials, mocked host GitHub CLI results, and local
-HTTP fixtures and makes no live provider call. The research `auth`
-namespace and Broker are absent from standard release archives, so live
-reviewed-provider acquisition is not a standard release gate. Maintainers may
-replay it as a research compatibility observation; such a replay records
-only pass/fail and secret-free outcomes and never becomes a fixture.
+Auth Broker readiness is split deliberately. The reproducible synthetic
+authentication proof remains available through `task integration:test` for
+explicit research validation, but Auth Broker and `task build:dev` integration
+are deferred and are not part of the standard release CI profile. It uses
+synthetic credentials, mocked host GitHub CLI results, and local HTTP fixtures
+when run. The research `auth` namespace and Broker are absent from standard
+release archives, so live reviewed-provider acquisition is not a standard
+release gate. Maintainers may replay the research profiles as a compatibility
+observation; such a replay records only pass/fail and secret-free outcomes and
+never becomes a release fixture.
 
 ## Harness components
 

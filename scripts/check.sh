@@ -14,7 +14,7 @@ export GOWORK=off
 profile=${1:-}
 
 usage() {
-  echo "usage: $0 <fast|full|security|release|public|policy|gateway|authbroker|integration|runtime>" >&2
+  echo "usage: $0 <fast|full|security|release|public|policy|gateway|authbroker|integration|runtime|runtime-release>" >&2
   exit 2
 }
 
@@ -26,7 +26,8 @@ preflight_commands() {
   if [[ $selected_profile == fast || $selected_profile == full ]]; then
     required_commands+=(python3 node npm)
   fi
-  if [[ $selected_profile == gateway || $selected_profile == runtime ]]; then
+  if [[ $selected_profile == gateway || $selected_profile == runtime ||
+    $selected_profile == runtime-release ]]; then
     required_commands+=(python3)
   fi
   if [[ $selected_profile == security || $selected_profile == public ]]; then
@@ -36,7 +37,7 @@ preflight_commands() {
     required_commands+=(shellcheck tar unzip ruby)
   fi
   case "$selected_profile" in
-    policy|gateway|authbroker|integration|runtime) required_commands+=(docker) ;;
+    policy|gateway|authbroker|integration|runtime|runtime-release) required_commands+=(docker) ;;
   esac
   for command_name in "${required_commands[@]}"; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
@@ -301,6 +302,11 @@ run_runtime() {
   run_integration
 }
 
+run_runtime_release() {
+  run_policy
+  run_gateway
+}
+
 run_full() {
   run_fast
   ./scripts/check-site.sh browser
@@ -311,7 +317,7 @@ run_full() {
 }
 
 case "$profile" in
-  fast|full|security|release|public|policy|gateway|authbroker|integration|runtime) ;;
+  fast|full|security|release|public|policy|gateway|authbroker|integration|runtime|runtime-release) ;;
   *) usage ;;
 esac
 
@@ -328,4 +334,5 @@ case "$profile" in
   authbroker) run_authbroker ;;
   integration) run_integration ;;
   runtime) run_runtime ;;
+  runtime-release) run_runtime_release ;;
 esac

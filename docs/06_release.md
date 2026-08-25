@@ -238,31 +238,31 @@ task release:check
 task public:check
 task policy:test
 task gateway:test
-task authbroker:test
-task integration:test
+task runtime:release
 ```
 
-CI invokes `task runtime:test`, which closes the policy, Gateway, Auth Broker,
-and integration rows above once. The individual names remain the local and
-focused review interfaces; the successful runtime profile is their automated
-release evidence. Preparation additionally requires its own exact artifact and
-metadata verification before tagging.
+CI invokes `task runtime:release`, which closes the policy and Gateway rows
+above once. The `authbroker`, `integration`, and complete `runtime` profiles
+remain explicit research validation interfaces and are deferred; they are not
+standard release evidence until that boundary is deliberately re-enabled.
+Preparation additionally requires its own exact artifact and metadata
+verification before tagging.
 
 `task release:check` verifies that release packaging has no component lock,
 Tobari GHCR reference, package-write permission, registry login, image push,
 or link-injected image authority. A repository binary remains development
 only; release archives use the embedded resolver and source-selected APIs.
 
-Auth Broker changes additionally require the canonical source, image, static
-protocol, GitHub host-driver, and topology checks used by `task check`
-and `task runtime:test`. The required reproducible synthetic Auth Broker proof
-is delegated explicitly to `task integration:test`. The research `auth`
-namespace and Broker runtime are absent from the release surface and protected
-release archives, so a
-live Broker-backed provider login is not a standard publication prerequisite.
-Maintainers may record a secret-free pass/fail compatibility observation for
-the research surface, but it grants no release evidence and never becomes
-a repository fixture.
+Auth Broker and research `build:dev` validation remain explicitly deferred.
+When that research boundary is intentionally validated, maintainers may run
+the canonical source, image, static protocol, and synthetic topology checks
+through `task authbroker:test`, `task integration:test`, and `task runtime:test`.
+Those results are not standard release evidence. The research `auth` namespace
+and Broker runtime are absent from the release surface and protected release
+archives, so a live Broker-backed provider login is not a standard publication
+prerequisite. Maintainers may record a secret-free pass/fail compatibility
+observation for the research surface, but it grants no release evidence and
+never becomes a repository fixture.
 
 The first public release also requires a clean-environment Colima or Linux
 Quick Start run and a human review of history, dependencies, licenses, and
