@@ -83,7 +83,13 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Create isolated Docker context
+        run: docker context create tobari-ci --docker "host=unix:///var/run/docker.sock"
+
       - name: Run the container runtime gate
+        env:
+          DOCKER_CONTEXT: tobari-ci
+          TOBARI_INTEGRATION_DOCKER_CONTEXT: tobari-ci
         run: |
           ./scripts/check.sh runtime
 
