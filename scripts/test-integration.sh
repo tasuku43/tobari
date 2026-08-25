@@ -1134,6 +1134,9 @@ if [[ $host_loopback_only != true ]]; then
 JSON
   chmod 0600 "$config_directory/auth/providers/$synthetic_provider.json"
 fi
+  for legacy in "$config_directory/contexts" "$test_root/state/roots" "$test_root/state/instances" "$test_root/state/auth/projects" "$test_root/state/state.json" "$test_root/state/projects.json" "$test_root/state/cluster-reconcile.json" "$config_directory/migrations" "$test_root/state/migrations"; do
+    [[ -e $legacy || -L $legacy ]] && echo "integration diagnostics: legacy=${legacy#$test_root/}" >&2
+  done
 start_cluster >/dev/null
 
 # These assertions intentionally inspect the assembled runtime rather than
