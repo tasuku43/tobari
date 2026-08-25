@@ -925,9 +925,10 @@ func (m *Mutator) applyPolicyCandidate(ctx context.Context, ref string, decision
 		operation = "policy-deny"
 	}
 	committedDecision, resultErr := m.effectfulMutate(ctx, operation, ref, nil, func(current tobari.WorkspaceAuthorityCollection, _ bool) (effectPlan, error) {
+		pendingCandidates := clonePolicyCandidates(current.PendingCandidates)
 		candidateIndex := -1
-		for index := range current.PendingCandidates {
-			if current.PendingCandidates[index].ID == ref {
+		for index := range pendingCandidates {
+			if pendingCandidates[index].ID == ref {
 				candidateIndex = index
 				break
 			}
@@ -945,15 +946,15 @@ func (m *Mutator) applyPolicyCandidate(ctx context.Context, ref string, decision
 					continue
 				}
 				candidate := item.Authority.Clone()
-				current.PendingCandidates = append(current.PendingCandidates, candidate)
-				candidateIndex = len(current.PendingCandidates) - 1
+				pendingCandidates = append(pendingCandidates, candidate)
+				candidateIndex = len(pendingCandidates) - 1
 				break
 			}
 		}
 		if candidateIndex < 0 {
 			return effectPlan{}, tobari.ErrPolicyMemoryTargetNotFound
 		}
-		candidate := current.PendingCandidates[candidateIndex].Clone()
+		candidate := pendingCandidates[candidateIndex].Clone()
 		recordIndex := contextRecordIndex(current, candidate.ContextID)
 		if recordIndex < 0 {
 			return effectPlan{}, fmt.Errorf("Policy candidate Context is unavailable")
@@ -978,7 +979,7 @@ func (m *Mutator) applyPolicyCandidate(ctx context.Context, ref string, decision
 		if err != nil {
 			return effectPlan{}, err
 		}
-		candidates := append(clonePolicyCandidates(current.PendingCandidates[:candidateIndex]), clonePolicyCandidates(current.PendingCandidates[candidateIndex+1:])...)
+		candidates := append(clonePolicyCandidates(pendingCandidates[:candidateIndex]), clonePolicyCandidates(pendingCandidates[candidateIndex+1:])...)
 		next, collectionChanged, err := publishCollection(current, true, current.Templates, contexts, current.Workspaces, candidates, current.DefaultTemplateID)
 		if err != nil {
 			return effectPlan{}, err
