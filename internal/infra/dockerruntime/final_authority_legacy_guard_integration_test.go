@@ -15,6 +15,21 @@ import (
 	"github.com/tasuku43/tobari/internal/infra/workspaceauthoritystore"
 )
 
+type blockingLegacyAuthorityGuard struct {
+	runtime    *dockerruntime.Runtime
+	afterFirst func()
+	calls      int
+}
+
+func (g *blockingLegacyAuthorityGuard) ConfirmNoPreReleaseLegacyAuthority(ctx context.Context, finalInitialized bool) error {
+	g.calls++
+	err := g.runtime.ConfirmNoPreReleaseLegacyAuthority(ctx, finalInitialized)
+	if g.calls == 1 && g.afterFirst != nil {
+		g.afterFirst()
+	}
+	return err
+}
+
 func TestConfigOnlyLegacyResearchAuthorityBlocksFreshFinalStoreWithoutMutation(t *testing.T) {
 	root := t.TempDir()
 	configHome := filepath.Join(root, "config-home")
@@ -59,6 +74,46 @@ func TestConfigOnlyLegacyResearchAuthorityBlocksFreshFinalStoreWithoutMutation(t
 		if _, err := os.Lstat(forbidden); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("legacy rejection created %q: %v", forbidden, err)
 		}
+	}
+}
+
+func TestConfigOnlyLegacyResearchAuthorityAppearingDuringFreshFinalObservationFailsClosed(t *testing.T) {
+	root := t.TempDir()
+	configHome := filepath.Join(root, "config-home")
+	stateHome := filepath.Join(root, "state-home")
+	dataHome := filepath.Join(root, "data-home")
+	for _, path := range []string{configHome, stateHome, dataHome} {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	runtime, err := dockerruntime.New(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard := &blockingLegacyAuthorityGuard{
+		runtime: runtime,
+		afterFirst: func() {
+			if err := os.MkdirAll(filepath.Join(configHome, "tobari", "auth", "providers"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	store, err := workspaceauthoritystore.NewFinalOnly(filepath.Join(stateHome, "tobari", "workspace-authority"), guard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.ReadComplete(context.Background()); err == nil || !errors.Is(err, tobari.ErrPreReleaseLegacyAuthority) {
+		t.Fatalf("legacy authority appearing between reads was accepted: %v", err)
+	}
+	if guard.calls != 2 {
+		t.Fatalf("fresh final observation guard calls = %d, want 2", guard.calls)
+	}
+	if _, err := os.Lstat(filepath.Join(stateHome, "tobari", "workspace-authority")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("legacy drift rejection created final authority: %v", err)
 	}
 }
 

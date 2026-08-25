@@ -113,6 +113,12 @@ if grep -F 'contexts/default/policy/context.json' "$scenario" >&2; then
   echo "integration scope: post-publication policy drift bypassed the fixture publication seam" >&2
   exit 1
 fi
+provider_fixture_line=$(grep -nF 'cat >"$config_directory/auth/providers/$synthetic_provider.json"' "$scenario" | cut -d: -f1)
+final_publication_line=$(grep -nF 'default_manifest_create=$(run_tobari manifest create' "$scenario" | cut -d: -f1)
+if [[ -z $provider_fixture_line || -z $final_publication_line || $provider_fixture_line -le $final_publication_line ]]; then
+  echo "integration scope: research provider fixture was installed before first final-authority publication" >&2
+  exit 1
+fi
 for claim in \
   'item["workspace_manifest"]' \
   '["workspace_manifest"]["workspace_manifest_id"]' \

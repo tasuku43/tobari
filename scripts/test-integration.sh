@@ -902,35 +902,6 @@ tool_auth_value=tobari-tool-auth-canary
 synthetic_default_secret=synthetic-real-default-canary
 synthetic_restricted_secret=synthetic-real-restricted-canary
 synthetic_provider=synthetic-ci
-if [[ $host_loopback_only != true ]]; then
-  mkdir -p "$config_directory/auth/providers"
-  chmod 0700 "$config_directory/auth" "$config_directory/auth/providers"
-  cat >"$config_directory/auth/providers/$synthetic_provider.json" <<'JSON'
-{
-  "schema_version": 1,
-  "id": "synthetic-ci",
-  "display_name": "Synthetic CI Provider",
-  "acquisition": {"mode": "stdin_import"},
-  "credential": {"kind": "primary_secret"},
-  "workspace_projections": [
-    {"kind": "env", "name": "SYNTHETIC_TOKEN", "template": "${HANDLE}"}
-  ],
-  "header_bindings": [
-    {
-      "target": {"scheme": "https", "host": "api.synthetic.example", "port": 443},
-      "source": {"header": "x-synthetic-auth", "formats": ["raw"]},
-      "destination": {
-        "header": "authorization",
-        "format": "bearer",
-        "secret_field": "primary_secret"
-      },
-      "secret_headers": ["authorization", "x-synthetic-auth"]
-    }
-  ]
-}
-JSON
-  chmod 0600 "$config_directory/auth/providers/$synthetic_provider.json"
-fi
 mitmproxy_image=$(awk -F= '$1 == "MITMPROXY_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
 gateway_dev_tag="tobari-gateway-experimental:dev-$(go run ./tools/runtimeassetid gateway)"
 if [[ $host_loopback_only == true ]]; then
@@ -1078,6 +1049,36 @@ default_manifest_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["w
   <<<"$default_manifest_create")
 run_tobari manifest create --name restricted --runtime "$runtime_selection" \
   --mode guided --source-access read-only --native-readiness enabled --format json >/dev/null
+# Install research provider fixtures only after first final-authority publication.
+if [[ $host_loopback_only != true ]]; then
+  mkdir -p "$config_directory/auth/providers"
+  chmod 0700 "$config_directory/auth" "$config_directory/auth/providers"
+  cat >"$config_directory/auth/providers/$synthetic_provider.json" <<'JSON'
+{
+  "schema_version": 1,
+  "id": "synthetic-ci",
+  "display_name": "Synthetic CI Provider",
+  "acquisition": {"mode": "stdin_import"},
+  "credential": {"kind": "primary_secret"},
+  "workspace_projections": [
+    {"kind": "env", "name": "SYNTHETIC_TOKEN", "template": "${HANDLE}"}
+  ],
+  "header_bindings": [
+    {
+      "target": {"scheme": "https", "host": "api.synthetic.example", "port": 443},
+      "source": {"header": "x-synthetic-auth", "formats": ["raw"]},
+      "destination": {
+        "header": "authorization",
+        "format": "bearer",
+        "secret_field": "primary_secret"
+      },
+      "secret_headers": ["authorization", "x-synthetic-auth"]
+    }
+  ]
+}
+JSON
+  chmod 0600 "$config_directory/auth/providers/$synthetic_provider.json"
+fi
 go run ./tools/integrationfixture manifest-policy \
   --config-directory "$config_directory" \
   --manifest default \
