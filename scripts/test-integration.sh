@@ -450,7 +450,7 @@ create_nested_tobari_at() {
 
 start_cluster() {
   local output
-  if output=$(run_tobari cluster up 2>&1); then
+  if output=$(TOBARI_INTEGRATION_FAULT_DIAGNOSTICS=true run_tobari cluster up 2>&1); then
     printf '%s\n' "$output"
     return 0
   fi
