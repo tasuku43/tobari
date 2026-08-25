@@ -200,6 +200,25 @@ func TestFindViolationsRejectsSideEffectAndThirdPartyImportsOutsideInfra(t *test
 	}
 }
 
+func TestCLIAllowsOnlyTheExactPureURLParserStandardImport(t *testing.T) {
+	const module = "example.test/tool"
+	packages := []listedPackage{{
+		ImportPath: module + "/internal/cli",
+		Imports:    []string{"net/url", "net", "net/http", "net/http/httputil", "os"},
+	}}
+
+	got := findViolations(module, packages)
+	want := []violation{
+		{From: module + "/internal/cli", To: "net", Reason: "cli may not own filesystem, network, or process I/O; use an infrastructure adapter"},
+		{From: module + "/internal/cli", To: "net/http", Reason: "cli may not own filesystem, network, or process I/O; use an infrastructure adapter"},
+		{From: module + "/internal/cli", To: "net/http/httputil", Reason: "cli may not own filesystem, network, or process I/O; use an infrastructure adapter"},
+		{From: module + "/internal/cli", To: "os", Reason: "cli may not own filesystem, network, or process I/O; use an infrastructure adapter"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("violations = %#v, want %#v", got, want)
+	}
+}
+
 func TestInspectSourceRejectsProductionClockInDomainAndApplication(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "clock.go")

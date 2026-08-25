@@ -52,6 +52,11 @@ var productionTargets = []goTarget{
 // here.
 var allowedCLIThirdPartyImports = []string{}
 
+// allowedCLIEffectfulStandardImports contains pure scalar parsers that are
+// classified under the net/* guard for safety but do not perform I/O. Keep
+// this exact rather than allowing the net package family in the CLI.
+var allowedCLIEffectfulStandardImports = []string{"net/url"}
+
 func main() {
 	root, err := filepath.Abs(".")
 	if err != nil {
@@ -295,7 +300,7 @@ func forbiddenImportReason(module, from, imported string, allowedCLIImports []st
 			return "app may not import third-party packages; own a port or domain type instead"
 		}
 	case "cli":
-		if isEffectfulStandardImport(imported) {
+		if isEffectfulStandardImport(imported) && !containsExact(allowedCLIEffectfulStandardImports, imported) {
 			return "cli may not own filesystem, network, or process I/O; use an infrastructure adapter"
 		}
 		if isThirdPartyImport(imported) && !containsExact(allowedCLIImports, imported) {

@@ -285,7 +285,7 @@ func applyTemplateCreateInputs(body *tobari.WorkspaceTemplateBody, inputs Parsed
 	}
 	body.Boundary.SourceAccess = tobari.ManifestSourceAccess(sourceAccess)
 	if inputs.Provided("--graphql-endpoint") {
-		endpoint, err := tobari.ParseBoundedGraphQLEndpoint(inputs.One("--graphql-endpoint"))
+		endpoint, err := parseBoundedGraphQLEndpoint(inputs.One("--graphql-endpoint"))
 		if err != nil {
 			return err
 		}

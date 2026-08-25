@@ -181,7 +181,7 @@ func TestFinalTemplateCreateCanPublishReadAccessAndBoundedGraphQLEndpoint(t *tes
 			if capture.calls != 1 || capture.body.Boundary.SourceAccess != tobari.ManifestSourceAccess(sourceAccess) || len(capture.body.Policy.GraphQLEndpoints) == 0 {
 				t.Fatalf("calls=%d source=%q endpoints=%+v", capture.calls, capture.body.Boundary.SourceAccess, capture.body.Policy.GraphQLEndpoints)
 			}
-			parsed, err := tobari.ParseBoundedGraphQLEndpoint(endpoint)
+			parsed, err := parseBoundedGraphQLEndpoint(endpoint)
 			if err != nil || !reflect.DeepEqual(capture.body.Policy.GraphQLEndpoints[len(capture.body.Policy.GraphQLEndpoints)-1], parsed) {
 				t.Fatalf("custom endpoint=%+v parsed=%+v err=%v", capture.body.Policy.GraphQLEndpoints, parsed, err)
 			}
@@ -207,6 +207,53 @@ func TestFinalTemplateCreateCanPublishReadAccessAndBoundedGraphQLEndpoint(t *tes
 	}
 	if capture.calls != 0 {
 		t.Fatalf("invalid endpoint reached create port: calls=%d", capture.calls)
+	}
+}
+
+func TestParseBoundedGraphQLEndpointPreservesAcceptedURLContract(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		raw  string
+		want tobari.ManifestPolicyExactRule
+	}{
+		{
+			name: "ordinary endpoint",
+			raw:  "https://graphql.example.dev:8443/graphql",
+			want: tobari.ManifestPolicyExactRule{Scheme: "https", Host: "graphql.example.dev", Port: 8443, Method: "POST", Path: "/graphql"},
+		},
+		{
+			name: "escaped path",
+			raw:  "https://graphql.example.dev:8443/graphql%2Fv1",
+			want: tobari.ManifestPolicyExactRule{Scheme: "https", Host: "graphql.example.dev", Port: 8443, Method: "POST", Path: "/graphql%2Fv1"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := parseBoundedGraphQLEndpoint(test.raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("endpoint=%+v want=%+v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestParseBoundedGraphQLEndpointRejectsBeforeTemplateMutation(t *testing.T) {
+	for _, raw := range []string{
+		"http://graphql.example.dev:8443/graphql",
+		"https://graphql.example.dev/graphql",
+		"https://graphql.example.dev:8443/graphql?query=1",
+		"https://user@graphql.example.dev:8443/graphql",
+		"https://graphql.example.dev:8443/graphql#fragment",
+		"https://graphql.example.dev:8443",
+		"https://graphql.example.test:8443/graphql",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			if _, err := parseBoundedGraphQLEndpoint(raw); err == nil {
+				t.Fatalf("parseBoundedGraphQLEndpoint(%q) unexpectedly succeeded", raw)
+			}
+		})
 	}
 }
 
