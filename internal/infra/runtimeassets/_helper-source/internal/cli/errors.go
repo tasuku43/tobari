@@ -164,17 +164,28 @@ func (c *CLI) normalizeFault(ctx context.Context, err error) *fault.Error {
 			continue
 		}
 		if declared.Kind != structured.Kind || declared.Retryable != structured.Retryable {
+			c.reportUndeclaredFaultDiagnostic(path, command.Effect, structured)
 			return undeclaredFaultContract(path, command.Effect)
 		}
 		if structured.Phase == "" && structured.ChangeState == "" {
 			structured = fault.WithClassification(structured, declared.Phase, declared.ChangeState)
 		} else if structured.Phase != declared.Phase || structured.ChangeState != declared.ChangeState {
+			c.reportUndeclaredFaultDiagnostic(path, command.Effect, structured)
 			return undeclaredFaultContract(path, command.Effect)
 		}
 		structured.NextActions = append([]fault.NextAction{}, declared.NextActions...)
 		return structured
 	}
+	c.reportUndeclaredFaultDiagnostic(path, command.Effect, structured)
 	return undeclaredFaultContract(path, command.Effect)
+}
+
+func (c *CLI) reportUndeclaredFaultDiagnostic(path string, effect operation.Effect, structured *fault.Error) {
+	if c == nil || !c.integrationFaultDiagnostics || c.Err == nil || structured == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(c.Err, "integration diagnostics: observed fault path=%s effect=%s kind=%s code=%s phase=%s change_state=%s retryable=%t\n",
+		path, effect, structured.Kind, structured.Code, structured.Phase, structured.ChangeState, structured.Retryable)
 }
 
 func normalizeUnboundFault(ctx context.Context, err error) *fault.Error {
