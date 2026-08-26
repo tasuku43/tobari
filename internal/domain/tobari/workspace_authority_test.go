@@ -27,7 +27,7 @@ func templateBodyFixture(policyPath string) WorkspaceTemplateBody {
 			MethodPolicy: ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{{Method: "GET", Decision: ManifestMethodAllow}}},
 		},
 		Policy: WorkspaceTemplatePolicyBody{
-			AgentProfile: DefaultProfile, Mode: ManifestPolicyModeGuided, NativeReadiness: ManifestNativeReadinessEnabled,
+			AgentProfile: DefaultProfile, NativeReadiness: ManifestNativeReadinessEnabled,
 			BaselineGrants:    []ManifestPolicyExactRule{{Scheme: "https", Host: "api.example.dev", Port: 443, Method: "GET", Path: "/" + policyPath}},
 			BaselineTemplates: []ManifestPolicyPathTemplateRule{}, MCPBaselineGrants: []ManifestPolicyMCPRule{},
 			BaselineDenies: []ManifestPolicyExactRule{}, GraphQLEndpoints: []ManifestPolicyExactRule{}, MCPEndpoints: []ManifestPolicyExactRule{},
@@ -205,56 +205,6 @@ func TestWorkspaceTemplateRequiresExactRetainedCurrentAndCloneIsolation(t *testi
 	}
 }
 
-func TestWorkspaceTemplateAdvancedPolicyIsOneClosedExactPair(t *testing.T) {
-	valid := []WorkspaceTemplateAdvancedPolicyFile{
-		{Path: WorkspaceTemplateAdvancedPolicyPath, Content: "package tobari_template\nallow := false\n"},
-		{Path: WorkspaceTemplateAdvancedPolicyTestPath, Content: "package tobari_template\ntest_deny := true\n"},
-	}
-	sources, err := NewWorkspaceTemplateAdvancedPolicySources(valid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	files, err := sources.Files()
-	if err != nil || len(files) != 2 || files[0].Path != WorkspaceTemplateAdvancedPolicyPath || files[1].Path != WorkspaceTemplateAdvancedPolicyTestPath {
-		t.Fatalf("closed Advanced projection = %#v, %v", files, err)
-	}
-
-	for name, files := range map[string][]WorkspaceTemplateAdvancedPolicyFile{
-		"missing": {valid[0]},
-		"renamed": {
-			{Path: "custom.rego", Content: valid[0].Content},
-			valid[1],
-		},
-		"duplicate": {valid[0], valid[0]},
-		"extra": {
-			valid[0], valid[1], {Path: "extra.rego", Content: "package extra"},
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if _, err := NewWorkspaceTemplateAdvancedPolicySources(files); err == nil {
-				t.Fatal("non-canonical Advanced source set became Template authority")
-			}
-		})
-	}
-
-	guided := templateBodyFixture("guided")
-	guided.Policy.AdvancedPolicy = &sources
-	if err := guided.Validate(); err == nil {
-		t.Fatal("Guided Template accepted Advanced executable sources")
-	}
-	advanced := templateBodyFixture("advanced")
-	advanced.Policy.Mode = ManifestPolicyModeAdvanced
-	if err := advanced.Validate(); err == nil {
-		t.Fatal("Advanced Template accepted a missing executable source pair")
-	}
-	tooLarge := sources
-	tooLarge.Tobari = strings.Repeat("x", WorkspaceTemplateAdvancedPolicyMaxBytes)
-	advanced.Policy.AdvancedPolicy = &tooLarge
-	if err := advanced.Validate(); err == nil {
-		t.Fatal("Advanced Template accepted an over-limit executable source pair")
-	}
-}
-
 func TestWorkspaceTemplateCompleteBodyDrivesCopyAndEntryWithoutParallelAuthority(t *testing.T) {
 	literal := "workspace"
 	gitName, gitEmail := "Example User", "user@example.dev"
@@ -267,10 +217,6 @@ func TestWorkspaceTemplateCompleteBodyDrivesCopyAndEntryWithoutParallelAuthority
 		t.Fatal(err)
 	}
 	body := templateBodyFixture("entry")
-	body.Policy.Mode = ManifestPolicyModeAdvanced
-	body.Policy.AdvancedPolicy = &WorkspaceTemplateAdvancedPolicySources{
-		Tobari: "package tobari_template\nallow := false\n", TobariTest: "package tobari_template\ntest_deny := true\n",
-	}
 	body.SessionDefaults = WorkspaceTemplateSessionDefaults{
 		ShellEnvironment: []ManifestShellEnvironmentSetting{{Variable: "PS1", Source: ManifestShellEnvironmentLiteral, Value: &literal}},
 		GitIdentity:      &ManifestGitIdentitySetting{Source: ManifestGitIdentityLiteral, Name: &gitName, Email: &gitEmail},
@@ -285,14 +231,12 @@ func TestWorkspaceTemplateCompleteBodyDrivesCopyAndEntryWithoutParallelAuthority
 	clone.Body.Boundary.DestinationCeiling.Authorities[0].Host = "changed.example.dev"
 	clone.Body.Boundary.MethodPolicy.Overrides[0].Decision = ManifestMethodDeny
 	clone.Body.Policy.BaselineGrants[0].Path = "/changed"
-	clone.Body.Policy.AdvancedPolicy.Tobari = "package changed"
 	*clone.Body.SessionDefaults.ShellEnvironment[0].Value = "changed"
 	*clone.Body.SessionDefaults.GitIdentity.Name = "Changed User"
 	clone.Body.CreationDefaults.Bootstrap.AWS.SSORegistrationScopes[0] = "changed"
 	if source.Body.Boundary.DestinationCeiling.Authorities[0].Host != "api.example.dev" ||
 		source.Body.Boundary.MethodPolicy.Overrides[0].Decision != ManifestMethodAllow ||
 		source.Body.Policy.BaselineGrants[0].Path != "/entry" ||
-		source.Body.Policy.AdvancedPolicy.Tobari != "package tobari_template\nallow := false\n" ||
 		*source.Body.SessionDefaults.ShellEnvironment[0].Value != literal ||
 		*source.Body.SessionDefaults.GitIdentity.Name != gitName ||
 		source.Body.CreationDefaults.Bootstrap.AWS.SSORegistrationScopes[0] != "sso:account:access" {

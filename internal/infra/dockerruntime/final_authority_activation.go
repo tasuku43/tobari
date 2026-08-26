@@ -40,7 +40,9 @@ func (r finalPolicyActivationRecord) validate(runtime *Runtime) error {
 	} else if r.ReviewedSetDigest != "" {
 		return fmt.Errorf("final policy activation carries reviewed-set identity outside reviewed mode")
 	}
-	if r.Aggregate.MaterializedDigest != r.Material.MaterializedDigest || !aggregateRevisionPattern.MatchString(r.Aggregate.AggregateRevision) {
+	if r.Aggregate.MaterializedDigest != r.Material.MaterializedDigest || !aggregateRevisionPattern.MatchString(r.Aggregate.AggregateRevision) ||
+		r.Aggregate.EvaluatorIdentity.Validate() != nil || r.Aggregate.PolicyDataIdentity.Validate() != nil ||
+		r.Receipt.EvaluatorIdentity != r.Aggregate.EvaluatorIdentity || r.Receipt.PolicyDataIdentity != r.Aggregate.PolicyDataIdentity {
 		return fmt.Errorf("final policy activation aggregate is inconsistent")
 	}
 	for _, path := range []string{r.Aggregate.PolicyDirectory, r.Aggregate.GatewayConfig} {
@@ -284,10 +286,21 @@ func (r *Runtime) confirmFinalPolicyActivation(ctx context.Context, plan tobari.
 // publication. Unlike the per-Context confirmation wrapper, it also supports
 // an empty Context set after exact Context deletion.
 func (r *Runtime) confirmFinalPolicyProjection(ctx context.Context, plan tobari.WorkspacePolicyProjection) error {
+	return r.confirmFinalPolicyProjectionWithExpectedIdentity(ctx, plan, nil)
+}
+
+func (r *Runtime) confirmFinalPolicyProjectionWithExpectedIdentity(ctx context.Context, plan tobari.WorkspacePolicyProjection, expected *tobari.PolicyProjectionIdentity) error {
 	return r.withPolicyProjectionLock(ctx, func() error {
 		active, err := r.readFinalPolicyActivation(r.finalPolicyActiveReceiptPath())
 		if err != nil {
 			return fmt.Errorf("read final active policy receipt: %w", err)
+		}
+		activeIdentity := tobari.PolicyProjectionIdentity{AggregateRevision: active.Aggregate.AggregateRevision, EvaluatorIdentity: active.Aggregate.EvaluatorIdentity, PolicyDataIdentity: active.Aggregate.PolicyDataIdentity}
+		if err := activeIdentity.Validate(); err != nil {
+			return fmt.Errorf("final active aggregate identity is invalid: %w", err)
+		}
+		if expected != nil && *expected != activeIdentity {
+			return fmt.Errorf("final active aggregate identity differs from terminal decision")
 		}
 		current, err := r.ObserveFinalWorkspacePolicyProjection(ctx, plan)
 		if err != nil {
@@ -305,6 +318,13 @@ func (r *Runtime) confirmFinalPolicyProjection(ctx context.Context, plan tobari.
 		}
 		if aggregate.AggregateRevision != active.Aggregate.AggregateRevision {
 			return fmt.Errorf("final active aggregate does not match complete current authority")
+		}
+		actualIdentity := tobari.PolicyProjectionIdentity{AggregateRevision: aggregate.AggregateRevision, EvaluatorIdentity: aggregate.EvaluatorIdentity, PolicyDataIdentity: aggregate.PolicyDataIdentity}
+		if err := actualIdentity.Validate(); err != nil {
+			return fmt.Errorf("final current aggregate identity is invalid: %w", err)
+		}
+		if expected != nil && *expected != actualIdentity {
+			return fmt.Errorf("final current aggregate identity differs from terminal decision")
 		}
 		if err := r.ConfirmFinalAggregatePublicationReceipt(current, aggregate, active.Receipt); err != nil {
 			return err

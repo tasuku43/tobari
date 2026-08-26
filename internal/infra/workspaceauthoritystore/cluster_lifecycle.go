@@ -51,7 +51,14 @@ func (a *ClusterLifecycleAdapter) Observe(ctx context.Context) (tobari.FinalClus
 	if err != nil {
 		return tobari.FinalClusterStatus{}, err
 	}
-	return a.observer.ObserveFinalCluster(ctx, collection, present)
+	status, err := a.observer.ObserveFinalCluster(ctx, collection, present)
+	if err != nil {
+		return tobari.FinalClusterStatus{}, err
+	}
+	if err := a.store.ConfirmSelected(ctx, collection, present); err != nil {
+		return tobari.FinalClusterStatus{}, fmt.Errorf("confirm final cluster status authority: %w", err)
+	}
+	return status, nil
 }
 
 func (a *ClusterLifecycleAdapter) Down(ctx context.Context) (tobari.WorkspaceAuthorityClusterDownPlan, error) {

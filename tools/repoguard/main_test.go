@@ -303,6 +303,135 @@ func TestValidateRepositoryPathsRejectsSymbolicDirectoryComponents(t *testing.T)
 	}
 }
 
+func TestCheckPolicyRetirementEnforcesEvaluatorAndLegacyMarkerBoundaries(t *testing.T) {
+	root := t.TempDir()
+	writeRepositoryFixture(t, root, "internal/infra/dockerruntime/aggregate.go", `package dockerruntime
+
+const evaluator = "opa/policy/tobari.rego"
+`)
+	writeRepositoryFixture(t, root, "internal/infra/dockerruntime/context_store.go", `package dockerruntime
+
+type legacyContextManifestMarkers struct {
+	PolicyMode string
+	AdvancedPolicy []byte
+}
+
+const policyModeMarker = "policy_mode"
+const advancedPolicyMarker = "advanced_policy"
+`)
+	writeRepositoryFixture(t, root, "internal/domain/tobari/bad.go", `package tobari
+
+type ManifestPolicyMode string
+var _ = ErrLegacyExecutablePolicy
+`)
+	writeRepositoryFixture(t, root, "internal/infra/dockerruntime/bad.go", `package dockerruntime
+
+const userOwned = "user.rego"
+`)
+	writeRepositoryFixture(t, root, "internal/infra/dockerruntime/user.rego", "package user\n")
+	writeRepositoryFixture(t, root, "internal/infra/runtimeassets/assets/opa/policy/tobari.rego", "package tobari\n")
+	writeRepositoryFixture(t, root, "internal/infra/runtimeassets/assets/opa/policy/tobari_test.rego", "package tobari\n")
+	writeRepositoryFixture(t, root, "gateway/evil.rego", "package evil\n")
+	writeRepositoryFixture(t, root, "tools/evil.rego", "package evil\n")
+	writeRepositoryFixture(t, root, "evil.rego", "package evil\n")
+	writeRepositoryFixture(t, root, "internal/cli/bad_surface.go", `package cli
+
+const help = "inspect Rego source"
+`)
+
+	issues, err := checkPolicyRetirement(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 8 {
+		t.Fatalf("issues = %#v", issues)
+	}
+	messages := workIssueMessages(issues)
+	if !strings.Contains(messages, "retired executable-policy type") || !strings.Contains(messages, "Rego path") || !strings.Contains(messages, "public policy surface") {
+		t.Fatalf("issues = %#v", issues)
+	}
+}
+
+func TestCheckLiveWorkPacketPolicyRetirementRejectsCurrentExecutablePolicyClaims(t *testing.T) {
+	root := t.TempDir()
+	writeRepositoryFixture(t, root, "docs/work/live/goal.md", workGoal("Active", "", "- [ ] Pending\n"))
+	writeRepositoryFixture(t, root, "docs/work/live/plan.md", "# Plan\n\nAdvanced owner Rego remains executable policy.\n")
+	issues, err := checkLiveWorkPacketPolicyRetirement(root, []string{
+		"docs/work/live/goal.md",
+		"docs/work/live/plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 1 || issues[0].Path != "docs/work/live/plan.md" || issues[0].Line != 3 {
+		t.Fatalf("live packet issues = %#v", issues)
+	}
+}
+
+func TestCheckLiveWorkPacketPolicyRetirementAllowsExplicitRemovalEvidence(t *testing.T) {
+	root := t.TempDir()
+	writeRepositoryFixture(t, root, "docs/work/live/goal.md", workGoal("Active", "", "- [ ] Pending\n"))
+	writeRepositoryFixture(t, root, "docs/work/live/context.md", "# Context\n\nThe old Advanced Rego path must not return.\nThe live --mode guided|advanced contract was removed.\nThe legacy advanced_policy marker is rejected.\n")
+	issues, err := checkLiveWorkPacketPolicyRetirement(root, []string{
+		"docs/work/live/goal.md",
+		"docs/work/live/context.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 0 {
+		t.Fatalf("explicit removal evidence was rejected = %#v", issues)
+	}
+}
+
+func TestCheckLiveWorkPacketPolicyRetirementDoesNotLetLaterNegationHideAnAffirmativeClaim(t *testing.T) {
+	root := t.TempDir()
+	writeRepositoryFixture(t, root, "docs/work/live/goal.md", workGoal("Active", "", "- [ ] Pending\n"))
+	writeRepositoryFixture(t, root, "docs/work/live/plan.md", "# Plan\n\nAdvanced owner Rego remains executable policy, but it does not widen authority.\n")
+	issues, err := checkLiveWorkPacketPolicyRetirement(root, []string{
+		"docs/work/live/goal.md",
+		"docs/work/live/plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 1 || issues[0].Line != 3 {
+		t.Fatalf("mixed affirmative/negative packet claim = %#v", issues)
+	}
+}
+
+func TestCheckLiveWorkPacketPolicyRetirementTreatsCoordinatedAffirmativeClaimAsLive(t *testing.T) {
+	root := t.TempDir()
+	writeRepositoryFixture(t, root, "docs/work/live/goal.md", workGoal("Active", "", "- [ ] Pending\n"))
+	writeRepositoryFixture(t, root, "docs/work/live/plan.md", "# Plan\n\nAdvanced owner Rego remains executable policy and does not widen authority.\n")
+	issues, err := checkLiveWorkPacketPolicyRetirement(root, []string{
+		"docs/work/live/goal.md",
+		"docs/work/live/plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 1 || issues[0].Line != 3 {
+		t.Fatalf("coordinated affirmative/negative packet claim = %#v", issues)
+	}
+}
+
+func TestCheckLiveWorkPacketPolicyRetirementAllowsTerminalHistoricalPacket(t *testing.T) {
+	root := t.TempDir()
+	writeRepositoryFixture(t, root, "docs/work/complete/goal.md", workGoal("Complete", "", "- [x] Historical\n"))
+	writeRepositoryFixture(t, root, "docs/work/complete/context.md", "Historical Advanced Rego was removed.\n")
+	issues, err := checkLiveWorkPacketPolicyRetirement(root, []string{
+		"docs/work/complete/goal.md",
+		"docs/work/complete/context.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 0 {
+		t.Fatalf("terminal packet issues = %#v", issues)
+	}
+}
+
 func TestCheckWorkPacketsAcceptsLifecycleStatuses(t *testing.T) {
 	root := t.TempDir()
 	writeRepositoryFixture(t, root, "docs/work/draft/goal.md", workGoal("Draft", "", "- [ ] Pending\n"))

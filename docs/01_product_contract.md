@@ -89,7 +89,8 @@ inventory:
 
 Host Loopback is a separate closed policy branch rather than a temporary
 widening of Template or Context authority. Ordinary Template policy, Context
-Policy Memory, native readiness, and Advanced Rego neither authorize nor deny it;
+Policy Memory, native readiness, and the fixed Tobari evaluator neither
+authorize nor deny it;
 Attachment Grants neither authorize nor deny ordinary external traffic.
 
 The user-facing entry point is the current project directory: a Workspace either
@@ -114,9 +115,9 @@ may stage several unchanged references and apply the reviewed set once.
 `policy rules` is the exhaustive current-decision view; `policy reset --id`
 returns one learned Allow or exact Deny to default deny so the retained effect
 can be reviewed again. Reset does not authorize or retry the request.
-Trusted-host Rego editing remains the advanced path for behavior that exact
-learned rules cannot express; ordinary permission growth must not require it.
-Exact policy actions and final reviewed-set Apply perform the bounded
+The evaluator is Tobari-owned and ordinary policy authority is expressed only
+as canonical typed data and exact reviewed decisions; users never edit or
+manage executable policy source. Exact policy actions and final reviewed-set Apply perform the bounded
 activation required for their own mutation.
 Denial evidence is a product output, not incidental debug noise.
 
@@ -276,7 +277,7 @@ is added explicitly.
   with a stable opaque ID and human name. Every semantic mutation publishes one
   complete immutable revision. `WorkspaceTemplateID + semantic digest` is
   authority; generation is correlation only. Its Boundary records direct
-  source access, normalized policy and terminal ceilings, policy mode, and
+  source access, normalized canonical policy data and terminal ceilings, and
   native-readiness participation. The same revision contains one exact Runtime
   binding and narrow Workspace defaults grouped by cluster, entry, child
   session, and creation activation boundaries. Context, Policy Memory,
@@ -815,9 +816,9 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Agent help (`view: index` and input-selected `view: scope`) | `commands` | 1 |
 | Version | `build_identity` | 1 |
 | Doctor report | `report` | 1 |
-| Cluster activation result | `cluster_up` | 2 |
-| Cluster status | `cluster` | 2 |
-| Cluster denial window | `denials` | 3 |
+| Cluster activation result | `cluster_up` | 3 |
+| Cluster status | `cluster` | 3 |
+| Cluster denial window | `denials` | 4 |
 | Cluster stop result | `cluster_down` | 2 |
 | Policy candidates | `policy_candidates` | 2 |
 | Policy review | `policy_review` | 2 |
@@ -1080,7 +1081,8 @@ as three user-facing phases: `prepare environment`, `start services`, and
 `verify readiness`. In a terminal, semantic colors distinguish active,
 healthy, warning, failed, and secondary information; labels and values remain
 otherwise plain. The ready summary prioritizes outcome, component health,
-Workspace count, and policy path; configured/running booleans and the
+Workspace count, aggregate revision, evaluator identity, and policy-data
+identity; configured/running booleans and the
 full recent diagnostic remain available in JSON or failure detail. A
 successful `cluster up` additionally points to the next `tobari`
 command.
@@ -1382,8 +1384,9 @@ preserve unchanged source bytes, build a complete replacement `domains/`
 generation, and invoke the same activation boundary. The whole source
 generation is swapped under an in-process mutex and a cross-process lock with
 a durable recovery journal; an interrupted or externally edited transaction
-cannot expose a mixed valid generation. They never write Rego source, broker
-vaults, or tool-owned home files.
+cannot expose a mixed valid generation. They internally materialize and
+validate the fixed Tobari evaluator bundle; they never write user-owned Rego
+source, broker vaults, or tool-owned home files.
 OPA marks a denial learnable only when its version, cluster, scheme, fixed
 request port, project-principal boundary, trusted GraphQL endpoint and parsed
 coordinate when applicable, and the Workspace Template policy ceiling already satisfies the

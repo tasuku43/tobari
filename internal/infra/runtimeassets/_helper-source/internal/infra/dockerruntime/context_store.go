@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
-	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
 
 const (
@@ -107,14 +106,84 @@ func (r *Runtime) retainWorkspaceManifestRevision(manifest tobari.WorkspaceManif
 }
 
 func readWorkspaceManifestRevision(path string) (tobari.WorkspaceManifest, error) {
-	var manifest tobari.WorkspaceManifest
-	if err := readStrictJSON(path, &manifest); err != nil {
+	data, err := readContextManifestFile(path)
+	if err != nil {
+		return tobari.WorkspaceManifest{}, err
+	}
+	manifest, err := decodeContextManifest(data)
+	if err != nil {
 		return tobari.WorkspaceManifest{}, err
 	}
 	if err := manifest.ValidatePublished(); err != nil {
 		return tobari.WorkspaceManifest{}, err
 	}
 	return manifest, nil
+}
+
+// legacyContextManifestMarkers is deliberately not a policy model. It is a
+// raw boundary probe used to distinguish the retired executable-policy marker
+// from an ordinary incompatible Context document before strict decoding.
+type legacyContextManifestMarkers struct {
+	PolicyMode     *string         `json:"policy_mode"`
+	AdvancedPolicy json.RawMessage `json:"advanced_policy"`
+}
+
+func readContextManifestFile(path string) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 || info.Size() > maxContextManifestBytes {
+		return nil, fmt.Errorf("Context manifest is unsafe")
+	}
+	data, err := os.ReadFile(path) // #nosec G304 -- caller derives a validated Context state child.
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+func decodeContextManifest(data []byte) (tobari.WorkspaceManifest, error) {
+	if err := rejectLegacyContextManifestMarkers(data); err != nil {
+		return tobari.WorkspaceManifest{}, err
+	}
+	var markers legacyContextManifestMarkers
+	if err := json.Unmarshal(data, &markers); err != nil {
+		return tobari.WorkspaceManifest{}, err
+	}
+	if markers.PolicyMode != nil {
+		return tobari.WorkspaceManifest{}, fmt.Errorf("persisted Context contains retired policy_mode %q; reset or recreate the Context", *markers.PolicyMode)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var manifest tobari.WorkspaceManifest
+	if err := decoder.Decode(&manifest); err != nil {
+		return tobari.WorkspaceManifest{}, err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return tobari.WorkspaceManifest{}, fmt.Errorf("Context manifest contains trailing data")
+	}
+	return manifest, nil
+}
+
+func rejectLegacyContextManifestMarkers(data []byte) error {
+	if err := validateNoDuplicateJSONKeys(data); err != nil {
+		return fmt.Errorf("Context manifest is invalid: %w", err)
+	}
+	var markers legacyContextManifestMarkers
+	if err := json.Unmarshal(data, &markers); err != nil {
+		return err
+	}
+	if markers.PolicyMode != nil {
+		if *markers.PolicyMode == "advanced" {
+			return fmt.Errorf("%w: %w: persisted Context contains legacy Advanced policy; reset or recreate the Context", tobari.ErrPreReleaseLegacyAuthority, tobari.ErrLegacyExecutablePolicy)
+		}
+	}
+	if len(markers.AdvancedPolicy) != 0 && string(markers.AdvancedPolicy) != "null" {
+		return fmt.Errorf("%w: %w: persisted Context contains legacy Advanced policy; reset or recreate the Context", tobari.ErrPreReleaseLegacyAuthority, tobari.ErrLegacyExecutablePolicy)
+	}
+	return nil
 }
 
 func (r *Runtime) contextPolicyDirectory(name string) string {
@@ -174,7 +243,6 @@ func (r *Runtime) ensureContextStoreUnlocked() error {
 		Name:             tobari.DefaultManifestName,
 		AgentProfile:     tobari.DefaultProfile,
 		Image:            tobari.BuiltinImageSelector,
-		PolicyMode:       tobari.ManifestPolicyModeGuided,
 		SourceAccess:     tobari.ManifestSourceAccessReadWrite,
 		PolicyRevision:   tobari.DefaultContextPolicyRevision(),
 		ShellEnvironment: tobari.InitialContextShellEnvironment(),
@@ -293,13 +361,6 @@ func (r *Runtime) ensureContextWithPolicySnapshot(manifest tobari.WorkspaceManif
 	if err := r.ensurePrivateDirectory(domainsDirectory); err != nil {
 		return fmt.Errorf("prepare Context %q policy domains: %w", manifest.Name, err)
 	}
-	if manifest.PolicyMode == tobari.ManifestPolicyModeAdvanced {
-		for _, name := range []string{"tobari.rego", "tobari_test.rego"} {
-			if err := initializeFile(filepath.Join(r.contextPolicyDirectory(manifest.Name), name), "opa/policy/"+name, 0o600); err != nil {
-				return err
-			}
-		}
-	}
 	if _, err := os.Lstat(r.contextManifestPath(manifest.Name)); errors.Is(err, os.ErrNotExist) {
 		if err := r.retainWorkspaceManifestRevision(manifest); err != nil {
 			return err
@@ -318,10 +379,18 @@ func (r *Runtime) ensureContextWithPolicySnapshot(manifest tobari.WorkspaceManif
 // with one same-filesystem rename. The staging tree is never visible to a
 // concurrent Context collection read.
 func (r *Runtime) installContextWithCreationSnapshot(
-	manifest tobari.WorkspaceManifest, snapshot []byte, advanced map[string][]byte,
+	manifest tobari.WorkspaceManifest, snapshot []byte, copySourceName string,
 ) error {
 	if err := manifest.ValidatePublished(); err != nil {
 		return err
+	}
+	if copySourceName != "" {
+		// This is the final source check inside the Context-store creation lock.
+		// A Base snapshot must not silently omit a source tree that appeared
+		// after the read-only review.
+		if _, err := r.readContextManifest(copySourceName); err != nil {
+			return err
+		}
 	}
 	if len(snapshot) == 0 {
 		_, generated, _, err := defaultContextPolicyBytes()
@@ -333,24 +402,6 @@ func (r *Runtime) installContextWithCreationSnapshot(
 	_, normalized, revision, err := decodeContextPolicy(snapshot)
 	if err != nil || revision != manifest.PolicyRevision || !bytes.Equal(snapshot, normalized) {
 		return fmt.Errorf("Context creation policy snapshot is invalid")
-	}
-	advancedSources := map[string][]byte{}
-	if manifest.PolicyMode == tobari.ManifestPolicyModeAdvanced {
-		for _, name := range []string{"tobari.rego", "tobari_test.rego"} {
-			var source []byte
-			if advanced != nil {
-				source = advanced[name]
-				if len(source) == 0 || len(source) > maxPolicyPreflight {
-					return fmt.Errorf("advanced Context Base policy source is invalid")
-				}
-			} else {
-				source, err = runtimeassets.Read("opa/policy/" + name)
-				if err != nil {
-					return err
-				}
-			}
-			advancedSources[name] = source
-		}
 	}
 	if err := r.ensurePrivateDirectory(r.contextsDirectory()); err != nil {
 		return fmt.Errorf("prepare Context directory: %w", err)
@@ -372,11 +423,6 @@ func (r *Runtime) installContextWithCreationSnapshot(
 	}
 	if err := os.Mkdir(filepath.Join(policyDirectory, policyDomainsName), 0o700); err != nil {
 		return fmt.Errorf("stage Context learned-policy directory: %w", err)
-	}
-	for name, source := range advancedSources {
-		if err := initializeBytes(filepath.Join(policyDirectory, name), source, 0o600); err != nil {
-			return err
-		}
 	}
 	if err := writeAtomicJSON(filepath.Join(staging, "context.json"), manifest); err != nil {
 		return fmt.Errorf("stage Context manifest: %w", err)
@@ -419,15 +465,9 @@ func (r *Runtime) readContextManifestRaw(name string) (tobari.WorkspaceManifest,
 	if err != nil {
 		return tobari.WorkspaceManifest{}, err
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	var manifest tobari.WorkspaceManifest
-	if err := decoder.Decode(&manifest); err != nil {
+	manifest, err := decodeContextManifest(data)
+	if err != nil {
 		return tobari.WorkspaceManifest{}, fmt.Errorf("decode Context manifest: %w", err)
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return tobari.WorkspaceManifest{}, fmt.Errorf("Context manifest contains trailing data")
 	}
 	if err := manifest.ValidatePublished(); err != nil {
 		return tobari.WorkspaceManifest{}, err
@@ -437,6 +477,9 @@ func (r *Runtime) readContextManifestRaw(name string) (tobari.WorkspaceManifest,
 	}
 	if _, err := r.readContextPolicy(manifest); err != nil {
 		return tobari.WorkspaceManifest{}, fmt.Errorf("read Context context policy: %w", err)
+	}
+	if err := rejectExecutablePolicySources(r.contextPolicyDirectory(name)); err != nil {
+		return tobari.WorkspaceManifest{}, fmt.Errorf("validate Context policy sources: %w", err)
 	}
 	return manifest, nil
 }
@@ -601,7 +644,7 @@ func (r *Runtime) observeContext(name string) (observedContext, error) {
 			state: tobari.ManifestObservationAbsent,
 			manifest: tobari.WorkspaceManifest{
 				SchemaVersion: tobari.WorkspaceManifestSchemaVersion, Name: tobari.DefaultManifestName,
-				AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ManifestPolicyModeGuided,
+				AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector,
 				SourceAccess:     tobari.ManifestSourceAccessReadWrite,
 				ShellEnvironment: tobari.InitialContextShellEnvironment(),
 			},
@@ -774,7 +817,7 @@ func (r *Runtime) ListContexts(ctx context.Context) (tobari.ManifestListResult, 
 		items = append(items, tobari.ManifestSummary{
 			ID: manifest.ID, Name: manifest.Name, ManifestState: tobari.ManifestObservationPersisted, Default: manifest.Name == active,
 			Desired:      manifest.Desired,
-			AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
+			AgentProfile: manifest.AgentProfile, Image: manifest.Image,
 			SourceAccess:     manifest.SourceAccess,
 			PolicyRevision:   manifest.PolicyRevision,
 			NativeReadiness:  nativeReadiness,
@@ -859,7 +902,7 @@ func (r *Runtime) ManifestCopySnapshot(ctx context.Context, name string) (tobari
 	}
 	base := tobari.ManifestCopySnapshot{
 		ID: manifest.ID, Name: manifest.Name, Revision: baseRevision, Desired: manifest.Desired,
-		PolicyMode: manifest.PolicyMode, SourceAccess: manifest.SourceAccess,
+		SourceAccess:    manifest.SourceAccess,
 		NativeReadiness: readiness, MethodPolicy: policy.MethodPolicy,
 		RuntimeSelection: runtimeSelection, RuntimeBinding: *manifest.RuntimeBinding, ShellEnvironment: shell,
 		GitIdentity: gitIdentity, Bootstrap: manifest.Bootstrap,
@@ -873,6 +916,9 @@ func (r *Runtime) contextCreateBaseMaterial(
 	if err := manifest.ValidatePublished(); err != nil {
 		return tobari.ManifestPolicy{}, nil, nil, "", "", err
 	}
+	if err := validateContextPolicyLayout(r.contextPolicyDirectory(manifest.Name)); err != nil {
+		return tobari.ManifestPolicy{}, nil, nil, "", "", fmt.Errorf("Context create Base policy layout is invalid: %w", err)
+	}
 	policyPath := r.contextPolicyPath(manifest.Name)
 	policyBytes, err := readOwnerPolicyFile(policyPath, maxContextPolicyBytes)
 	if err != nil {
@@ -882,17 +928,7 @@ func (r *Runtime) contextCreateBaseMaterial(
 	if err != nil || revision != manifest.PolicyRevision || !bytes.Equal(policyBytes, normalized) {
 		return tobari.ManifestPolicy{}, nil, nil, "", "", fmt.Errorf("Context create Base policy is invalid")
 	}
-	advanced := map[string][]byte{}
-	if manifest.PolicyMode == tobari.ManifestPolicyModeAdvanced {
-		for _, name := range []string{"tobari.rego", "tobari_test.rego"} {
-			data, readErr := readOwnerPolicyFile(filepath.Join(r.contextPolicyDirectory(manifest.Name), name), maxPolicyPreflight)
-			if readErr != nil {
-				return tobari.ManifestPolicy{}, nil, nil, "", "", readErr
-			}
-			advanced[name] = data
-		}
-	}
-	return policy, normalized, advanced, revision, manifest.Desired.Revision, nil
+	return policy, normalized, nil, revision, manifest.Desired.Revision, nil
 }
 
 // ConfigureContextShell atomically updates one staged set of distinct
@@ -1025,13 +1061,13 @@ func cloneGitIdentityManifest(setting *tobari.ManifestGitIdentitySetting) *tobar
 
 // CreateContext initializes one named Context without accepting any secret.
 func (r *Runtime) CreateContext(
-	ctx context.Context, name string, image string, mode tobari.ManifestPolicyMode, sourceAccess tobari.ManifestSourceAccess,
+	ctx context.Context, name string, image string, sourceAccess tobari.ManifestSourceAccess,
 ) (tobari.ManifestReport, error) {
-	return r.CreateContextWithReadiness(ctx, name, image, mode, sourceAccess, tobari.ManifestNativeReadinessEnabled)
+	return r.CreateContextWithReadiness(ctx, name, image, sourceAccess, tobari.ManifestNativeReadinessEnabled)
 }
 
 func (r *Runtime) CreateContextWithReadiness(
-	ctx context.Context, name string, image string, mode tobari.ManifestPolicyMode, sourceAccess tobari.ManifestSourceAccess, readinessSelections ...tobari.ManifestNativeReadiness,
+	ctx context.Context, name string, image string, sourceAccess tobari.ManifestSourceAccess, readinessSelections ...tobari.ManifestNativeReadiness,
 ) (tobari.ManifestReport, error) {
 	nativeReadiness := tobari.ManifestNativeReadinessEnabled
 	if len(readinessSelections) > 1 {
@@ -1040,7 +1076,7 @@ func (r *Runtime) CreateContextWithReadiness(
 	if len(readinessSelections) == 1 {
 		nativeReadiness = readinessSelections[0]
 	}
-	return r.CreateContextWithComposition(ctx, name, image, mode, sourceAccess, tobari.ManifestCreateComposition{
+	return r.CreateContextWithComposition(ctx, name, image, sourceAccess, tobari.ManifestCreateComposition{
 		NativeReadiness: nativeReadiness,
 	})
 }
@@ -1049,7 +1085,6 @@ func (r *Runtime) CreateContextWithComposition(
 	ctx context.Context,
 	name string,
 	image string,
-	mode tobari.ManifestPolicyMode,
 	sourceAccess tobari.ManifestSourceAccess,
 	composition tobari.ManifestCreateComposition,
 ) (tobari.ManifestReport, error) {
@@ -1064,7 +1099,6 @@ func (r *Runtime) CreateContextWithComposition(
 		return tobari.ManifestReport{}, err
 	}
 	var baseManifest tobari.WorkspaceManifest
-	var advancedPolicy map[string][]byte
 	policy, normalizedPolicy, policyRevision, err := defaultContextPolicyBytes()
 	if composition.CopyFrom != nil {
 		if composition.RuntimeSelection == composition.CopyFrom.RuntimeSelection {
@@ -1073,7 +1107,7 @@ func (r *Runtime) CreateContextWithComposition(
 		baseManifest, err = r.readContextManifest(composition.CopyFrom.Name)
 		if err == nil {
 			var baseRevision string
-			policy, normalizedPolicy, advancedPolicy, policyRevision, baseRevision, err = r.contextCreateBaseMaterial(baseManifest)
+			policy, normalizedPolicy, _, policyRevision, baseRevision, err = r.contextCreateBaseMaterial(baseManifest)
 			if err == nil && (baseManifest.ID != composition.CopyFrom.ID || baseRevision != composition.CopyFrom.Revision ||
 				baseManifest.Desired != composition.CopyFrom.Desired) {
 				err = tobari.ErrManifestCopySourceChanged
@@ -1093,12 +1127,9 @@ func (r *Runtime) CreateContextWithComposition(
 			return tobari.ManifestReport{}, err
 		}
 	}
-	if mode != tobari.ManifestPolicyModeAdvanced || baseManifest.PolicyMode != tobari.ManifestPolicyModeAdvanced {
-		advancedPolicy = nil
-	}
 	manifest := tobari.WorkspaceManifest{
 		SchemaVersion: tobari.WorkspaceManifestSchemaVersion, Name: name,
-		AgentProfile: tobari.DefaultProfile, Image: image, PolicyMode: mode,
+		AgentProfile: tobari.DefaultProfile, Image: image,
 		SourceAccess:     sourceAccess,
 		PolicyRevision:   policyRevision,
 		NativeReadiness:  composition.NativeReadiness,
@@ -1125,7 +1156,9 @@ func (r *Runtime) CreateContextWithComposition(
 	}
 	var active string
 	if err := r.withContextStoreLock(func() error {
+		copySourceName := ""
 		if composition.CopyFrom != nil {
+			copySourceName = composition.CopyFrom.Name
 			current, readErr := r.readContextManifest(composition.CopyFrom.Name)
 			if readErr != nil {
 				return readErr
@@ -1146,14 +1179,14 @@ func (r *Runtime) CreateContextWithComposition(
 		}
 
 		if name == tobari.DefaultManifestName {
-			if err := r.installContextWithCreationSnapshot(manifest, normalizedPolicy, advancedPolicy); err != nil {
+			if err := r.installContextWithCreationSnapshot(manifest, normalizedPolicy, copySourceName); err != nil {
 				return err
 			}
 			if err := r.writeDefaultManifest(manifest); err != nil {
 				return err
 			}
 		} else {
-			if err := r.installContextWithCreationSnapshot(manifest, normalizedPolicy, advancedPolicy); err != nil {
+			if err := r.installContextWithCreationSnapshot(manifest, normalizedPolicy, copySourceName); err != nil {
 				return err
 			}
 		}

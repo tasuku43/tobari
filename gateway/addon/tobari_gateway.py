@@ -18,7 +18,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import unquote, urlsplit
 
 from mitmproxy import http
 
@@ -29,12 +29,7 @@ from aws_request import (
     classify_aws_request_headers,
     parse_aws_query_request,
 )
-from credential_adapters import (
-    CONTROL_HEADERS,
-    DEFAULT_SECRET_HEADERS,
-    CredentialAdapterError,
-    PassthroughCredentialAdapter,
-)
+from credential_adapters import CredentialAdapterError, PassthroughCredentialAdapter
 from graphql_request import (
     GraphQLParseLimits,
     GraphQLRequestError,
@@ -74,18 +69,6 @@ ECH_EXTENSION_TYPES = frozenset({0xFE0D, 0xFFCE})
 PROJECT_ID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
-_SECRET_HEADER_MARKERS = (
-    "authorization",
-    "api-key",
-    "apikey",
-    "access-token",
-    "auth-token",
-    "credential",
-    "secret",
-    "token",
-)
-
-
 class PolicyUnavailable(Exception):
     """OPA did not return one valid decision."""
 
@@ -814,20 +797,6 @@ def _positive_int(name: str, default: int, minimum: int, maximum: int) -> int:
     return value
 
 
-def _headers_for_policy(headers: http.Headers, secret_names: set[str]) -> dict[str, str]:
-    safe: dict[str, list[str]] = {}
-    for name, value in headers.fields:
-        decoded_name = name.decode("latin-1").lower()
-        if (
-            decoded_name in secret_names
-            or decoded_name in CONTROL_HEADERS
-            or any(marker in decoded_name for marker in _SECRET_HEADER_MARKERS)
-        ):
-            continue
-        safe.setdefault(decoded_name, []).append(value.decode("latin-1"))
-    return {name: ", ".join(values) for name, values in sorted(safe.items())}
-
-
 def request_authority(flow: http.HTTPFlow) -> tuple[str, str, int]:
     """Return the exact authority used by both credential and policy checks."""
     request = flow.request
@@ -968,7 +937,6 @@ def build_policy_input(
     split = urlsplit(request.url)
     scheme, host, port = request_authority(flow)
     path = split.path or "/"
-    secret_names = set(DEFAULT_SECRET_HEADERS) | extra_secret_names
     policy_input = {
         "schema_version": 1,
         "principal": {
@@ -987,8 +955,10 @@ def build_policy_input(
                 "raw": path,
                 "segments": [unquote(segment) for segment in path.split("/") if segment],
             },
-            "query": parse_qs(split.query, keep_blank_values=True),
-            "headers": _headers_for_policy(request.headers, secret_names),
+            # The fixed evaluator consumes no request headers. Query values are
+            # excluded by default and projected only from a validated protocol
+            # identity below.
+            "query": {},
         },
         "authorization": {
             "broker_provider": broker_provider,
@@ -1023,6 +993,10 @@ def build_policy_input(
             "service": git.service,
             "repository": git.repository,
         }
+        if request.method.upper() == "GET":
+            policy_input["request"]["query"] = {
+                "service": [f"git-{git.service}"],
+            }
     if oci is not None:
         policy_input["request"]["query"] = {}
         policy_input["request"]["oci"] = {
@@ -1651,73 +1625,87 @@ class TobariGateway:
             credential_request = self.credential_adapter.prepare(
                 flow.request, scheme, host, port, context_id, project_id
             )
-            if graphql_endpoint_declared(
-                self.graphql_config,
-                context_id,
-                scheme,
-                host,
-                port,
-                request_path,
-            ):
-                validate_graphql_headers(
-                    flow.request.method.upper(),
-                    _request_header_pairs(flow.request),
-                    limits=GraphQLParseLimits(),
-                )
-                flow.request.stream = False
-                audit_deferred = True
-                flow.metadata["tobari_graphql_pending"] = {
-                    "started": started,
-                    "request_id": request_id,
-                    "scheme": scheme,
-                    "host": host,
-                    "port": port,
-                    "audit_path": audit_path,
-                    "url_query": urlsplit(flow.request.url).query,
-                    "principal": principal,
-                    "credential_request": credential_request,
-                }
-                return
-            if mcp_endpoint_declared(
-                self.graphql_config, context_id, scheme, host, port, request_path
-            ):
-                validate_mcp_post_headers(
-                    flow.request.method.upper(), _request_header_pairs(flow.request)
-                )
-                flow.request.stream = False
-                audit_deferred = True
-                flow.metadata["tobari_mcp_pending"] = {
-                    "started": started,
-                    "request_id": request_id,
-                    "scheme": scheme,
-                    "host": host,
-                    "port": port,
-                    "audit_path": audit_path,
-                    "principal": principal,
-                    "credential_request": credential_request,
-                }
-                return
-            if kubernetes_endpoint_declared(
-                self.graphql_config, context_id, scheme, host, port
-            ):
-                kubernetes_identity = parse_kubernetes_request(
-                    flow.request.method.upper(),
-                    request_path,
-                    urlsplit(flow.request.url).query,
-                    request_headers,
-                )
-            if kubernetes_identity is None:
-                oci_identity = parse_oci_request(
-                    flow.request.method.upper(), request_path,
-                    urlsplit(flow.request.url).query,
-                )
-            if kubernetes_identity is None and oci_identity is None:
-                git_identity = classify_git_request(
-                    flow.request.method.upper(), request_path,
-                    urlsplit(flow.request.url).query, request_headers,
-                )
             aws_classification = None
-            if kubernetes_identity is None and git_identity is None and oci_identity is None:
+            brokered_aws_classification = getattr(
+                credential_request, "aws_classification", None
+            )
+            if not isinstance(
+                brokered_aws_classification, (ParsedAWSRequest, PendingAWSQueryRequest)
+            ):
+                brokered_aws_classification = None
+            if brokered_aws_classification is not None:
+                # Brokered AWS classification is authoritative for this
+                # request.  It must be selected before every other protocol
+                # classifier because prepare has already removed the handle
+                # and secret headers from the request visible to OPA.
+                aws_classification = brokered_aws_classification
+            else:
+                if graphql_endpoint_declared(
+                    self.graphql_config,
+                    context_id,
+                    scheme,
+                    host,
+                    port,
+                    request_path,
+                ):
+                    validate_graphql_headers(
+                        flow.request.method.upper(),
+                        _request_header_pairs(flow.request),
+                        limits=GraphQLParseLimits(),
+                    )
+                    flow.request.stream = False
+                    audit_deferred = True
+                    flow.metadata["tobari_graphql_pending"] = {
+                        "started": started,
+                        "request_id": request_id,
+                        "scheme": scheme,
+                        "host": host,
+                        "port": port,
+                        "audit_path": audit_path,
+                        "url_query": urlsplit(flow.request.url).query,
+                        "principal": principal,
+                        "credential_request": credential_request,
+                    }
+                    return
+                if mcp_endpoint_declared(
+                    self.graphql_config, context_id, scheme, host, port, request_path
+                ):
+                    validate_mcp_post_headers(
+                        flow.request.method.upper(), _request_header_pairs(flow.request)
+                    )
+                    flow.request.stream = False
+                    audit_deferred = True
+                    flow.metadata["tobari_mcp_pending"] = {
+                        "started": started,
+                        "request_id": request_id,
+                        "scheme": scheme,
+                        "host": host,
+                        "port": port,
+                        "audit_path": audit_path,
+                        "principal": principal,
+                        "credential_request": credential_request,
+                    }
+                    return
+                if kubernetes_endpoint_declared(
+                    self.graphql_config, context_id, scheme, host, port
+                ):
+                    kubernetes_identity = parse_kubernetes_request(
+                        flow.request.method.upper(),
+                        request_path,
+                        urlsplit(flow.request.url).query,
+                        request_headers,
+                    )
+                if kubernetes_identity is None:
+                    oci_identity = parse_oci_request(
+                        flow.request.method.upper(), request_path,
+                        urlsplit(flow.request.url).query,
+                    )
+                if kubernetes_identity is None and oci_identity is None:
+                    git_identity = classify_git_request(
+                        flow.request.method.upper(), request_path,
+                        urlsplit(flow.request.url).query, request_headers,
+                    )
+            if brokered_aws_classification is None and kubernetes_identity is None and git_identity is None and oci_identity is None:
                 aws_classification = classify_aws_request_headers(
                     flow.request.method.upper(), scheme, host, port, request_path,
                     urlsplit(flow.request.url).query,

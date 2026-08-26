@@ -251,6 +251,41 @@ class PermissionResumeProjectionTests(unittest.TestCase):
         self.assertNotIn("workspace_manifest_id", json.dumps(policy_input))
         self.assertRegex(principal["_frozen_principal_fingerprint"], r"^[0-9a-f]{64}$")
 
+    def test_policy_input_omits_headers_and_projects_only_validated_git_query(self):
+        principal = gateway._parse_project_principals(
+            json.dumps(principal_registry()).encode()
+        )["172.29.0.3"]
+        request = http.Request.make(
+            "GET", "https://api.example.com/items?private_label=query-private-canary"
+        )
+        request.headers["x-session-id"] = "header-canary"
+        flow = tflow.tflow(req=request)
+        with mock.patch.object(
+            gateway, "request_authority", return_value=("https", "api.example.com", 443)
+        ):
+            ordinary = gateway.build_policy_input(flow, "default", principal, set())
+        self.assertEqual(ordinary["request"]["query"], {})
+        self.assertNotIn("headers", ordinary["request"])
+        self.assertNotIn("query-private-canary", json.dumps(ordinary))
+        self.assertNotIn("header-canary", json.dumps(ordinary))
+
+        request = http.Request.make(
+            "GET", "https://api.example.com/team/repo.git/info/refs?service=git-upload-pack"
+        )
+        flow = tflow.tflow(req=request)
+        with mock.patch.object(
+            gateway, "request_authority", return_value=("https", "api.example.com", 443)
+        ):
+            git = gateway.build_policy_input(
+                flow,
+                "default",
+                principal,
+                set(),
+                git=gateway.ParsedGitRequest("upload-pack", "/team/repo.git"),
+            )
+        self.assertEqual(git["request"]["query"], {"service": ["git-upload-pack"]})
+        self.assertNotIn("headers", git["request"])
+
     def test_session_registry_is_exact_current_and_service_owner_ineligible(self):
         now = time.time()
         document = permission_session_registry(now)
@@ -2240,12 +2275,7 @@ class ReviewedDynamicCredentialGatewayTests(ReviewedDynamicCredentialGatewayTest
             captured["authorization"],
             {"broker_provider": "openai"},
         )
-        for header in (
-            "authorization",
-            "chatgpt-account-id",
-            "x-openai-fedramp",
-        ):
-            self.assertNotIn(header, captured["request"]["headers"])
+        self.assertNotIn("headers", captured["request"])
         self.assertEqual(
             flow.request.headers["authorization"], f"Bearer {self.real_token}"
         )
@@ -2293,7 +2323,7 @@ class ReviewedDynamicCredentialGatewayTests(ReviewedDynamicCredentialGatewayTest
             "x-openai-fedramp",
         ):
             self.assertNotIn(header, flow.request.headers)
-            self.assertNotIn(header, captured["request"]["headers"])
+        self.assertNotIn("headers", captured["request"])
 
     def test_openai_codex_resolve_requires_exact_broker_account_header(self):
         import base64

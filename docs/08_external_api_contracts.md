@@ -15,8 +15,10 @@ no AWS catalog lookup or IAM/read-write interpretation.
 
 Gateway derives trusted Context identity from the kernel-observed
 Workspace source endpoint and owner-only principal registry. It normalizes
-scheme, host, port, method, raw path, query, and redacted headers for OPA.
-Query and headers can be Advanced-Rego constraints but are not guided learned-
+scheme, host, port, method, and raw path for OPA. All request headers and all
+client/raw query values are absent from OPA input. Query is empty by default;
+only an exact, already validated Git GET discovery request contributes its
+normalized `service` coordinate required by the fixed evaluator and typed Git
 permission identity. Ordinary bodies are payload and stream only after allow.
 
 A declared exact GraphQL endpoint is the bounded exception: Gateway accepts one
@@ -58,8 +60,9 @@ attempt. It does not retry an arbitrary HTTP request.
 
 ## Workspace Template policy ceiling
 
-The immutable Workspace Template-owned policy ceiling is evaluated before baseline data, learned
-exact policy, or Advanced Rego. Enabled native readiness grants the reviewed
+The immutable Workspace Template-owned policy ceiling is evaluated before
+baseline data and learned exact policy by the fixed Tobari evaluator. Enabled
+native readiness grants the reviewed
 Claude Code 2.1.220 and Codex 0.147.0 model/account/bootstrap, first-party
 capability discovery, bounded evaluation, telemetry, and MCP initialize/list
 effects plus GitHub CLI 2.96.0's exact native device bootstrap/exchange effects
@@ -196,7 +199,9 @@ Gateway follows one sequence:
 Compatibility passthrough applies only when no declared binding and no
 Tobari-looking marker exists. No malformed or stale handle is forwarded or
 accepted by fallback. Secret values, raw handles, credential revisions,
-queries, headers, and bodies are absent from OPA audit and denial output.
+client/raw query values, all headers, and bodies are absent from OPA, audit,
+and denial output. The non-secret normalized Git GET `service` coordinate is
+the only query-derived value admitted to OPA and Git audit evidence.
 
 Managed adapters/profiles remain absent. Dynamic records, refresh, task
 barriers, signing, supplemental headers, the credential companion, and exact-

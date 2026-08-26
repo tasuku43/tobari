@@ -22,8 +22,8 @@ import (
 )
 
 const (
-	humanPresentationFixtureSHA256 = "79dfd541de46f7bd44d459bac01524929287b40537a7a4e17c9f95eae82ad88e"
-	humanPresentationAnswerSHA256  = "162a57f1e4b619191c8f8f26129155c48751e0b55a53dd76745f5c5edd2663d3"
+	humanPresentationFixtureSHA256 = "834bf7310b4fd7ed90569c0e333eb54b04f7c58059e6478433d24eb0c9c543ec"
+	humanPresentationAnswerSHA256  = "85891bc31fd1d21143a38c47f841d316c86c18acf606ae586d49995c23cbd031"
 )
 
 type humanPresentationFixture struct {
@@ -234,7 +234,7 @@ func TestHumanTextStructureDoesNotDependOnANSIStyle(t *testing.T) {
 		Adoption: tobari.WorkspaceAdoptionCurrent, Current: ptrAppliedEntry(testAppliedWorkspaceEntry()), Next: ptrDesiredEntry(testDesiredWorkspaceEntry()),
 	}
 	emptyCandidates := tobari.PolicyCandidateReport{
-		Task: tobari.TaskPolicyCandidates, PolicyDirectory: "/config/example/policy",
+		Task: tobari.TaskPolicyCandidates, PolicyProjectionIdentity: testCLIProjectionIdentity(strings.Repeat("a", 64)),
 		WindowLines: 200, Items: []tobari.PolicyCandidate{},
 	}
 	deleted := tobari.WorkspaceDeleteResult{
@@ -296,7 +296,7 @@ func TestHumanTextStructureDoesNotDependOnANSIStyle(t *testing.T) {
 }
 
 func TestEveryTextCollectionHasAnExplicitScopedEmptyState(t *testing.T) {
-	policyDirectory := "/config/example/policy"
+	projection := testCLIProjectionIdentity(strings.Repeat("a", 64))
 	type emptyCase struct {
 		name     string
 		plain    []byte
@@ -304,12 +304,12 @@ func TestEveryTextCollectionHasAnExplicitScopedEmptyState(t *testing.T) {
 		required []string
 	}
 	candidates := tobari.PolicyCandidateReport{
-		Task: tobari.TaskPolicyCandidates, PolicyDirectory: policyDirectory, WindowLines: 200, Items: []tobari.PolicyCandidate{},
+		Task: tobari.TaskPolicyCandidates, PolicyProjectionIdentity: projection, WindowLines: 200, Items: []tobari.PolicyCandidate{},
 	}
 	review := candidates
 	review.Task = tobari.TaskPolicyReview
-	rules := tobari.PolicyRuleReport{Task: tobari.TaskPolicyRules, PolicyDirectory: policyDirectory, Items: []tobari.PolicyRule{}}
-	denials := tobari.DenialReport{Task: tobari.TaskClusterDenials, PolicyDirectory: policyDirectory, WindowLines: 200, Items: []tobari.PolicyDenial{}}
+	rules := tobari.PolicyRuleReport{Task: tobari.TaskPolicyRules, PolicyProjectionIdentity: projection, Items: []tobari.PolicyRule{}}
+	denials := tobari.DenialReport{Task: tobari.TaskClusterDenials, PolicyProjectionIdentity: projection, WindowLines: 200, Items: []tobari.PolicyDenial{}}
 	projectPlain, err := renderProjectListWithColor(tobari.WorkspaceListResult{Task: tobari.TaskWorkspaceList, Items: []tobari.WorkspaceListItem{}}, successFormatText, false)
 	if err != nil {
 		t.Fatal(err)
@@ -323,10 +323,10 @@ func TestEveryTextCollectionHasAnExplicitScopedEmptyState(t *testing.T) {
 	denialPlain, _ := renderClusterDenialsWithColor(denials, expectedSurfaceText("tobari review permissions"), successFormatText, false)
 	denialStyled, _ := renderClusterDenialsWithColor(denials, expectedSurfaceText("tobari review permissions"), successFormatText, true)
 	cases := []emptyCase{
-		{name: "policy candidates", plain: candidatePlain, styled: candidateStyled, required: []string{"No policy candidates", policyDirectory, "200 Gateway lines"}},
-		{name: "review permissions", plain: renderPolicyReviewHuman(review, expectedSurfaceText("tobari policy allow"), expectedSurfaceText("tobari policy deny"), false), styled: renderPolicyReviewHuman(review, expectedSurfaceText("tobari policy allow"), expectedSurfaceText("tobari policy deny"), true), required: []string{"No pending network permissions", policyDirectory, "200 Gateway lines"}},
-		{name: "policy rules", plain: renderPolicyRulesHuman(rules, expectedSurfaceText("tobari policy reset"), false), styled: renderPolicyRulesHuman(rules, expectedSurfaceText("tobari policy reset"), true), required: []string{"No learned policy decisions", policyDirectory}},
-		{name: "cluster denials", plain: denialPlain, styled: denialStyled, required: []string{"No policy denials", policyDirectory, "200 Gateway lines"}},
+		{name: "policy candidates", plain: candidatePlain, styled: candidateStyled, required: []string{"No policy candidates", projection.AggregateRevision, "200 Gateway lines"}},
+		{name: "review permissions", plain: renderPolicyReviewHuman(review, expectedSurfaceText("tobari policy allow"), expectedSurfaceText("tobari policy deny"), false), styled: renderPolicyReviewHuman(review, expectedSurfaceText("tobari policy allow"), expectedSurfaceText("tobari policy deny"), true), required: []string{"No pending network permissions", projection.AggregateRevision, "200 Gateway lines"}},
+		{name: "policy rules", plain: renderPolicyRulesHuman(rules, expectedSurfaceText("tobari policy reset"), false), styled: renderPolicyRulesHuman(rules, expectedSurfaceText("tobari policy reset"), true), required: []string{"No learned policy decisions", projection.AggregateRevision}},
+		{name: "cluster denials", plain: denialPlain, styled: denialStyled, required: []string{"No policy denials", projection.AggregateRevision, "200 Gateway lines"}},
 		{name: "Workspaces", plain: projectPlain, styled: projectStyled, required: []string{"No Workspaces", "No Workspace state is configured"}},
 	}
 	for _, test := range cases {
@@ -436,7 +436,7 @@ func TestRawSelectorsDoNotRedrawDuringIdlePollsAndRestoreTerminal(t *testing.T) 
 		{
 			name: "policy rules", title: "Tobari · Policy decisions",
 			run: func(input *idlePollThenInput, output *bytes.Buffer) error {
-				report := tobari.PolicyRuleReport{Task: tobari.TaskPolicyRules, PolicyDirectory: "/config/example/policy", Items: []tobari.PolicyRule{{
+				report := tobari.PolicyRuleReport{Task: tobari.TaskPolicyRules, PolicyProjectionIdentity: testCLIProjectionIdentity(strings.Repeat("a", 64)), Items: []tobari.PolicyRule{{
 					ID: "prl_0123456789abcdef0123456789abcdef", Decision: tobari.PolicyDecisionAllow, Match: tobari.PolicyMatchExact,
 					WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 					ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/example",

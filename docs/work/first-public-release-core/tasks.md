@@ -142,8 +142,8 @@ security invariants.
 - [x] Keep transparent HTTP/HTTPS, synthetic non-recursive DNS, lazy upstream,
       public-address pinning, no raw-protocol fallback, and guarded project
       principal derivation unchanged.
-- [x] Enforce preset guardrails before baseline grants, learned rules, and
-      Advanced Rego; prove `offline` and non-GET denial are terminal and perform
+- [x] Enforce preset guardrails before baseline grants and learned rules in the
+      fixed evaluator; prove `offline` and non-GET denial are terminal and perform
       no DNS, credential resolution, upstream, or candidate creation.
 - [x] Update exact-effect wording and add negative tests proving ordinary body,
       query/header values, GraphQL arguments/variables, and provider business

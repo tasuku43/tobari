@@ -227,8 +227,9 @@ func (s *Service) ClusterDenials(ctx context.Context, tail int) (tobari.DenialRe
 		)
 	}
 	result := tobari.DenialReport{
-		Task: tobari.TaskClusterDenials, PolicyDirectory: state.PolicyDirectory,
-		WindowLines: tail, UnparsedLines: read.UnparsedLines, Items: read.Items,
+		Task:                     tobari.TaskClusterDenials,
+		PolicyProjectionIdentity: state.PolicyProjectionIdentity(),
+		WindowLines:              tail, UnparsedLines: read.UnparsedLines, Items: read.Items,
 	}
 	if err := result.Validate(); err != nil {
 		return tobari.DenialReport{}, fault.Wrap(

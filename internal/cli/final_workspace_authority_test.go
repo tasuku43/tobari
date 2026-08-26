@@ -166,6 +166,21 @@ func TestFinalWorkspaceAuthorityCatalogOwnsExactReferenceGraph(t *testing.T) {
 	}
 }
 
+func TestPublicCatalogDoesNotExposeLegacyExecutablePolicy(t *testing.T) {
+	for _, command := range DefaultCatalog().PublicCommands() {
+		encoded, err := json.Marshal(command)
+		if err != nil {
+			t.Fatalf("marshal %q: %v", command.Path, err)
+		}
+		contract := strings.ToLower(string(encoded))
+		for _, forbidden := range []string{"--mode", "policy_mode", "advanced_policy", "tobari.rego", "tobari_test.rego"} {
+			if strings.Contains(contract, forbidden) {
+				t.Fatalf("public command %q exposes retired executable-policy surface %q: %s", command.Path, forbidden, encoded)
+			}
+		}
+	}
+}
+
 func TestFinalTemplateCreateCanPublishReadAccessAndBoundedGraphQLEndpoint(t *testing.T) {
 	const endpoint = "https://graphql.example.dev:8443/graphql"
 	for _, sourceAccess := range []string{"read-only", "read-write"} {
@@ -615,7 +630,7 @@ func TestFinalContextEnterHelpAndInvocationPermitFirstEntrySettlement(t *testing
 	}
 	body := tobari.WorkspaceTemplateBody{
 		Boundary:      tobari.WorkspaceTemplateBoundary{SourceAccess: tobari.ManifestSourceAccessReadOnly, DestinationCeiling: tobari.ManifestPolicyDestinationCeiling{Mode: "exact", Authorities: []tobari.ManifestPolicyAuthority{{Scheme: "https", Host: "api.example.dev", Port: 443}}}, MethodPolicy: tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview, Overrides: []tobari.ManifestMethodOverride{{Method: "GET", Decision: tobari.ManifestMethodAllow}}}},
-		Policy:        tobari.WorkspaceTemplatePolicyBody{AgentProfile: tobari.DefaultProfile, Mode: tobari.ManifestPolicyModeGuided, NativeReadiness: tobari.ManifestNativeReadinessEnabled, BaselineGrants: []tobari.ManifestPolicyExactRule{{Scheme: "https", Host: "api.example.dev", Port: 443, Method: "GET", Path: "/items"}}, BaselineTemplates: []tobari.ManifestPolicyPathTemplateRule{}, MCPBaselineGrants: []tobari.ManifestPolicyMCPRule{}, BaselineDenies: []tobari.ManifestPolicyExactRule{}, GraphQLEndpoints: []tobari.ManifestPolicyExactRule{}, MCPEndpoints: []tobari.ManifestPolicyExactRule{}},
+		Policy:        tobari.WorkspaceTemplatePolicyBody{AgentProfile: tobari.DefaultProfile, NativeReadiness: tobari.ManifestNativeReadinessEnabled, BaselineGrants: []tobari.ManifestPolicyExactRule{{Scheme: "https", Host: "api.example.dev", Port: 443, Method: "GET", Path: "/items"}}, BaselineTemplates: []tobari.ManifestPolicyPathTemplateRule{}, MCPBaselineGrants: []tobari.ManifestPolicyMCPRule{}, BaselineDenies: []tobari.ManifestPolicyExactRule{}, GraphQLEndpoints: []tobari.ManifestPolicyExactRule{}, MCPEndpoints: []tobari.ManifestPolicyExactRule{}},
 		EntryDefaults: tobari.WorkspaceTemplateEntryDefaults{Runtime: tobari.RuntimeBinding{RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Revision: string(digest("f")), Ordinal: 1, Image: "tobari-runtime:test"}}, SessionDefaults: tobari.WorkspaceTemplateSessionDefaults{ShellEnvironment: []tobari.ManifestShellEnvironmentSetting{}}, CreationDefaults: tobari.WorkspaceTemplateCreationDefaults{},
 	}
 	revision, err := tobari.NewWorkspaceTemplateRevision(templateID, 1, body)
@@ -830,7 +845,7 @@ func finalAxisTemplateBody(path string) tobari.WorkspaceTemplateBody {
 			MethodPolicy:       tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview, Overrides: []tobari.ManifestMethodOverride{{Method: "GET", Decision: tobari.ManifestMethodAllow}}},
 		},
 		Policy: tobari.WorkspaceTemplatePolicyBody{
-			AgentProfile: tobari.DefaultProfile, Mode: tobari.ManifestPolicyModeGuided, NativeReadiness: tobari.ManifestNativeReadinessEnabled,
+			AgentProfile: tobari.DefaultProfile, NativeReadiness: tobari.ManifestNativeReadinessEnabled,
 			BaselineGrants:    []tobari.ManifestPolicyExactRule{{Scheme: "https", Host: "api.example.dev", Port: 443, Method: "GET", Path: path}},
 			BaselineTemplates: []tobari.ManifestPolicyPathTemplateRule{}, MCPBaselineGrants: []tobari.ManifestPolicyMCPRule{}, BaselineDenies: []tobari.ManifestPolicyExactRule{}, GraphQLEndpoints: []tobari.ManifestPolicyExactRule{}, MCPEndpoints: []tobari.ManifestPolicyExactRule{},
 		},

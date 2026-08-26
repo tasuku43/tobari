@@ -23,8 +23,8 @@ internal, persisted, generated, or dormant execution path.
 
 - Replacing compaction with leases, wildcard rules, automatic approval, or an
   alternate broadening algorithm.
-- Removing exact candidates, explicit batch review, exact allow/deny/reset, or
-  Advanced owner Rego.
+- Replacing the fixed Tobari-owned evaluator or canonical typed policy-data
+  authority model.
 - Changing policy preset behavior in this packet.
 
 ## Acceptance criteria
@@ -33,7 +33,7 @@ internal, persisted, generated, or dormant execution path.
       dispatch, output schemas, faults, recovery, examples, and generated data.
 - [ ] `policy-compaction` references and every compaction application port,
       domain type, state field, activation path, and fallback are absent.
-- [ ] Guided learned rules admit only exact matches; prefix authority cannot be
+- [ ] Learned rules admit only exact matches; prefix authority cannot be
       loaded from Context state or interpreted by OPA.
 - [ ] Existing retained reference chains remain complete and exact rule/reset
       behavior is unchanged.

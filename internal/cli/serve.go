@@ -45,7 +45,7 @@ func serveSpec() CommandSpec {
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
 			},
-			Prerequisites: []string{"The shared cluster is configured and ready, and every Workspace Template policy source plus Context Policy Memory is valid."},
+			Prerequisites: []string{"The shared cluster is configured and ready, and every Workspace Template typed policy data plus Context Policy Memory is valid."},
 			Errors: append(readCommandErrors("serve", true,
 				declaredCommandError(fault.KindContract, "invalid_operator_console", false, "doctor", "Repair the local Operator Console configuration."),
 				declaredCommandError(fault.KindContract, "invalid_operator_console_snapshot", false, "doctor", "Repair the typed cluster, Workspace, or policy observation."),

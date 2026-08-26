@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -44,9 +45,29 @@ func (s *clusterSettlementFixture) ReconcileFinalClusterAuthority(
 	return nil
 }
 
+func (s *clusterSettlementFixture) ReconcileFinalClusterAuthorityWithIdentity(
+	ctx context.Context,
+	previous, next tobari.WorkspaceAuthorityCollection,
+	operation, decisionRef string,
+) (tobari.PolicyProjectionIdentity, error) {
+	if err := s.ReconcileFinalClusterAuthority(ctx, previous, next, operation, decisionRef); err != nil {
+		return tobari.PolicyProjectionIdentity{}, err
+	}
+	return tobari.PolicyProjectionIdentity{
+		AggregateRevision:  strings.TrimPrefix(string(next.Revision), "sha256:"),
+		EvaluatorIdentity:  tobari.PolicyEvaluatorIdentity{SchemaVersion: 1, Version: "test-evaluator", Digest: testPolicyDigest("a")},
+		PolicyDataIdentity: tobari.PolicyDataIdentity{SchemaVersion: 1, Digest: testPolicyDigest("b")},
+	}, nil
+}
+
+func testPolicyDigest(value string) tobari.SemanticDigest {
+	return tobari.SemanticDigest("sha256:" + strings.Repeat(value, 64))
+}
+
 func (s *clusterSettlementFixture) ConfirmFinalClusterAuthoritySettled(
 	_ context.Context,
 	current tobari.WorkspaceAuthorityCollection,
+	expected tobari.PolicyProjectionIdentity,
 ) error {
 	s.confirms++
 	if !reflect.DeepEqual(current, s.settled) {
@@ -56,7 +77,18 @@ func (s *clusterSettlementFixture) ConfirmFinalClusterAuthoritySettled(
 	if err != nil {
 		return err
 	}
-	return transition.Plan.ValidateCurrent(current)
+	if err := transition.Plan.ValidateCurrent(current); err != nil {
+		return err
+	}
+	actual := tobari.PolicyProjectionIdentity{
+		AggregateRevision:  strings.TrimPrefix(string(current.Revision), "sha256:"),
+		EvaluatorIdentity:  expected.EvaluatorIdentity,
+		PolicyDataIdentity: expected.PolicyDataIdentity,
+	}
+	if actual != expected {
+		return fmt.Errorf("live final cluster identity differs from settlement")
+	}
+	return nil
 }
 
 func inactiveClusterCollection(t *testing.T) tobari.WorkspaceAuthorityCollection {
@@ -95,7 +127,7 @@ func TestClusterAdapterPersistsCurrentAxisReceiptsAndReplaysTerminalConfirmation
 	previous := inactiveClusterCollection(t)
 	store, _, adapter, settlement := newClusterAdapterFixture(t, previous)
 
-	plan, err := adapter.Reconcile(context.Background())
+	plan, identity, err := adapter.Reconcile(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,10 +146,13 @@ func TestClusterAdapterPersistsCurrentAxisReceiptsAndReplaysTerminalConfirmation
 		settlement.decisionRef != clusterReconciliationDecisionRef(current.Revision) {
 		t.Fatalf("cluster settlement evidence calls=%d operation=%q ref=%q", settlement.calls, settlement.operation, settlement.decisionRef)
 	}
+	if err := identity.Validate(); err != nil {
+		t.Fatalf("settled cluster identity: %v", err)
+	}
 
-	replayed, err := adapter.Reconcile(context.Background())
-	if err != nil || !reflect.DeepEqual(replayed, plan) || settlement.calls != 1 || settlement.confirms != 1 {
-		t.Fatalf("terminal replay plan=%#v calls=%d confirms=%d err=%v", replayed, settlement.calls, settlement.confirms, err)
+	replayed, replayedIdentity, err := adapter.Reconcile(context.Background())
+	if err != nil || !reflect.DeepEqual(replayed, plan) || replayedIdentity != identity || settlement.calls != 1 || settlement.confirms != 1 {
+		t.Fatalf("terminal replay plan=%#v identity=%#v calls=%d confirms=%d err=%v", replayed, replayedIdentity, settlement.calls, settlement.confirms, err)
 	}
 }
 
@@ -134,7 +169,7 @@ func TestClusterAdapterRecoversPostEffectPreEnvelopeAndBlocksUnrelatedMutation(t
 		return realRename(source, target)
 	}
 
-	if _, err := adapter.Reconcile(context.Background()); err == nil {
+	if _, _, err := adapter.Reconcile(context.Background()); err == nil {
 		t.Fatal("post-effect/pre-envelope interruption was reported as complete")
 	}
 	current, present, err := store.ReadComplete(context.Background())
@@ -152,7 +187,7 @@ func TestClusterAdapterRecoversPostEffectPreEnvelopeAndBlocksUnrelatedMutation(t
 	}
 
 	mutator.rename = realRename
-	plan, err := adapter.Reconcile(context.Background())
+	plan, _, err := adapter.Reconcile(context.Background())
 	if err != nil || settlement.calls != 2 {
 		t.Fatalf("cluster recovery plan=%#v calls=%d err=%v", plan, settlement.calls, err)
 	}
@@ -171,7 +206,7 @@ func TestClusterAdapterPublishesConfirmedEffectAfterCallerCancellation(t *testin
 	ctx, cancel := context.WithCancel(context.Background())
 	settlement.onSettle = cancel
 
-	plan, err := adapter.Reconcile(ctx)
+	plan, _, err := adapter.Reconcile(ctx)
 	if err != nil {
 		t.Fatalf("confirmed cluster effect became replay permission: %v", err)
 	}

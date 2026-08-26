@@ -59,9 +59,10 @@ Workspace Template. `runtime build --id RUNTIME_REF` is the only build boundary.
 | `runtime/`                                  | Host-owned Gateway runtime directory; sockets are recreated with services and are not durable credentials.                                                                       |
 | `runtime/<asset-revision>/`                 | Materialized embedded Compose, Gateway, OPA, and runtime assets.                                                                                                                 |
 
-Workspace Template policy source consists only of the domain tree (plus Advanced Rego).
+Workspace Template policy source consists only of canonical typed policy data.
 Tobari composes the domain files into an internal `data.json` only inside a generated immutable
-`cluster-projections/<revision>/` directory. Wildcards, IP literals,
+`cluster-projections/<revision>/` directory. The fixed evaluator is built into
+Tobari and appears only inside the Docker-managed policy bundle. Wildcards, IP literals,
 non-canonical hosts, host mismatches, unknown or duplicate fields, incomplete
 allow/deny pairs, extra files, symlinks, and unsafe modes fail closed.
 

@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-08-17
+- Revised by: ADR 0066 makes the method policy Context-owned; ADR 0087 removes
+  Advanced policy and evaluates the complete method model with fixed code
 
 ## Context
 

@@ -71,6 +71,7 @@ func (r *Runtime) prepareState(ctx context.Context) (tobari.State, error) {
 	state := tobari.State{
 		SchemaVersion: 1, RuntimeDirectory: runtimeDirectory,
 		AggregateRevision: projection.Revision, ManifestCount: projection.ManifestCount,
+		EvaluatorIdentity: projection.EvaluatorIdentity, PolicyDataIdentity: projection.PolicyDataIdentity,
 		PolicyDirectory: projection.PolicyDirectory, GatewayConfig: projection.GatewayConfig,
 		AssetVersion: version,
 	}
@@ -192,13 +193,15 @@ func (r *Runtime) migratePrePlatformSharedClusterState(
 	migrated := state
 	migrated.SchemaVersion = 2
 	migrated.Applied = tobari.SharedClusterAppliedEntry{
-		AggregateRevision: state.AggregateRevision,
-		AssetVersion:      state.AssetVersion,
-		ComposeAssets:     prePlatformComposeAssets(),
-		GatewayImageID:    snapshot.images.gateway,
-		OPAImageID:        snapshot.images.opa,
-		AuthBrokerImageID: snapshot.images.authBroker,
-		PermissionProfile: tobari.SharedClusterProfilePrePlatform,
+		AggregateRevision:  state.AggregateRevision,
+		AssetVersion:       state.AssetVersion,
+		EvaluatorIdentity:  state.EvaluatorIdentity,
+		PolicyDataIdentity: state.PolicyDataIdentity,
+		ComposeAssets:      prePlatformComposeAssets(),
+		GatewayImageID:     snapshot.images.gateway,
+		OPAImageID:         snapshot.images.opa,
+		AuthBrokerImageID:  snapshot.images.authBroker,
+		PermissionProfile:  tobari.SharedClusterProfilePrePlatform,
 	}
 	if err := migrated.Validate(); err != nil {
 		return tobari.State{}, err

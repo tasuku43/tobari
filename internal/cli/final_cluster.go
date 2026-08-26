@@ -127,6 +127,7 @@ func runFinalClusterDenials(ctx context.Context, c *CLI, command CommandSpec, _ 
 	}
 	if format == successFormatJSON {
 		body, err := marshalCommandJSON(command.Path, map[string]any{"schema_version": tobari.FinalClusterDenialSchemaVersion, "denials": map[string]any{
+			"aggregate_revision": result.AggregateRevision, "evaluator_identity": result.EvaluatorIdentity, "policy_data_identity": result.PolicyDataIdentity,
 			"task": result.Task, "window_lines": result.WindowLines, "unparsed_lines": result.UnparsedLines, "items": items, "review_command": reviewCommand,
 		}})
 		if err != nil {
@@ -136,6 +137,7 @@ func runFinalClusterDenials(ctx context.Context, c *CLI, command CommandSpec, _ 
 	}
 	var output strings.Builder
 	fmt.Fprintf(&output, "Cluster denials %d · unparsed %d\n", len(items), result.UnparsedLines)
+	fmt.Fprintf(&output, "Aggregate %s · evaluator %s@%s · policy-data %s\n", result.AggregateRevision, result.EvaluatorIdentity.Version, result.EvaluatorIdentity.Digest, result.PolicyDataIdentity.Digest)
 	for _, item := range result.Items {
 		fmt.Fprintf(&output, "%s  %s  %s %s\n", item.ContextID, item.WorkspaceID, item.Denial.Method, safeExternalText(item.Denial.Path))
 	}
@@ -166,7 +168,7 @@ func renderFinalClusterStatus(path string, status tobari.FinalClusterStatus, for
 		return nil, fault.Wrap(fault.KindContract, "invalid_cluster_status_result", "final cluster status is invalid", false, err)
 	}
 	if format == successFormatJSON {
-		return finalClusterJSON(path, "cluster", newFinalClusterStatusPublicResult(status))
+		return finalClusterJSON(path, "cluster", tobari.FinalClusterStatusSchemaVersion, newFinalClusterStatusPublicResult(status))
 	}
 	var output strings.Builder
 	fmt.Fprintf(&output, "Cluster %s\n", status.Runtime)
@@ -174,6 +176,9 @@ func renderFinalClusterStatus(path string, status tobari.FinalClusterStatus, for
 	fmt.Fprintf(&output, "Receipt    %s\n", status.Receipt)
 	if status.Authority == tobari.FinalClusterAuthorityPresent {
 		fmt.Fprintf(&output, "Collection generation %d · %s\n", status.Generation, status.CollectionRevision)
+		if status.AggregateRevision != nil && status.EvaluatorIdentity != nil && status.PolicyDataIdentity != nil {
+			fmt.Fprintf(&output, "Aggregate %s · evaluator %s@%s · policy-data %s\n", *status.AggregateRevision, status.EvaluatorIdentity.Version, status.EvaluatorIdentity.Digest, status.PolicyDataIdentity.Digest)
+		}
 	}
 	fmt.Fprintf(&output, "Templates %d · Contexts %d · Workspaces %d\n", status.TemplateCount, status.ContextCount, status.WorkspaceCount)
 	for _, component := range status.Components {
@@ -186,41 +191,14 @@ func renderFinalClusterStatus(path string, status tobari.FinalClusterStatus, for
 	return []byte(output.String()), nil
 }
 
-// finalClusterStatusPublicResult omits the domain validation version from the
-// public envelope. The Catalog owns the outer schema_version; publishing the
-// internal result directly would create an undeclared nested field.
-type finalClusterStatusPublicResult struct {
-	Task               string                                         `json:"task"`
-	Authority          tobari.FinalClusterAuthorityState              `json:"authority"`
-	Generation         uint64                                         `json:"generation,omitempty"`
-	CollectionRevision tobari.SemanticDigest                          `json:"collection_revision,omitempty"`
-	TemplateCount      int                                            `json:"template_count"`
-	ContextCount       int                                            `json:"context_count"`
-	WorkspaceCount     int                                            `json:"workspace_count"`
-	Runtime            tobari.FinalClusterRuntimeState                `json:"runtime"`
-	Receipt            tobari.FinalClusterReceiptState                `json:"receipt"`
-	Contexts           []tobari.FinalClusterContextReceiptObservation `json:"contexts"`
-	Components         []tobari.FinalClusterComponentObservation      `json:"components"`
-}
-
-func newFinalClusterStatusPublicResult(status tobari.FinalClusterStatus) finalClusterStatusPublicResult {
-	return finalClusterStatusPublicResult{
-		Task: status.Task, Authority: status.Authority, Generation: status.Generation,
-		CollectionRevision: status.CollectionRevision, TemplateCount: status.TemplateCount,
-		ContextCount: status.ContextCount, WorkspaceCount: status.WorkspaceCount,
-		Runtime: status.Runtime, Receipt: status.Receipt,
-		Contexts: status.Contexts, Components: status.Components,
-	}
-}
-
 func renderFinalClusterUp(path string, result workspaceauthoritycmd.FinalClusterReconciliation, format successFormat) ([]byte, error) {
 	if err := result.Validate(); err != nil {
 		return nil, fault.Wrap(fault.KindContract, "invalid_cluster_reconciliation_result", "final cluster activation result is invalid", false, err)
 	}
 	if format == successFormatJSON {
-		return finalClusterJSON(path, "cluster_up", newFinalClusterUpPublicResult(result))
+		return finalClusterJSON(path, "cluster_up", tobari.FinalClusterUpSchemaVersion, newFinalClusterUpPublicResult(result))
 	}
-	return []byte(fmt.Sprintf("Cluster activated\nCollection generation %d · %s\nContexts %d · content %s\n", result.Generation, result.CollectionRevision, len(result.Contexts), result.ContentDigest)), nil
+	return []byte(fmt.Sprintf("Cluster activated\nCollection generation %d · %s\nAggregate %s · evaluator %s@%s · policy-data %s\nContexts %d · content %s\n", result.Generation, result.CollectionRevision, result.AggregateRevision, result.EvaluatorIdentity.Version, result.EvaluatorIdentity.Digest, result.PolicyDataIdentity.Digest, len(result.Contexts), result.ContentDigest)), nil
 }
 
 // finalClusterUpPublicResult keeps the task-owned validation version private.
@@ -233,6 +211,9 @@ type finalClusterUpPublicResult struct {
 	CollectionRevision tobari.SemanticDigest                       `json:"collection_revision"`
 	ContentDigest      tobari.SemanticDigest                       `json:"content_digest"`
 	PlanDigest         tobari.SemanticDigest                       `json:"plan_digest"`
+	AggregateRevision  string                                      `json:"aggregate_revision"`
+	EvaluatorIdentity  tobari.PolicyEvaluatorIdentity              `json:"evaluator_identity"`
+	PolicyDataIdentity tobari.PolicyDataIdentity                   `json:"policy_data_identity"`
 	EnvelopeChanged    bool                                        `json:"envelope_changed"`
 	Applied            bool                                        `json:"applied"`
 	Contexts           []finalClusterContextActivationPublicResult `json:"contexts"`
@@ -250,6 +231,32 @@ type finalClusterPolicyMemoryPublicResult struct {
 	Revision  tobari.SemanticDigest `json:"revision"`
 }
 
+type finalClusterStatusPublicResult struct {
+	Task               string                                         `json:"task"`
+	Authority          tobari.FinalClusterAuthorityState              `json:"authority"`
+	Generation         uint64                                         `json:"generation,omitempty"`
+	CollectionRevision tobari.SemanticDigest                          `json:"collection_revision,omitempty"`
+	AggregateRevision  *string                                        `json:"aggregate_revision"`
+	EvaluatorIdentity  *tobari.PolicyEvaluatorIdentity                `json:"evaluator_identity"`
+	PolicyDataIdentity *tobari.PolicyDataIdentity                     `json:"policy_data_identity"`
+	TemplateCount      int                                            `json:"template_count"`
+	ContextCount       int                                            `json:"context_count"`
+	WorkspaceCount     int                                            `json:"workspace_count"`
+	Runtime            tobari.FinalClusterRuntimeState                `json:"runtime"`
+	Receipt            tobari.FinalClusterReceiptState                `json:"receipt"`
+	Contexts           []tobari.FinalClusterContextReceiptObservation `json:"contexts"`
+	Components         []tobari.FinalClusterComponentObservation      `json:"components"`
+}
+
+func newFinalClusterStatusPublicResult(status tobari.FinalClusterStatus) finalClusterStatusPublicResult {
+	return finalClusterStatusPublicResult{
+		Task: status.Task, Authority: status.Authority, Generation: status.Generation, CollectionRevision: status.CollectionRevision,
+		AggregateRevision: status.AggregateRevision, EvaluatorIdentity: status.EvaluatorIdentity, PolicyDataIdentity: status.PolicyDataIdentity,
+		TemplateCount: status.TemplateCount, ContextCount: status.ContextCount, WorkspaceCount: status.WorkspaceCount,
+		Runtime: status.Runtime, Receipt: status.Receipt, Contexts: status.Contexts, Components: status.Components,
+	}
+}
+
 func newFinalClusterUpPublicResult(result workspaceauthoritycmd.FinalClusterReconciliation) finalClusterUpPublicResult {
 	contexts := make([]finalClusterContextActivationPublicResult, len(result.Contexts))
 	for index, context := range result.Contexts {
@@ -261,6 +268,7 @@ func newFinalClusterUpPublicResult(result workspaceauthoritycmd.FinalClusterReco
 	return finalClusterUpPublicResult{
 		Task: result.Task, Generation: result.Generation, CollectionRevision: result.CollectionRevision,
 		ContentDigest: result.ContentDigest, PlanDigest: result.PlanDigest, EnvelopeChanged: result.EnvelopeChanged,
+		AggregateRevision: result.AggregateRevision, EvaluatorIdentity: result.EvaluatorIdentity, PolicyDataIdentity: result.PolicyDataIdentity,
 		Applied: result.Applied, Contexts: contexts,
 	}
 }
@@ -270,7 +278,7 @@ func renderFinalClusterDown(path string, result workspaceauthoritycmd.FinalClust
 		return nil, fault.Wrap(fault.KindContract, "invalid_cluster_down_result", "final cluster retirement result is invalid", false, err)
 	}
 	if format == successFormatJSON {
-		return finalClusterJSON(path, "cluster_down", finalClusterDownPublicResult{
+		return finalClusterJSON(path, "cluster_down", tobari.FinalClusterDownSchemaVersion, finalClusterDownPublicResult{
 			Task: result.Task, Stopped: result.Stopped, Generation: result.Generation,
 			CollectionRevision: result.CollectionRevision, EnvelopeChanged: result.EnvelopeChanged,
 		})
@@ -286,8 +294,8 @@ type finalClusterDownPublicResult struct {
 	EnvelopeChanged    bool                  `json:"envelope_changed"`
 }
 
-func finalClusterJSON(path, envelope string, value any) ([]byte, error) {
-	encoded, err := marshalCommandJSON(path, map[string]any{"schema_version": tobari.FinalClusterLifecycleSchemaVersion, envelope: value})
+func finalClusterJSON(path, envelope string, schemaVersion int, value any) ([]byte, error) {
+	encoded, err := marshalCommandJSON(path, map[string]any{"schema_version": schemaVersion, envelope: value})
 	if err != nil {
 		return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "final cluster JSON could not be encoded", false, err)
 	}

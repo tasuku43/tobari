@@ -40,7 +40,7 @@ Shared data    ${XDG_DATA_HOME:-$HOME/.local/share}/tobari
 
 agent CLI の login 形式は Workspace home に残り、Tobari の共有サービスや公開 JSON の権限にはなりません。Tobari はホストのログイン情報を継承しません。
 
-Workspace Template policy の正本は domain tree と、Advanced policy を選んだ場合の Rego だけです。内部 `data.json` は、検証済みの完全な `cluster-projections/<revision>/` 内でのみ生成されます。ワイルドカード、IP literal、正規化されていない host、directory と embedded host の不一致、未知または重複する field、不完全な allow/deny pair、余分な file、symlink、安全でない mode は拒否されます。
+Workspace Template policy の正本は canonical typed policy data だけです。内部 `data.json` は、検証済みの完全な `cluster-projections/<revision>/` 内でのみ生成されます。固定 evaluator は Tobari に組み込まれ、Docker 管理の policy bundle 内だけに現れます。ワイルドカード、IP literal、正規化されていない host、directory と embedded host の不一致、未知または重複する field、不完全な allow/deny pair、余分な file、symlink、安全でない mode は拒否されます。
 
 ホスト所有の設定と状態は、サポート対象プラットフォームの owner/mode 検査で保護します。Linux と macOS では所有者、symlink、schema が安全でないとき fail closed です。同じホスト利用者が侵害された後の保護までは主張しません。共有の読み取り専用 agent profile は `${XDG_DATA_HOME:-$HOME/.local/share}/tobari/profiles` 以下にあります。
 

@@ -120,7 +120,8 @@ complete all-Context aggregate before activation. A failure retains known-good
 policy. Rediscover opaque references after any concurrent change; do not reuse
 display order or stale IDs.
 
-For host-authored Advanced policy, correct the Rego and tests on the trusted host, then rerun `tobari doctor` and explicit `tobari cluster up`.
+If legacy executable-policy state is reported, follow the reset/recreate
+recovery. Tobari does not translate or execute that state.
 
 ## I cannot delete a Workspace or stop the cluster
 

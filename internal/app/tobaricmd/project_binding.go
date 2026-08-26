@@ -138,7 +138,7 @@ func (s *Service) resolveExecutionContext(ctx context.Context, name string) (tob
 	}
 	return tobari.WorkspaceManifest{SchemaVersion: tobari.WorkspaceManifestSchemaVersion, ID: "018bcfe5-687b-7000-8000-000000000099",
 		Name: tobari.DefaultManifestName, AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector,
-		PolicyMode: tobari.ManifestPolicyModeGuided, SourceAccess: tobari.ManifestSourceAccessReadWrite}, nil
+		SourceAccess: tobari.ManifestSourceAccessReadWrite}, nil
 }
 
 func (s *Service) observeExecutionContext(ctx context.Context, name string) (tobari.ManifestObservation, error) {

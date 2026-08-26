@@ -53,8 +53,8 @@ func (s *FinalClusterReadService) Denials(ctx context.Context, tail int) (tobari
 }
 
 func finalClusterReadFault(code, message string, err error) error {
-	if errors.Is(err, tobari.ErrPreReleaseLegacyAuthority) {
-		return fault.Wrap(fault.KindRejected, "legacy_state_present", "pre-release legacy authority blocks final cluster reads", false, err)
+	if isPreReleaseLegacyAuthority(err) {
+		return preReleaseLegacyFault(err, fault.PhaseObservation, fault.ChangeNotApplicable)
 	}
 	if errors.Is(err, tobari.ErrFinalClusterNotRunning) || errors.Is(err, tobari.ErrFinalClusterObservationChanged) {
 		return fault.Wrap(fault.KindUnavailable, "cluster_not_running", "final cluster authority is not exactly active", false, err)

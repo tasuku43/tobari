@@ -15,7 +15,7 @@
     {
       "name": "scoped_empty_collection",
       "task": "policy candidates",
-      "required_facts": ["No policy candidates", "/config/example/policy", "200 Gateway lines"],
+      "required_facts": ["No policy candidates", "Policy-data identity sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "200 Gateway lines"],
       "exact_next_argv": ["tobari", "cluster", "denials"],
       "unsupported_inferences": ["the provider has no older denial history"]
     },

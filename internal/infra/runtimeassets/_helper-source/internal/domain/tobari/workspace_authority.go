@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 const (
@@ -25,10 +24,6 @@ const (
 	WorkspaceReferenceKind                 = "workspace"
 	WorkspaceTemplateCatalogTargetKind     = "workspace-template-catalog"
 	WorkspaceTemplateCatalogTargetID       = "workspace-template-catalog"
-
-	WorkspaceTemplateAdvancedPolicyPath     = "tobari.rego"
-	WorkspaceTemplateAdvancedPolicyTestPath = "tobari_test.rego"
-	WorkspaceTemplateAdvancedPolicyMaxBytes = 4 * 1024 * 1024
 )
 
 var (
@@ -38,6 +33,7 @@ var (
 	ErrWorkspaceTemplateProtected             = errors.New("Workspace Template is still referenced")
 	ErrDefaultTemplateSelectionRequired       = errors.New("default Workspace Template selection is required")
 	ErrPreReleaseLegacyAuthority              = errors.New("pre-release legacy authority is present or unsafe")
+	ErrLegacyExecutablePolicy                 = errors.New("legacy executable policy is unsupported")
 	ErrContextBindingExists                   = errors.New("Context already exists")
 	ErrContextBindingNotFound                 = errors.New("Context does not exist")
 	ErrContextBindingProtected                = errors.New("Context still owns live authority")
@@ -140,6 +136,45 @@ type SemanticDigest string
 
 func (d SemanticDigest) Validate() error { return ValidateDigest(string(d)) }
 
+// PolicyEvaluatorIdentity identifies the fixed Tobari-owned evaluator that
+// interprets canonical policy data. It is deliberately independent from the
+// policy-data identity below: a remembered decision must not imply a new
+// evaluator, while an evaluator update must remain visible when data is
+// unchanged.
+type PolicyEvaluatorIdentity struct {
+	SchemaVersion int            `json:"schema_version"`
+	Version       string         `json:"version"`
+	Digest        SemanticDigest `json:"digest"`
+}
+
+func (i PolicyEvaluatorIdentity) Validate() error {
+	if i.SchemaVersion != 1 || i.Version == "" || strings.ContainsAny(i.Version, " \t\r\n") {
+		return fmt.Errorf("policy evaluator identity metadata is invalid")
+	}
+	if err := i.Digest.Validate(); err != nil {
+		return fmt.Errorf("policy evaluator identity digest: %w", err)
+	}
+	return nil
+}
+
+// PolicyDataIdentity identifies the complete canonical typed data projected
+// into one aggregate. It excludes evaluator bytes and is carried alongside
+// the aggregate revision and active publication receipt.
+type PolicyDataIdentity struct {
+	SchemaVersion int            `json:"schema_version"`
+	Digest        SemanticDigest `json:"digest"`
+}
+
+func (i PolicyDataIdentity) Validate() error {
+	if i.SchemaVersion != 1 {
+		return fmt.Errorf("policy data identity metadata is invalid")
+	}
+	if err := i.Digest.Validate(); err != nil {
+		return fmt.Errorf("policy data identity digest: %w", err)
+	}
+	return nil
+}
+
 func semanticIdentity(value any) (SemanticDigest, error) {
 	digest, err := semanticDigest(value)
 	return SemanticDigest(digest), err
@@ -175,83 +210,18 @@ func (b WorkspaceTemplateBoundary) Clone() WorkspaceTemplateBoundary {
 	return result
 }
 
-// WorkspaceTemplateAdvancedPolicySources is the closed executable-source
-// boundary for Advanced mode. Named fields make missing, renamed, duplicate,
-// and extra files unrepresentable in final authority.
-type WorkspaceTemplateAdvancedPolicySources struct {
-	Tobari     string `json:"tobari_rego"`
-	TobariTest string `json:"tobari_test_rego"`
-}
-
-func (s WorkspaceTemplateAdvancedPolicySources) Validate() error {
-	if s.Tobari == "" || s.TobariTest == "" || len(s.Tobari)+len(s.TobariTest) > WorkspaceTemplateAdvancedPolicyMaxBytes {
-		return fmt.Errorf("Template Advanced policy source pair is incomplete or too large")
-	}
-	for _, content := range []string{s.Tobari, s.TobariTest} {
-		if !utf8.ValidString(content) || strings.IndexByte(content, 0) >= 0 {
-			return fmt.Errorf("Template Advanced policy source content is invalid")
-		}
-	}
-	return nil
-}
-
-type WorkspaceTemplateAdvancedPolicyFile struct {
-	Path    string
-	Content string
-}
-
-// NewWorkspaceTemplateAdvancedPolicySources converts a predecessor or trusted
-// host snapshot only when it is the exact closed pair. Callers cannot silently
-// ignore a missing, renamed, duplicate, or extra executable source.
-func NewWorkspaceTemplateAdvancedPolicySources(files []WorkspaceTemplateAdvancedPolicyFile) (WorkspaceTemplateAdvancedPolicySources, error) {
-	if len(files) != 2 {
-		return WorkspaceTemplateAdvancedPolicySources{}, fmt.Errorf("Template Advanced policy requires exactly two sources")
-	}
-	result := WorkspaceTemplateAdvancedPolicySources{}
-	seen := make(map[string]struct{}, 2)
-	for _, file := range files {
-		if _, exists := seen[file.Path]; exists {
-			return WorkspaceTemplateAdvancedPolicySources{}, fmt.Errorf("Template Advanced policy source is duplicated")
-		}
-		seen[file.Path] = struct{}{}
-		switch file.Path {
-		case WorkspaceTemplateAdvancedPolicyPath:
-			result.Tobari = file.Content
-		case WorkspaceTemplateAdvancedPolicyTestPath:
-			result.TobariTest = file.Content
-		default:
-			return WorkspaceTemplateAdvancedPolicySources{}, fmt.Errorf("Template Advanced policy source name is invalid")
-		}
-	}
-	return result, result.Validate()
-}
-
-// Files materializes the one closed filesystem projection. It does not accept
-// names from caller input.
-func (s WorkspaceTemplateAdvancedPolicySources) Files() ([]WorkspaceTemplateAdvancedPolicyFile, error) {
-	if err := s.Validate(); err != nil {
-		return nil, err
-	}
-	return []WorkspaceTemplateAdvancedPolicyFile{
-		{Path: WorkspaceTemplateAdvancedPolicyPath, Content: s.Tobari},
-		{Path: WorkspaceTemplateAdvancedPolicyTestPath, Content: s.TobariTest},
-	}, nil
-}
-
 // WorkspaceTemplatePolicyBody is the complete static baseline. Terminal
 // destination and method ceilings live only in Boundary and are supplied for
 // validation rather than duplicated here.
 type WorkspaceTemplatePolicyBody struct {
-	AgentProfile      string                                  `json:"agent_profile"`
-	Mode              ManifestPolicyMode                      `json:"mode"`
-	NativeReadiness   ManifestNativeReadiness                 `json:"native_readiness"`
-	BaselineGrants    []ManifestPolicyExactRule               `json:"baseline_grants"`
-	BaselineTemplates []ManifestPolicyPathTemplateRule        `json:"baseline_templates"`
-	MCPBaselineGrants []ManifestPolicyMCPRule                 `json:"mcp_baseline_grants"`
-	BaselineDenies    []ManifestPolicyExactRule               `json:"baseline_denies"`
-	GraphQLEndpoints  []ManifestPolicyExactRule               `json:"graphql_endpoints"`
-	MCPEndpoints      []ManifestPolicyExactRule               `json:"mcp_endpoints"`
-	AdvancedPolicy    *WorkspaceTemplateAdvancedPolicySources `json:"advanced_policy,omitempty"`
+	AgentProfile      string                           `json:"agent_profile"`
+	NativeReadiness   ManifestNativeReadiness          `json:"native_readiness"`
+	BaselineGrants    []ManifestPolicyExactRule        `json:"baseline_grants"`
+	BaselineTemplates []ManifestPolicyPathTemplateRule `json:"baseline_templates"`
+	MCPBaselineGrants []ManifestPolicyMCPRule          `json:"mcp_baseline_grants"`
+	BaselineDenies    []ManifestPolicyExactRule        `json:"baseline_denies"`
+	GraphQLEndpoints  []ManifestPolicyExactRule        `json:"graphql_endpoints"`
+	MCPEndpoints      []ManifestPolicyExactRule        `json:"mcp_endpoints"`
 }
 
 func (p WorkspaceTemplatePolicyBody) Validate(boundary WorkspaceTemplateBoundary) error {
@@ -261,22 +231,8 @@ func (p WorkspaceTemplatePolicyBody) Validate(boundary WorkspaceTemplateBoundary
 	if err := ValidateName(p.AgentProfile); err != nil {
 		return fmt.Errorf("Template agent profile: %w", err)
 	}
-	if err := p.Mode.Validate(); err != nil {
-		return err
-	}
 	if err := p.NativeReadiness.Validate(); err != nil {
 		return err
-	}
-	if p.Mode == ManifestPolicyModeGuided && p.AdvancedPolicy != nil {
-		return fmt.Errorf("Guided Template cannot own Advanced policy sources")
-	}
-	if p.Mode == ManifestPolicyModeAdvanced {
-		if p.AdvancedPolicy == nil {
-			return fmt.Errorf("Advanced Template requires the exact policy source pair")
-		}
-		if err := p.AdvancedPolicy.Validate(); err != nil {
-			return err
-		}
 	}
 	policy := ManifestPolicy{
 		SchemaVersion: ManifestPolicySchemaVersion, Name: "workspace-template",
@@ -299,10 +255,6 @@ func (p WorkspaceTemplatePolicyBody) Clone() WorkspaceTemplatePolicyBody {
 	result.BaselineDenies = append([]ManifestPolicyExactRule{}, p.BaselineDenies...)
 	result.GraphQLEndpoints = append([]ManifestPolicyExactRule{}, p.GraphQLEndpoints...)
 	result.MCPEndpoints = append([]ManifestPolicyExactRule{}, p.MCPEndpoints...)
-	if p.AdvancedPolicy != nil {
-		advanced := *p.AdvancedPolicy
-		result.AdvancedPolicy = &advanced
-	}
 	return result
 }
 

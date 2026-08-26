@@ -59,7 +59,6 @@ func (s RecommendedFirstUseSession) Validate() error {
 type RecommendedFirstUseDraft struct {
 	ProjectRoot           string
 	WorkspaceManifestName string
-	PolicyMode            ManifestPolicyMode
 	Access                ManifestAccessSummary
 	RuntimeSelection      string
 	NativeReadiness       ManifestNativeReadiness
@@ -81,7 +80,7 @@ func NewRecommendedFirstUseDraft(root string, session WorkspaceSessionRequest) (
 		return RecommendedFirstUseDraft{}, err
 	}
 	draft := RecommendedFirstUseDraft{
-		ProjectRoot: root, WorkspaceManifestName: DefaultManifestName, PolicyMode: ManifestPolicyModeGuided,
+		ProjectRoot: root, WorkspaceManifestName: DefaultManifestName,
 		Access: access, RuntimeSelection: StandardRuntimeName + "@1",
 		NativeReadiness:   ManifestNativeReadinessEnabled,
 		HostConfiguration: RecommendedHostConfigurationNotImported, Session: summary,
@@ -93,7 +92,7 @@ func (d RecommendedFirstUseDraft) Validate() error {
 	if err := ValidateCanonicalRoot(d.ProjectRoot); err != nil {
 		return err
 	}
-	if d.WorkspaceManifestName != DefaultManifestName || d.PolicyMode != ManifestPolicyModeGuided ||
+	if d.WorkspaceManifestName != DefaultManifestName ||
 		d.RuntimeSelection != StandardRuntimeName+"@1" || d.NativeReadiness != ManifestNativeReadinessEnabled ||
 		d.HostConfiguration != RecommendedHostConfigurationNotImported {
 		return fmt.Errorf("recommended first-use settings do not match the supported draft")

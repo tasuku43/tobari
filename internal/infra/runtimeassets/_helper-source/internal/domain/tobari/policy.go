@@ -598,14 +598,44 @@ func containsSpaceOrControl(value string) bool {
 	}) >= 0
 }
 
+// PolicyProjectionIdentity is the public, path-free identity of the active
+// aggregate policy. The evaluator and canonical typed policy-data identities
+// are deliberately separate so either kind of drift remains auditable.
+type PolicyProjectionIdentity struct {
+	AggregateRevision  string                  `json:"aggregate_revision"`
+	EvaluatorIdentity  PolicyEvaluatorIdentity `json:"evaluator_identity"`
+	PolicyDataIdentity PolicyDataIdentity      `json:"policy_data_identity"`
+}
+
+func (i PolicyProjectionIdentity) Validate() error {
+	if !policyRevisionPattern.MatchString(i.AggregateRevision) {
+		return fmt.Errorf("aggregate policy revision is invalid")
+	}
+	if err := i.EvaluatorIdentity.Validate(); err != nil {
+		return fmt.Errorf("aggregate evaluator identity: %w", err)
+	}
+	if err := i.PolicyDataIdentity.Validate(); err != nil {
+		return fmt.Errorf("aggregate policy-data identity: %w", err)
+	}
+	return nil
+}
+
+func (s State) PolicyProjectionIdentity() PolicyProjectionIdentity {
+	return PolicyProjectionIdentity{
+		AggregateRevision:  s.AggregateRevision,
+		EvaluatorIdentity:  s.EvaluatorIdentity,
+		PolicyDataIdentity: s.PolicyDataIdentity,
+	}
+}
+
 // DenialReport preserves the exact local cluster scope and requested bounded
 // Gateway-log window, including a valid empty result.
 type DenialReport struct {
-	Task            string         `json:"task"`
-	PolicyDirectory string         `json:"policy"`
-	WindowLines     int            `json:"window_lines"`
-	UnparsedLines   int            `json:"unparsed_lines"`
-	Items           []PolicyDenial `json:"items"`
+	Task string `json:"task"`
+	PolicyProjectionIdentity
+	WindowLines   int            `json:"window_lines"`
+	UnparsedLines int            `json:"unparsed_lines"`
+	Items         []PolicyDenial `json:"items"`
 }
 
 // Validate binds denial evidence to the cluster-denials task and its scope.
@@ -613,8 +643,8 @@ func (r DenialReport) Validate() error {
 	if r.Task != TaskClusterDenials {
 		return fmt.Errorf("denial report task identity is invalid")
 	}
-	if !filepath.IsAbs(r.PolicyDirectory) || filepath.Clean(r.PolicyDirectory) != r.PolicyDirectory {
-		return fmt.Errorf("denial report policy directory is invalid")
+	if err := r.PolicyProjectionIdentity.Validate(); err != nil {
+		return fmt.Errorf("denial report projection identity: %w", err)
 	}
 	if r.WindowLines < 1 || r.WindowLines > 10_000 {
 		return fmt.Errorf("denial report window is invalid")
@@ -769,20 +799,20 @@ func (c PolicyCandidate) Validate() error {
 // PolicyCandidateReport preserves the bounded retained-log scope and supports
 // both machine discovery and the human tail projection.
 type PolicyCandidateReport struct {
-	Task            string             `json:"task"`
-	PolicyDirectory string             `json:"policy"`
-	WindowLines     int                `json:"window_lines"`
-	UnparsedLines   int                `json:"unparsed_lines"`
-	Items           []PolicyCandidate  `json:"items"`
-	ReviewItems     []PolicyReviewItem `json:"-"`
+	Task string `json:"task"`
+	PolicyProjectionIdentity
+	WindowLines   int                `json:"window_lines"`
+	UnparsedLines int                `json:"unparsed_lines"`
+	Items         []PolicyCandidate  `json:"items"`
+	ReviewItems   []PolicyReviewItem `json:"-"`
 }
 
 func (r PolicyCandidateReport) Validate() error {
 	if r.Task != TaskPolicyCandidates && r.Task != TaskPolicyReview {
 		return fmt.Errorf("policy candidate report task identity is invalid")
 	}
-	if !filepath.IsAbs(r.PolicyDirectory) || filepath.Clean(r.PolicyDirectory) != r.PolicyDirectory {
-		return fmt.Errorf("policy candidate policy directory is invalid")
+	if err := r.PolicyProjectionIdentity.Validate(); err != nil {
+		return fmt.Errorf("policy candidate projection identity: %w", err)
 	}
 	if r.WindowLines < 1 || r.WindowLines > 10_000 {
 		return fmt.Errorf("policy candidate window is invalid")
@@ -1260,17 +1290,17 @@ func CurrentPolicyRules(learned []LearnedPolicyRule, denies []PolicyDenyRule) ([
 // PolicyRuleReport is exhaustive for the current learned-rule file at one
 // observation point. An empty Items collection is known and valid.
 type PolicyRuleReport struct {
-	Task            string       `json:"task"`
-	PolicyDirectory string       `json:"policy"`
-	Items           []PolicyRule `json:"items"`
+	Task string `json:"task"`
+	PolicyProjectionIdentity
+	Items []PolicyRule `json:"items"`
 }
 
 func (r PolicyRuleReport) Validate() error {
 	if r.Task != TaskPolicyRules {
 		return fmt.Errorf("policy rule report task identity is invalid")
 	}
-	if !filepath.IsAbs(r.PolicyDirectory) || filepath.Clean(r.PolicyDirectory) != r.PolicyDirectory {
-		return fmt.Errorf("policy rule report policy directory is invalid")
+	if err := r.PolicyProjectionIdentity.Validate(); err != nil {
+		return fmt.Errorf("policy rule report projection identity: %w", err)
 	}
 	if r.Items == nil {
 		return fmt.Errorf("policy rule collection is unknown")
@@ -1344,11 +1374,11 @@ func RemovePolicyRule(
 // PolicyRuleReset is the confirmed result of returning one learned decision
 // to the initialized default-deny behavior.
 type PolicyRuleReset struct {
-	Task            string `json:"task"`
-	PolicyDirectory string `json:"policy"`
-	TargetID        string `json:"target_id"`
-	Decision        string `json:"decision"`
-	Applied         bool   `json:"applied"`
+	Task string `json:"task"`
+	PolicyProjectionIdentity
+	TargetID string `json:"target_id"`
+	Decision string `json:"decision"`
+	Applied  bool   `json:"applied"`
 }
 
 func (r PolicyRuleReset) Validate() error {
@@ -1361,8 +1391,8 @@ func (r PolicyRuleReset) Validate() error {
 	if !validPolicyDecision(r.Decision) {
 		return fmt.Errorf("policy rule reset decision is invalid")
 	}
-	if !filepath.IsAbs(r.PolicyDirectory) || filepath.Clean(r.PolicyDirectory) != r.PolicyDirectory {
-		return fmt.Errorf("policy rule reset policy directory is invalid")
+	if err := r.PolicyProjectionIdentity.Validate(); err != nil {
+		return fmt.Errorf("policy rule reset projection identity: %w", err)
 	}
 	if !r.Applied {
 		return fmt.Errorf("policy rule reset is not applied")
@@ -1500,24 +1530,48 @@ func PolicyCandidatesWithDenyRules(
 // aggregate activation. It is produced inside the activation boundary so a
 // caller never needs a fallible post-success state reload.
 type PolicyActivationReceipt struct {
-	PolicyDirectory string
-	ActiveRevision  string
+	ActiveRevision     string
+	EvaluatorIdentity  PolicyEvaluatorIdentity
+	PolicyDataIdentity PolicyDataIdentity
 }
 
-func (r PolicyActivationReceipt) Validate() error {
-	if !filepath.IsAbs(r.PolicyDirectory) || filepath.Clean(r.PolicyDirectory) != r.PolicyDirectory {
-		return fmt.Errorf("policy activation directory is invalid")
-	}
+// ValidateAggregate proves the receipt came from the shared aggregate
+// activation boundary. Persistent policy mutations must never accept the
+// attachment-shaped empty identity pair.
+func (r PolicyActivationReceipt) ValidateAggregate() error {
 	if !policyRevisionPattern.MatchString(r.ActiveRevision) {
-		return fmt.Errorf("policy activation revision is invalid")
+		return fmt.Errorf("aggregate policy activation revision is invalid")
+	}
+	if r.EvaluatorIdentity == (PolicyEvaluatorIdentity{}) || r.PolicyDataIdentity == (PolicyDataIdentity{}) {
+		return fmt.Errorf("aggregate policy activation requires evaluator and policy-data identities")
+	}
+	if err := (PolicyProjectionIdentity{
+		AggregateRevision:  r.ActiveRevision,
+		EvaluatorIdentity:  r.EvaluatorIdentity,
+		PolicyDataIdentity: r.PolicyDataIdentity,
+	}).Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ValidateAttachment proves the receipt belongs to the separate Host
+// Loopback attachment registry. It intentionally carries no aggregate policy
+// identity because attachment state is not shared-cluster policy authority.
+func (r PolicyActivationReceipt) ValidateAttachment() error {
+	if !policyRevisionPattern.MatchString(r.ActiveRevision) {
+		return fmt.Errorf("attachment activation revision is invalid")
+	}
+	if r.EvaluatorIdentity != (PolicyEvaluatorIdentity{}) || r.PolicyDataIdentity != (PolicyDataIdentity{}) {
+		return fmt.Errorf("attachment activation cannot carry aggregate identities")
 	}
 	return nil
 }
 
 // PolicyLearningChange is a confirmed exact approval result.
 type PolicyLearningChange struct {
-	Task            string            `json:"task"`
-	PolicyDirectory string            `json:"policy"`
+	Task string `json:"task"`
+	PolicyProjectionIdentity
 	TargetID        string            `json:"target_id"`
 	Rule            LearnedPolicyRule `json:"rule"`
 	SourceRuleCount int               `json:"source_rule_count"`
@@ -1534,8 +1588,8 @@ func (c PolicyLearningChange) Validate() error {
 	if c.Rule.Match != PolicyMatchExact || c.SourceRuleCount != 1 {
 		return fmt.Errorf("policy allow result is inconsistent")
 	}
-	if !filepath.IsAbs(c.PolicyDirectory) || filepath.Clean(c.PolicyDirectory) != c.PolicyDirectory {
-		return fmt.Errorf("policy learning directory is invalid")
+	if err := c.PolicyProjectionIdentity.Validate(); err != nil {
+		return fmt.Errorf("policy learning projection identity: %w", err)
 	}
 	if err := c.Rule.Validate(); err != nil {
 		return err
@@ -1548,8 +1602,8 @@ func (c PolicyLearningChange) Validate() error {
 
 // PolicyDenyChange is the confirmed result of rejecting one exact candidate.
 type PolicyDenyChange struct {
-	Task            string         `json:"task"`
-	PolicyDirectory string         `json:"policy"`
+	Task string `json:"task"`
+	PolicyProjectionIdentity
 	TargetID        string         `json:"target_id"`
 	Rule            PolicyDenyRule `json:"rule"`
 	SourceRuleCount int            `json:"source_rule_count"`
@@ -1682,13 +1736,13 @@ func (s PolicyReviewDecisionSet) Validate() error {
 
 // PolicyReviewChange is emitted only after the complete reviewed set is active.
 type PolicyReviewChange struct {
-	Task            string                        `json:"task"`
-	PolicyDirectory string                        `json:"policy"`
-	AllowCount      int                           `json:"allow_count"`
-	DenyCount       int                           `json:"deny_count"`
-	Applied         bool                          `json:"applied"`
-	ActiveRevision  string                        `json:"active_revision"`
-	Decisions       []PolicyReviewAppliedDecision `json:"decisions"`
+	Task string `json:"task"`
+	PolicyProjectionIdentity
+	AllowCount     int                           `json:"allow_count"`
+	DenyCount      int                           `json:"deny_count"`
+	Applied        bool                          `json:"applied"`
+	ActiveRevision string                        `json:"active_revision"`
+	Decisions      []PolicyReviewAppliedDecision `json:"decisions"`
 }
 
 func (c PolicyReviewChange) Validate() error {
@@ -1696,11 +1750,12 @@ func (c PolicyReviewChange) Validate() error {
 		c.AllowCount+c.DenyCount == 0 || c.AllowCount+c.DenyCount > MaxPolicyReviewDecisions || !c.Applied {
 		return fmt.Errorf("policy review result is inconsistent")
 	}
-	if !filepath.IsAbs(c.PolicyDirectory) || filepath.Clean(c.PolicyDirectory) != c.PolicyDirectory {
-		return fmt.Errorf("policy review result directory is invalid")
-	}
 	if !policyRevisionPattern.MatchString(c.ActiveRevision) {
 		return fmt.Errorf("policy review active revision is invalid")
+	}
+	identitiesEmpty := c.PolicyProjectionIdentity == (PolicyProjectionIdentity{})
+	if !identitiesEmpty && (c.AggregateRevision != c.ActiveRevision || c.PolicyProjectionIdentity.Validate() != nil) {
+		return fmt.Errorf("policy review projection identity is invalid")
 	}
 	if len(c.Decisions) != c.AllowCount+c.DenyCount {
 		return fmt.Errorf("policy review receipt count is inconsistent")
@@ -1721,6 +1776,13 @@ func (c PolicyReviewChange) Validate() error {
 			denyCount++
 		}
 	}
+	if identitiesEmpty {
+		for _, decision := range c.Decisions {
+			if decision.DestinationKind != PolicyDestinationHostLoopback {
+				return fmt.Errorf("persistent policy review result is missing projection identity")
+			}
+		}
+	}
 	if allowCount != c.AllowCount || denyCount != c.DenyCount {
 		return fmt.Errorf("policy review receipt decisions do not match counts")
 	}
@@ -1737,8 +1799,8 @@ func (c PolicyDenyChange) Validate() error {
 	if c.SourceRuleCount != 1 || !c.Applied {
 		return fmt.Errorf("policy deny result is inconsistent")
 	}
-	if !filepath.IsAbs(c.PolicyDirectory) || filepath.Clean(c.PolicyDirectory) != c.PolicyDirectory {
-		return fmt.Errorf("policy deny directory is invalid")
+	if err := c.PolicyProjectionIdentity.Validate(); err != nil {
+		return fmt.Errorf("policy deny projection identity: %w", err)
 	}
 	if err := c.Rule.Validate(); err != nil {
 		return err

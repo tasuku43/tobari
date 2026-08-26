@@ -225,7 +225,7 @@ func TestDoctorObserverKeepsInvalidPolicyDistinctFromPolicyData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CreateContext(context.Background(), "broken", tobari.BuiltinImageSelector, tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadWrite); err != nil {
+	if _, err := runtime.CreateContext(context.Background(), "broken", tobari.BuiltinImageSelector, tobari.ManifestSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	_, paths, err := runtime.resolveContext("broken")
@@ -233,7 +233,7 @@ func TestDoctorObserverKeepsInvalidPolicyDistinctFromPolicyData(t *testing.T) {
 		t.Fatal(err)
 	}
 	invalidSource := "package tobari.http\n\nimport rego.v1\ndecision := {\"allow\": false} if { data.tobari_contexts; input.schema_version == 3; input.schema_version == 4 }\n"
-	if err := os.WriteFile(filepath.Join(paths.PolicyDirectory, "tobari.rego"), []byte(invalidSource), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(paths.PolicyDirectory, "unsupported.policy"), []byte(invalidSource), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	report, err := runRuntimeDoctor(context.Background(), runtime, t.TempDir())

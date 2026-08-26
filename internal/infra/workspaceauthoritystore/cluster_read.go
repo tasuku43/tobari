@@ -60,7 +60,11 @@ func (a *ClusterReadAdapter) ReadDenials(ctx context.Context, tail int) (tobari.
 	if err := a.finish(ctx, collection, present, before); err != nil {
 		return tobari.FinalClusterDenialWindow{}, err
 	}
-	return tobari.NewFinalClusterDenialWindow(collection, tail, read)
+	identity, err := before.ActivePolicyProjectionIdentity()
+	if err != nil {
+		return tobari.FinalClusterDenialWindow{}, err
+	}
+	return tobari.NewFinalClusterDenialWindow(collection, tail, read, identity)
 }
 
 func (a *ClusterReadAdapter) begin(ctx context.Context) (tobari.WorkspaceAuthorityCollection, bool, tobari.FinalClusterStatus, error) {

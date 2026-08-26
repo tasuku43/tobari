@@ -20,7 +20,7 @@ import (
 type RuntimePort interface {
 	ListContexts(context.Context) (tobari.ManifestListResult, error)
 	ShowContext(context.Context, string) (tobari.ManifestReport, error)
-	CreateContext(context.Context, string, string, tobari.ManifestPolicyMode, tobari.ManifestSourceAccess) (tobari.ManifestReport, error)
+	CreateContext(context.Context, string, string, tobari.ManifestSourceAccess) (tobari.ManifestReport, error)
 	SetDefaultManifest(context.Context, string) (tobari.ManifestReport, error)
 	ConfigureContextShell(context.Context, string, []tobari.ManifestShellEnvironmentSetting) (tobari.ManifestReport, error)
 	ConfigureContextGit(context.Context, string, tobari.ManifestGitIdentitySetting) (tobari.ManifestReport, error)
@@ -33,7 +33,7 @@ type contextUseProgressRuntimePort interface {
 }
 
 type composedContextRuntimePort interface {
-	CreateContextWithComposition(context.Context, string, string, tobari.ManifestPolicyMode, tobari.ManifestSourceAccess, tobari.ManifestCreateComposition) (tobari.ManifestReport, error)
+	CreateContextWithComposition(context.Context, string, string, tobari.ManifestSourceAccess, tobari.ManifestCreateComposition) (tobari.ManifestReport, error)
 }
 
 type contextCreateBaseRuntimePort interface {
@@ -660,7 +660,7 @@ func (s *Service) CopySnapshot(ctx context.Context, name string) (tobari.Manifes
 }
 
 func (s *Service) Create(
-	ctx context.Context, intent operation.Intent, name, image string, mode tobari.ManifestPolicyMode, sourceAccess tobari.ManifestSourceAccess, selections ...string,
+	ctx context.Context, intent operation.Intent, name, image string, sourceAccess tobari.ManifestSourceAccess, selections ...string,
 ) (tobari.ManifestReport, error) {
 	nativeReadiness := tobari.ManifestNativeReadinessEnabled
 	if len(selections) > 1 {
@@ -669,7 +669,7 @@ func (s *Service) Create(
 	if len(selections) == 1 {
 		nativeReadiness = tobari.ManifestNativeReadiness(selections[0])
 	}
-	return s.CreateWithComposition(ctx, intent, name, image, mode, sourceAccess, tobari.ManifestCreateComposition{
+	return s.CreateWithComposition(ctx, intent, name, image, sourceAccess, tobari.ManifestCreateComposition{
 		NativeReadiness: nativeReadiness,
 	})
 }
@@ -680,11 +680,10 @@ func (s *Service) CreateWithComposition(
 	ctx context.Context,
 	intent operation.Intent,
 	name, image string,
-	mode tobari.ManifestPolicyMode,
 	sourceAccess tobari.ManifestSourceAccess,
 	composition tobari.ManifestCreateComposition,
 ) (tobari.ManifestReport, error) {
-	return s.createWithComposition(ctx, intent, name, image, mode, sourceAccess, composition, false)
+	return s.createWithComposition(ctx, intent, name, image, sourceAccess, composition, false)
 }
 
 // CreateFirstWithComposition creates through the canonical Context mutation
@@ -695,18 +694,16 @@ func (s *Service) CreateFirstWithComposition(
 	ctx context.Context,
 	intent operation.Intent,
 	name, image string,
-	mode tobari.ManifestPolicyMode,
 	sourceAccess tobari.ManifestSourceAccess,
 	composition tobari.ManifestCreateComposition,
 ) (tobari.ManifestReport, error) {
-	return s.createWithComposition(ctx, intent, name, image, mode, sourceAccess, composition, true)
+	return s.createWithComposition(ctx, intent, name, image, sourceAccess, composition, true)
 }
 
 func (s *Service) createWithComposition(
 	ctx context.Context,
 	intent operation.Intent,
 	name, image string,
-	mode tobari.ManifestPolicyMode,
 	sourceAccess tobari.ManifestSourceAccess,
 	composition tobari.ManifestCreateComposition,
 	requireEmpty bool,
@@ -714,11 +711,11 @@ func (s *Service) createWithComposition(
 	if err := s.requireRuntime(); err != nil {
 		return tobari.ManifestReport{}, err
 	}
-	if err := validateCreateInput(name, image, mode, sourceAccess); err != nil {
+	if err := validateCreateInput(name, image, sourceAccess); err != nil {
 		return tobari.ManifestReport{}, err
 	}
 	if err := composition.Validate(); err != nil {
-		return tobari.ManifestReport{}, fault.Wrap(fault.KindInvalidInput, "invalid_context", "Workspace Manifest policy selection is invalid", false, err)
+		return tobari.ManifestReport{}, fault.Wrap(fault.KindInvalidInput, "invalid_context", "Workspace Manifest composition is invalid", false, err)
 	}
 	request := execution.Request{
 		Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectCreate,
@@ -749,9 +746,9 @@ func (s *Service) createWithComposition(
 			var created tobari.ManifestReport
 			var createErr error
 			if runtime, ok := s.runtime.(composedContextRuntimePort); ok {
-				created, createErr = runtime.CreateContextWithComposition(actionContext, name, image, mode, sourceAccess, composition.Clone())
+				created, createErr = runtime.CreateContextWithComposition(actionContext, name, image, sourceAccess, composition.Clone())
 			} else if composition.MethodPolicy == nil && composition.Bootstrap == nil && composition.NativeReadiness == tobari.ManifestNativeReadinessEnabled {
-				created, createErr = s.runtime.CreateContext(actionContext, name, image, mode, sourceAccess)
+				created, createErr = s.runtime.CreateContext(actionContext, name, image, sourceAccess)
 			} else {
 				createErr = errors.New("Workspace Manifest policy composition is unavailable")
 			}
@@ -783,7 +780,7 @@ func (s *Service) createWithComposition(
 				contractErr = readinessErr
 			}
 			if contractErr == nil && (created.Task != tobari.TaskManifestCreate ||
-				created.Name != name || created.PolicyMode != mode || created.SourceAccess != sourceAccess || createdReadiness != composition.NativeReadiness) {
+				created.Name != name || created.SourceAccess != sourceAccess || createdReadiness != composition.NativeReadiness) {
 				contractErr = fmt.Errorf("created Workspace Manifest identity or Boundary does not match the request")
 			}
 			if contractErr == nil && composition.MethodPolicy != nil &&
@@ -1106,16 +1103,16 @@ func (s *Service) BuildRuntimeWithProgress(
 	return result, nil
 }
 
-func validateCreateInput(name, image string, mode tobari.ManifestPolicyMode, sourceAccess tobari.ManifestSourceAccess) error {
+func validateCreateInput(name, image string, sourceAccess tobari.ManifestSourceAccess) error {
 	manifest := tobari.WorkspaceManifest{
 		SchemaVersion: tobari.WorkspaceManifestSchemaVersion, ID: "00000000-0000-7000-8000-000000000000", Name: name,
-		AgentProfile: tobari.DefaultProfile, Image: image, PolicyMode: mode, SourceAccess: sourceAccess,
+		AgentProfile: tobari.DefaultProfile, Image: image, SourceAccess: sourceAccess,
 		PolicyRevision: tobari.DefaultContextPolicyRevision(),
 	}
 	if err := manifest.Validate(); err != nil {
 		return fault.Wrap(
 			fault.KindInvalidInput, "invalid_context", "Workspace Manifest definition is invalid", false, err,
-			fault.NextAction{Command: "help manifest create", Reason: "Correct the Workspace Manifest name, image, policy mode, or source access."},
+			fault.NextAction{Command: "help manifest create", Reason: "Correct the Workspace Manifest name, image, or source access."},
 		)
 	}
 	return nil

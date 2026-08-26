@@ -6,6 +6,8 @@
 - Scope: Product, architecture, security, policy learning, runtime, and harness
 - Supersedes: The single-file Context source-promotion mechanism in ADR 0024
 - Superseded by: None
+- Revised by: ADR 0087 removes user-owned evaluator source and retains the
+  exact-domain facts as canonical typed policy data
 
 ## Context
 

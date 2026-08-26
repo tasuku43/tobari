@@ -51,7 +51,6 @@ The current creation grammar is:
 ```text
 tobari context create --name NAME
   [--runtime standard|NAME@ORDINAL]
-  [--mode guided|advanced]
   [--source-access read-only|read-write]
   [--native-readiness enabled|disabled]
   [--bootstrap-aws-profile NAME]
@@ -59,14 +58,15 @@ tobari context create --name NAME
   [--format text|json]
 ```
 
-The interactive flow reviews `standard@1`, `guided`, `read-write`, enabled
+The interactive flow reviews `standard@1`, the canonical typed policy-data
+defaults, `read-write`, enabled
 native readiness, and no bootstrap as initial values. Complete direct creation
 requires the declared group. Context creation validates every selector and the
 normalized Context-owned policy snapshot before writing state; it starts no
 Docker resource.
 
 `context list` remains a complete exhaustive local collection. Each item adds
-source access, policy mode/revision, complete method policy, native-readiness
+source access, policy-data identity/revision, complete method policy, native-readiness
 choice, exact Runtime binding, and bootstrap state. `context show` adds the
 complete shell/Git session-default inventory and separated diagnostic facts.
 Synthetic default output carries explicit default display values but no stable
@@ -114,7 +114,7 @@ future root entry resolves stable Context ID
 
 ### Error and cancellation behavior
 
-- Invalid name, source access, mode, policy content/digest, Runtime binding, or
+- Invalid name, source access, policy content/digest, Runtime binding, or
   existing Context fails before state creation.
 - Partial Context/policy snapshot creation is recovered or rejected through one
   atomic Context-store boundary; it never falls back to implicit policy.
@@ -128,8 +128,8 @@ future root entry resolves stable Context ID
 
 The manifest remains secret-free and non-executable. Stable ID, source access,
 policy identity/digest, Runtime identity, and projection choices are safe
-authority metadata. Credential values, broker handles, root keys, arbitrary
-Rego, and resolved host paths do not become generic manifest inputs.
+authority metadata. Credential values, broker handles, root keys, executable
+source, and resolved host paths do not become generic manifest inputs.
 
 ## Implementation slices
 

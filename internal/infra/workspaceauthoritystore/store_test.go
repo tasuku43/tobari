@@ -95,7 +95,7 @@ func storeCollectionFixture(t *testing.T) tobari.WorkspaceAuthorityCollection {
 			MethodPolicy: tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview, Overrides: []tobari.ManifestMethodOverride{{Method: "GET", Decision: tobari.ManifestMethodAllow}}},
 		},
 		Policy: tobari.WorkspaceTemplatePolicyBody{
-			AgentProfile: tobari.DefaultProfile, Mode: tobari.ManifestPolicyModeGuided, NativeReadiness: tobari.ManifestNativeReadinessEnabled,
+			AgentProfile: tobari.DefaultProfile, NativeReadiness: tobari.ManifestNativeReadinessEnabled,
 			BaselineGrants:    []tobari.ManifestPolicyExactRule{{Scheme: "https", Host: "api.example.dev", Port: 443, Method: "GET", Path: "/items"}},
 			BaselineTemplates: []tobari.ManifestPolicyPathTemplateRule{}, MCPBaselineGrants: []tobari.ManifestPolicyMCPRule{},
 			BaselineDenies: []tobari.ManifestPolicyExactRule{}, GraphQLEndpoints: []tobari.ManifestPolicyExactRule{}, MCPEndpoints: []tobari.ManifestPolicyExactRule{},
@@ -250,6 +250,67 @@ func TestStoreAbsentObservationCreatesNothing(t *testing.T) {
 	}
 	if _, err := os.Lstat(root); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("read-only observation created final store: %v", err)
+	}
+}
+
+func TestStoreRejectsPersistedPreReleasePolicyEnvelopeWithoutMutation(t *testing.T) {
+	tests := map[string]struct {
+		addMarker      func(map[string]any)
+		wantExecutable bool
+	}{
+		"guided_mode": {addMarker: func(policy map[string]any) {
+			policy["mode"] = "guided"
+		}},
+		"advanced_mode": {addMarker: func(policy map[string]any) {
+			policy["mode"] = "advanced"
+		}, wantExecutable: true},
+		"advanced_policy": {addMarker: func(policy map[string]any) {
+			policy["advanced_policy"] = map[string]any{
+				"tobari_rego":      "package tobari.http\n",
+				"tobari_test_rego": "package tobari.http\n",
+			}
+		}, wantExecutable: true},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			collection := storeCollectionFixture(t)
+			encoded, err := json.Marshal(collection)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var document map[string]any
+			if err := json.Unmarshal(encoded, &document); err != nil {
+				t.Fatal(err)
+			}
+			templates := document["workspace_templates"].([]any)
+			current := templates[0].(map[string]any)["current"].(map[string]any)
+			policy := current["body"].(map[string]any)["policy"].(map[string]any)
+			test.addMarker(policy)
+			legacy, err := json.Marshal(document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			root := filepath.Join(t.TempDir(), "final-authority")
+			if err := os.Mkdir(root, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(root, authorityFileName)
+			if err := os.WriteFile(path, legacy, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			store, err := New(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, present, err := store.ReadComplete(context.Background())
+			if !errors.Is(err, tobari.ErrPreReleaseLegacyAuthority) || errors.Is(err, tobari.ErrLegacyExecutablePolicy) != test.wantExecutable || present || !strings.Contains(err.Error(), "reset or recreate") {
+				t.Fatalf("legacy final authority result present=%t err=%v", present, err)
+			}
+			unchanged, err := os.ReadFile(path)
+			if err != nil || !bytes.Equal(unchanged, legacy) {
+				t.Fatalf("legacy final authority bytes changed: err=%v", err)
+			}
+		})
 	}
 }
 

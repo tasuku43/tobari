@@ -20,6 +20,12 @@ from urllib.parse import unquote, urlsplit
 
 from mitmproxy import http
 
+from aws_request import (
+    AWSRequestError,
+    ParsedAWSRequest,
+    PendingAWSQueryRequest,
+    classify_aws_request_headers,
+)
 from credential_adapters import (
     CONTROL_HEADERS, DEFAULT_SECRET_HEADERS, PROFILE_HEADER, CredentialAdapter,
     CredentialAdapterError, PreparedCredentialRequest,
@@ -1348,6 +1354,10 @@ class _AWSSigV4Request:
     project_id: str
     revision: str
     broker_call: Callable[[dict[str, Any]], dict[str, Any]]
+    # The wire classifier runs while the original handle-bearing headers are
+    # still present.  Gateway must consume this marker before any competing
+    # protocol classifier; the adapter removes those headers before OPA.
+    aws_classification: ParsedAWSRequest | PendingAWSQueryRequest
     deferred: bool = True
     snapshot: _AWSRequestSnapshot | None = None
 
@@ -1536,6 +1546,32 @@ class BrokeredCredentialAdapter:
             raise
         if aws_selected is not None:
             candidate, binding = aws_selected
+            split = urlsplit(request.url)
+            try:
+                aws_classification = classify_aws_request_headers(
+                    request.method.upper(),
+                    scheme,
+                    host,
+                    port,
+                    split.path or "/",
+                    split.query,
+                    [
+                        (raw_name.decode("latin-1").lower(), raw_value.decode("latin-1"))
+                        for raw_name, raw_value in request.headers.fields
+                    ],
+                )
+            except AWSRequestError as error:
+                raise BrokerCredentialBindingError(
+                    "AWS credential handle request classification is invalid"
+                ) from error
+            if aws_classification is None:
+                # A valid brokered SigV4 handle is never allowed to become a
+                # generic HTTP/Git/OCI/GraphQL/MCP/Kubernetes request merely
+                # because the bounded AWS RPC classifier did not recognize its
+                # wire operation.
+                raise BrokerCredentialBindingError(
+                    "AWS credential handle request protocol is unsupported"
+                )
             for name in {
                 "authorization",
                 "x-amz-date",
@@ -1567,6 +1603,7 @@ class BrokeredCredentialAdapter:
                 project_id=project_id,
                 revision=revision,
                 broker_call=self._call,
+                aws_classification=aws_classification,
             )
         if _direct_aws_binding(request, projection, scheme, host, port) is not None:
             _remove_projected_secret_headers(request, projection)

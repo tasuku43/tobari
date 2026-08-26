@@ -101,8 +101,8 @@ The core product loop is progressive policy learning: work freely in a Workspace
 observe a denied boundary effect as secret-free evidence, receive a fixed
 host-side review cue, keep the current Workspace and agent session running,
 review the pending permission from a separate trusted-host terminal,
-approve the minimum rule, and retry in that same session. The normal path does
-not require writing OPA or Rego by hand:
+approve the minimum rule, and retry in that same session. The normal path uses
+typed policy data and never exposes evaluator source:
 interactive `review permissions` presents a Permission Inbox, keeps one distinct
 HTTP path exact, proposes a single-segment `{id}` template after a second
 compatible distinct path, stages an explicit template-Allow, observed-exact
@@ -146,7 +146,8 @@ admitted inside it; **remembered Context decisions** are reviewed Allow and
 exact Deny choices retained in Context Policy Memory for one Context and Workspace until
 reset; and **this-session Host Loopback access** is exact attachment authority
 that ends with its owning attachment. The third layer is a separate closed
-policy branch. Ordinary Template, Policy Memory, baseline, and Advanced authority
+policy branch. Ordinary Template, Policy Memory, baseline, and the fixed Tobari
+evaluator
 cannot decide Host Loopback, and attachment authority cannot decide ordinary
 external traffic. Detailed source, owner, lifetime, and precedence remain
 available to contributors without becoming routine setup vocabulary.
@@ -168,8 +169,8 @@ through exact ownership checks.
 ### Consequences
 
 - The human journey is CWD-first. Docker resource names, stable IDs, network
-  topology, and OPA syntax are implementation or advanced-policy details, not
-  routine setup inputs.
+  topology, and evaluator syntax are implementation details, not routine setup
+  inputs.
 - Routine human reads lead with the Workspace Template definition or Workspace result, effective
   Access, exact Runtime selection, and one actionable continuation. Stable IDs,
   owner-only paths, immutable revisions, and healthy implementation state stay
@@ -191,9 +192,10 @@ through exact ownership checks.
   safe action may remain opaque-reference-bound internally, but the human
   presentation must not make reference plumbing or OPA syntax the user's
   primary task.
-- Host-authored Rego, raw logs, Docker diagnostics, and provider-specific
-  details remain available as advanced paths; they do not define the routine
-  agent workflow.
+- Evaluator source, raw logs, Docker diagnostics, and provider-specific details
+  remain maintainer-owned implementation evidence; ordinary users receive
+  typed policy data and deterministic review/reset guidance, never executable
+  policy source.
 - The human first-use route starts with the CWD-first `tobari` entry. On an
   interactive terminal with empty final Template/Context authority, that one
   route owns the one-screen recommended review of canonical Project root,
@@ -303,7 +305,7 @@ brand.
 - Gateway unit tests fix the OPA input schema, secret-header redaction,
   trusted GraphQL/MCP endpoint, signed AWS RPC, Kubernetes, Git, and distinctive
   OCI route classification, bounded parser behavior, and authorization-before-forward ordering.
-- Rego tests exercise host, port, method, path, scheme, project-principal,
+- Fixed-evaluator tests exercise host, port, method, path, scheme, project-principal,
   ordinary body-independent decisions, exact GraphQL operation/root-field and
   MCP method/tool, AWS wire-operation, Kubernetes, Git, and OCI boundaries.
 - Docker integration tests use curl and Python rather than a named coding agent.
@@ -772,7 +774,7 @@ Gateway errors do not authorize traffic.
   tests keep the advertised-body cap present; integration proves an over-limit
   declared body stops at Gateway and allowed chunked request/SSE response bytes
   arrive incrementally.
-- Rego tests start from deny and add explicit allow rules.
+- Fixed-evaluator tests start from deny and add explicit allow rules.
 - Structured logs are scanned for secret and body canaries.
 
 ## Thesis 7: Claims must be executable
@@ -876,8 +878,9 @@ administration project.
   labels them as Workspace-wide for the current attachment and offers only
   attachment-scoped Allow or Deny. Detach revokes them without `policy reset`.
 - `tobari cluster denials` remains the lower-level diagnostic step: it projects
-  validated denial records, reports the editable host-side policy directory,
-  and points to the Permission Inbox. Raw component logs remain available.
+  validated denial records, reports the aggregate revision plus path-free
+  evaluator and policy-data identities, and points to the Permission Inbox.
+  Raw component logs remain available.
 - `policy allow --id` and `policy deny --id` are explicit trusted-host actions
   that consume one candidate ID unchanged. `policy reset --id` consumes one
   current `policy-rule` ID unchanged. Allow preflights and atomically records
@@ -926,8 +929,8 @@ administration project.
   and post-detach requests. Relay tests prove the reviewed port cannot select a
   sibling port, route-first teardown, borrower non-ownership, and Workspace-wide authority.
 - README makes the observe-review-decide-retry loop the primary operating
-  workflow, keeps routine permission growth free of hand-authored OPA/Rego,
-  and keeps tested host editing as the advanced escape hatch.
+  workflow, keeps routine permission growth in typed policy data, and keeps
+  the evaluator wholly Tobari-owned and unavailable as a user-editable source.
 
 ## Thesis 9: Every Workspace applies one Workspace Template
 
@@ -1099,21 +1102,19 @@ OPA allow.
   for the shared OPA and Gateway. Incomplete, raced, or ambiguous source state
   fails closed; a failed candidate preserves the complete prior known-good
   source generation and projection.
-- The ordinary guided mode keeps deny/review/allow exact permission growth as
-  the default. Advanced mode keeps trusted-host Rego and tests available for
-  policy that cannot be expressed as an exact learned rule. The projection
-  namespaces Advanced modules and prevents them from claiming the Tobari-owned
-  router or system packages.
-- The Workspace Template policy destination ceiling and complete method policy are owned by the
-  Tobari system evaluator and precede baseline data, exact learned policy, and
-  Advanced Rego. Every HTTP method resolves from one `allow`, `exact_review`,
-  or `deny` default plus exact overrides. A terminal destination or method Deny
-  denial produces no candidate and performs no external DNS, broker resolution,
-  or upstream call. Trusted baseline Deny and remembered exact Deny form one
-  terminal tier with no ordering between them and precede every positive
-  source. Advanced Rego may decide only otherwise-unresolved generic input; it
-  cannot grant beyond the Workspace Template policy ceiling or exact Deny, or redefine
-  learned permission identity.
+- The fixed Tobari evaluator keeps deny/review/allow exact permission growth as
+  the default. Canonical typed policy data is the only user-owned policy
+  authority; the evaluator and its tests are embedded maintainer-owned bundle
+  material and cannot be selected or replaced by a Template or Context.
+- The Workspace Template policy destination ceiling and complete method policy
+  are owned by the fixed Tobari evaluator and precede every lower tier. The
+  exact order is terminal destination/method Boundary; one terminal exact-Deny
+  tier containing trusted baseline Deny and remembered exact Deny with no
+  internal ordering; Template static positive authority; remembered reviewed
+  Allow; and unresolved review/default deny. A terminal denial produces no
+  candidate and performs no external DNS, broker resolution, or upstream call.
+  Host Loopback remains a separate branch, and Gateway protocol classification
+  prevents classified traffic from falling back to coarse HTTP policy.
 - Enabled native readiness preserves the pinned Claude Code 2.1.220 and Codex
   0.147.0 native capability plane, the pinned GitHub CLI 2.96.0 native
   authentication bootstrap, TWG CLI 1.2.5 native login readiness, and pup

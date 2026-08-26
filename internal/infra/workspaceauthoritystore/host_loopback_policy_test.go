@@ -24,7 +24,7 @@ func (f *hostLoopbackPolicyRuntimeFixture) ReadFinalClusterDenials(context.Conte
 
 func (f *hostLoopbackPolicyRuntimeFixture) ApplyAttachmentGrantDecisionSet(_ context.Context, grants []tobari.AttachmentGrant) (tobari.PolicyActivationReceipt, error) {
 	f.applied = append([]tobari.AttachmentGrant{}, grants...)
-	return tobari.PolicyActivationReceipt{PolicyDirectory: "/tmp/tobari-host-loopback-test", ActiveRevision: strings.Repeat("a", 64)}, nil
+	return tobari.PolicyActivationReceipt{ActiveRevision: strings.Repeat("a", 64)}, nil
 }
 
 func TestHostLoopbackPolicyAdapterKeepsAttachmentCandidateOutsidePolicyMemory(t *testing.T) {

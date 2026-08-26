@@ -27,7 +27,7 @@ pinned Gateway and agent-ready base locally from embedded source recipes.
 - A Workspace Template method policy gives every HTTP method one `allow`, `exact_review`,
   or `deny` decision beneath an independent immutable destination ceiling.
   Terminal destination and method Deny decisions precede baseline data,
-  learned policy, and Advanced Rego.
+  learned policy, and the fixed Tobari evaluator over canonical typed data.
 - On the release surface, each tool creates and owns its authentication state
   inside one persistent Workspace home. Every process in that Workspace can
   read that state; host CLI homes and host credentials are never inherited.
@@ -116,7 +116,7 @@ only that checkpoint. Long work shows bounded elapsed/wait information, not a
 percentage or ETA. If setup fails or is interrupted, the fault preserves known
 Template, Context, cluster, and Workspace facts and gives one causal Next.
 
-The same authorities remain available through exact advanced commands:
+The same authorities remain available through exact commands:
 
 ```sh
 # Inspect reusable setup and Project-specific Contexts.
@@ -360,9 +360,9 @@ Tobari's verified base Runtime and mounted read-only even when the Workspace
 Template selects a custom Runtime; they are not host release executables or
 archive members.
 
-Advanced Workspace Templates may add trusted-host Rego constraints, but Advanced Rego is
-beneath the Workspace Template policy ceiling and cannot redefine exact learned identity or the
-Tobari-owned router.
+The evaluator is embedded and Tobari-owned. Templates and Contexts contribute
+only canonical typed policy data; ordinary users never create, edit, copy, or
+manage executable policy source.
 
 ## Authentication
 

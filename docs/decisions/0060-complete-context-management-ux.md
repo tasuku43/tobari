@@ -3,7 +3,8 @@
 - Status: Accepted
 - Date: 2026-08-18
 - Revised by: ADR 0072 replaces the routine Context list/show presentation;
-  the create wizard and guarded deletion decisions remain current.
+  the create wizard and guarded deletion decisions remain current; ADR 0087
+  removes policy-mode selection from creation.
 
 ## Context
 

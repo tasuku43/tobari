@@ -11,7 +11,8 @@
 - Revised by: ADR 0066 removes public policy presets and ADR 0071 limits the
   envelope's immutability to the creation-time Boundary while retaining a
   stable reusable Context identity; ADR 0079 retains that Boundary under a
-  Workspace Manifest identity
+  Workspace Manifest identity; ADR 0087 removes the Advanced/executable-policy
+  seam while retaining the terminal Boundary invariant
 
 ## Context
 

@@ -2,6 +2,7 @@ package dockerruntime
 
 import (
 	"archive/tar"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -57,32 +58,195 @@ func writePolicyArchiveFixture(t *testing.T, state tobari.State) {
 	}
 }
 
-func TestPolicySourceArchivePreservesOwnerOnlyProjection(t *testing.T) {
+func aggregatePolicyTestState(t *testing.T, runtime *Runtime) tobari.State {
+	t.Helper()
+	initializeTestWorkspaceManifest(t, runtime)
+	projection, err := runtime.buildAggregateProjection(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tobari.State{
+		SchemaVersion: 1, RuntimeDirectory: filepath.Join(runtime.stateDirectory, "runtime"),
+		AggregateRevision: projection.Revision, ManifestCount: projection.ManifestCount,
+		PolicyDirectory: projection.PolicyDirectory, GatewayConfig: projection.GatewayConfig,
+		AssetVersion: "asset", EvaluatorIdentity: projection.EvaluatorIdentity,
+		PolicyDataIdentity: projection.PolicyDataIdentity,
+	}
+}
+
+func TestAggregatePolicyBundleArchiveUsesOwnedFixedModules(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	runtime, _ := newRuntime(root+"/config", root+"/state", &recordingRunner{})
 	state := runtimeState(root)
 	writePolicyArchiveFixture(t, state)
 
-	archive, cleanup, err := runtime.policySourceArchive(state.PolicyDirectory)
+	archive, err := aggregatePolicyBundleArchive(state.PolicyDirectory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cleanup()
-	header, err := tar.NewReader(archive).Next()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if header.Name != "data.json" || header.Mode&0o077 != 0 || header.Uid != 0 || header.Gid != 0 {
-		t.Fatalf("policy archive header = %+v", header)
+	reader := tar.NewReader(bytes.NewReader(archive))
+	for _, want := range []string{"router.rego", "guided.rego", "data.json"} {
+		header, err := reader.Next()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if header.Name != want || header.Mode&0o077 != 0 || header.Uid != 0 || header.Gid != 0 {
+			t.Fatalf("policy archive header = %+v, want %q", header, want)
+		}
+		if _, err := io.Copy(io.Discard, reader); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	if err := os.Chmod(filepath.Join(state.PolicyDirectory, "data.json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, cleanup, err := runtime.policySourceArchive(state.PolicyDirectory); err == nil {
-		cleanup()
+	if _, err := aggregatePolicyBundleArchive(state.PolicyDirectory); err == nil {
 		t.Fatal("non-owner-only aggregate policy was archived")
+	}
+	_ = runtime
+}
+
+func TestAggregatePolicyBundleStagingReceivesExactEmbeddedFixedModules(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &recordingRunner{}
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := aggregatePolicyTestState(t, runtime)
+	runner.inputs = nil
+	runner.runs = nil
+	if err := runtime.publishPolicyBundle(context.Background(), state); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.inputs) != 1 {
+		t.Fatalf("Docker-owned policy staging inputs = %d, want one archive", len(runner.inputs))
+	}
+	files, err := policyTestArchiveFiles(runner.inputs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	router, module, err := fixedAggregateEvaluatorModules()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 3 || !bytes.Equal(files["router.rego"], router) || !bytes.Equal(files["guided.rego"], module) {
+		t.Fatalf("Docker-owned aggregate modules differ from embedded fixed modules: files=%v", files)
+	}
+	wantData, err := os.ReadFile(filepath.Join(state.PolicyDirectory, "data.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(files["data.json"], wantData) {
+		t.Fatal("Docker-owned aggregate staging did not receive the verified typed data bytes")
+	}
+}
+
+func TestAggregatePolicyPublicationRejectsDataDriftBeforeDockerStaging(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &recordingRunner{}
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := aggregatePolicyTestState(t, runtime)
+	original, err := os.ReadFile(filepath.Join(state.PolicyDirectory, "data.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hookErr error
+	runtime.policyBeforeBundleAssembly = func() {
+		var document map[string]any
+		if err := json.Unmarshal(original, &document); err != nil {
+			hookErr = err
+			return
+		}
+		contexts, ok := document["tobari_contexts"].(map[string]any)
+		if !ok || len(contexts) == 0 {
+			hookErr = errors.New("aggregate fixture has no Context data")
+			return
+		}
+		for _, raw := range contexts {
+			contextData, ok := raw.(map[string]any)
+			if !ok {
+				hookErr = errors.New("aggregate fixture Context data is invalid")
+				return
+			}
+			policy, ok := contextData["policy"].(map[string]any)
+			if !ok {
+				hookErr = errors.New("aggregate fixture policy data is invalid")
+				return
+			}
+			policy["method_default"] = "deny"
+			break
+		}
+		hookErr = writeAtomicJSON(filepath.Join(state.PolicyDirectory, "data.json"), document)
+	}
+	runner.runs = nil
+	runner.outputs = nil
+	runner.inputs = nil
+	if err := runtime.publishPolicyBundle(context.Background(), state); err == nil {
+		t.Fatal("publication accepted data drift injected after the first verification")
+	}
+	if hookErr != nil {
+		t.Fatal(hookErr)
+	}
+	if len(runner.runs) != 0 || len(runner.inputs) != 0 {
+		t.Fatalf("data drift reached Docker-owned staging: runs=%v inputs=%d", runner.runs, len(runner.inputs))
+	}
+}
+
+func TestFinalAggregatePolicyPublicationRejectsDataDriftBeforeDockerStaging(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &recordingRunner{}
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := aggregatePolicyTestState(t, runtime)
+	projection := FinalAggregateProjection{
+		AggregateRevision: state.AggregateRevision, PolicyDirectory: state.PolicyDirectory,
+		GatewayConfig: state.GatewayConfig, EvaluatorIdentity: state.EvaluatorIdentity,
+		PolicyDataIdentity: state.PolicyDataIdentity,
+	}
+	original, err := os.ReadFile(filepath.Join(state.PolicyDirectory, "data.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hookErr error
+	runtime.policyBeforeBundleAssembly = func() {
+		var document map[string]any
+		if err := json.Unmarshal(original, &document); err != nil {
+			hookErr = err
+			return
+		}
+		document["unexpected"] = true
+		hookErr = writeAtomicJSON(filepath.Join(state.PolicyDirectory, "data.json"), document)
+	}
+	runner.runs = nil
+	runner.outputs = nil
+	if err := runtime.ApplyFinalAggregatePolicy(context.Background(), projection); err == nil {
+		t.Fatal("final publication accepted data drift injected after the first verification")
+	}
+	if hookErr != nil {
+		t.Fatal(hookErr)
+	}
+	for _, call := range runner.runs {
+		joined := strings.Join(call.args, "\n")
+		if strings.Contains(joined, "/bundle/.source-"+state.AggregateRevision) {
+			t.Fatalf("final data drift reached Docker-owned source staging: %v", call.args)
+		}
+	}
+	for _, call := range runner.outputs {
+		joined := strings.Join(call.args, "\n")
+		if strings.Contains(joined, ".candidate-"+state.AggregateRevision+".tar.gz") {
+			t.Fatalf("final data drift reached Docker-owned publication: %v", call.args)
+		}
 	}
 }
 
@@ -251,15 +415,27 @@ func TestApplyPolicyTestsPublishesBundleAndKeepsOPAStable(t *testing.T) {
 	root := t.TempDir()
 	runner := &recordingRunner{}
 	runtime, _ := newRuntime(root+"/config", root+"/state", runner)
-	state := runtimeState(root)
-	writePolicyArchiveFixture(t, state)
+	state := aggregatePolicyTestState(t, runtime)
+	runner.outputs = nil
+	runner.runs = nil
 	if err := runtime.ApplyPolicy(context.Background(), state); err != nil {
 		t.Fatal(err)
 	}
-	if len(runner.outputs) != 12 {
-		t.Fatalf("output calls = %v", runner.outputs)
+	var build, publish, confirm []string
+	for _, call := range runner.outputs {
+		joined := strings.Join(call.args, "\n")
+		switch {
+		case slices.Contains(call.args, "build"):
+			build = call.args
+		case slices.Contains(call.args, "tobari-policy-publish"):
+			publish = call.args
+		case slices.Contains(call.args, "exec") && strings.Contains(joined, state.AggregateRevision):
+			confirm = call.args
+		}
 	}
-	build := runner.outputs[9].args
+	if len(build) == 0 || len(publish) == 0 || len(confirm) == 0 {
+		t.Fatalf("missing Docker-only policy lifecycle calls: %v", runner.outputs)
+	}
 	for _, required := range []string{
 		"run", "--network", "none", "--read-only", "--cap-drop", "ALL",
 		"type=volume,src=tobari-policy-bundle,dst=/bundle", "build",
@@ -273,28 +449,32 @@ func TestApplyPolicyTestsPublishesBundleAndKeepsOPAStable(t *testing.T) {
 		!strings.Contains(strings.Join(build, "\n"), "/bundle/.source-") {
 		t.Fatalf("bundle builder consumed a host bind instead of staged policy: %v", build)
 	}
-	publish := runner.outputs[10].args
 	if !slices.Contains(publish, "--entrypoint") || !slices.Contains(publish, "sh") ||
 		!slices.Contains(publish, "/bundle/bundle.tar.gz") ||
 		!strings.Contains(strings.Join(publish, "\n"), ".candidate-"+state.AggregateRevision+".tar.gz") {
 		t.Fatalf("atomic bundle publication argv = %v", publish)
 	}
-	if len(runner.runs) != 2 {
+	if len(runner.runs) < 2 {
 		t.Fatalf("policy source staging calls = %v", runner.runs)
 	}
+	hasTestStage, hasSourceStage := false, false
 	for _, stage := range runner.runs {
 		staging := strings.Join(stage.args, "\n")
 		if !strings.Contains(staging, "tobari-policy-stage") ||
 			!strings.Contains(staging, "--interactive") || strings.Contains(staging, "type=bind") {
 			t.Fatalf("policy source staging argv = %v", stage.args)
 		}
+		hasTestStage = hasTestStage || strings.Contains(staging, "/bundle/.test-")
+		hasSourceStage = hasSourceStage || strings.Contains(staging, "/bundle/.source-")
+	}
+	if !hasTestStage || !hasSourceStage {
+		t.Fatalf("policy staging omitted test/source stages: %v", runner.runs)
 	}
 	for _, call := range runner.outputs {
 		if slices.Contains(call.args, "compose") || slices.Contains(call.args, "--force-recreate") {
 			t.Fatalf("policy activation unexpectedly recreates a service: %v", call.args)
 		}
 	}
-	confirm := runner.outputs[11].args
 	if !slices.Contains(confirm, "exec") || !slices.Contains(confirm, opaContainer) ||
 		!strings.Contains(strings.Join(confirm, "\n"), state.AggregateRevision) {
 		t.Fatalf("revision confirmation argv = %v", confirm)
@@ -343,9 +523,12 @@ func TestPolicyRevisionReadyRejectsDefinedFalseResult(t *testing.T) {
 func TestApplyPolicyRejectsFailedTestsBeforeBundlePublication(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
+	bootstrap := &recordingRunner{}
+	runtime, _ := newRuntime(root+"/config", root+"/state", bootstrap)
+	state := aggregatePolicyTestState(t, runtime)
 	runner := &recordingRunner{outputData: []byte("FAIL"), outputErr: errors.New("exit 2")}
-	runtime, _ := newRuntime(root+"/config", root+"/state", runner)
-	err := runtime.ApplyPolicy(context.Background(), runtimeState(root))
+	runtime.runner = runner
+	err := runtime.ApplyPolicy(context.Background(), state)
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Code != "policy_test_failed" {
 		t.Fatalf("error = %v", err)
@@ -358,10 +541,11 @@ func TestApplyPolicyRejectsFailedTestsBeforeBundlePublication(t *testing.T) {
 func TestApplyPolicyBuildFailureNeverPublishesFinalBundle(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
+	bootstrap := &recordingRunner{}
+	runtime, _ := newRuntime(root+"/config", root+"/state", bootstrap)
+	state := aggregatePolicyTestState(t, runtime)
 	runner := &bundleBuildFailureRunner{}
-	runtime, _ := newRuntime(root+"/config", root+"/state", runner)
-	state := runtimeState(root)
-	writePolicyArchiveFixture(t, state)
+	runtime.runner = runner
 	if err := runtime.ApplyPolicy(context.Background(), state); err == nil {
 		t.Fatal("invalid bundle build unexpectedly succeeded")
 	}

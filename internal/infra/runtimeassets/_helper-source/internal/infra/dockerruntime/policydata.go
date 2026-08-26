@@ -349,12 +349,15 @@ func readPolicyDataDuringTransaction(policyDirectory string) (policyDataFile, er
 	if err := validateOwnerPolicyDirectory(policyDirectory); err != nil {
 		return policyDataFile{}, err
 	}
+	if err := rejectExecutablePolicySources(policyDirectory); err != nil {
+		return policyDataFile{}, err
+	}
 	rootEntries, err := os.ReadDir(policyDirectory)
 	if err != nil {
 		return policyDataFile{}, err
 	}
 	for _, entry := range rootEntries {
-		if entry.Name() != policyDomainsName && entry.Name() != "context.json" && entry.Name() != "tobari.rego" && entry.Name() != "tobari_test.rego" {
+		if entry.Name() != policyDomainsName && entry.Name() != "context.json" {
 			return policyDataFile{}, fmt.Errorf("policy directory contains unsupported entry %q", entry.Name())
 		}
 	}
@@ -362,29 +365,38 @@ func readPolicyDataDuringTransaction(policyDirectory string) (policyDataFile, er
 	return readPolicyDomains(domainsDirectory)
 }
 
-func validateContextPolicyLayout(policyDirectory string, mode tobari.ManifestPolicyMode) error {
-	entries, err := os.ReadDir(policyDirectory)
-	if err != nil {
+func validateContextPolicyLayout(policyDirectory string) error {
+	if err := rejectExecutablePolicySources(policyDirectory); err != nil {
 		return err
 	}
-	expected := map[string]bool{policyDomainsName: true, "context.json": true}
-	switch mode {
-	case tobari.ManifestPolicyModeGuided:
-	case tobari.ManifestPolicyModeAdvanced:
-		expected["tobari.rego"] = true
-		expected["tobari_test.rego"] = true
-	default:
-		return fmt.Errorf("Context policy mode is invalid")
-	}
-	if len(entries) != len(expected) {
-		return fmt.Errorf("%s Context policy must contain exactly %d managed entries", mode, len(expected))
-	}
-	for _, entry := range entries {
-		if !expected[entry.Name()] {
-			return fmt.Errorf("%s Context policy contains unsupported entry %q", mode, entry.Name())
-		}
+	if _, err := readPolicyDataDuringTransaction(policyDirectory); err != nil {
+		return fmt.Errorf("Context policy layout is invalid: %w", err)
 	}
 	return nil
+}
+
+// rejectExecutablePolicySources is intentionally a narrow raw filesystem
+// detector. Context policy is typed JSON data; no user-owned Rego path is ever
+// an input to the current evaluator. Scan the complete candidate tree before
+// the ordinary layout decoder so a legacy executable marker receives the same
+// deterministic reset/recreate remediation at every depth.
+func rejectExecutablePolicySources(policyDirectory string) error {
+	visited := 0
+	return filepath.WalkDir(policyDirectory, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path != policyDirectory {
+			visited++
+			if visited > maxPolicyFiles*4 {
+				return fmt.Errorf("Context policy contains too many entries")
+			}
+		}
+		if strings.HasSuffix(entry.Name(), ".rego") {
+			return fmt.Errorf("%w: %w: Context policy executable source is unsupported; reset or recreate the Context", tobari.ErrPreReleaseLegacyAuthority, tobari.ErrLegacyExecutablePolicy)
+		}
+		return nil
+	})
 }
 
 func readPolicyDomains(domainsDirectory string) (policyDataFile, error) {
@@ -563,15 +575,8 @@ func (r *Runtime) ReadLearnedPolicyRules(
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := state.Validate(); err != nil {
+	if _, _, err := r.verifyPersistedAggregateState(ctx, state); err != nil {
 		return nil, err
-	}
-	if !strings.HasPrefix(state.PolicyDirectory, r.aggregateRoot()+string(filepath.Separator)) {
-		file, err := readPolicyData(state.PolicyDirectory)
-		if err != nil {
-			return nil, err
-		}
-		return append([]tobari.LearnedPolicyRule{}, file.rules...), nil
 	}
 	contexts, err := r.readAggregateContexts(ctx)
 	if err != nil {
@@ -602,16 +607,8 @@ func (r *Runtime) ReadPolicyDenyRules(
 	if err := ctx.Err(); err != nil {
 		return tobari.PolicyDenyRuleSet{}, err
 	}
-	if err := state.Validate(); err != nil {
+	if _, _, err := r.verifyPersistedAggregateState(ctx, state); err != nil {
 		return tobari.PolicyDenyRuleSet{}, err
-	}
-	if !strings.HasPrefix(state.PolicyDirectory, r.aggregateRoot()+string(filepath.Separator)) {
-		file, err := readPolicyData(state.PolicyDirectory)
-		if err != nil {
-			return tobari.PolicyDenyRuleSet{}, err
-		}
-		result := tobari.PolicyDenyRuleSet{Exact: append([]tobari.PolicyDenyRule{}, file.denyRules...)}
-		return result, result.Validate()
 	}
 	contexts, err := r.readAggregateContexts(ctx)
 	if err != nil {
@@ -634,85 +631,43 @@ func (r *Runtime) ReadPolicyDenyRules(
 	return result, result.Validate()
 }
 
-func copyPolicyForPreflight(sourceDirectory string, candidate policyDataFile) (string, error) {
-	if err := validateOwnerPolicyDirectory(sourceDirectory); err != nil {
-		return "", err
-	}
-	parent := filepath.Dir(sourceDirectory)
-	temporary, err := os.MkdirTemp(parent, ".tobari-policy-preflight-*")
-	if err != nil {
-		return "", fmt.Errorf("create policy preflight directory: %w", err)
-	}
-	cleanup := func(cause error) (string, error) {
-		_ = os.RemoveAll(temporary)
-		return "", cause
-	}
-	if len(candidate.source) > maxPolicyPreflight {
-		return cleanup(fmt.Errorf("generated policy data exceeds %d bytes", maxPolicyPreflight))
-	}
-	if err := os.WriteFile(filepath.Join(temporary, "data.json"), candidate.source, 0o600); err != nil { // #nosec G306 -- policy copies are owner-only.
-		return cleanup(err)
-	}
-	for _, name := range []string{"tobari.rego", "tobari_test.rego"} {
-		data, err := readOwnerPolicyFile(filepath.Join(sourceDirectory, name), maxPolicyPreflight-len(candidate.source))
-		if err != nil {
-			return cleanup(fmt.Errorf("copy policy for preflight: %w", err))
-		}
-		if len(candidate.source)+len(data) > maxPolicyPreflight {
-			return cleanup(fmt.Errorf("policy preflight exceeds %d bytes", maxPolicyPreflight))
-		}
-		if err := os.WriteFile(filepath.Join(temporary, name), data, 0o600); err != nil { // #nosec G306 -- policy copies are owner-only.
-			return cleanup(err)
-		}
-	}
-	return temporary, nil
+type policyPreflight struct {
+	data      []byte
+	evaluator []byte
+	tests     []byte
 }
 
-func prepareContextPolicyPreflight(
-	manifest tobari.WorkspaceManifest, sourceDirectory string, candidate policyDataFile,
-) (string, error) {
-	if err := validateContextPolicyLayout(sourceDirectory, manifest.PolicyMode); err != nil {
-		return "", err
+func prepareBuiltinPolicyPreflight(_ string, candidate policyDataFile) (policyPreflight, error) {
+	if len(candidate.source) > maxPolicyPreflight {
+		return policyPreflight{}, fmt.Errorf("generated policy data exceeds %d bytes", maxPolicyPreflight)
 	}
-	if manifest.PolicyMode == tobari.ManifestPolicyModeAdvanced {
-		return copyPolicyForPreflight(sourceDirectory, candidate)
-	}
-	if manifest.PolicyMode != tobari.ManifestPolicyModeGuided {
-		return "", fmt.Errorf("Context policy mode is invalid")
-	}
-	if err := validateOwnerPolicyDirectory(sourceDirectory); err != nil {
-		return "", err
-	}
-	rego, err := runtimeassets.Read("opa/policy/tobari.rego")
+	rego, err := canonicalEvaluatorModule()
 	if err != nil {
-		return "", err
+		return policyPreflight{}, err
 	}
 	tests, err := runtimeassets.Read("opa/policy/tobari_test.rego")
 	if err != nil {
-		return "", err
+		return policyPreflight{}, err
 	}
-	if len(candidate.source)+len(rego)+len(tests) > maxPolicyPreflight {
-		return "", fmt.Errorf("guided policy preflight exceeds %d bytes", maxPolicyPreflight)
-	}
-	temporary, err := os.MkdirTemp(filepath.Dir(sourceDirectory), ".tobari-guided-preflight-*")
-	if err != nil {
-		return "", fmt.Errorf("create guided policy preflight directory: %w", err)
-	}
-	cleanup := func(cause error) (string, error) {
-		_ = os.RemoveAll(temporary)
-		return "", cause
-	}
-	if err := os.Chmod(temporary, 0o700); err != nil { // #nosec G302 -- guided preflight must remain owner-only.
-		return cleanup(err)
-	}
-	for name, data := range map[string][]byte{
-		"data.json": candidate.source, "tobari.rego": rego, "tobari_test.rego": tests,
-	} {
-		if err := os.WriteFile(filepath.Join(temporary, name), data, 0o600); err != nil { // #nosec G306 -- preflight is owner-only.
-			return cleanup(err)
+	for _, data := range [][]byte{rego, tests} {
+		if len(candidate.source)+len(data) > maxPolicyPreflight {
+			return policyPreflight{}, fmt.Errorf("policy preflight exceeds %d bytes", maxPolicyPreflight)
 		}
 	}
-	return temporary, nil
+	return policyPreflight{
+		data:      append([]byte(nil), candidate.source...),
+		evaluator: append([]byte(nil), rego...),
+		tests:     append([]byte(nil), tests...),
+	}, nil
+}
+
+func prepareContextPolicyPreflight(
+	root string, manifest tobari.WorkspaceManifest, sourceDirectory string, candidate policyDataFile,
+) (policyPreflight, error) {
+	if err := validateContextPolicyLayout(sourceDirectory); err != nil {
+		return policyPreflight{}, err
+	}
+	return prepareBuiltinPolicyPreflight(root, candidate)
 }
 
 type policyCandidateValidationReceipt struct {
@@ -721,47 +676,35 @@ type policyCandidateValidationReceipt struct {
 	preflightDigest string
 }
 
-func policyPreflightDigest(directory string) (string, error) {
-	if err := validateOwnerPolicyDirectory(directory); err != nil {
-		return "", err
+func policyPreflightDigest(preflight policyPreflight) (string, error) {
+	if len(preflight.data) == 0 || len(preflight.evaluator) == 0 || len(preflight.tests) == 0 {
+		return "", errors.New("policy preflight is incomplete")
 	}
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		return "", fmt.Errorf("read policy preflight directory: %w", err)
+	if len(preflight.data)+len(preflight.evaluator)+len(preflight.tests) > maxPolicyPreflight {
+		return "", fmt.Errorf("policy preflight exceeds %d bytes", maxPolicyPreflight)
 	}
-	names := []string{"data.json", "tobari.rego", "tobari_test.rego"}
-	if len(entries) != len(names) {
-		return "", errors.New("policy preflight must contain exactly the reviewed policy files")
-	}
-	files := make(map[string][]byte, len(names))
-	remaining := maxPolicyPreflight
-	for index, name := range names {
-		if entries[index].Name() != name {
-			return "", fmt.Errorf("policy preflight contains unsupported file %q", entries[index].Name())
-		}
-		data, err := readOwnerPolicyFile(filepath.Join(directory, name), remaining)
-		if err != nil {
-			return "", err
-		}
-		remaining -= len(data)
-		files[name] = data
-	}
-	return policySourceDigest(files), nil
+	return policySourceDigest(map[string][]byte{
+		"data.json":        preflight.data,
+		"tobari.rego":      preflight.evaluator,
+		"tobari_test.rego": preflight.tests,
+	}), nil
 }
 
 func (r *Runtime) testContextPolicyCandidate(
 	ctx context.Context, manifest tobari.WorkspaceManifest, policyDirectory string, candidate policyDataFile,
 ) (policyCandidateValidationReceipt, error) {
-	preflight, err := prepareContextPolicyPreflight(manifest, policyDirectory, candidate)
+	if err := r.ensurePrivateDirectory(r.aggregateRoot()); err != nil {
+		return policyCandidateValidationReceipt{}, err
+	}
+	preflight, err := prepareContextPolicyPreflight(r.aggregateRoot(), manifest, policyDirectory, candidate)
 	if err != nil {
 		return policyCandidateValidationReceipt{}, err
 	}
-	defer os.RemoveAll(preflight)
 	before, err := policyPreflightDigest(preflight)
 	if err != nil {
 		return policyCandidateValidationReceipt{}, err
 	}
-	if err := r.testPolicyDirectory(ctx, preflight); err != nil {
+	if err := r.testPolicyPreflight(ctx, preflight); err != nil {
 		return policyCandidateValidationReceipt{}, err
 	}
 	after, err := policyPreflightDigest(preflight)
@@ -1304,142 +1247,9 @@ func (r *Runtime) applyPolicyData(
 	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
 	checkDenySnapshot bool,
 ) (tobari.PolicyActivationReceipt, error) {
-	if err := ctx.Err(); err != nil {
-		return tobari.PolicyActivationReceipt{}, err
-	}
-	if err := state.Validate(); err != nil {
-		return tobari.PolicyActivationReceipt{}, err
-	}
-	if strings.HasPrefix(state.PolicyDirectory, r.aggregateRoot()+string(filepath.Separator)) {
-		return r.applyAggregatePolicyDataWithLifecycleLock(
-			ctx, state, expectedAllows, updatedAllows, expectedDenies, updatedDenies, checkDenySnapshot,
-		)
-	}
-	var receipt tobari.PolicyActivationReceipt
-	err := r.withPolicyProjectionLock(ctx, func() error {
-		if err := recoverPolicySourceTransaction(state.PolicyDirectory, state.AggregateRevision); err != nil {
-			return fault.Wrap(fault.KindRejected, "policy_state_changed", "an interrupted policy source transaction could not be recovered", false, err)
-		}
-		var applyErr error
-		receipt, applyErr = r.applyStandalonePolicyData(
-			ctx, state, expectedAllows, updatedAllows, expectedDenies, updatedDenies, checkDenySnapshot,
-		)
-		return applyErr
-	})
-	return receipt, err
-}
-
-func (r *Runtime) applyStandalonePolicyData(
-	ctx context.Context, state tobari.State,
-	expectedAllows, updatedAllows []tobari.LearnedPolicyRule,
-	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
-	checkDenySnapshot bool,
-) (tobari.PolicyActivationReceipt, error) {
-	receipt := tobari.PolicyActivationReceipt{
-		PolicyDirectory: state.PolicyDirectory,
-		ActiveRevision:  state.AggregateRevision,
-	}
-	if err := receipt.Validate(); err != nil {
-		return tobari.PolicyActivationReceipt{}, err
-	}
-	if err := tobari.ValidateLearnedPolicyRules(expectedAllows); err != nil {
-		return tobari.PolicyActivationReceipt{}, err
-	}
-	if updatedAllows == nil {
-		updatedAllows = expectedAllows
-	}
-	if err := tobari.ValidateLearnedPolicyRules(updatedAllows); err != nil {
-		return tobari.PolicyActivationReceipt{}, err
-	}
-	file, err := readPolicyData(state.PolicyDirectory)
-	if err != nil {
-		return tobari.PolicyActivationReceipt{}, fault.Wrap(
-			fault.KindRejected, "policy_data_invalid",
-			"host policy data is not safe for managed learning", false, err,
-		)
-	}
-	expectedAllows = append([]tobari.LearnedPolicyRule{}, expectedAllows...)
-	sort.Slice(expectedAllows, func(i, j int) bool { return expectedAllows[i].ID < expectedAllows[j].ID })
-	if !reflect.DeepEqual(file.rules, expectedAllows) {
-		return tobari.PolicyActivationReceipt{}, fault.New(
-			fault.KindRejected, "policy_data_changed",
-			"learned policy rules changed after discovery", false,
-		)
-	}
-	if !checkDenySnapshot {
-		expectedDenies = append([]tobari.PolicyDenyRule{}, file.denyRules...)
-		updatedDenies = append([]tobari.PolicyDenyRule{}, file.denyRules...)
-	}
-	denyExpected := tobari.PolicyDenyRuleSet{Exact: expectedDenies}
-	denyUpdated := tobari.PolicyDenyRuleSet{Exact: updatedDenies}
-	if err := denyExpected.Validate(); err != nil {
-		return tobari.PolicyActivationReceipt{}, fault.Wrap(fault.KindRejected, "policy_data_invalid", "host policy deny data is invalid", false, err)
-	}
-	if !reflect.DeepEqual(file.denyRules, expectedDenies) {
-		return tobari.PolicyActivationReceipt{}, fault.New(
-			fault.KindRejected, "policy_data_changed",
-			"policy deny rules changed after discovery", false,
-		)
-	}
-	if err := denyUpdated.Validate(); err != nil {
-		return tobari.PolicyActivationReceipt{}, fault.Wrap(fault.KindContract, "invalid_policy_deny", "exact policy deny update is invalid", false, err)
-	}
-	data, err := file.withPolicyRules(updatedAllows, updatedDenies)
-	if err != nil {
-		code := "invalid_learned_policy"
-		message := "learned policy update is invalid"
-		if checkDenySnapshot {
-			code = "invalid_policy_deny"
-			message = "exact policy deny update is invalid"
-		}
-		return tobari.PolicyActivationReceipt{}, fault.Wrap(
-			fault.KindContract, code, message, false, err,
-		)
-	}
-	preflight, err := copyPolicyForPreflight(state.PolicyDirectory, data)
-	if err != nil {
-		return tobari.PolicyActivationReceipt{}, fault.Wrap(
-			fault.KindRejected, "policy_preflight_failed",
-			"candidate policy could not be prepared for testing", false, err,
-		)
-	}
-	defer func() { _ = os.RemoveAll(preflight) }()
-	if err := r.testPolicyDirectory(ctx, preflight); err != nil {
-		return tobari.PolicyActivationReceipt{}, fault.Wrap(
-			fault.KindRejected, "policy_preflight_failed",
-			"candidate policy failed OPA tests", false, err,
-		)
-	}
-	equal, err := policySourcesEqual(state.PolicyDirectory, file.sources)
-	if err != nil || !equal {
-		return tobari.PolicyActivationReceipt{}, fault.Wrap(
-			fault.KindRejected, "policy_data_changed",
-			"policy domain sources changed while the candidate was being tested", false, err,
-		)
-	}
-	transaction, err := beginPolicySourceTransaction(state.PolicyDirectory, file.sources, data.sources)
-	if err != nil {
-		return tobari.PolicyActivationReceipt{}, fault.Wrap(
-			fault.KindInternal, "policy_write_failed",
-			"tested policy domain sources could not be written", false, err,
-		)
-	}
-	if err := r.activatePolicyRevision(ctx, state, policyAuthorityReduces(expectedAllows, updatedAllows, expectedDenies, updatedDenies)); err != nil {
-		if rollbackErr := transaction.rollback(); rollbackErr != nil {
-			return tobari.PolicyActivationReceipt{}, fault.Wrap(
-				fault.KindInternal, "policy_write_failed",
-				"failed policy activation left source recovery pending", false, errors.Join(err, rollbackErr),
-			)
-		}
-		return tobari.PolicyActivationReceipt{}, err
-	}
-	if err := transaction.commit(); err != nil {
-		return tobari.PolicyActivationReceipt{}, fault.Wrap(
-			fault.KindInternal, "policy_write_failed",
-			"activated policy source transaction could not be finalized", false, err,
-		)
-	}
-	return receipt, nil
+	return r.applyAggregatePolicyDataWithLifecycleLock(
+		ctx, state, expectedAllows, updatedAllows, expectedDenies, updatedDenies, checkDenySnapshot,
+	)
 }
 
 func policyAuthorityReduces(
@@ -1685,14 +1495,19 @@ func (r *Runtime) applyAggregatePolicyData(
 		candidateState.ManifestCount = projection.ManifestCount
 		candidateState.PolicyDirectory = projection.PolicyDirectory
 		candidateState.GatewayConfig = projection.GatewayConfig
+		candidateState.EvaluatorIdentity = projection.EvaluatorIdentity
+		candidateState.PolicyDataIdentity = projection.PolicyDataIdentity
 		if candidateState.SchemaVersion == 2 {
 			candidateState.Applied.AggregateRevision = projection.Revision
+			candidateState.Applied.EvaluatorIdentity = projection.EvaluatorIdentity
+			candidateState.Applied.PolicyDataIdentity = projection.PolicyDataIdentity
 		}
 		candidateReceipt := tobari.PolicyActivationReceipt{
-			PolicyDirectory: candidateState.PolicyDirectory,
-			ActiveRevision:  candidateState.AggregateRevision,
+			ActiveRevision:     candidateState.AggregateRevision,
+			EvaluatorIdentity:  candidateState.EvaluatorIdentity,
+			PolicyDataIdentity: candidateState.PolicyDataIdentity,
 		}
-		if err := candidateReceipt.Validate(); err != nil {
+		if err := candidateReceipt.ValidateAggregate(); err != nil {
 			return rollbackAfter(err)
 		}
 		if err := r.activatePolicyRevision(
@@ -1740,6 +1555,9 @@ func (r *Runtime) applyAggregatePolicyDataWithLifecycleLock(
 	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
 	checkDenySnapshot bool,
 ) (tobari.PolicyActivationReceipt, error) {
+	if _, _, err := r.verifyPersistedAggregateState(ctx, state); err != nil {
+		return tobari.PolicyActivationReceipt{}, err
+	}
 	var receipt tobari.PolicyActivationReceipt
 	err := r.WithLifecycleLock(ctx, func(lifecycleContext context.Context) error {
 		var applyErr error

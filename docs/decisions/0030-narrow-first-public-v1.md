@@ -7,6 +7,8 @@
 - Supersedes: ADR 0020, `0021-add-datadog-pup-oauth.md`, ADR 0023, and ADR 0025
 - Superseded by: ADR 0031 for provider removal and static-only authentication; ADR 0037 revises exact-only learning with reviewed single-segment path templates; managed-profile decisions remain active
 - Revises: ADR 0009, ADR 0019, ADR 0024, ADR 0027, and ADR 0029
+- Revised by: ADR 0087 removes owner-authored Advanced Rego and keeps the
+  fixed evaluator beneath the terminal guardrail
 
 ## Context
 

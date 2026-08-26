@@ -90,6 +90,12 @@ func (r *Runtime) clusterUpWithProgressMode(
 			})
 			return tobari.State{}, fmt.Errorf("verify retained rollback closure before candidate preparation: %w", err)
 		}
+		if err := r.validateRetainedAggregateBeforeClusterUp(ctx, existing); err != nil {
+			emitClusterUpProgress(progress, tobari.ClusterUpProgress{
+				Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
+			})
+			return tobari.State{}, fmt.Errorf("verify retained aggregate authority before candidate preparation: %w", err)
+		}
 	}
 	var authBrokerSelection sharedImageSelection
 	if brokerRuntimeEnabled {
@@ -409,13 +415,15 @@ func (r *Runtime) clusterUpWithProgressMode(
 		}
 		state.SchemaVersion = 2
 		state.Applied = tobari.SharedClusterAppliedEntry{
-			AggregateRevision: state.AggregateRevision,
-			AssetVersion:      state.AssetVersion,
-			ComposeAssets:     composeAssets,
-			GatewayImageID:    candidateImages.Gateway,
-			OPAImageID:        candidateImages.OPA,
-			AuthBrokerImageID: candidateImages.AuthBroker,
-			PermissionProfile: appliedProfile,
+			AggregateRevision:  state.AggregateRevision,
+			AssetVersion:       state.AssetVersion,
+			EvaluatorIdentity:  state.EvaluatorIdentity,
+			PolicyDataIdentity: state.PolicyDataIdentity,
+			ComposeAssets:      composeAssets,
+			GatewayImageID:     candidateImages.Gateway,
+			OPAImageID:         candidateImages.OPA,
+			AuthBrokerImageID:  candidateImages.AuthBroker,
+			PermissionProfile:  appliedProfile,
 		}
 		state.RecentError = ""
 		if err := state.Validate(); err != nil {
@@ -591,6 +599,9 @@ func (r *Runtime) rollbackSharedClusterActivation(
 	if err := state.Validate(); err != nil {
 		return err
 	}
+	if err := r.verifyKnownGoodAggregateState(ctx, state); err != nil {
+		return fmt.Errorf("validate restored aggregate policy before Compose recovery: %w", err)
+	}
 	if err := validateAppliedSharedClusterEntryForBuild(state.Applied); err != nil {
 		return err
 	}
@@ -634,7 +645,7 @@ func (r *Runtime) rollbackSharedClusterActivation(
 			return fmt.Errorf("restore credential companion: %w", err)
 		}
 	}
-	if err := r.publishPolicyBundle(ctx, state); err != nil {
+	if err := r.publishKnownGoodPolicyBundle(ctx, state); err != nil {
 		return fmt.Errorf("restore last-successful aggregate policy: %w", err)
 	}
 	if err := r.restoreAppliedNetworkTopology(ctx, principals); err != nil {
@@ -979,7 +990,6 @@ func (r *Runtime) composeEnvironmentForTransport(
 	environment := append([]string{}, os.Environ()...)
 	environment = append(
 		environment,
-		"TOBARI_POLICY_DIR="+state.PolicyDirectory,
 		"TOBARI_GATEWAY_CONFIG="+state.GatewayConfig,
 		"TOBARI_PRINCIPAL_DIR="+r.principalRegistryDirectory(),
 		"TOBARI_HOST_LOOPBACK_DIR="+r.hostLoopbackDirectory(),

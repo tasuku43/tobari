@@ -9,7 +9,7 @@ supported-platform source-access evidence below remains owned by this packet
 and its child.
 
 - `internal/domain/tobari.ContextManifest` schema V1 stores stable ID, name,
-  agent profile, image, guided/advanced policy mode, runtime recipe record,
+  agent profile, image, canonical typed policy-data snapshot, runtime recipe record,
   shell environment, and Git identity. It has no source-access or policy-preset
   fields.
 - ADR 0013 already calls Context a logical composition whose policy,
@@ -22,8 +22,8 @@ and its child.
 - Every new Context currently copies the same three embedded policy-domain
   examples, including immediate authority/method grants. The selection is not
   named or shown as a revisioned user choice.
-- Guided policy uses Tobari-owned data/evaluator; Advanced adds owner-authored
-  Rego, but the shared system router remains Tobari-owned.
+- The fixed Tobari-owned evaluator executes canonical typed policy data; legacy
+  executable-policy markers are detected at the storage boundary and rejected.
 
 ## Relevant structure
 
@@ -51,8 +51,8 @@ and its child.
   pre-public migration reader is added.
 - Reports must distinguish the selected source bind from other writable
   Workspace mounts and preset origin from the current effective learned state.
-- Advanced Rego cannot override a preset guardrail if the public surface shows
-  the guardrail as a Context constraint.
+- No user-authored executable source can override a preset guardrail; the fixed
+  evaluator remains the only executable policy authority.
 
 ## External facts
 
@@ -89,13 +89,14 @@ the source-access child packet; network semantics are owned by Tobari policy.
 ```sh
 go run ./cmd/tobari context create --help
 go run ./cmd/tobari context show --help
-rg -n 'type ContextManifest|PolicyMode' internal/domain/tobari/context.go
+rg -n 'type ContextManifest|PolicyDataIdentity|PolicyEvaluatorIdentity' internal/domain/tobari/context.go
 rg -n 'type=bind,src=.*instance.Root' internal/infra/dockerruntime
 ```
 
-Observed 2026-08-12: create exposes image and guided/advanced mode only; the
-manifest lacks both proposed axes; the project runtime emits one unconditional
-direct read-write root bind.
+Observed 2026-08-12 before the envelope retirement: create exposed an image
+and a now-retired executable selector; the current manifest instead binds
+canonical typed policy data to the fixed evaluator, and the project runtime
+emitted one unconditional direct read-write root bind.
 
 ## Security and public-boundary notes
 

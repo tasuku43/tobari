@@ -12,7 +12,7 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
-const FinalClusterReconciliationSchemaVersion = 2
+const FinalClusterReconciliationSchemaVersion = 3
 
 // FinalClusterContextActivation is one exact pair of independently active
 // Template-policy and Policy-Memory receipts. It does not collapse those axes
@@ -28,22 +28,26 @@ type FinalClusterContextActivation struct {
 // cluster reconcile. The private plan remains available for contract
 // validation without exposing durable recovery authority as presentation.
 type FinalClusterReconciliation struct {
-	SchemaVersion      int                                                `json:"schema_version"`
-	Task               string                                             `json:"task"`
-	Generation         uint64                                             `json:"generation"`
-	CollectionRevision tobari.SemanticDigest                              `json:"collection_revision"`
-	ContentDigest      tobari.SemanticDigest                              `json:"content_digest"`
-	PlanDigest         tobari.SemanticDigest                              `json:"plan_digest"`
-	EnvelopeChanged    bool                                               `json:"envelope_changed"`
-	Applied            bool                                               `json:"applied"`
-	Contexts           []FinalClusterContextActivation                    `json:"contexts"`
-	Plan               tobari.WorkspaceAuthorityClusterReconciliationPlan `json:"-"`
+	SchemaVersion      int                   `json:"schema_version"`
+	Task               string                `json:"task"`
+	Generation         uint64                `json:"generation"`
+	CollectionRevision tobari.SemanticDigest `json:"collection_revision"`
+	ContentDigest      tobari.SemanticDigest `json:"content_digest"`
+	PlanDigest         tobari.SemanticDigest `json:"plan_digest"`
+	tobari.PolicyProjectionIdentity
+	EnvelopeChanged bool                                               `json:"envelope_changed"`
+	Applied         bool                                               `json:"applied"`
+	Contexts        []FinalClusterContextActivation                    `json:"contexts"`
+	Plan            tobari.WorkspaceAuthorityClusterReconciliationPlan `json:"-"`
 }
 
-func NewFinalClusterReconciliation(plan tobari.WorkspaceAuthorityClusterReconciliationPlan) (FinalClusterReconciliation, error) {
+func NewFinalClusterReconciliation(plan tobari.WorkspaceAuthorityClusterReconciliationPlan, identity tobari.PolicyProjectionIdentity) (FinalClusterReconciliation, error) {
 	plan.Projection = plan.Projection.Clone()
 	if err := plan.Validate(); err != nil {
 		return FinalClusterReconciliation{}, err
+	}
+	if err := identity.Validate(); err != nil {
+		return FinalClusterReconciliation{}, fmt.Errorf("final cluster reconciliation identity is invalid: %w", err)
 	}
 	contexts := make([]FinalClusterContextActivation, len(plan.Projection.Contexts))
 	for index, item := range plan.Projection.Contexts {
@@ -57,7 +61,8 @@ func NewFinalClusterReconciliation(plan tobari.WorkspaceAuthorityClusterReconcil
 		Task:          tobari.TaskClusterUp,
 		Generation:    plan.NextGeneration, CollectionRevision: plan.NextRevision,
 		ContentDigest: plan.Projection.ContentDigest, PlanDigest: plan.Projection.PlanDigest,
-		EnvelopeChanged: plan.EnvelopeChanged, Applied: true, Contexts: contexts, Plan: plan,
+		PolicyProjectionIdentity: identity,
+		EnvelopeChanged:          plan.EnvelopeChanged, Applied: true, Contexts: contexts, Plan: plan,
 	}
 	return result, result.Validate()
 }
@@ -65,6 +70,9 @@ func NewFinalClusterReconciliation(plan tobari.WorkspaceAuthorityClusterReconcil
 func (r FinalClusterReconciliation) Validate() error {
 	if r.SchemaVersion != FinalClusterReconciliationSchemaVersion || r.Task != tobari.TaskClusterUp || !r.Applied {
 		return fmt.Errorf("final cluster reconciliation result metadata is invalid")
+	}
+	if err := r.PolicyProjectionIdentity.Validate(); err != nil {
+		return fmt.Errorf("final cluster reconciliation identity is invalid: %w", err)
 	}
 	if err := r.Plan.Validate(); err != nil {
 		return err
@@ -88,7 +96,7 @@ func (r FinalClusterReconciliation) Validate() error {
 }
 
 type FinalClusterReconciliationPort interface {
-	Reconcile(context.Context) (tobari.WorkspaceAuthorityClusterReconciliationPlan, error)
+	Reconcile(context.Context) (tobari.WorkspaceAuthorityClusterReconciliationPlan, tobari.PolicyProjectionIdentity, error)
 }
 
 type finalClusterMutationPolicy struct{}
@@ -130,7 +138,7 @@ func (s *FinalClusterService) Reconcile(ctx context.Context, intent operation.In
 	}
 	var result FinalClusterReconciliation
 	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		plan, err := s.reconcile.Reconcile(actionContext)
+		plan, identity, err := s.reconcile.Reconcile(actionContext)
 		if err != nil {
 			if classified, ok := preReleaseLegacyMutationFault(err); ok {
 				return classified
@@ -140,7 +148,7 @@ func (s *FinalClusterService) Reconcile(ctx context.Context, intent operation.In
 			}
 			return err
 		}
-		confirmed, err := NewFinalClusterReconciliation(plan)
+		confirmed, err := NewFinalClusterReconciliation(plan, identity)
 		if err != nil {
 			return contractFault("invalid_cluster_reconciliation_result", "final cluster reconciliation result is invalid", err)
 		}

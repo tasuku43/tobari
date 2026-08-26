@@ -189,7 +189,6 @@ func (r *Runtime) contextReport(ctx context.Context, task string, manifest tobar
 		Desired:          manifest.Desired,
 		AgentProfile:     manifest.AgentProfile,
 		Image:            manifest.Image,
-		PolicyMode:       manifest.PolicyMode,
 		SourceAccess:     manifest.SourceAccess,
 		PolicyRevision:   manifest.PolicyRevision,
 		NativeReadiness:  nativeReadiness,
@@ -242,7 +241,7 @@ func (r *Runtime) nonPersistedContextReport(observed observedContext, active str
 	result := tobari.ManifestReport{
 		Task: tobari.TaskManifestShow, ManifestState: observed.state, Name: manifest.Name,
 		Default: manifest.Name == active, AgentProfile: manifest.AgentProfile, Image: manifest.Image,
-		PolicyMode: manifest.PolicyMode, SourceAccess: manifest.SourceAccess,
+		SourceAccess:     manifest.SourceAccess,
 		NativeReadiness:  tobari.ManifestNativeReadinessEnabled,
 		MethodPolicy:     tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview, Overrides: []tobari.ManifestMethodOverride{}},
 		ShellEnvironment: shellEnvironment, GitIdentity: gitIdentity,

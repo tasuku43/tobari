@@ -14,7 +14,7 @@ func TestMachineOutputInterpretationFixtureHasReviewedAnswerKey(t *testing.T) {
 	cases := fixture["cases"].(map[string]any)
 	cluster := cases["unconfigured_cluster"].(map[string]any)
 	if cluster["configured"] != false || cluster["running"] != false ||
-		cluster["policy"] != nil || cluster["policy_revision"] != nil ||
+		cluster["aggregate_revision"] != nil || cluster["evaluator_identity"] != nil || cluster["policy_data_identity"] != nil ||
 		cluster["workspace_manifest_count"] != float64(0) ||
 		cluster["policy_projection"] != "unavailable" ||
 		len(cluster["components"].([]any)) != 0 {

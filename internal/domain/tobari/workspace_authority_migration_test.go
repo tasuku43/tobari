@@ -285,31 +285,6 @@ func TestWorkspaceAuthorityMigrationLinuxQuarantinesFilesystemRootKey(t *testing
 	}
 }
 
-func TestWorkspaceAuthorityMigrationTransformsOnlyExactAdvancedSourcePair(t *testing.T) {
-	input := workspaceAuthorityMigrationFixture()
-	revision := &input.Templates[0].Revisions[0]
-	revision.Body.Policy.Mode = ManifestPolicyModeAdvanced
-	revision.Body.Policy.AdvancedPolicy = &WorkspaceTemplateAdvancedPolicySources{
-		Tobari: "package tobari_template\nallow := false\n", TobariTest: "package tobari_template\ntest_deny := true\n",
-	}
-	plan, err := BuildWorkspaceAuthorityMigrationPlan(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := plan.Templates[0].Current.Body.Policy.AdvancedPolicy
-	if got == nil || got.Tobari != revision.Body.Policy.AdvancedPolicy.Tobari || got.TobariTest != revision.Body.Policy.AdvancedPolicy.TobariTest {
-		t.Fatalf("Advanced predecessor pair was not transformed exactly: %#v", got)
-	}
-
-	missing := workspaceAuthorityMigrationFixture()
-	missingRevision := &missing.Templates[0].Revisions[0]
-	missingRevision.Body.Policy.Mode = ManifestPolicyModeAdvanced
-	missingRevision.Body.Policy.AdvancedPolicy = &WorkspaceTemplateAdvancedPolicySources{Tobari: "package tobari_template"}
-	if _, err := BuildWorkspaceAuthorityMigrationPlan(missing); err == nil {
-		t.Fatal("incomplete predecessor Advanced source pair migrated")
-	}
-}
-
 func TestWorkspaceAuthorityMigrationFailsClosedOnOrdinaryInvalidSources(t *testing.T) {
 	tests := map[string]func(*WorkspaceAuthorityMigrationInput){
 		"wrong source":                    func(input *WorkspaceAuthorityMigrationInput) { input.Source = "other" },

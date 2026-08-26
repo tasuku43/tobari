@@ -2,7 +2,16 @@
   "schema_version": 1,
   "inbox": {
     "task": "policy.review",
-    "policy": "/config/example/policy",
+    "aggregate_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "evaluator_identity": {
+      "schema_version": 1,
+      "version": "tobari-evaluator-v1",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "policy_data_identity": {
+      "schema_version": 1,
+      "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
     "window_lines": 200,
     "items": [
       {
@@ -45,13 +54,31 @@
   },
   "empty_inbox": {
     "task": "policy.review",
-    "policy": "/config/example/policy",
+    "aggregate_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "evaluator_identity": {
+      "schema_version": 1,
+      "version": "tobari-evaluator-v1",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "policy_data_identity": {
+      "schema_version": 1,
+      "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
     "window_lines": 200,
     "items": []
   },
   "refreshed_inbox": {
     "task": "policy.review",
-    "policy": "/config/example/policy",
+    "aggregate_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "evaluator_identity": {
+      "schema_version": 1,
+      "version": "tobari-evaluator-v1",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "policy_data_identity": {
+      "schema_version": 1,
+      "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
     "window_lines": 200,
     "items": [
       {
@@ -86,11 +113,20 @@
   },
   "receipt": {
     "task": "policy.review.apply",
-    "policy": "/config/example/policy",
+    "aggregate_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "evaluator_identity": {
+      "schema_version": 1,
+      "version": "tobari-evaluator-v1",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "policy_data_identity": {
+      "schema_version": 1,
+      "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
     "allow_count": 1,
     "deny_count": 1,
     "applied": true,
-    "active_revision": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "active_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "decisions": [
       {
         "protocol": "http",

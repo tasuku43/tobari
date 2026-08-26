@@ -4,6 +4,7 @@ package runtimeassets
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -11,6 +12,11 @@ import (
 	"sort"
 	"strings"
 )
+
+// PolicyEvaluatorVersion is the Tobari-owned evaluator contract. It is not a
+// user-selectable policy mode and is reported as path-free public audit
+// evidence in routine status and policy results.
+const PolicyEvaluatorVersion = "tobari-evaluator-v1"
 
 // Version returns a deterministic digest prefix over every embedded runtime file.
 func Version() (string, error) {
@@ -153,6 +159,9 @@ func Materialize(destination string) error {
 	if !filepath.IsAbs(destination) {
 		return fmt.Errorf("runtime destination must be absolute")
 	}
+	if err := rejectMaterializedEvaluatorSources(destination); err != nil {
+		return err
+	}
 	names, err := assetNames()
 	if err != nil {
 		return err
@@ -163,6 +172,13 @@ func Materialize(destination string) error {
 			return fmt.Errorf("read embedded asset %s: %w", name, err)
 		}
 		relative := strings.TrimPrefix(name, "assets/")
+		// Rego is evaluator source, not a host runtime asset. The fixed
+		// evaluator remains embedded and is copied only into the Docker-owned
+		// policy bundle/archive boundary. Keeping this filter here also covers
+		// every image/build-context caller of Materialize.
+		if strings.HasSuffix(relative, ".rego") {
+			continue
+		}
 		target := filepath.Join(destination, filepath.FromSlash(relative))
 		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 			return fmt.Errorf("create runtime directory: %w", err)
@@ -176,6 +192,22 @@ func Materialize(destination string) error {
 		}
 	}
 	return nil
+}
+
+func rejectMaterializedEvaluatorSources(destination string) error {
+	err := filepath.WalkDir(destination, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path != destination && strings.HasSuffix(entry.Name(), ".rego") {
+			return fmt.Errorf("runtime destination contains executable evaluator source %q; reset or recreate the runtime", filepath.Base(path))
+		}
+		return nil
+	})
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 func replaceEmbeddedFile(target string, data []byte, mode os.FileMode) error {

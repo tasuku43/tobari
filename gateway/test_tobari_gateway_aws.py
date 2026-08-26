@@ -1,6 +1,6 @@
 import io
 import json
-from contextlib import redirect_stdout
+from contextlib import ExitStack, redirect_stdout
 from unittest import mock
 
 import broker_credentials as broker_module
@@ -17,6 +17,132 @@ from tobari_gateway_test_support import ReviewedDynamicCredentialGatewayTestCase
 
 
 class ReviewedAWSSigV4GatewayTests(ReviewedDynamicCredentialGatewayTestCase):
+    def test_brokered_aws_handle_wins_over_every_colliding_protocol_classifier(self):
+        self.provider_projection = self.aws_provider_projection()
+        calls = []
+
+        def broker_call(request):
+            calls.append(request)
+            if request["op"] == "introspect_signing":
+                return {
+                    "schema_version": 1,
+                    "ok": True,
+                    "provider": "aws",
+                    "revision": "revision_example",
+                    "kind": "aws_sigv4",
+                    "target": request["target"],
+                    "source": request["binding"]["aws_sigv4"]["source"],
+                    "secret_headers": request["binding"]["aws_sigv4"]["secret_headers"],
+                }
+            return {
+                "schema_version": 1,
+                "ok": True,
+                "provider": "aws",
+                "revision": "revision_example",
+                "headers": {
+                    "authorization": (
+                        "AWS4-HMAC-SHA256 Credential=ASIAEXAMPLEKEY1234/"
+                        "20260809/us-east-1/sts/aws4_request, "
+                        "SignedHeaders=content-type;host;x-amz-date;x-amz-security-token, "
+                        "Signature=" + "a" * 64
+                    ),
+                    "x_amz_date": "20260809T120001Z",
+                    "x_amz_security_token": "real-session-token-canary",
+                    "x_amz_content_sha256": None,
+                },
+            }
+
+        collisions = {
+            "graphql": "graphql_endpoint_declared",
+            "mcp": "mcp_endpoint_declared",
+            "kubernetes": "kubernetes_endpoint_declared",
+            "oci": "parse_oci_request",
+            "git": "classify_git_request",
+        }
+        for name, classifier in collisions.items():
+            with self.subTest(classifier=name):
+                flow = self.aws_signed_flow()
+                captured = {}
+
+                def allow(_url, policy_input, _timeout):
+                    captured.update(policy_input)
+                    return gateway.Decision(True, "allowed", 403, False)
+
+                addon = self.broker_gateway(broker_call)
+                with ExitStack() as stack:
+                    stack.enter_context(
+                        mock.patch.object(
+                            gateway,
+                            classifier,
+                            side_effect=AssertionError(
+                                f"{name} classifier ran before brokered AWS"
+                            ),
+                        )
+                    )
+                    stack.enter_context(
+                        mock.patch.object(gateway, "query_opa", side_effect=allow)
+                    )
+                    with redirect_stdout(io.StringIO()):
+                        addon.requestheaders(flow)
+                    self.assertIn("tobari_aws_query_pending", flow.metadata)
+                    self.assertNotIn("tobari_graphql_pending", flow.metadata)
+                    self.assertNotIn("tobari_mcp_pending", flow.metadata)
+                    addon.request(flow)
+
+                self.assertEqual(
+                    captured["request"]["aws"],
+                    {
+                        "wire_protocol": "query",
+                        "service": "sts",
+                        "operation": "GetCallerIdentity",
+                    },
+                )
+                self.assertNotIn("graphql", captured["request"])
+                self.assertNotIn("mcp", captured["request"])
+                self.assertNotIn("kubernetes", captured["request"])
+                self.assertNotIn("oci", captured["request"])
+                self.assertNotIn("git", captured["request"])
+
+        self.assertEqual(
+            [request["op"] for request in calls],
+            ["introspect_signing", "sign_sigv4"] * len(collisions),
+        )
+
+    def test_malformed_brokered_aws_handle_is_terminal_before_colliding_classifiers(self):
+        self.provider_projection = self.aws_provider_projection()
+        flow = self.aws_signed_flow()
+        flow.request.headers["x-amz-content-sha256"] = "UNSIGNED-PAYLOAD"
+        addon = self.broker_gateway(
+            lambda _request: (_ for _ in ()).throw(
+                AssertionError("malformed AWS handle reached broker")
+            )
+        )
+        with ExitStack() as stack:
+            for classifier in (
+                "graphql_endpoint_declared",
+                "mcp_endpoint_declared",
+                "kubernetes_endpoint_declared",
+                "parse_oci_request",
+                "classify_git_request",
+            ):
+                stack.enter_context(
+                    mock.patch.object(
+                        gateway,
+                        classifier,
+                        side_effect=AssertionError(
+                            f"{classifier} ran after malformed AWS handle"
+                        ),
+                    )
+                )
+            with mock.patch.object(gateway, "query_opa") as query:
+                with redirect_stdout(io.StringIO()):
+                    addon.requestheaders(flow)
+        query.assert_not_called()
+        self.assertEqual(flow.response.status_code, 403)
+        self.assertEqual(
+            json.loads(flow.response.content), {"error": "credential_handle_invalid"}
+        )
+
     def test_direct_aws_signature_at_declared_target_requires_broker(self):
         self.provider_projection = self.aws_provider_projection()
         flow = self.flow("https://sts.us-east-1.amazonaws.com/", "GET")
@@ -115,7 +241,7 @@ class ReviewedAWSSigV4GatewayTests(ReviewedDynamicCredentialGatewayTestCase):
 
         with mock.patch.object(gateway, "query_opa", side_effect=allow):
             addon.request(flow)
-        self.assertNotIn("authorization", captured["request"]["headers"])
+        self.assertNotIn("headers", captured["request"])
         self.assertEqual(captured["request"]["aws"], {
             "wire_protocol": "query",
             "service": "sts",
@@ -245,17 +371,7 @@ class ReviewedAWSSigV4GatewayTests(ReviewedDynamicCredentialGatewayTestCase):
 
     def test_aws_sigv4_denial_never_signs_or_retains_handle(self):
         self.provider_projection = self.aws_provider_projection()
-        flow = self.flow("https://sts.us-east-1.amazonaws.com/", "POST")
-        flow.request.headers["x-amz-date"] = "20260809T120000Z"
-        flow.request.headers["x-amz-security-token"] = self.handle
-        flow.request.headers["authorization"] = (
-            "AWS4-HMAC-SHA256 Credential="
-            + self.handle
-            + "/20260809/us-east-1/sts/aws4_request, "
-            "SignedHeaders=content-type;host;x-amz-date;x-amz-security-token, "
-            "Signature="
-            + "0" * 64
-        )
+        flow = self.aws_signed_flow()
         calls = []
 
         def broker_call(request):
@@ -282,6 +398,8 @@ class ReviewedAWSSigV4GatewayTests(ReviewedDynamicCredentialGatewayTestCase):
         ):
             with redirect_stdout(io.StringIO()):
                 addon.requestheaders(flow)
+            with redirect_stdout(io.StringIO()):
+                addon.request(flow)
         self.assertEqual([item["op"] for item in calls], ["introspect_signing"])
         commit.assert_not_called()
         self.assertNotIn("tobari_deferred_credential", flow.metadata)

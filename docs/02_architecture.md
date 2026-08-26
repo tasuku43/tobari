@@ -466,9 +466,10 @@ Workspace/Project principal evidence selects one Context's combined policy.
 Template copy therefore copies static reviewed setup but cannot copy learned
 authority; Workspace replacement retains Context Policy Memory.
 
-Advanced policy source remains Template-owned and bounded. The generated OPA
-projection namespaces it so it cannot claim Tobari's router or system packages.
-Exact Deny remains terminal over every positive source. Gateway redacts client
+The policy evaluator is fixed Tobari-owned bundle material. Templates and
+Contexts contribute only canonical typed data; no user-owned source path can
+replace, extend, or point the aggregate at executable policy. Exact Deny
+remains terminal over every positive source. Gateway redacts client
 authentication and cookies before OPA/audit and forwards them unchanged only
 after allow. Research credential resolution additionally requires the exact
 Context, provider, revision, target, and header binding.
@@ -488,8 +489,8 @@ runtime/
   authbroker/broker.py
   authbroker/daemon.py
   authbroker/control.py
-  opa/policy/tobari.rego
-  opa/policy/tobari_test.rego
+  opa/policy/tobari.rego              # embedded fixed evaluator (internal)
+  opa/policy/tobari_test.rego         # embedded evaluator tests (internal)
 ```
 
 The canonical Tobari base-image source now lives under `runtimes/base`. Its
@@ -1313,8 +1314,9 @@ diagnostic and exposes no review command. `tobari cluster denials` parses one bo
 log window, isolates and counts malformed or otherwise unprojectable
 denial-shaped records, and returns every valid typed Workspace Template and project principal, host, port,
 method, path, optional GraphQL operation/root or AWS wire-operation coordinate, reason, status,
-exact-rule learnability, request identity, timestamp, the
-trusted host policy directory, the unparsed-record count, and the exact review command. OPA computes
+  exact-rule learnability, request identity, timestamp, the aggregate revision,
+  evaluator identity, policy-data identity, the unparsed-record count, and the
+  exact review command. OPA computes
 learnability only when version, cluster, Workspace Template, scheme, fixed port,
 project-principal, and Workspace Template policy ceiling already pass, so an exact
 Context/scheme/host/port/method/path rule, plus the GraphQL or AWS coordinate when
@@ -1373,14 +1375,15 @@ Each authoritative domain source is strict schema 1. The directory name and
 every embedded authority, endpoint, credential binding, and rule host must be
 the same canonical lower-case host. Methods belong to the authority records
 composed from that domain and cannot authorize another host. Wildcards and IP
-literals are not source syntax. Guided Workspace Templates contribute only the domain
-tree; aggregate generation loads the current shared Rego evaluator and tests
-from Tobari's embedded runtime assets. Advanced Workspace Templates add exactly
-`tobari.rego` and `tobari_test.rego`. Gateway runtime input uses exact schema 1
-and rejects any other shape. The generated aggregate projection may contain a
-single internal `data.json`; it is immutable execution input, never a Workspace Template
-source. The aggregate projection is schema 1 and stores the composed sources below
-`tobari_contexts[context_id]`; the Tobari-owned router is the only
+literals are not source syntax. Workspace Templates contribute only the domain
+tree; aggregate generation loads and verifies the current fixed evaluator and
+tests from Tobari's embedded runtime assets. User-owned Template, Context, and
+configuration layouts contain no executable policy source. Gateway runtime input uses exact schema 1
+and rejects any other shape. The generated aggregate projection contains
+immutable `data.json` plus private Tobari-owned router/evaluator modules; those
+files are Docker-managed execution material, never Workspace Template or
+Context source. The aggregate projection is schema 1 and stores the composed
+typed data below `tobari_contexts[context_id]`; the Tobari-owned router is the only
 `tobari.http` decision entrypoint. Each entry in `boundary.authorities` owns its
 scheme, host, ports, and host-local methods;
 `boundary.graphql_endpoints` declares exact protocol-classification points, and `rules` keeps
@@ -1399,22 +1402,14 @@ journal is finalized; recovery commits only when that revision is durable and
 otherwise restores the validated original. Unexpected external edits make the
 transaction ambiguous and fail closed instead of being overwritten.
 
-Guided Workspace Templates use one current Tobari-owned evaluator, projected once, with
-Workspace Template-specific authorities, methods, ports, GraphQL endpoints, exact and
-semantic baseline decisions, learned
-decisions, and credential metadata supplied as data. Advanced source retains
-the editable `package tobari.http` source contract, but projection rewrites it
-to `tobari.contexts.c<uuid>.http`. Validation rejects source that claims the
-cluster router, `tobari.system`, another Workspace Template package, or
-`data.tobari_contexts`. This is namespace and routing enforcement within one
-OPA process, not a claim of Rego process-level confidentiality.
-
-The cluster router sends every input carrying a GraphQL, MCP, or AWS coordinate through the
-current Tobari-owned system evaluator, even for an Advanced Workspace Template; the
-Workspace Template's data still supplies its endpoints and rules. Only ordinary HTTP input
-routes to editable Advanced Rego. This prevents older or custom policy source
-from ignoring the new coordinate and accidentally authorizing it through one
-coarse HTTP rule.
+Workspace Templates use one current Tobari-owned evaluator, projected once, with
+Template-specific authorities, methods, ports, GraphQL endpoints, exact and
+semantic baseline decisions, remembered decisions, and credential metadata
+supplied as data. The evaluator owns the router and system packages; no
+Template-specific executable module is accepted. The cluster router sends
+every input carrying a GraphQL, MCP, AWS, Kubernetes, Git, or OCI coordinate
+through the protocol-derived fixed evaluator, so classified traffic cannot
+fall back to a coarse HTTP rule.
 
 `policy deny` resolves the same exact candidate reference and appends one
 Context-bound exact deny rule through the same aggregate preflight, atomic-write, and OPA
@@ -1497,7 +1492,7 @@ or row order.
 - Domain and application tests prove path, state, effect, and orchestration
   invariants without Docker.
 - Infrastructure tests use a recording command runner.
-- Gateway and Rego tests cover policy boundaries.
+- Gateway and fixed-evaluator tests cover policy boundaries.
 - Auth Broker, root-key, provider, companion, and Gateway integration tests
   cover locked startup, every closed vault record, project-bound handles,
   deny-before-action, bounded static/refresh/signing results,

@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-const FinalClusterDenialSchemaVersion = 3
+const FinalClusterDenialSchemaVersion = 4
 
 var (
 	ErrFinalClusterNotRunning         = errors.New("final cluster is not running with exact active authority")
@@ -53,16 +53,20 @@ func (d FinalClusterDenial) Validate() error {
 }
 
 type FinalClusterDenialWindow struct {
-	SchemaVersion int                  `json:"schema_version"`
-	Task          string               `json:"task"`
+	SchemaVersion int    `json:"schema_version"`
+	Task          string `json:"task"`
+	PolicyProjectionIdentity
 	WindowLines   int                  `json:"window_lines"`
 	UnparsedLines int                  `json:"unparsed_lines"`
 	Items         []FinalClusterDenial `json:"items"`
 }
 
-func NewFinalClusterDenialWindow(collection WorkspaceAuthorityCollection, tail int, read DenialRead) (FinalClusterDenialWindow, error) {
+func NewFinalClusterDenialWindow(collection WorkspaceAuthorityCollection, tail int, read DenialRead, identity PolicyProjectionIdentity) (FinalClusterDenialWindow, error) {
 	if err := collection.Validate(); err != nil {
 		return FinalClusterDenialWindow{}, err
+	}
+	if err := identity.Validate(); err != nil {
+		return FinalClusterDenialWindow{}, fmt.Errorf("final cluster denial projection identity is invalid: %w", err)
 	}
 	if tail < 1 {
 		return FinalClusterDenialWindow{}, fmt.Errorf("final cluster denial window is invalid")
@@ -82,7 +86,7 @@ func NewFinalClusterDenialWindow(collection WorkspaceAuthorityCollection, tail i
 	for _, workspace := range collection.Workspaces {
 		workspaces[workspace.ID] = workspace
 	}
-	result := FinalClusterDenialWindow{SchemaVersion: FinalClusterDenialSchemaVersion, Task: TaskClusterDenials, WindowLines: tail, UnparsedLines: read.UnparsedLines, Items: make([]FinalClusterDenial, len(read.Items))}
+	result := FinalClusterDenialWindow{SchemaVersion: FinalClusterDenialSchemaVersion, Task: TaskClusterDenials, PolicyProjectionIdentity: identity, WindowLines: tail, UnparsedLines: read.UnparsedLines, Items: make([]FinalClusterDenial, len(read.Items))}
 	for index, denial := range read.Items {
 		contextID, err := ParseContextID(denial.WorkspaceManifestID)
 		if err != nil {
@@ -110,6 +114,9 @@ func NewFinalClusterDenialWindow(collection WorkspaceAuthorityCollection, tail i
 func (w FinalClusterDenialWindow) Validate() error {
 	if w.SchemaVersion != FinalClusterDenialSchemaVersion || w.Task != TaskClusterDenials || w.WindowLines < 1 || w.UnparsedLines < 0 || w.Items == nil {
 		return fmt.Errorf("final cluster denial window is invalid")
+	}
+	if err := w.PolicyProjectionIdentity.Validate(); err != nil {
+		return fmt.Errorf("final cluster denial projection identity is invalid: %w", err)
 	}
 	for _, item := range w.Items {
 		if err := item.Validate(); err != nil {

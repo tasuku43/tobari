@@ -30,7 +30,7 @@ type legacyContextManifest struct {
 	Name                 string                                   `json:"name"`
 	AgentProfile         string                                   `json:"agent_profile"`
 	Image                string                                   `json:"image"`
-	PolicyMode           tobari.ManifestPolicyMode                `json:"policy_mode"`
+	LegacyPolicyMode     string                                   `json:"policy_mode"`
 	SourceAccess         tobari.ManifestSourceAccess              `json:"source_access"`
 	NativeReadiness      tobari.ManifestNativeReadiness           `json:"native_readiness,omitempty"`
 	PolicyPresetOrigin   string                                   `json:"policy_preset_origin"`
@@ -391,7 +391,18 @@ func (r *Runtime) planContextMigration(name string) (migrationContextPlan, error
 	if err != nil {
 		return migrationContextPlan{}, fmt.Errorf("%w: Context manifest: %v", tobari.ErrMigrationSourceUnsafe, err)
 	}
-	if current, err := r.readContextManifestRaw(name); err == nil {
+	if markerErr := rejectLegacyContextManifestMarkers(rawManifest); markerErr != nil {
+		return migrationContextPlan{}, fmt.Errorf("%w: Context manifest: %v", tobari.ErrMigrationNotSupported, markerErr)
+	}
+	// Migration is a bounded raw-source boundary. A predecessor policy
+	// directory may still contain preset.json and learned evidence that the
+	// current typed layout would (correctly) reject; it must nevertheless never
+	// contain an executable source. Decode only the current manifest shape here
+	// and leave policy conversion to the explicit predecessor decoder below.
+	if err := rejectExecutablePolicySources(r.contextPolicyDirectory(name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return migrationContextPlan{}, fmt.Errorf("%w: Context policy: %v", tobari.ErrMigrationNotSupported, err)
+	}
+	if current, err := decodeCurrentContextManifestForMigration(rawManifest, name); err == nil {
 		if current.RuntimeBinding == nil || current.Runtime != nil {
 			return migrationContextPlan{}, fmt.Errorf("%w: current Context lacks an exact Runtime binding", tobari.ErrMigrationSourceUnsafe)
 		}
@@ -439,7 +450,7 @@ func (r *Runtime) planContextMigration(name string) (migrationContextPlan, error
 	}
 	manifest := tobari.WorkspaceManifest{
 		SchemaVersion: legacy.SchemaVersion, ID: legacy.ID, Name: legacy.Name,
-		AgentProfile: legacy.AgentProfile, Image: legacy.Image, PolicyMode: legacy.PolicyMode,
+		AgentProfile: legacy.AgentProfile, Image: legacy.Image,
 		SourceAccess: legacy.SourceAccess, PolicyRevision: revision, NativeReadiness: readiness,
 		Runtime: legacy.Runtime, ShellEnvironment: legacy.ShellEnvironment,
 		GitIdentity: legacy.GitIdentity, Bootstrap: legacy.Bootstrap,
@@ -467,8 +478,22 @@ func (r *Runtime) planContextMigration(name string) (migrationContextPlan, error
 	}, nil
 }
 
+func decodeCurrentContextManifestForMigration(data []byte, name string) (tobari.WorkspaceManifest, error) {
+	manifest, err := decodeContextManifest(data)
+	if err != nil {
+		return tobari.WorkspaceManifest{}, err
+	}
+	if err := manifest.ValidatePublished(); err != nil {
+		return tobari.WorkspaceManifest{}, err
+	}
+	if manifest.Name != name {
+		return tobari.WorkspaceManifest{}, fmt.Errorf("Context manifest name does not match its path")
+	}
+	return manifest, nil
+}
+
 func decodeLegacyContextManifest(data []byte, name string) (legacyContextManifest, error) {
-	if err := validateNoDuplicateJSONKeys(data); err != nil {
+	if err := rejectLegacyContextManifestMarkers(data); err != nil {
 		return legacyContextManifest{}, err
 	}
 	var manifest legacyContextManifest
@@ -478,12 +503,18 @@ func decodeLegacyContextManifest(data []byte, name string) (legacyContextManifes
 	if manifest.Name != name || manifest.PolicyPresetOrigin != "builtin/agent-ready" {
 		return legacyContextManifest{}, fmt.Errorf("legacy Context identity is unsupported")
 	}
+	if manifest.LegacyPolicyMode == "advanced" {
+		return legacyContextManifest{}, fmt.Errorf("%w: %w: persisted Context contains legacy Advanced policy; reset or recreate the Context", tobari.ErrPreReleaseLegacyAuthority, tobari.ErrLegacyExecutablePolicy)
+	}
+	if manifest.LegacyPolicyMode != "" && manifest.LegacyPolicyMode != "guided" {
+		return legacyContextManifest{}, fmt.Errorf("legacy Context policy_mode %q is unsupported; reset or recreate the Context", manifest.LegacyPolicyMode)
+	}
 	if err := tobari.ValidateDigest(manifest.PolicyPresetRevision); err != nil {
 		return legacyContextManifest{}, err
 	}
 	probe := tobari.WorkspaceManifest{
 		SchemaVersion: manifest.SchemaVersion, ID: manifest.ID, Name: manifest.Name,
-		AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
+		AgentProfile: manifest.AgentProfile, Image: manifest.Image,
 		SourceAccess: manifest.SourceAccess, PolicyRevision: tobari.DefaultContextPolicyRevision(),
 		NativeReadiness: manifest.NativeReadiness, Runtime: manifest.Runtime,
 		ShellEnvironment: manifest.ShellEnvironment, GitIdentity: manifest.GitIdentity, Bootstrap: manifest.Bootstrap,

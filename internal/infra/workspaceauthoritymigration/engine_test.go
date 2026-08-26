@@ -3,7 +3,6 @@ package workspaceauthoritymigration
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -682,36 +681,6 @@ func TestEngineFailsClosedOnIncompleteLinuxResearchOrSymlinkedSource(t *testing.
 	})
 }
 
-func TestEngineRejectsOverBoundFinalEnvelopeBeforeJournalOrCutoff(t *testing.T) {
-	fixture := newMigrationFixture(t, false)
-	advanced := tobari.WorkspaceTemplateAdvancedPolicySources{
-		Tobari:     strings.Repeat("x", tobari.WorkspaceTemplateAdvancedPolicyMaxBytes-64),
-		TobariTest: "package tobari_template\ntest := true\n",
-	}
-	if err := advanced.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	for index := 0; index < 8; index++ {
-		body := predecessorBody(migrationTemplateBody())
-		body.Policy.Mode = tobari.ManifestPolicyModeAdvanced
-		body.Policy.AdvancedPolicy = &advanced
-		id := fmt.Sprintf("01912345-6789-7abc-8def-%012x", 0x123456789a4+index)
-		fixture.port.prepared.Input.Templates = append(fixture.port.prepared.Input.Templates, tobari.PredecessorTemplate{
-			ID: id, Name: fmt.Sprintf("large-%02d", index), CurrentGeneration: 1, CurrentRevision: digest("d"),
-			Revisions: []tobari.PredecessorTemplateRevision{{Generation: 1, Revision: digest("d"), Body: body}},
-		})
-	}
-
-	for attempt := 0; attempt < 2; attempt++ {
-		if _, err := fixture.engine.Apply(context.Background()); err == nil {
-			t.Fatal("over-bound final authority migrated")
-		}
-		if pathExists(fixture.engine.journalPath()) || pathExists(fixture.finalRoot) || pathExists(fixture.finalRoot+finalStageSuffix) || !pathExists(fixture.cutoff) {
-			t.Fatal("over-bound rejection created journal, stage, final authority, or moved cutoff")
-		}
-	}
-}
-
 func TestEngineUsesSameFilesystemSiblingTargetsAcrossIndependentRoots(t *testing.T) {
 	fixture := newMigrationFixture(t, true)
 	seen := map[string]bool{}
@@ -934,7 +903,7 @@ func migrationTemplateBody() tobari.WorkspaceTemplateBody {
 			MethodPolicy:       tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview, Overrides: []tobari.ManifestMethodOverride{{Method: "GET", Decision: tobari.ManifestMethodAllow}}},
 		},
 		Policy: tobari.WorkspaceTemplatePolicyBody{
-			AgentProfile: tobari.DefaultProfile, Mode: tobari.ManifestPolicyModeGuided, NativeReadiness: tobari.ManifestNativeReadinessEnabled,
+			AgentProfile: tobari.DefaultProfile, NativeReadiness: tobari.ManifestNativeReadinessEnabled,
 			BaselineGrants:    []tobari.ManifestPolicyExactRule{{Scheme: "https", Host: "api.example.dev", Port: 443, Method: "GET", Path: "/items"}},
 			BaselineTemplates: []tobari.ManifestPolicyPathTemplateRule{}, MCPBaselineGrants: []tobari.ManifestPolicyMCPRule{},
 			BaselineDenies: []tobari.ManifestPolicyExactRule{}, GraphQLEndpoints: []tobari.ManifestPolicyExactRule{}, MCPEndpoints: []tobari.ManifestPolicyExactRule{},

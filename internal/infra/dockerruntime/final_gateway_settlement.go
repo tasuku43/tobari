@@ -71,7 +71,8 @@ func finalAuthBrokerNetworkNames() []string {
 func (c finalGatewaySettlementCandidate) validate(runtime *Runtime) error {
 	if runtime == nil || c.Plan.Validate() != nil || !imageIDPattern.MatchString(c.GatewayImageID) ||
 		!imageIDPattern.MatchString(c.OPAImageID) || c.Profile.Validate() != nil || c.Compose.Validate() != nil ||
-		!aggregateRevisionPattern.MatchString(c.Aggregate.AggregateRevision) || c.PolicyArtifact.Validate() != nil ||
+		!aggregateRevisionPattern.MatchString(c.Aggregate.AggregateRevision) || c.Aggregate.EvaluatorIdentity.Validate() != nil ||
+		c.Aggregate.PolicyDataIdentity.Validate() != nil || c.PolicyArtifact.Validate() != nil ||
 		c.GatewayArtifact.Validate() != nil || c.Principals == nil || c.GatewayNetworks == nil || c.OPANetworks == nil ||
 		validateFinalGatewayEnvironment(c.GatewayEnv, c.Profile) != nil || !containerIDPattern.MatchString(c.ReviewedGateway) {
 		return fmt.Errorf("final Gateway settlement candidate metadata is invalid")
@@ -262,11 +263,24 @@ func (r *Runtime) ReconcileFinalClusterAuthority(
 	previous, next tobari.WorkspaceAuthorityCollection,
 	operation, decisionRef string,
 ) error {
+	_, err := r.ReconcileFinalClusterAuthorityWithIdentity(ctx, previous, next, operation, decisionRef)
+	return err
+}
+
+// ReconcileFinalClusterAuthorityWithIdentity returns the identity from the
+// exact candidate whose settlement was confirmed. The caller stores it in
+// the terminal mutation decision, so a replay never needs a post-success
+// reload or a caller-owned temporary variable.
+func (r *Runtime) ReconcileFinalClusterAuthorityWithIdentity(
+	ctx context.Context,
+	previous, next tobari.WorkspaceAuthorityCollection,
+	operation, decisionRef string,
+) (tobari.PolicyProjectionIdentity, error) {
 	plan, err := tobari.BuildClusterWorkspacePolicyProjection(next)
 	if err != nil {
-		return err
+		return tobari.PolicyProjectionIdentity{}, err
 	}
-	return r.settleFinalAuthority(ctx, previous, next, plan, operation, decisionRef)
+	return r.settleFinalAuthorityWithIdentity(ctx, previous, next, plan, operation, decisionRef)
 }
 
 // SettleFinalReviewedPolicyAuthority applies one fixed reviewed set as one
@@ -375,9 +389,20 @@ func (r *Runtime) settleFinalAuthority(
 	operation, decisionRef string,
 	reviewedSetDigest ...tobari.SemanticDigest,
 ) error {
+	_, err := r.settleFinalAuthorityWithIdentity(ctx, previous, next, plan, operation, decisionRef, reviewedSetDigest...)
+	return err
+}
+
+func (r *Runtime) settleFinalAuthorityWithIdentity(
+	ctx context.Context,
+	previous, next tobari.WorkspaceAuthorityCollection,
+	plan tobari.WorkspacePolicyProjection,
+	operation, decisionRef string,
+	reviewedSetDigest ...tobari.SemanticDigest,
+) (tobari.PolicyProjectionIdentity, error) {
 	var setDigest tobari.SemanticDigest
 	if len(reviewedSetDigest) > 1 {
-		return fmt.Errorf("final Gateway settlement has ambiguous reviewed-set identity")
+		return tobari.PolicyProjectionIdentity{}, fmt.Errorf("final Gateway settlement has ambiguous reviewed-set identity")
 	}
 	if len(reviewedSetDigest) == 1 {
 		setDigest = reviewedSetDigest[0]
@@ -385,17 +410,18 @@ func (r *Runtime) settleFinalAuthority(
 	if r == nil || previous.Validate() != nil || next.Validate() != nil || plan.Validate() != nil || plan.CollectionRevision != next.Revision || operation == "" || decisionRef == "" ||
 		plan.Mode == tobari.WorkspacePolicyProjectionReviewed && setDigest.Validate() != nil ||
 		plan.Mode != tobari.WorkspacePolicyProjectionReviewed && setDigest != "" {
-		return fmt.Errorf("final Gateway settlement request is invalid")
+		return tobari.PolicyProjectionIdentity{}, fmt.Errorf("final Gateway settlement request is invalid")
 	}
 	if _, present, err := r.readFinalClusterStopped(r.finalClusterDownJournalPath()); err != nil {
-		return fmt.Errorf("read interrupted final cluster down: %w", err)
+		return tobari.PolicyProjectionIdentity{}, fmt.Errorf("read interrupted final cluster down: %w", err)
 	} else if present {
-		return fmt.Errorf("final cluster down is interrupted; resume its exact initiating action")
+		return tobari.PolicyProjectionIdentity{}, fmt.Errorf("final cluster down is interrupted; resume its exact initiating action")
 	}
 	if err := r.requireNoInterruptedClusterReconcile(ctx); err != nil {
-		return err
+		return tobari.PolicyProjectionIdentity{}, err
 	}
-	return r.withPolicyProjectionLock(ctx, func() error {
+	var settled tobari.PolicyProjectionIdentity
+	settlementErr := r.withPolicyProjectionLock(ctx, func() error {
 		journal, present, err := r.readFinalGatewaySettlementJournal()
 		if err != nil {
 			return err
@@ -407,7 +433,11 @@ func (r *Runtime) settleFinalAuthority(
 				!reflect.DeepEqual(journal.Candidate.Plan, plan) || journal.Candidate.ReviewedSetDigest != setDigest {
 				return fmt.Errorf("another final Gateway settlement requires exact same-action recovery")
 			}
-			return r.resumeFinalGatewaySettlement(ctx, journal)
+			if err := r.resumeFinalGatewaySettlement(ctx, journal); err != nil {
+				return err
+			}
+			settled, err = r.readSettledPolicyProjectionIdentity(plan)
+			return err
 		}
 		prepared, err := r.prepareFinalGatewaySettlement(ctx, previous, next, plan, operation, decisionRef, setDigest)
 		if err != nil {
@@ -416,8 +446,25 @@ func (r *Runtime) settleFinalAuthority(
 		if err := r.writeFinalGatewaySettlementJournal(prepared); err != nil {
 			return err
 		}
-		return r.resumeFinalGatewaySettlement(ctx, prepared)
+		if err := r.resumeFinalGatewaySettlement(ctx, prepared); err != nil {
+			return err
+		}
+		settled, err = r.readSettledPolicyProjectionIdentity(plan)
+		return err
 	})
+	return settled, settlementErr
+}
+
+func (r *Runtime) readSettledPolicyProjectionIdentity(plan tobari.WorkspacePolicyProjection) (tobari.PolicyProjectionIdentity, error) {
+	active, err := r.readFinalPolicyActivation(r.finalPolicyActiveReceiptPath())
+	if err != nil {
+		return tobari.PolicyProjectionIdentity{}, fmt.Errorf("read settled final policy identity: %w", err)
+	}
+	if !reflect.DeepEqual(active.Material.Plan, plan) {
+		return tobari.PolicyProjectionIdentity{}, fmt.Errorf("settled final policy identity crosses the requested projection")
+	}
+	identity := policyProjectionIdentityForAggregate(active.Aggregate)
+	return identity, identity.Validate()
 }
 
 func (r *Runtime) requireNoFinalGatewaySettlement(ctx context.Context) error {
@@ -828,6 +875,7 @@ func (r *Runtime) validateFinalGatewayComposeCandidate(candidate finalGatewaySet
 	state := tobari.State{
 		SchemaVersion: 1, RuntimeDirectory: candidate.Compose.RuntimeDirectory,
 		AggregateRevision: candidate.Aggregate.AggregateRevision, ManifestCount: finalComposeProjectionCount(len(candidate.Plan.Contexts)),
+		EvaluatorIdentity: candidate.Aggregate.EvaluatorIdentity, PolicyDataIdentity: candidate.Aggregate.PolicyDataIdentity,
 		PolicyDirectory: candidate.Aggregate.PolicyDirectory, GatewayConfig: candidate.Aggregate.GatewayConfig,
 		AssetVersion: candidate.Compose.AssetVersion,
 	}
@@ -906,12 +954,11 @@ func (r *Runtime) resumeFinalGatewaySettlement(ctx context.Context, journal fina
 		if r.finalGatewayAfterFirstSessionFence != nil {
 			r.finalGatewayAfterFirstSessionFence()
 		}
-		fenceDirectory, fenceRevision, cleanup, err := r.finalPolicyFenceTarget(journal.Candidate.Aggregate.AggregateRevision)
+		fenceArchive, fenceRevision, err := policyFinalFenceArchive(journal.Candidate.Aggregate.AggregateRevision)
 		if err != nil {
 			return err
 		}
-		defer cleanup()
-		if err := r.applyPolicyTarget(ctx, fenceDirectory, fenceRevision); err != nil {
+		if err := r.applyPolicyArchive(ctx, fenceArchive, fenceRevision); err != nil {
 			return err
 		}
 		journal.Phase = finalGatewayPhaseFenced
@@ -1032,6 +1079,9 @@ func (r *Runtime) resumeFinalGatewayOPAOnly(ctx context.Context, journal finalGa
 	if record.Receipt.GatewayArtifact != journal.Candidate.GatewayArtifact || record.Receipt.PolicyArtifact != journal.Candidate.PolicyArtifact {
 		return fmt.Errorf("OPA-only settlement content changed after effect classification")
 	}
+	if policyProjectionIdentityForAggregate(record.Aggregate) != policyProjectionIdentityForAggregate(journal.Candidate.Aggregate) {
+		return fmt.Errorf("OPA-only settlement evaluator or policy-data identity changed after effect classification")
+	}
 	if err := r.resumeFinalPolicyActivation(ctx, record); err != nil {
 		return err
 	}
@@ -1070,7 +1120,8 @@ func (r *Runtime) observeExactSettledGateway(ctx context.Context, candidate fina
 	if err != nil {
 		return finalPolicyActivationRecord{}, err
 	}
-	if aggregate.AggregateRevision != candidate.Aggregate.AggregateRevision || aggregate.PolicyDirectory != candidate.Aggregate.PolicyDirectory || aggregate.GatewayConfig != candidate.Aggregate.GatewayConfig {
+	if aggregate.AggregateRevision != candidate.Aggregate.AggregateRevision || aggregate.PolicyDirectory != candidate.Aggregate.PolicyDirectory || aggregate.GatewayConfig != candidate.Aggregate.GatewayConfig ||
+		policyProjectionIdentityForAggregate(aggregate) != policyProjectionIdentityForAggregate(candidate.Aggregate) {
 		return finalPolicyActivationRecord{}, fmt.Errorf("settled Gateway aggregate differs from the reviewed candidate")
 	}
 	receipt, err := r.NewFinalAggregatePublicationReceipt(material, aggregate)
@@ -1088,6 +1139,14 @@ func (r *Runtime) observeExactSettledGateway(ctx context.Context, candidate fina
 		return finalPolicyActivationRecord{}, err
 	}
 	return record, record.validate(r)
+}
+
+func policyProjectionIdentityForAggregate(aggregate FinalAggregateProjection) tobari.PolicyProjectionIdentity {
+	return tobari.PolicyProjectionIdentity{
+		AggregateRevision:  aggregate.AggregateRevision,
+		EvaluatorIdentity:  aggregate.EvaluatorIdentity,
+		PolicyDataIdentity: aggregate.PolicyDataIdentity,
+	}
 }
 
 func (r *Runtime) publishFinalSettlementPrincipals(ctx context.Context, journal finalGatewaySettlementJournal) error {
@@ -1122,6 +1181,7 @@ func (r *Runtime) replaceFinalGateway(ctx context.Context, candidate finalGatewa
 	state := tobari.State{
 		SchemaVersion: 1, RuntimeDirectory: candidate.Compose.RuntimeDirectory,
 		AggregateRevision: candidate.Aggregate.AggregateRevision, ManifestCount: finalComposeProjectionCount(len(candidate.Plan.Contexts)),
+		EvaluatorIdentity: candidate.Aggregate.EvaluatorIdentity, PolicyDataIdentity: candidate.Aggregate.PolicyDataIdentity,
 		PolicyDirectory: candidate.Aggregate.PolicyDirectory, GatewayConfig: candidate.Aggregate.GatewayConfig,
 		AssetVersion: candidate.Compose.AssetVersion,
 	}
@@ -1516,6 +1576,7 @@ func (r *Runtime) buildFinalSettlementArtifacts(ctx context.Context, plan tobari
 	aggregate := FinalAggregateProjection{
 		AggregateRevision: projection.Revision, PolicyDirectory: projection.PolicyDirectory,
 		GatewayConfig: projection.GatewayConfig, MaterializedDigest: plan.ContentDigest,
+		EvaluatorIdentity: projection.EvaluatorIdentity, PolicyDataIdentity: projection.PolicyDataIdentity,
 	}
 	policyDigest, err := digestFinalArtifactTree(aggregate.PolicyDirectory, 64*1024*1024)
 	if err != nil {
@@ -1549,6 +1610,7 @@ func (r *Runtime) prepareFinalGatewayComposeAuthority(
 	state := tobari.State{
 		SchemaVersion: 1, RuntimeDirectory: runtimeDirectory,
 		AggregateRevision: aggregate.AggregateRevision, PolicyDirectory: aggregate.PolicyDirectory,
+		EvaluatorIdentity: aggregate.EvaluatorIdentity, PolicyDataIdentity: aggregate.PolicyDataIdentity,
 		GatewayConfig: aggregate.GatewayConfig, AssetVersion: version,
 	}
 	state.ManifestCount = finalComposeProjectionCount(contextCount)

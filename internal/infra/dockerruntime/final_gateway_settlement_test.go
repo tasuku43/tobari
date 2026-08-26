@@ -703,7 +703,7 @@ func (r *finalGatewaySettlementRunner) Run(_ context.Context, args, _ []string, 
 		_, _ = out.Write(payload)
 		return nil
 	}
-	if slices.Contains(args, "--interactive") {
+	if slices.Contains(args, "--interactive") && containsArgPrefix(args, "/bundle/.source-") {
 		r.events = append(r.events, "policy")
 		r.policyEffects++
 	}
@@ -1331,6 +1331,37 @@ func TestFinalGatewaySettlementResumesEveryPostEffectBoundaryThroughSameDecision
 			}
 			if _, err := runtime.readFinalPolicyActivation(runtime.finalPolicyActiveReceiptPath()); err != nil {
 				t.Fatalf("recovery omitted exact active receipt: %v", err)
+			}
+		})
+	}
+}
+
+func TestFinalGatewaySettlementRecoveryRejectsForgedProjectionIdentityAxes(t *testing.T) {
+	for name, forge := range map[string]func(*FinalAggregateProjection){
+		"evaluator": func(aggregate *FinalAggregateProjection) {
+			aggregate.EvaluatorIdentity.Digest = tobari.SemanticDigest("sha256:" + strings.Repeat("7", 64))
+		},
+		"policy data": func(aggregate *FinalAggregateProjection) {
+			aggregate.PolicyDataIdentity.Digest = tobari.SemanticDigest("sha256:" + strings.Repeat("8", 64))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			runtime, _, journal := finalGatewayCoordinatorFixture(t)
+			forge(&journal.Candidate.Aggregate)
+			if err := journal.validate(runtime); err != nil {
+				t.Fatalf("syntactically valid forged journal fixture: %v", err)
+			}
+			if err := runtime.writeFinalGatewaySettlementJournal(journal); err != nil {
+				t.Fatal(err)
+			}
+			if err := runtime.resumeFinalGatewaySettlement(context.Background(), journal); err == nil || !strings.Contains(err.Error(), "aggregate differs") {
+				t.Fatalf("forged %s identity recovery result=%v", name, err)
+			}
+			if _, err := runtime.readFinalPolicyActivation(runtime.finalPolicyActiveReceiptPath()); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("forged %s identity published active receipt: %v", name, err)
+			}
+			if retained, present, err := runtime.readFinalGatewaySettlementJournal(); err != nil || !present || retained.Phase != finalGatewayPhasePrincipals {
+				t.Fatalf("forged %s identity lost recoverable decision: phase=%q present=%t err=%v", name, retained.Phase, present, err)
 			}
 		})
 	}

@@ -15,7 +15,6 @@ func validContextManifest() WorkspaceManifest {
 		Name:           "project-tools",
 		AgentProfile:   DefaultProfile,
 		Image:          BuiltinImageSelector,
-		PolicyMode:     ManifestPolicyModeAdvanced,
 		SourceAccess:   ManifestSourceAccessReadWrite,
 		PolicyRevision: DefaultContextPolicyRevision(),
 	}
@@ -77,7 +76,7 @@ func TestContextCreateBaseIsCompleteValidatedAndDeepCloned(t *testing.T) {
 	literal := "prompt"
 	base := ManifestCopySnapshot{
 		ID: "018bcfe5-687b-7000-8000-000000000123", Name: "engineering",
-		Revision: "sha256:" + strings.Repeat("a", 64), PolicyMode: ManifestPolicyModeAdvanced,
+		Revision:     "sha256:" + strings.Repeat("a", 64),
 		Desired:      WorkspaceManifestRevision{Generation: 1, Revision: "sha256:" + strings.Repeat("a", 64), BoundaryRevision: "sha256:" + strings.Repeat("b", 64), ClusterProjectionRevision: "sha256:" + strings.Repeat("c", 64), EntryRevision: "sha256:" + strings.Repeat("d", 64), SessionDefaultsRevision: "sha256:" + strings.Repeat("e", 64), CreationDefaultsRevision: "sha256:" + strings.Repeat("f", 64)},
 		SourceAccess: ManifestSourceAccessReadOnly, NativeReadiness: ManifestNativeReadinessDisabled,
 		MethodPolicy:     ManifestMethodPolicy{Default: ManifestMethodDeny, Overrides: []ManifestMethodOverride{{Method: "GET", Decision: ManifestMethodAllow}}},
@@ -111,7 +110,7 @@ func TestContextCreateBaseIsCompleteValidatedAndDeepCloned(t *testing.T) {
 	}
 }
 
-func TestContextManifestValidatesRuntimeImageAndMode(t *testing.T) {
+func TestContextManifestValidatesRuntimeImageAndSourceAccess(t *testing.T) {
 	manifest := validContextManifest()
 	if err := manifest.Validate(); err != nil {
 		t.Fatalf("valid Workspace Manifest manifest rejected: %v", err)
@@ -120,7 +119,6 @@ func TestContextManifestValidatesRuntimeImageAndMode(t *testing.T) {
 	for name, mutate := range map[string]func(*WorkspaceManifest){
 		"invalid name":          func(value *WorkspaceManifest) { value.Name = "Project" },
 		"invalid image":         func(value *WorkspaceManifest) { value.Image = "--pull=always" },
-		"invalid mode":          func(value *WorkspaceManifest) { value.PolicyMode = "manual" },
 		"missing source access": func(value *WorkspaceManifest) { value.SourceAccess = "" },
 		"invalid source access": func(value *WorkspaceManifest) { value.SourceAccess = "snapshot" },
 	} {
@@ -361,7 +359,7 @@ func TestContextReportAcceptsRuntimeTasksAndStatuses(t *testing.T) {
 	contextReport := ManifestReport{
 		Task: TaskRuntimeBuild, ManifestState: ManifestObservationPersisted, ID: manifest.ID, Name: manifest.Name, Default: true,
 		Desired:      testManifestDesiredRevision(),
-		AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
+		AgentProfile: manifest.AgentProfile, Image: manifest.Image,
 		SourceAccess:   manifest.SourceAccess,
 		PolicyRevision: manifest.PolicyRevision, MethodPolicy: ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}},
 		Cluster: ManifestClusterStatusNotApplicable,
@@ -388,7 +386,7 @@ func TestContextReportKeepsStableSelectorSeparateFromResolvedRuntimeMaterial(t *
 	report := ManifestReport{
 		Task: TaskManifestShow, ManifestState: ManifestObservationPersisted, ID: manifest.ID, Name: manifest.Name,
 		Default: true, Desired: testManifestDesiredRevision(), AgentProfile: manifest.AgentProfile,
-		Image: BuiltinImageSelector, PolicyMode: manifest.PolicyMode, SourceAccess: manifest.SourceAccess,
+		Image: BuiltinImageSelector, SourceAccess: manifest.SourceAccess,
 		PolicyRevision: manifest.PolicyRevision, MethodPolicy: ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}},
 		ShellEnvironment: mustCompleteContextShellEnvironment(t, nil), GitIdentity: DefaultContextGitIdentityReport(),
 		Stores:  ManifestStorePaths{PolicyDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", "default", "policy")},
@@ -405,7 +403,7 @@ func TestManifestReportRejectsContradictoryPortableBindingImage(t *testing.T) {
 	report := ManifestReport{
 		Task: TaskManifestShow, ManifestState: ManifestObservationPersisted, ID: manifest.ID, Name: manifest.Name,
 		Default: true, Desired: testManifestDesiredRevision(), AgentProfile: manifest.AgentProfile,
-		Image: "example.com/custom:a", PolicyMode: manifest.PolicyMode, SourceAccess: manifest.SourceAccess,
+		Image: "example.com/custom:a", SourceAccess: manifest.SourceAccess,
 		PolicyRevision: manifest.PolicyRevision, MethodPolicy: ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}},
 		ShellEnvironment: mustCompleteContextShellEnvironment(t, nil), GitIdentity: DefaultContextGitIdentityReport(),
 		Stores: ManifestStorePaths{PolicyDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", "default", "policy")},
@@ -427,7 +425,7 @@ func TestContextReportAcceptsConfigurationTasksAndRequiresCompleteGitIdentity(t 
 	base := ManifestReport{
 		ManifestState: ManifestObservationPersisted, ID: manifest.ID, Name: manifest.Name, AgentProfile: manifest.AgentProfile,
 		Desired: testManifestDesiredRevision(),
-		Image:   manifest.Image, PolicyMode: manifest.PolicyMode, SourceAccess: manifest.SourceAccess,
+		Image:   manifest.Image, SourceAccess: manifest.SourceAccess,
 		PolicyRevision: manifest.PolicyRevision, MethodPolicy: ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}},
 		ShellEnvironment: mustCompleteContextShellEnvironment(t, nil),
 		GitIdentity:      DefaultContextGitIdentityReport(),
@@ -478,8 +476,8 @@ func TestContextClusterStatusValidatesKnownOutcomes(t *testing.T) {
 
 func TestContextListRequiresOneMatchingActiveItem(t *testing.T) {
 	items := []ManifestSummary{
-		{ID: "018bcfe5-687b-7000-8000-000000000000", Name: "default", ManifestState: ManifestObservationPersisted, Default: true, AgentProfile: DefaultProfile, Image: BuiltinImageSelector, PolicyMode: ManifestPolicyModeGuided, SourceAccess: ManifestSourceAccessReadWrite, PolicyRevision: DefaultContextPolicyRevision(), MethodPolicy: ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}}, RuntimeStatus: ManifestRuntimeStatusOfficial, RuntimeSelection: StandardRuntimeName + "@1"},
-		{ID: "018bcfe5-687b-7000-8000-000000000001", Name: "project-tools", ManifestState: ManifestObservationPersisted, AgentProfile: DefaultProfile, Image: BuiltinImageSelector, PolicyMode: ManifestPolicyModeAdvanced, SourceAccess: ManifestSourceAccessReadOnly, PolicyRevision: DefaultContextPolicyRevision(), MethodPolicy: ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}}, RuntimeStatus: ManifestRuntimeStatusOfficial, RuntimeSelection: StandardRuntimeName + "@1"},
+		{ID: "018bcfe5-687b-7000-8000-000000000000", Name: "default", ManifestState: ManifestObservationPersisted, Default: true, AgentProfile: DefaultProfile, Image: BuiltinImageSelector, SourceAccess: ManifestSourceAccessReadWrite, PolicyRevision: DefaultContextPolicyRevision(), MethodPolicy: ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}}, RuntimeStatus: ManifestRuntimeStatusOfficial, RuntimeSelection: StandardRuntimeName + "@1"},
+		{ID: "018bcfe5-687b-7000-8000-000000000001", Name: "project-tools", ManifestState: ManifestObservationPersisted, AgentProfile: DefaultProfile, Image: BuiltinImageSelector, SourceAccess: ManifestSourceAccessReadOnly, PolicyRevision: DefaultContextPolicyRevision(), MethodPolicy: ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}}, RuntimeStatus: ManifestRuntimeStatusOfficial, RuntimeSelection: StandardRuntimeName + "@1"},
 	}
 	for index := range items {
 		items[index].Desired = testManifestDesiredRevision()
@@ -514,7 +512,7 @@ func TestWorkspaceManifestPublicationBindsCanonicalBodyAndGeneration(t *testing.
 		SchemaVersion: WorkspaceManifestSchemaVersion,
 		ID:            "018bcfe5-687b-7000-8000-000000000000", Name: "default",
 		AgentProfile: DefaultProfile, Image: BuiltinImageSelector,
-		PolicyMode: ManifestPolicyModeGuided, SourceAccess: ManifestSourceAccessReadWrite,
+		SourceAccess:     ManifestSourceAccessReadWrite,
 		PolicyRevision:   DefaultContextPolicyRevision(),
 		RuntimeBinding:   &RuntimeBinding{RuntimeID: StandardRuntimeID, Name: StandardRuntimeName, Revision: "sha256:" + strings.Repeat("a", 64), Ordinal: 1, Image: testRuntimeImage},
 		ShellEnvironment: InitialContextShellEnvironment(),
@@ -565,7 +563,7 @@ func TestManifestListAllowsAnAbsentDefaultWithoutAuthority(t *testing.T) {
 	result.Items = []ManifestSummary{{
 		ID: "018bcfe5-687b-7000-8000-000000000000", Name: DefaultManifestName,
 		ManifestState: ManifestObservationPersisted, Default: true, AgentProfile: DefaultProfile,
-		Image: BuiltinImageSelector, PolicyMode: ManifestPolicyModeGuided,
+		Image: BuiltinImageSelector,
 	}}
 	if err := result.Validate(); err == nil {
 		t.Fatal("synthetic Workspace Manifest list accepted a configured item")
@@ -579,7 +577,7 @@ func TestContextListRequiresTopLevelStateToMatchActiveItem(t *testing.T) {
 		Items: []ManifestSummary{{
 			ID: "018bcfe5-687b-7000-8000-000000000000", Name: DefaultManifestName,
 			ManifestState: ManifestObservationPersisted, Default: true, AgentProfile: DefaultProfile,
-			Image: BuiltinImageSelector, PolicyMode: ManifestPolicyModeGuided, SourceAccess: ManifestSourceAccessReadWrite,
+			Image: BuiltinImageSelector, SourceAccess: ManifestSourceAccessReadWrite,
 		}},
 	}
 	if err := result.Validate(); err == nil {
@@ -592,7 +590,7 @@ func TestAbsentManifestReportCannotClaimAuthorityOrStores(t *testing.T) {
 	report := ManifestReport{
 		Task: TaskManifestShow, ManifestState: ManifestObservationAbsent,
 		Name: DefaultManifestName, Default: true, AgentProfile: DefaultProfile,
-		Image: BuiltinImageSelector, PolicyMode: ManifestPolicyModeGuided, SourceAccess: ManifestSourceAccessReadWrite,
+		Image: BuiltinImageSelector, SourceAccess: ManifestSourceAccessReadWrite,
 		MethodPolicy:     ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}},
 		ShellEnvironment: DefaultContextShellEnvironmentReport(),
 		GitIdentity:      DefaultContextGitIdentityReport(),

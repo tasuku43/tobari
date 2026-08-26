@@ -291,6 +291,8 @@ type FinalAggregateProjection struct {
 	PolicyDirectory    string
 	GatewayConfig      string
 	MaterializedDigest tobari.SemanticDigest
+	EvaluatorIdentity  tobari.PolicyEvaluatorIdentity
+	PolicyDataIdentity tobari.PolicyDataIdentity
 }
 
 const finalAggregatePublicationReceiptSchema = 1
@@ -303,6 +305,8 @@ type FinalAggregatePublicationReceipt struct {
 	SchemaVersion        int                                      `json:"schema_version"`
 	MaterializedDigest   tobari.SemanticDigest                    `json:"materialized_digest"`
 	AggregateRevision    string                                   `json:"aggregate_revision"`
+	EvaluatorIdentity    tobari.PolicyEvaluatorIdentity           `json:"evaluator_identity"`
+	PolicyDataIdentity   tobari.PolicyDataIdentity                `json:"policy_data_identity"`
 	PolicyArtifact       tobari.SemanticDigest                    `json:"policy_artifact_digest"`
 	GatewayArtifact      tobari.SemanticDigest                    `json:"gateway_artifact_digest"`
 	TemplateReceipts     []tobari.TemplatePolicyActivationReceipt `json:"template_policy_receipts"`
@@ -315,6 +319,8 @@ type finalAggregatePublicationReceiptContent struct {
 	SchemaVersion        int
 	MaterializedDigest   tobari.SemanticDigest
 	AggregateRevision    string
+	EvaluatorIdentity    tobari.PolicyEvaluatorIdentity
+	PolicyDataIdentity   tobari.PolicyDataIdentity
 	PolicyArtifact       tobari.SemanticDigest
 	GatewayArtifact      tobari.SemanticDigest
 	TemplateReceipts     []tobari.TemplatePolicyActivationReceipt
@@ -324,7 +330,7 @@ type finalAggregatePublicationReceiptContent struct {
 
 func (r FinalAggregatePublicationReceipt) content() finalAggregatePublicationReceiptContent {
 	return finalAggregatePublicationReceiptContent{
-		r.SchemaVersion, r.MaterializedDigest, r.AggregateRevision, r.PolicyArtifact, r.GatewayArtifact,
+		r.SchemaVersion, r.MaterializedDigest, r.AggregateRevision, r.EvaluatorIdentity, r.PolicyDataIdentity, r.PolicyArtifact, r.GatewayArtifact,
 		r.TemplateReceipts, r.PolicyMemoryReceipts, r.PrincipalDigest,
 	}
 }
@@ -333,7 +339,7 @@ func (r FinalAggregatePublicationReceipt) ValidateFor(material FinalWorkspacePol
 	if err := material.Validate(); err != nil {
 		return err
 	}
-	if r.SchemaVersion != finalAggregatePublicationReceiptSchema || r.MaterializedDigest != material.MaterializedDigest || !aggregateRevisionPattern.MatchString(r.AggregateRevision) || r.PolicyArtifact.Validate() != nil || r.GatewayArtifact.Validate() != nil || r.PrincipalDigest.Validate() != nil {
+	if r.SchemaVersion != finalAggregatePublicationReceiptSchema || r.MaterializedDigest != material.MaterializedDigest || !aggregateRevisionPattern.MatchString(r.AggregateRevision) || r.EvaluatorIdentity.Validate() != nil || r.PolicyDataIdentity.Validate() != nil || r.PolicyArtifact.Validate() != nil || r.GatewayArtifact.Validate() != nil || r.PrincipalDigest.Validate() != nil {
 		return fmt.Errorf("final aggregate publication receipt metadata is invalid")
 	}
 	templates := make([]tobari.TemplatePolicyActivationReceipt, len(material.Plan.Contexts))
@@ -360,7 +366,7 @@ func (r *Runtime) NewFinalAggregatePublicationReceipt(material FinalWorkspacePol
 	if err := material.Validate(); err != nil {
 		return FinalAggregatePublicationReceipt{}, err
 	}
-	if aggregate.MaterializedDigest != material.MaterializedDigest || !aggregateRevisionPattern.MatchString(aggregate.AggregateRevision) {
+	if aggregate.MaterializedDigest != material.MaterializedDigest || !aggregateRevisionPattern.MatchString(aggregate.AggregateRevision) || aggregate.EvaluatorIdentity.Validate() != nil || aggregate.PolicyDataIdentity.Validate() != nil {
 		return FinalAggregatePublicationReceipt{}, fmt.Errorf("final aggregate artifact crosses materialized authority")
 	}
 	policyDigest, err := digestFinalArtifactTree(aggregate.PolicyDirectory, 64*1024*1024)
@@ -378,7 +384,8 @@ func (r *Runtime) NewFinalAggregatePublicationReceipt(material FinalWorkspacePol
 	}
 	receipt := FinalAggregatePublicationReceipt{
 		SchemaVersion: finalAggregatePublicationReceiptSchema, MaterializedDigest: material.MaterializedDigest,
-		AggregateRevision: aggregate.AggregateRevision, PolicyArtifact: policyDigest,
+		AggregateRevision: aggregate.AggregateRevision, EvaluatorIdentity: aggregate.EvaluatorIdentity,
+		PolicyDataIdentity: aggregate.PolicyDataIdentity, PolicyArtifact: policyDigest,
 		GatewayArtifact: tobari.SemanticDigest("sha256:" + hex.EncodeToString(gatewayDigest[:])), PrincipalDigest: principalDigest,
 		TemplateReceipts:     make([]tobari.TemplatePolicyActivationReceipt, len(material.Plan.Contexts)),
 		PolicyMemoryReceipts: make([]tobari.PolicyMemoryActivationReceipt, len(material.Plan.Contexts)),
@@ -486,6 +493,7 @@ func (r *Runtime) BuildFinalAggregateProjection(ctx context.Context, material Fi
 	return FinalAggregateProjection{
 		AggregateRevision: result.Revision, PolicyDirectory: result.PolicyDirectory,
 		GatewayConfig: result.GatewayConfig, MaterializedDigest: material.MaterializedDigest,
+		EvaluatorIdentity: result.EvaluatorIdentity, PolicyDataIdentity: result.PolicyDataIdentity,
 	}, nil
 }
 
@@ -538,21 +546,10 @@ func finalAggregateContext(authority tobari.WorkspacePolicyProjectionContext) (a
 			"mcp_baseline_grants": effective.MCPBaselineGrants, "baseline_denies": effective.BaselineDenies,
 		},
 	}
-	var rego []byte
-	if authority.TemplatePolicy.Policy.Mode == tobari.ManifestPolicyModeGuided {
-		rego, err = runtimeassets.Read("opa/policy/tobari.rego")
-	} else if authority.TemplatePolicy.Policy.AdvancedPolicy != nil {
-		rego = []byte(authority.TemplatePolicy.Policy.AdvancedPolicy.Tobari)
-	} else {
-		err = fmt.Errorf("final Advanced policy source is unavailable")
-	}
-	if err != nil {
-		return aggregateContext{}, err
-	}
 	finalAuthority := authority.Clone()
 	return aggregateContext{
 		contextID: string(authority.ContextID), presentation: authority.Presentation,
-		policyMode: authority.TemplatePolicy.Policy.Mode, finalAuthority: &finalAuthority, data: data, rego: rego,
+		finalAuthority: &finalAuthority, data: data,
 		graphqlEndpoints: graphql, mcpEndpoints: mcp, kubernetesEndpoints: kubernetes, contextPolicy: effective,
 	}, nil
 }
@@ -622,35 +619,19 @@ func finalKubernetesEndpoints(principal *tobari.WorkspacePolicyPrincipalAuthorit
 }
 
 func (r *Runtime) testFinalContextPolicy(ctx context.Context, authority tobari.WorkspacePolicyProjectionContext, item aggregateContext) error {
-	if err := r.ensurePrivateDirectory(r.aggregateRoot()); err != nil {
-		return err
-	}
-	directory, err := os.MkdirTemp(r.aggregateRoot(), ".final-policy-preflight-")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(directory)
-	if err := os.Chmod(directory, 0o700); err != nil { // #nosec G302 -- final policy preflight is owner-only.
-		return err
-	}
 	data, err := json.Marshal(map[string]any{"tobari": item.data})
 	if err != nil {
 		return err
 	}
-	rego := item.rego
-	var tests []byte
-	if authority.TemplatePolicy.Policy.Mode == tobari.ManifestPolicyModeAdvanced {
-		tests = []byte(authority.TemplatePolicy.Policy.AdvancedPolicy.TobariTest)
-	} else {
-		tests, err = runtimeassets.Read("opa/policy/tobari_test.rego")
-		if err != nil {
-			return err
-		}
+	rego, err := canonicalEvaluatorModule()
+	if err != nil {
+		return err
 	}
-	for name, contents := range map[string][]byte{"data.json": data, "tobari.rego": rego, "tobari_test.rego": tests} {
-		if err := os.WriteFile(filepath.Join(directory, name), contents, 0o600); err != nil {
-			return err
-		}
+	tests, err := runtimeassets.Read("opa/policy/tobari_test.rego")
+	if err != nil {
+		return err
 	}
-	return r.testPolicyDirectory(ctx, directory)
+	return r.testPolicyPreflight(ctx, policyPreflight{
+		data: data, evaluator: rego, tests: tests,
+	})
 }

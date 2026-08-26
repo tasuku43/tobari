@@ -270,7 +270,7 @@ func contextListSpec() CommandSpec {
 					{Name: "workspace_manifest_state", Type: OutputFieldTypeString, Description: "Whether persisted Workspace Manifest authority exists.", Enum: []string{"persisted", "absent"}},
 					{Name: "default_manifest_id", Type: OutputFieldTypeString, Description: "Exact default Workspace Manifest identity, omitted for an empty catalog.", Optional: true},
 					{Name: "default_manifest", Type: OutputFieldTypeString, Description: "Default Workspace Manifest name, omitted for an empty catalog.", Optional: true},
-					{Name: "items", Type: OutputFieldTypeArray, Description: "Complete local Workspace Manifest collection with default-selection state, stable ID, image, agent profile, policy mode, source access, and runtime status.", SemanticScope: "All locally configured Workspace Manifests at one observation.", Items: &OutputField{
+					{Name: "items", Type: OutputFieldTypeArray, Description: "Complete local Workspace Manifest collection with default-selection state, stable ID, image, agent profile, source access, and runtime status.", SemanticScope: "All locally configured Workspace Manifests at one observation.", Items: &OutputField{
 						Type: OutputFieldTypeObject, Description: "One configured Workspace Manifest.", Fields: []OutputField{
 							{Name: "workspace_manifest_id", Type: OutputFieldTypeString, Description: "Stable Workspace Manifest authority identity.", Nullable: true},
 							{Name: "name", Type: OutputFieldTypeString, Description: "Human Workspace Manifest name."},
@@ -279,7 +279,6 @@ func contextListSpec() CommandSpec {
 							workspaceManifestDesiredOutputField(),
 							{Name: "agent_profile", Type: OutputFieldTypeString, Description: "Read-only agent profile reference."},
 							{Name: "image", Type: OutputFieldTypeString, Description: "Selected compatible runtime image."},
-							{Name: "policy_mode", Type: OutputFieldTypeString, Description: "Creation-time immutable Boundary policy-development mode.", Enum: []string{"guided", "advanced"}},
 							{Name: "source_access", Type: OutputFieldTypeString, Description: "Creation-time immutable Boundary access for the direct project-source bind.", Enum: []string{"read-only", "read-write"}},
 							{Name: "policy_revision", Type: OutputFieldTypeString, Description: "Immutable revision of the Workspace Manifest-owned normalized policy snapshot."},
 							{Name: "native_readiness", Type: OutputFieldTypeString, Description: "Creation-time immutable Boundary choice for native-client readiness participation.", Enum: []string{"enabled", "disabled"}},
@@ -332,12 +331,12 @@ func contextShowSpec() CommandSpec {
 func contextCreateSpec() CommandSpec {
 	return CommandSpec{
 		Path: "manifest create", Summary: "Create a named Workspace Manifest definition directly or by completing omitted settings",
-		Args:   "[--copy-from <manifest-name>] [--name <name>] [--runtime <standard|name@ordinal>] [--mode guided|advanced] [--source-access read-only|read-write] [--native-readiness enabled|disabled] [--bootstrap-aws-profile <name>] [--bootstrap-eks-context <name>] [--format text|json]",
+		Args:   "[--copy-from <manifest-name>] [--name <name>] [--runtime <standard|name@ordinal>] [--source-access read-only|read-write] [--native-readiness enabled|disabled] [--bootstrap-aws-profile <name>] [--bootstrap-eks-context <name>] [--format text|json]",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID:  "manifest.composition",
 			Outcome:       "Create one stable named Workspace definition with an immutable source/network Boundary, exact Runtime binding, narrow Workspace defaults, and separate owner-only policy and authentication state",
-			Inputs:        []CommandInput{contextCreateBaseInput(), contextCreateNameInput(), contextCreateRuntimeInput(), contextModeInput(), contextSourceAccessInput(), contextNativeReadinessInput(), contextCreateAWSBootstrapInput(), contextCreateEKSBootstrapInput(), formatInput()},
+			Inputs:        []CommandInput{contextCreateBaseInput(), contextCreateNameInput(), contextCreateRuntimeInput(), contextSourceAccessInput(), contextNativeReadinessInput(), contextCreateAWSBootstrapInput(), contextCreateEKSBootstrapInput(), formatInput()},
 			Output:        contextReportOutput(),
 			Prerequisites: []string{"The host Workspace Manifest directory is accessible."},
 			FixedTarget:   fixedContextCatalogTarget(),
@@ -350,7 +349,7 @@ func contextCreateSpec() CommandSpec {
 				declaredCommandError(fault.KindInternal, "manifest_create_wizard_failed", false, "manifest create", "Retry the wizard or use the complete direct input group."),
 				declaredCommandError(fault.KindRejected, "aws_bootstrap_source_rejected", false, "help config bootstrap aws", "Choose a strict IAM Identity Center profile without credentials, helpers, or unsupported directives."),
 				declaredCommandError(fault.KindRejected, "eks_bootstrap_source_rejected", false, "help config bootstrap kubernetes eks", "Choose a strict AWS CLI-generated EKS context bound to the selected AWS profile."),
-				declaredCommandError(fault.KindInvalidInput, "invalid_context", false, "help manifest create", "Correct the Workspace Manifest name, image, policy mode, or source access."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_context", false, "help manifest create", "Correct the Workspace Manifest name, image, or source access."),
 				declaredCommandError(fault.KindRejected, "manifest_exists", false, "manifest list", "List existing Workspace Manifests before choosing another name."),
 				declaredCommandError(fault.KindNotFound, "runtime_not_found", false, "runtime list", "Choose an existing Runtime."),
 				declaredCommandError(fault.KindRejected, "runtime_revision_not_ready", false, "review runtimes", "Choose an existing successful revision."),
@@ -972,7 +971,7 @@ func clusterStatusSpec() CommandSpec {
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields:   clusterStatusOutputFields(),
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-				JSONEnvelope: "cluster", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1,
+				JSONEnvelope: "cluster", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 2,
 			},
 			Prerequisites: []string{},
 			Errors: readCommandErrors("cluster status", true,
@@ -991,12 +990,13 @@ func clusterStatusSpec() CommandSpec {
 
 func clusterStatusOutputFields() []OutputField {
 	fields := []OutputField{
-		{Name: "configured", Type: OutputFieldTypeBoolean, Description: "Whether schema-1 aggregate cluster state exists."},
+		{Name: "configured", Type: OutputFieldTypeBoolean, Description: "Whether supported aggregate cluster state exists."},
 		{Name: "running", Type: OutputFieldTypeBoolean, Description: "Whether the compiled shared services are healthy."},
-		{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical host XDG policy directory, or null when unconfigured.", Nullable: true},
 		{Name: "workspace_count", Type: OutputFieldTypeInteger, Description: "Number of configured Workspaces."},
 		{Name: "manifest_count", Type: OutputFieldTypeInteger, Description: "Number of Workspace Manifest policies loaded in the aggregate projection."},
-		{Name: "policy_revision", Type: OutputFieldTypeString, Description: "Content-addressed aggregate policy revision, or null when unconfigured.", Nullable: true},
+		{Name: "aggregate_revision", Type: OutputFieldTypeString, Description: "Content-addressed aggregate policy revision, or null when unconfigured.", Nullable: true},
+		policyEvaluatorIdentityOutputField(true),
+		policyDataIdentityOutputField(true),
 		{Name: "policy_projection", Type: OutputFieldTypeString, Description: "All-Workspace Manifest policy projection integrity observation.", Enum: []string{"valid", "invalid", "unavailable"}},
 		{Name: "principal_registry", Type: OutputFieldTypeString, Description: "Principal registry integrity observation.", Enum: []string{"valid", "invalid", "unavailable"}},
 		{Name: "gateway_projection", Type: OutputFieldTypeString, Description: "Gateway routing projection integrity observation.", Enum: []string{"valid", "invalid", "unavailable"}},
@@ -1043,7 +1043,9 @@ func clusterDenialsSpec() CommandSpec {
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
-					{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical trusted-host XDG policy directory."},
+					{Name: "aggregate_revision", Type: OutputFieldTypeString, Description: "Content-addressed active aggregate policy revision."},
+					policyEvaluatorIdentityOutputField(false),
+					policyDataIdentityOutputField(false),
 					{Name: "window_lines", Type: OutputFieldTypeInteger, Description: "Maximum recent Gateway lines inspected."},
 					{Name: "unparsed_lines", Type: OutputFieldTypeInteger, Description: "Denial-shaped Gateway lines that could not safely enter the typed projection."},
 					{
@@ -1123,9 +1125,9 @@ func policyCandidatesSpec() CommandSpec {
 			Inputs:       []CommandInput{denialTailInput(), formatInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
-				Fields:   policyCandidateOutputFields(),
+				Fields:   policyCandidateReportOutputFields(),
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
-				JSONEnvelope: "policy_candidates", JSONEnvelopeType: OutputFieldTypeArray, JSONSchemaVersion: 1,
+				JSONEnvelope: "policy_candidates", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 2,
 			},
 			Prerequisites: []string{"The cluster has retained Gateway denial evidence."},
 			Errors:        policyCandidateReadErrors("policy candidates", true),
@@ -1144,9 +1146,9 @@ func policyReviewSpec() CommandSpec {
 			Inputs:       []CommandInput{reviewTailInput(), formatInput(), policyReviewWatchInput(), policyReviewNotifyInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
-				Fields:   policyCandidateOutputFields(),
+				Fields:   policyCandidateReportOutputFields(),
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
-				JSONEnvelope: "policy_review", JSONEnvelopeType: OutputFieldTypeArray, JSONSchemaVersion: 1,
+				JSONEnvelope: "policy_review", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 2,
 			},
 			Prerequisites: []string{"The cluster has retained Gateway denial evidence."},
 			Errors: append(policyCandidateReadErrors("review permissions", true),
@@ -1178,7 +1180,9 @@ func policyApplyReviewedSpec() CommandSpec {
 				TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
 					{Name: "task", Type: OutputFieldTypeString, Description: "Confirmed reviewed-set task identity."},
-					{Name: "policy", Type: OutputFieldTypeString, Description: "Host policy source associated with the confirmed aggregate."},
+					{Name: "aggregate_revision", Type: OutputFieldTypeString, Description: "Confirmed active aggregate policy revision."},
+					policyEvaluatorIdentityOutputField(false),
+					policyDataIdentityOutputField(false),
 					{Name: "allow_count", Type: OutputFieldTypeInteger, Description: "Number of exact or path-template Allow rules applied."},
 					{Name: "deny_count", Type: OutputFieldTypeInteger, Description: "Number of exact Denies applied."},
 					{Name: "applied", Type: OutputFieldTypeBoolean, Description: "Always true after exact revision confirmation."},
@@ -1260,11 +1264,11 @@ func policyRulesSpec() CommandSpec {
 			Inputs:       []CommandInput{formatInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
-				Fields:   policyRuleOutputFields(),
+				Fields:   policyRuleReportOutputFields(),
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-				JSONEnvelope: "policy_rules", JSONEnvelopeType: OutputFieldTypeArray, JSONSchemaVersion: 1,
+				JSONEnvelope: "policy_rules", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 2,
 			},
-			Prerequisites: []string{"Every configured Workspace Manifest has a validated policy source and the shared aggregate is current."},
+			Prerequisites: []string{"Every configured Workspace Manifest has validated typed policy data and the shared aggregate is current."},
 			Errors:        policyRuleReadErrors("policy rules", true),
 			Interactive: &InteractiveWorkflowContract{
 				ActionCommand:          "policy reset",
@@ -1608,15 +1612,6 @@ func contextImageInput() CommandInput {
 	}
 }
 
-func contextModeInput() CommandInput {
-	return CommandInput{
-		Name: "--mode", Source: InputSourceFlag, Required: false,
-		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-		Description:   "Creation-time immutable Boundary mode: guided exact permission review or advanced trusted-host Rego; required in the complete direct input group.",
-		AllowedValues: []string{"guided", "advanced"}, DefaultValue: stringPointer("guided"),
-	}
-}
-
 func contextSourceAccessInput() CommandInput {
 	return CommandInput{
 		Name: "--source-access", Source: InputSourceFlag, Required: false,
@@ -1627,7 +1622,7 @@ func contextSourceAccessInput() CommandInput {
 }
 
 func contextNativeReadinessInput() CommandInput {
-	return CommandInput{Name: "--native-readiness", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Creation-time immutable Boundary choice that admits the trusted binary's current native-client readiness overlay; required with --mode and still bounded by Workspace Manifest policy ceilings.", AllowedValues: []string{"enabled", "disabled"}, DefaultValue: stringPointer("enabled")}
+	return CommandInput{Name: "--native-readiness", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Creation-time immutable Boundary choice that admits the trusted binary's current native-client readiness overlay, still bounded by Workspace Manifest policy ceilings.", AllowedValues: []string{"enabled", "disabled"}, DefaultValue: stringPointer("enabled")}
 }
 
 func contextReportOutput() CommandOutput {
@@ -1642,7 +1637,6 @@ func contextReportOutput() CommandOutput {
 			workspaceManifestDesiredOutputField(),
 			{Name: "agent_profile", Type: OutputFieldTypeString, Description: "Read-only shared agent profile reference."},
 			{Name: "image", Type: OutputFieldTypeString, Description: "Default compatible Tobari image selector stored in the Workspace Manifest."},
-			{Name: "policy_mode", Type: OutputFieldTypeString, Description: "Creation-time immutable Boundary policy-development mode.", Enum: []string{"guided", "advanced"}},
 			{Name: "source_access", Type: OutputFieldTypeString, Description: "Creation-time immutable Boundary access for the direct project-source bind; this does not describe Workspace home or tmpfs.", Enum: []string{"read-only", "read-write"}},
 			{Name: "policy_revision", Type: OutputFieldTypeString, Description: "SHA-256 revision of the immutable Workspace Manifest-owned normalized policy snapshot; empty only for a synthetic default."},
 			{Name: "native_readiness", Type: OutputFieldTypeString, Description: "Creation-time immutable Boundary choice for native-client readiness participation; the system policy ceiling still bounds its effects.", Enum: []string{"enabled", "disabled"}},
@@ -1885,11 +1879,64 @@ func policyRuleOutputFields() []OutputField {
 	}
 }
 
+func policyEvaluatorIdentityOutputField(nullable bool) OutputField {
+	return OutputField{
+		Name: "evaluator_identity", Type: OutputFieldTypeObject, Nullable: nullable,
+		Description: "Path-free identity of the fixed Tobari-owned evaluator.",
+		Fields: []OutputField{
+			{Name: "schema_version", Type: OutputFieldTypeInteger, Description: "Evaluator identity schema version."},
+			{Name: "version", Type: OutputFieldTypeString, Description: "Fixed Tobari evaluator version."},
+			{Name: "digest", Type: OutputFieldTypeString, Description: "Digest of the exact evaluator bytes mounted for execution."},
+		},
+	}
+}
+
+func policyDataIdentityOutputField(nullable bool) OutputField {
+	return OutputField{
+		Name: "policy_data_identity", Type: OutputFieldTypeObject, Nullable: nullable,
+		Description: "Path-free identity of the complete canonical typed policy data.",
+		Fields: []OutputField{
+			{Name: "schema_version", Type: OutputFieldTypeInteger, Description: "Policy-data identity schema version."},
+			{Name: "digest", Type: OutputFieldTypeString, Description: "Digest of the complete canonical typed policy data."},
+		},
+	}
+}
+
+func policyProjectionIdentityOutputFields(nullable bool) []OutputField {
+	return []OutputField{
+		{Name: "aggregate_revision", Type: OutputFieldTypeString, Description: "Content-addressed active aggregate policy revision.", Nullable: nullable},
+		policyEvaluatorIdentityOutputField(nullable),
+		policyDataIdentityOutputField(nullable),
+	}
+}
+
+func policyCandidateReportOutputFields() []OutputField {
+	fields := policyProjectionIdentityOutputFields(false)
+	return append(fields,
+		OutputField{Name: "window_lines", Type: OutputFieldTypeInteger, Description: "Maximum recent Gateway lines inspected."},
+		OutputField{Name: "unparsed_lines", Type: OutputFieldTypeInteger, Description: "Denial-shaped Gateway lines that could not safely enter the typed projection."},
+		OutputField{Name: "items", Type: OutputFieldTypeArray, Description: "Validated pending policy candidates.", SemanticScope: "Pending candidates in the requested bounded Gateway-log window.", Items: &OutputField{
+			Type: OutputFieldTypeObject, Description: "One validated pending policy candidate.", Fields: policyCandidateOutputFields(),
+		}},
+	)
+}
+
+func policyRuleReportOutputFields() []OutputField {
+	fields := policyProjectionIdentityOutputFields(false)
+	return append(fields, OutputField{
+		Name: "items", Type: OutputFieldTypeArray, Description: "Complete current learned policy decisions.", SemanticScope: "All current learned decisions at one observation point.", Items: &OutputField{
+			Type: OutputFieldTypeObject, Description: "One current learned policy decision.", Fields: policyRuleOutputFields(),
+		},
+	})
+}
+
 func policyRuleResetOutput() CommandOutput {
 	return CommandOutput{
 		Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 		Fields: []OutputField{
-			{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical trusted-host XDG policy directory."},
+			{Name: "aggregate_revision", Type: OutputFieldTypeString, Description: "Confirmed active aggregate policy revision."},
+			policyEvaluatorIdentityOutputField(false),
+			policyDataIdentityOutputField(false),
 			{Name: "target_id", Type: OutputFieldTypeString, Description: "Opaque policy-rule ID consumed unchanged."},
 			{Name: "decision", Type: OutputFieldTypeString, Description: "Removed learned decision: allow or deny.", Enum: tobari.PolicyDecisionValues()},
 			{Name: "applied", Type: OutputFieldTypeBoolean, Description: "Whether the tested reset is active."},
@@ -1904,8 +1951,8 @@ func policyCandidateOutputFields() []OutputField {
 		{Name: "id", Type: OutputFieldTypeString, Description: "Opaque exact policy-candidate reference.", ReferenceKind: tobari.PolicyCandidateKind},
 		{Name: "observed_at", Type: OutputFieldTypeString, Description: "Latest matching Gateway denial timestamp."},
 		{Name: "observation_count", Type: OutputFieldTypeInteger, Description: "Matching retained denial observations."},
-		{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable final Context authority established by Gateway network identity."},
-		{Name: "context", Type: OutputFieldTypeString, Description: "Human-readable final Context presentation."},
+		{Name: "workspace_manifest_id", Type: OutputFieldTypeString, Description: "Stable Workspace Manifest authority established by Gateway network identity."},
+		{Name: "workspace_manifest", Type: OutputFieldTypeString, Description: "Human-readable Workspace Manifest presentation."},
 		{Name: "workspace_id", Type: OutputFieldTypeString, Description: "Stable Workspace identity for the denied request."},
 		{Name: "project_root", Type: OutputFieldTypeString, Description: "Safe diagnostic canonical project root."},
 		{Name: "scheme", Type: OutputFieldTypeString, Description: "Exact denied request scheme.", Enum: []string{"http", "https"}},
@@ -1944,8 +1991,8 @@ func policyDenialOutputFields() []OutputField {
 	return []OutputField{
 		{Name: "timestamp", Type: OutputFieldTypeString, Description: "Validated denial timestamp."},
 		{Name: "request_id", Type: OutputFieldTypeString, Description: "Secret-free request identity."},
-		{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable final Context authority established by Gateway network identity."},
-		{Name: "context", Type: OutputFieldTypeString, Description: "Human-readable final Context presentation."},
+		{Name: "workspace_manifest_id", Type: OutputFieldTypeString, Description: "Stable Workspace Manifest authority established by Gateway network identity."},
+		{Name: "workspace_manifest", Type: OutputFieldTypeString, Description: "Human-readable Workspace Manifest presentation."},
 		{Name: "workspace_id", Type: OutputFieldTypeString, Description: "Stable Workspace identity carried by the host-issued principal."},
 		{Name: "project_root", Type: OutputFieldTypeString, Description: "Safe canonical project root."},
 		{Name: "scheme", Type: OutputFieldTypeString, Description: "Exact denied scheme.", Enum: []string{"http", "https"}},
@@ -1983,7 +2030,9 @@ func policyDenyChangeOutput() CommandOutput {
 	return CommandOutput{
 		Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 		Fields: []OutputField{
-			{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical trusted-host XDG policy directory."},
+			{Name: "aggregate_revision", Type: OutputFieldTypeString, Description: "Confirmed active aggregate policy revision."},
+			policyEvaluatorIdentityOutputField(false),
+			policyDataIdentityOutputField(false),
 			{Name: "target_id", Type: OutputFieldTypeString, Description: "Opaque candidate ID consumed unchanged."},
 			{Name: "rule_id", Type: OutputFieldTypeString, Description: "Deterministic stored exact-deny identity."},
 			{Name: "workspace_id", Type: OutputFieldTypeString, Description: "Stable Workspace identity bound to the denial."},
@@ -2019,7 +2068,9 @@ func policyLearningChangeOutput() CommandOutput {
 	return CommandOutput{
 		Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 		Fields: []OutputField{
-			{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical trusted-host XDG policy directory."},
+			{Name: "aggregate_revision", Type: OutputFieldTypeString, Description: "Confirmed active aggregate policy revision."},
+			policyEvaluatorIdentityOutputField(false),
+			policyDataIdentityOutputField(false),
 			{Name: "target_id", Type: OutputFieldTypeString, Description: "Opaque target ID consumed unchanged."},
 			{Name: "rule_id", Type: OutputFieldTypeString, Description: "Deterministic stored learned-rule identity."},
 			{Name: "match", Type: OutputFieldTypeString, Description: "Stored exact match mode.", Enum: []string{"exact"}},
@@ -2137,7 +2188,9 @@ func textClusterStatusOutput() CommandOutput {
 		{Name: "configured", Type: OutputFieldTypeBoolean, Description: "Whether cluster state remains configured."},
 		{Name: "running", Type: OutputFieldTypeBoolean, Description: "Whether shared components are running."},
 		{Name: "manifest_count", Type: OutputFieldTypeInteger, Description: "Number of Workspace Manifest policies in the shared enforcement projection."},
-		{Name: "policy_revision", Type: OutputFieldTypeString, Description: "Content-addressed aggregate policy revision."},
+		{Name: "aggregate_revision", Type: OutputFieldTypeString, Description: "Content-addressed aggregate policy revision."},
+		policyEvaluatorIdentityOutputField(false),
+		policyDataIdentityOutputField(false),
 		{Name: "policy_projection", Type: OutputFieldTypeString, Description: "All-Workspace Manifest policy projection integrity observation."},
 		{Name: "principal_registry", Type: OutputFieldTypeString, Description: "Principal registry integrity observation."},
 		{Name: "gateway_projection", Type: OutputFieldTypeString, Description: "Gateway routing projection integrity observation."},

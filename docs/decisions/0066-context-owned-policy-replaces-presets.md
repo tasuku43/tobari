@@ -7,7 +7,8 @@
 - Revises: ADR 0029, ADR 0039, and ADR 0059
 - Related: ADR 0060
 - Revised by: ADR 0070 adds one explicit migration for the enumerated
-  unpublished built-in preset snapshot
+  unpublished built-in preset snapshot; ADR 0087 removes the Advanced-policy
+  seam and retains one canonical typed policy authority
 - Superseded by: None
 
 ## Context

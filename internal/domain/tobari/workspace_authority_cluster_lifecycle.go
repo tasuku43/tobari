@@ -5,7 +5,11 @@ import (
 	"reflect"
 )
 
-const FinalClusterLifecycleSchemaVersion = 2
+const (
+	FinalClusterStatusSchemaVersion = 3
+	FinalClusterUpSchemaVersion     = 3
+	FinalClusterDownSchemaVersion   = 2
+)
 
 type FinalClusterAuthorityState string
 
@@ -111,11 +115,18 @@ func (o FinalClusterContextReceiptObservation) Validate() error {
 // FinalClusterStatus is one bounded, task-owned observation of final authority
 // and the exact selected Gateway/OPA runtime. Unknown is data, never absence.
 type FinalClusterStatus struct {
-	SchemaVersion      int                                     `json:"schema_version"`
-	Task               string                                  `json:"task"`
-	Authority          FinalClusterAuthorityState              `json:"authority"`
-	Generation         uint64                                  `json:"generation,omitempty"`
-	CollectionRevision SemanticDigest                          `json:"collection_revision,omitempty"`
+	SchemaVersion      int                        `json:"schema_version"`
+	Task               string                     `json:"task"`
+	Authority          FinalClusterAuthorityState `json:"authority"`
+	Generation         uint64                     `json:"generation,omitempty"`
+	CollectionRevision SemanticDigest             `json:"collection_revision,omitempty"`
+	// The active aggregate identity is nullable while the final authority is
+	// absent, unconfigured, stopped, or otherwise not active. When Receipt is
+	// active all three values are required and are copied from the same active
+	// publication receipt; no path is part of this public observation.
+	AggregateRevision  *string                                 `json:"aggregate_revision"`
+	EvaluatorIdentity  *PolicyEvaluatorIdentity                `json:"evaluator_identity"`
+	PolicyDataIdentity *PolicyDataIdentity                     `json:"policy_data_identity"`
 	TemplateCount      int                                     `json:"template_count"`
 	ContextCount       int                                     `json:"context_count"`
 	WorkspaceCount     int                                     `json:"workspace_count"`
@@ -125,19 +136,51 @@ type FinalClusterStatus struct {
 	Components         []FinalClusterComponentObservation      `json:"components"`
 }
 
+// ActivePolicyProjectionIdentity returns the exact aggregate identity carried
+// by an active status observation. Inactive observations deliberately expose
+// the same public keys as explicit nulls, but cannot be used as authority for
+// a denial or mutation result.
+func (s FinalClusterStatus) ActivePolicyProjectionIdentity() (PolicyProjectionIdentity, error) {
+	if err := s.Validate(); err != nil {
+		return PolicyProjectionIdentity{}, err
+	}
+	if s.Authority != FinalClusterAuthorityPresent || s.Receipt != FinalClusterReceiptActive ||
+		s.AggregateRevision == nil || s.EvaluatorIdentity == nil || s.PolicyDataIdentity == nil {
+		return PolicyProjectionIdentity{}, fmt.Errorf("final cluster status has no active aggregate identity")
+	}
+	identity := PolicyProjectionIdentity{
+		AggregateRevision:  *s.AggregateRevision,
+		EvaluatorIdentity:  *s.EvaluatorIdentity,
+		PolicyDataIdentity: *s.PolicyDataIdentity,
+	}
+	return identity, identity.Validate()
+}
+
 func (s FinalClusterStatus) Validate() error {
-	if s.SchemaVersion != FinalClusterLifecycleSchemaVersion || s.Task != TaskClusterStatus ||
+	if s.SchemaVersion != FinalClusterStatusSchemaVersion || s.Task != TaskClusterStatus ||
 		s.Runtime.Validate() != nil || s.Receipt.Validate() != nil || s.Contexts == nil || s.Components == nil {
 		return fmt.Errorf("final cluster status metadata is invalid")
 	}
+	hasAggregateIdentity := s.AggregateRevision != nil || s.EvaluatorIdentity != nil || s.PolicyDataIdentity != nil
 	if s.Authority == FinalClusterAuthorityAbsent {
 		if s.Generation != 0 || s.CollectionRevision != "" || s.TemplateCount != 0 || s.ContextCount != 0 ||
-			s.WorkspaceCount != 0 || len(s.Contexts) != 0 || s.Receipt != FinalClusterReceiptAbsent && s.Receipt != FinalClusterReceiptUnknown && s.Receipt != FinalClusterReceiptDrifted {
+			s.WorkspaceCount != 0 || len(s.Contexts) != 0 || hasAggregateIdentity || s.Receipt != FinalClusterReceiptAbsent && s.Receipt != FinalClusterReceiptUnknown && s.Receipt != FinalClusterReceiptDrifted {
 			return fmt.Errorf("absent final cluster status contains authority")
 		}
 	} else if s.Authority != FinalClusterAuthorityPresent || s.Generation == 0 || s.CollectionRevision.Validate() != nil ||
 		s.TemplateCount < 0 || s.ContextCount < 0 || s.WorkspaceCount < 0 || len(s.Contexts) != s.ContextCount {
 		return fmt.Errorf("present final cluster status is incomplete")
+	}
+	if s.Authority == FinalClusterAuthorityPresent && s.Receipt == FinalClusterReceiptActive {
+		if s.AggregateRevision == nil || s.EvaluatorIdentity == nil || s.PolicyDataIdentity == nil {
+			return fmt.Errorf("active final cluster status omits aggregate identity")
+		}
+		identity := PolicyProjectionIdentity{AggregateRevision: *s.AggregateRevision, EvaluatorIdentity: *s.EvaluatorIdentity, PolicyDataIdentity: *s.PolicyDataIdentity}
+		if err := identity.Validate(); err != nil {
+			return fmt.Errorf("active final cluster status aggregate identity is invalid: %w", err)
+		}
+	} else if hasAggregateIdentity {
+		return fmt.Errorf("inactive final cluster status contains aggregate identity")
 	}
 	for _, item := range s.Contexts {
 		if err := item.Validate(); err != nil {

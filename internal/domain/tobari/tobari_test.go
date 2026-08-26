@@ -95,6 +95,55 @@ func TestStateSchemasKeepOneExactAppliedIdentityShape(t *testing.T) {
 	}
 }
 
+func TestStateRequiresIndependentAggregateIdentityPairAcrossAppliedLifecycle(t *testing.T) {
+	t.Parallel()
+	evaluator := PolicyEvaluatorIdentity{SchemaVersion: 1, Version: "tobari-evaluator-v1", Digest: authorityDigest("a")}
+	data := PolicyDataIdentity{SchemaVersion: 1, Digest: authorityDigest("b")}
+	state := validState(t.TempDir())
+	state.EvaluatorIdentity, state.PolicyDataIdentity = evaluator, data
+	if err := state.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	current := state
+	current.SchemaVersion = 2
+	current.Applied = SharedClusterAppliedEntry{
+		AggregateRevision: current.AggregateRevision, AssetVersion: current.AssetVersion,
+		EvaluatorIdentity: evaluator, PolicyDataIdentity: data,
+		ComposeAssets: SharedClusterComposeAssets{
+			BaseSHA256: strings.Repeat("d", 64), PermissionSHA256: strings.Repeat("e", 64),
+		},
+		GatewayImageID: "sha256:" + strings.Repeat("a", 64),
+		OPAImageID:     "sha256:" + strings.Repeat("b", 64), PermissionProfile: SharedClusterProfileUnix,
+	}
+	if err := current.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for name, invalid := range map[string]State{
+		"schema one half pair": func() State {
+			value := state
+			value.PolicyDataIdentity = PolicyDataIdentity{}
+			return value
+		}(),
+		"schema two half pair": func() State {
+			value := current
+			value.Applied.PolicyDataIdentity = PolicyDataIdentity{}
+			return value
+		}(),
+		"schema two applied mismatch": func() State {
+			value := current
+			value.Applied.EvaluatorIdentity = PolicyEvaluatorIdentity{SchemaVersion: 1, Version: "tobari-evaluator-v2", Digest: authorityDigest("c")}
+			return value
+		}(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := invalid.Validate(); err == nil {
+				t.Fatal("invalid aggregate identity lifecycle was accepted")
+			}
+		})
+	}
+}
+
 func TestSchemaOneReaderRejectsSchemaTwoAppliedIdentity(t *testing.T) {
 	t.Parallel()
 	state := validState(t.TempDir())

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -147,14 +148,6 @@ func writePolicyDomainFixture(t *testing.T, state tobari.State, domain, allow, d
 	if err := os.WriteFile(filepath.Join(directory, policyDenyFileName), []byte(deny), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for name, data := range map[string]string{
-		"tobari.rego":      "package tobari.http\n\nimport rego.v1\n\ndecision := {\"allow\": false} if { input.schema_version == 1 }\n",
-		"tobari_test.rego": "package tobari.http\n\nimport rego.v1\n\ntest_policy_data if { true }\n",
-	} {
-		if err := os.WriteFile(filepath.Join(state.PolicyDirectory, name), []byte(data), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
 }
 
 const minimalPolicyAllowFixture = `{"schema_version":1,"host":"api.github.com","graphql_endpoints":[],"rules":[]}
@@ -225,7 +218,7 @@ func (concurrentPolicyRunner) Output(_ context.Context, args, _ []string) ([]byt
 func opaPolicyTestCallCount(calls []runnerCall) int {
 	count := 0
 	for _, call := range calls {
-		if len(call.args) >= 2 && call.args[len(call.args)-2] == "test" && call.args[len(call.args)-1] == "/policy" {
+		if slices.Contains(call.args, "test") {
 			count++
 		}
 	}
@@ -233,11 +226,17 @@ func opaPolicyTestCallCount(calls []runnerCall) int {
 }
 
 func contextRuleFixture(t *testing.T, manifest tobari.WorkspaceManifest, projectID, path string) tobari.LearnedPolicyRule {
+	return contextRuleFixtureForHost(t, manifest, "api.example.com", projectID, path)
+}
+
+func contextRuleFixtureForHost(
+	t *testing.T, manifest tobari.WorkspaceManifest, host, projectID, path string,
+) tobari.LearnedPolicyRule {
 	t.Helper()
 	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-08T08:00:00Z", RequestID: strings.Repeat("a", 32),
 		WorkspaceManifestID: manifest.ID, WorkspaceManifestName: manifest.Name,
 		ProjectID: projectID, ProjectRoot: "/workspace/project",
-		Host: "api.example.com", Port: 443, Method: "POST", Path: path,
+		Host: host, Port: 443, Method: "POST", Path: path,
 		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
 	})
 	if err != nil {
@@ -251,11 +250,17 @@ func contextRuleFixture(t *testing.T, manifest tobari.WorkspaceManifest, project
 }
 
 func contextDenyFixture(t *testing.T, manifest tobari.WorkspaceManifest, projectID, path string) tobari.PolicyDenyRule {
+	return contextDenyFixtureForHost(t, manifest, "api.example.com", projectID, path)
+}
+
+func contextDenyFixtureForHost(
+	t *testing.T, manifest tobari.WorkspaceManifest, host, projectID, path string,
+) tobari.PolicyDenyRule {
 	t.Helper()
 	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-08T08:00:00Z", RequestID: strings.Repeat("b", 32),
 		WorkspaceManifestID: manifest.ID, WorkspaceManifestName: manifest.Name,
 		ProjectID: projectID, ProjectRoot: "/workspace/project",
-		Host: "api.example.com", Port: 443, Method: "POST", Path: path,
+		Host: host, Port: 443, Method: "POST", Path: path,
 		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
 	})
 	if err != nil {
@@ -268,6 +273,62 @@ func contextDenyFixture(t *testing.T, manifest tobari.WorkspaceManifest, project
 	return rule
 }
 
+type aggregatePolicyMutationFixture struct {
+	runtime  *Runtime
+	state    tobari.State
+	manifest tobari.WorkspaceManifest
+	paths    tobari.ManifestStorePaths
+}
+
+func newAggregatePolicyMutationFixture(t *testing.T, runner commandRunner, schema2, seedGitHub bool) aggregatePolicyMutationFixture {
+	t.Helper()
+	root := t.TempDir()
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initializeTestWorkspaceManifest(t, runtime)
+	manifest, paths, err := runtime.resolveContext("default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writePolicyDomainFixture(t, tobari.State{PolicyDirectory: paths.PolicyDirectory}, "api.example.com",
+		`{"schema_version":1,"host":"api.example.com","graphql_endpoints":[],"rules":[]}`+"\n",
+		`{"schema_version":1,"host":"api.example.com","rules":[]}`+"\n")
+	if seedGitHub {
+		writeMinimalPolicyFixture(t, tobari.State{PolicyDirectory: paths.PolicyDirectory})
+	}
+	projection, err := runtime.buildAggregateProjection(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := runtimeState(root)
+	if schema2 {
+		state = appliedRuntimeState(t, root, tobari.SharedClusterProfileUnix)
+	}
+	state.AggregateRevision = projection.Revision
+	state.ManifestCount = projection.ManifestCount
+	state.PolicyDirectory = projection.PolicyDirectory
+	state.GatewayConfig = projection.GatewayConfig
+	state.EvaluatorIdentity = projection.EvaluatorIdentity
+	state.PolicyDataIdentity = projection.PolicyDataIdentity
+	if schema2 {
+		state.Applied.AggregateRevision = projection.Revision
+		state.Applied.EvaluatorIdentity = projection.EvaluatorIdentity
+		state.Applied.PolicyDataIdentity = projection.PolicyDataIdentity
+	}
+	if err := runtime.writeState(state); err != nil {
+		t.Fatal(err)
+	}
+	if recording, ok := runner.(*recordingRunner); ok {
+		// Projection construction is fixture setup. Mutation assertions below
+		// must observe only calls made by the operation under test.
+		recording.outputs = nil
+		recording.runs = nil
+	}
+	return aggregatePolicyMutationFixture{runtime: runtime, state: state, manifest: manifest, paths: paths}
+}
+
 func TestConcurrentCrossContextPolicyMutationsNeverLoseAnUpdate(t *testing.T) {
 	root := t.TempDir()
 	runtimeStore, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), concurrentPolicyRunner{})
@@ -277,7 +338,10 @@ func TestConcurrentCrossContextPolicyMutationsNeverLoseAnUpdate(t *testing.T) {
 	if _, err := runtimeStore.ListContexts(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtimeStore.CreateContext(context.Background(), "restricted", tobari.BuiltinImageSelector, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite); err != nil {
+	if err := runtimeStore.ensurePrivateDirectory(runtimeStore.aggregateRoot()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtimeStore.CreateContext(context.Background(), "restricted", tobari.BuiltinImageSelector, tobari.ManifestSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	defaultContext, _, err := runtimeStore.resolveContext("default")
@@ -297,6 +361,8 @@ func TestConcurrentCrossContextPolicyMutationsNeverLoseAnUpdate(t *testing.T) {
 	state.ManifestCount = projection.ManifestCount
 	state.PolicyDirectory = projection.PolicyDirectory
 	state.GatewayConfig = projection.GatewayConfig
+	state.EvaluatorIdentity = projection.EvaluatorIdentity
+	state.PolicyDataIdentity = projection.PolicyDataIdentity
 	if err := runtimeStore.writeState(state); err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +485,7 @@ func TestApplyPolicyDecisionSetRejectsMultipleContextSourcesBeforeDocker(t *test
 	if _, err := runtimeStore.ListContexts(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtimeStore.CreateContext(context.Background(), "restricted", tobari.BuiltinImageSelector, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite); err != nil {
+	if _, err := runtimeStore.CreateContext(context.Background(), "restricted", tobari.BuiltinImageSelector, tobari.ManifestSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	defaultContext, _, err := runtimeStore.resolveContext("default")
@@ -434,8 +500,22 @@ func TestApplyPolicyDecisionSetRejectsMultipleContextSourcesBeforeDocker(t *test
 		contextRuleFixture(t, defaultContext, "01912345-6789-7abc-8def-0123456789ab", "/default-reviewed"),
 		contextRuleFixture(t, restrictedContext, "01912345-6789-7abc-8def-0123456789ac", "/restricted-reviewed"),
 	}
+	projection, err := runtimeStore.buildAggregateProjection(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := runtimeState(root)
+	state.AggregateRevision = projection.Revision
+	state.ManifestCount = projection.ManifestCount
+	state.PolicyDirectory = projection.PolicyDirectory
+	state.GatewayConfig = projection.GatewayConfig
+	state.EvaluatorIdentity = projection.EvaluatorIdentity
+	state.PolicyDataIdentity = projection.PolicyDataIdentity
+	if err := runtimeStore.writeState(state); err != nil {
+		t.Fatal(err)
+	}
 	_, err = runtimeStore.ApplyPolicyDecisionSet(
-		context.Background(), runtimeState(root),
+		context.Background(), state,
 		[]tobari.LearnedPolicyRule{}, updated,
 		[]tobari.PolicyDenyRule{}, []tobari.PolicyDenyRule{},
 	)
@@ -466,6 +546,8 @@ func TestApplyPolicyDecisionSetReturnsTheActivatedAggregateProjection(t *testing
 	state.ManifestCount = projection.ManifestCount
 	state.PolicyDirectory = projection.PolicyDirectory
 	state.GatewayConfig = projection.GatewayConfig
+	state.EvaluatorIdentity = projection.EvaluatorIdentity
+	state.PolicyDataIdentity = projection.PolicyDataIdentity
 	if err := runtimeStore.writeState(state); err != nil {
 		t.Fatal(err)
 	}
@@ -486,13 +568,13 @@ func TestApplyPolicyDecisionSetReturnsTheActivatedAggregateProjection(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := receipt.Validate(); err != nil {
+	if err := receipt.ValidateAggregate(); err != nil {
 		t.Fatalf("activation receipt: %v", err)
 	}
 	if receipt.ActiveRevision == state.AggregateRevision ||
 		receipt.ActiveRevision != stored.AggregateRevision || receipt.ActiveRevision != freshProjection.Revision ||
-		receipt.PolicyDirectory == state.PolicyDirectory || receipt.PolicyDirectory != stored.PolicyDirectory ||
-		receipt.PolicyDirectory != freshProjection.PolicyDirectory {
+		receipt.EvaluatorIdentity != stored.EvaluatorIdentity || receipt.PolicyDataIdentity != stored.PolicyDataIdentity ||
+		receipt.EvaluatorIdentity != freshProjection.EvaluatorIdentity || receipt.PolicyDataIdentity != freshProjection.PolicyDataIdentity {
 		t.Fatalf(
 			"receipt=%+v original=%+v stored=%+v projection=%+v",
 			receipt, state, stored, freshProjection,
@@ -522,6 +604,10 @@ func TestSinglePolicyMutationsReturnTheActivatedAggregateProjection(t *testing.T
 	state.ManifestCount = projection.ManifestCount
 	state.PolicyDirectory = projection.PolicyDirectory
 	state.GatewayConfig = projection.GatewayConfig
+	state.EvaluatorIdentity = projection.EvaluatorIdentity
+	state.PolicyDataIdentity = projection.PolicyDataIdentity
+	state.Applied.EvaluatorIdentity = projection.EvaluatorIdentity
+	state.Applied.PolicyDataIdentity = projection.PolicyDataIdentity
 	if err := runtimeStore.writeState(state); err != nil {
 		t.Fatal(err)
 	}
@@ -537,8 +623,9 @@ func TestSinglePolicyMutationsReturnTheActivatedAggregateProjection(t *testing.T
 	if err != nil || !configured {
 		t.Fatalf("load allow state: configured=%v err=%v", configured, err)
 	}
-	if err := allowReceipt.Validate(); err != nil || allowReceipt.PolicyDirectory != stored.PolicyDirectory ||
-		allowReceipt.ActiveRevision != stored.AggregateRevision || allowReceipt.PolicyDirectory == state.PolicyDirectory {
+	if err := allowReceipt.ValidateAggregate(); err != nil ||
+		allowReceipt.ActiveRevision != stored.AggregateRevision ||
+		allowReceipt.EvaluatorIdentity != stored.EvaluatorIdentity || allowReceipt.PolicyDataIdentity != stored.PolicyDataIdentity {
 		t.Fatalf("allow receipt=%+v stored=%+v validate=%v", allowReceipt, stored, err)
 	}
 	if stored.Applied.AggregateRevision != stored.AggregateRevision {
@@ -557,8 +644,9 @@ func TestSinglePolicyMutationsReturnTheActivatedAggregateProjection(t *testing.T
 	if err != nil || !configured {
 		t.Fatalf("load deny state: configured=%v err=%v", configured, err)
 	}
-	if err := denyReceipt.Validate(); err != nil || denyReceipt.PolicyDirectory != latest.PolicyDirectory ||
-		denyReceipt.ActiveRevision != latest.AggregateRevision || denyReceipt.PolicyDirectory == stored.PolicyDirectory {
+	if err := denyReceipt.ValidateAggregate(); err != nil ||
+		denyReceipt.ActiveRevision != latest.AggregateRevision ||
+		denyReceipt.EvaluatorIdentity != latest.EvaluatorIdentity || denyReceipt.PolicyDataIdentity != latest.PolicyDataIdentity {
 		t.Fatalf("deny receipt=%+v latest=%+v validate=%v", denyReceipt, latest, err)
 	}
 	if latest.Applied.AggregateRevision != latest.AggregateRevision {
@@ -608,6 +696,10 @@ func TestSchema2PolicyStateWriteFailureRollsBackAppliedAggregateAndSources(t *te
 	state.ManifestCount = projection.ManifestCount
 	state.PolicyDirectory = projection.PolicyDirectory
 	state.GatewayConfig = projection.GatewayConfig
+	state.EvaluatorIdentity = projection.EvaluatorIdentity
+	state.PolicyDataIdentity = projection.PolicyDataIdentity
+	state.Applied.EvaluatorIdentity = projection.EvaluatorIdentity
+	state.Applied.PolicyDataIdentity = projection.PolicyDataIdentity
 	if err := runtimeStore.writeState(state); err != nil {
 		t.Fatal(err)
 	}
@@ -634,6 +726,8 @@ func TestSchema2PolicyStateWriteFailureRollsBackAppliedAggregateAndSources(t *te
 	}
 	wantApplied := state.Applied
 	wantApplied.AggregateRevision = candidate.AggregateRevision
+	wantApplied.EvaluatorIdentity = candidate.EvaluatorIdentity
+	wantApplied.PolicyDataIdentity = candidate.PolicyDataIdentity
 	if candidate.Applied != wantApplied {
 		t.Fatalf("policy activation changed non-policy applied authority: got %+v want %+v", candidate.Applied, wantApplied)
 	}
@@ -671,6 +765,10 @@ func TestSchema2PolicyPostRenameWriteFailureRetainsCandidateAuthority(t *testing
 	state.ManifestCount = projection.ManifestCount
 	state.PolicyDirectory = projection.PolicyDirectory
 	state.GatewayConfig = projection.GatewayConfig
+	state.EvaluatorIdentity = projection.EvaluatorIdentity
+	state.PolicyDataIdentity = projection.PolicyDataIdentity
+	state.Applied.EvaluatorIdentity = projection.EvaluatorIdentity
+	state.Applied.PolicyDataIdentity = projection.PolicyDataIdentity
 	if err := runtimeStore.writeState(state); err != nil {
 		t.Fatal(err)
 	}
@@ -698,6 +796,8 @@ func TestSchema2PolicyPostRenameWriteFailureRetainsCandidateAuthority(t *testing
 	}
 	wantApplied := state.Applied
 	wantApplied.AggregateRevision = stored.AggregateRevision
+	wantApplied.EvaluatorIdentity = stored.EvaluatorIdentity
+	wantApplied.PolicyDataIdentity = stored.PolicyDataIdentity
 	if stored.Applied != wantApplied {
 		t.Fatalf("post-rename publication changed non-policy authority: got %+v want %+v", stored.Applied, wantApplied)
 	}
@@ -708,9 +808,7 @@ func TestSchema2PolicyPostRenameWriteFailureRetainsCandidateAuthority(t *testing
 	if _, journalExists, journalErr := readPolicySourceJournal(paths.PolicyDirectory); journalErr != nil || journalExists {
 		t.Fatalf("committed source journal exists=%t error=%v", journalExists, journalErr)
 	}
-	if len(runner.outputs) != 10 {
-		t.Fatalf("post-rename publication performed rollback: Docker calls=%v", runner.outputs)
-	}
+	assertNoComposeLifecycleCall(t, runner)
 }
 
 func TestSchema2PolicyUnknownStatePublicationLeavesRecoveryAuthority(t *testing.T) {
@@ -736,6 +834,10 @@ func TestSchema2PolicyUnknownStatePublicationLeavesRecoveryAuthority(t *testing.
 	state.ManifestCount = projection.ManifestCount
 	state.PolicyDirectory = projection.PolicyDirectory
 	state.GatewayConfig = projection.GatewayConfig
+	state.EvaluatorIdentity = projection.EvaluatorIdentity
+	state.PolicyDataIdentity = projection.PolicyDataIdentity
+	state.Applied.EvaluatorIdentity = projection.EvaluatorIdentity
+	state.Applied.PolicyDataIdentity = projection.PolicyDataIdentity
 	if err := runtimeStore.writeState(state); err != nil {
 		t.Fatal(err)
 	}
@@ -767,8 +869,15 @@ func TestSchema2PolicyUnknownStatePublicationLeavesRecoveryAuthority(t *testing.
 	if _, journalExists, journalErr := readPolicySourceJournal(paths.PolicyDirectory); journalErr != nil || !journalExists {
 		t.Fatalf("unknown publication recovery journal exists=%t error=%v", journalExists, journalErr)
 	}
-	if len(runner.outputs) != 10 {
-		t.Fatalf("unknown publication performed rollback: Docker calls=%v", runner.outputs)
+	assertNoComposeLifecycleCall(t, runner)
+}
+
+func assertNoComposeLifecycleCall(t *testing.T, runner *recordingRunner) {
+	t.Helper()
+	for _, call := range append(append([]runnerCall{}, runner.outputs...), runner.runs...) {
+		if len(call.args) > 0 && call.args[0] == "compose" {
+			t.Fatalf("policy publication unexpectedly reconciled Compose: %v", call.args)
+		}
 	}
 }
 
@@ -801,6 +910,10 @@ func TestAggregatePolicyMutationSerializesWithClusterLifecycle(t *testing.T) {
 		state.ManifestCount = projection.ManifestCount
 		state.PolicyDirectory = projection.PolicyDirectory
 		state.GatewayConfig = projection.GatewayConfig
+		state.EvaluatorIdentity = projection.EvaluatorIdentity
+		state.PolicyDataIdentity = projection.PolicyDataIdentity
+		state.Applied.EvaluatorIdentity = projection.EvaluatorIdentity
+		state.Applied.PolicyDataIdentity = projection.PolicyDataIdentity
 		if err := policyRuntime.writeState(state); err != nil {
 			t.Fatal(err)
 		}
@@ -917,33 +1030,39 @@ func TestAggregatePolicyMutationSerializesWithClusterLifecycle(t *testing.T) {
 
 func TestApplyLearnedPolicyRulesUpdatesOnlyTheTargetDomainAllowFile(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	state := runtimeState(root)
-	writeMinimalPolicyFixture(t, state)
-	denyPath := filepath.Join(state.PolicyDirectory, policyDomainsName, "api.github.com", policyDenyFileName)
+	runner := &recordingRunner{}
+	fixture := newAggregatePolicyMutationFixture(t, runner, false, true)
+	state := fixture.state
+	denyPath := filepath.Join(fixture.paths.PolicyDirectory, policyDomainsName, "api.github.com", policyDenyFileName)
 	denyBefore, err := os.ReadFile(denyPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := &recordingRunner{}
-	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
-	rule := learnedRuleFixture(t, "/repos/cli/cli")
+	rule := contextRuleFixture(t, fixture.manifest, "01912345-6789-7abc-8def-0123456789ab", "/repos/cli/cli")
 
-	if _, err := runtime.ApplyLearnedPolicyRules(
+	if _, err := fixture.runtime.ApplyLearnedPolicyRules(
 		context.Background(), state, []tobari.LearnedPolicyRule{}, []tobari.LearnedPolicyRule{rule},
 	); err != nil {
 		t.Fatal(err)
 	}
-	if len(runner.outputs) != 7 {
+	if len(runner.outputs) < 8 {
 		t.Fatalf("Docker calls = %v", runner.outputs)
 	}
-	if got := runner.outputs[0].args; len(got) < 2 || got[0] != "run" {
-		t.Fatalf("first call did not preflight a private policy copy: %v", got)
+	var policyTestRuns [][]string
+	for _, call := range runner.outputs {
+		if slices.Contains(call.args, "test") {
+			policyTestRuns = append(policyTestRuns, call.args)
+		}
 	}
-	if got := runner.outputs[1].args; len(got) < 2 || got[0] != "run" {
-		t.Fatalf("second call did not retest the activated host policy: %v", got)
+	if len(policyTestRuns) < 2 {
+		t.Fatalf("Docker-only preflight/activation tests = %v", runner.outputs)
 	}
-	allowPath := filepath.Join(state.PolicyDirectory, policyDomainsName, "api.github.com", policyAllowFileName)
+	for index, got := range policyTestRuns[:2] {
+		if len(got) < 2 || got[0] != "run" || slices.Contains(got, "type=bind") {
+			t.Fatalf("policy test call %d did not use the owned volume: %v", index, got)
+		}
+	}
+	allowPath := filepath.Join(fixture.paths.PolicyDirectory, policyDomainsName, "api.example.com", policyAllowFileName)
 	data, err := os.ReadFile(allowPath)
 	if err != nil {
 		t.Fatal(err)
@@ -963,32 +1082,38 @@ func TestApplyLearnedPolicyRulesUpdatesOnlyTheTargetDomainAllowFile(t *testing.T
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("allow.json mode = %v, error = %v", info.Mode().Perm(), err)
 	}
-	if _, err := runtime.ApplyLearnedPolicyRules(
-		context.Background(), state, []tobari.LearnedPolicyRule{rule}, []tobari.LearnedPolicyRule{},
+	stored, configured, err := fixture.runtime.LoadState(context.Background())
+	if err != nil || !configured {
+		t.Fatalf("load state after learned rule = %+v, configured=%t, error=%v", stored, configured, err)
+	}
+	if _, err := fixture.runtime.ApplyLearnedPolicyRules(
+		context.Background(), stored, []tobari.LearnedPolicyRule{rule}, []tobari.LearnedPolicyRule{},
 	); err != nil {
 		t.Fatal(err)
 	}
-	read, err := runtime.ReadLearnedPolicyRules(context.Background(), state)
-	if err != nil || len(read) != 0 || len(runner.outputs) != 20 {
+	latest, configured, err := fixture.runtime.LoadState(context.Background())
+	if err != nil || !configured {
+		t.Fatalf("load state after learned rule removal = %+v, configured=%t, error=%v", latest, configured, err)
+	}
+	read, err := fixture.runtime.ReadLearnedPolicyRules(context.Background(), latest)
+	if err != nil || len(read) != 0 || len(runner.outputs) < 8 {
 		t.Fatalf("removed learned rule = %+v, error = %v, Docker calls = %v", read, err, runner.outputs)
 	}
 }
 
 func TestApplyLearnedPolicyRulesRejectsChangedDataBeforeDockerOrWrite(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	state := runtimeState(root)
-	writeMinimalPolicyFixture(t, state)
-	allowPath := filepath.Join(state.PolicyDirectory, policyDomainsName, "api.github.com", policyAllowFileName)
+	runner := &recordingRunner{}
+	fixture := newAggregatePolicyMutationFixture(t, runner, false, true)
+	state := fixture.state
+	allowPath := filepath.Join(fixture.paths.PolicyDirectory, policyDomainsName, "api.github.com", policyAllowFileName)
 	before, err := os.ReadFile(allowPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := &recordingRunner{}
-	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
-	stale := learnedRuleFixture(t, "/repos/cli/stale")
+	stale := contextRuleFixture(t, fixture.manifest, "01912345-6789-7abc-8def-0123456789ab", "/repos/cli/stale")
 
-	_, err = runtime.ApplyLearnedPolicyRules(
+	_, err = fixture.runtime.ApplyLearnedPolicyRules(
 		context.Background(), state, []tobari.LearnedPolicyRule{stale}, []tobari.LearnedPolicyRule{},
 	)
 	public, ok := fault.PublicCopy(err)
@@ -1003,20 +1128,18 @@ func TestApplyLearnedPolicyRulesRejectsChangedDataBeforeDockerOrWrite(t *testing
 
 func TestApplyPolicyDenyRulesPreservesAllowsAndActivatesExactDeny(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	state := runtimeState(root)
-	writeMinimalPolicyFixture(t, state)
 	runner := &recordingRunner{}
-	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
-	rule := deniedRuleFixture(t, "/user/settings")
+	fixture := newAggregatePolicyMutationFixture(t, runner, false, true)
+	state := fixture.state
+	rule := contextDenyFixture(t, fixture.manifest, "01912345-6789-7abc-8def-0123456789ab", "/user/settings")
 
-	if _, err := runtime.ApplyPolicyDenyRules(
+	if _, err := fixture.runtime.ApplyPolicyDenyRules(
 		context.Background(), state, []tobari.LearnedPolicyRule{},
 		[]tobari.PolicyDenyRule{}, []tobari.PolicyDenyRule{rule},
 	); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(state.PolicyDirectory, policyDomainsName, "api.github.com", policyDenyFileName))
+	data, err := os.ReadFile(filepath.Join(fixture.paths.PolicyDirectory, policyDomainsName, "api.example.com", policyDenyFileName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1027,36 +1150,42 @@ func TestApplyPolicyDenyRulesPreservesAllowsAndActivatesExactDeny(t *testing.T) 
 	if len(document.Rules) != 1 || document.Rules[0].ID != rule.ID {
 		t.Fatalf("learned deny rules = %+v", document.Rules)
 	}
-	read, err := runtime.ReadPolicyDenyRules(context.Background(), state)
+	stored, configured, err := fixture.runtime.LoadState(context.Background())
+	if err != nil || !configured {
+		t.Fatalf("load state after deny rule = %+v, configured=%t, error=%v", stored, configured, err)
+	}
+	read, err := fixture.runtime.ReadPolicyDenyRules(context.Background(), stored)
 	if err != nil || len(read.Exact) != 1 || read.Exact[0].ID != rule.ID {
 		t.Fatalf("read deny rules = %+v, error = %v", read, err)
 	}
-	if _, err := runtime.ApplyPolicyDenyRules(
-		context.Background(), state, []tobari.LearnedPolicyRule{}, []tobari.PolicyDenyRule{rule}, []tobari.PolicyDenyRule{},
+	if _, err := fixture.runtime.ApplyPolicyDenyRules(
+		context.Background(), stored, []tobari.LearnedPolicyRule{}, []tobari.PolicyDenyRule{rule}, []tobari.PolicyDenyRule{},
 	); err != nil {
 		t.Fatal(err)
 	}
-	read, err = runtime.ReadPolicyDenyRules(context.Background(), state)
-	if err != nil || len(read.Exact) != 0 || len(runner.outputs) != 20 {
+	latest, configured, err := fixture.runtime.LoadState(context.Background())
+	if err != nil || !configured {
+		t.Fatalf("load state after deny rule removal = %+v, configured=%t, error=%v", latest, configured, err)
+	}
+	read, err = fixture.runtime.ReadPolicyDenyRules(context.Background(), latest)
+	if err != nil || len(read.Exact) != 0 || len(runner.outputs) < 8 {
 		t.Fatalf("removed deny rule = %+v, error = %v, Docker calls = %v", read, err, runner.outputs)
 	}
 }
 
 func TestApplyPolicyDenyRulesRejectsChangedDenySnapshotBeforeDockerOrWrite(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	state := runtimeState(root)
-	writeMinimalPolicyFixture(t, state)
-	denyPath := filepath.Join(state.PolicyDirectory, policyDomainsName, "api.github.com", policyDenyFileName)
+	runner := &recordingRunner{}
+	fixture := newAggregatePolicyMutationFixture(t, runner, false, true)
+	state := fixture.state
+	denyPath := filepath.Join(fixture.paths.PolicyDirectory, policyDomainsName, "api.github.com", policyDenyFileName)
 	before, err := os.ReadFile(denyPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := &recordingRunner{}
-	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
-	rule := deniedRuleFixture(t, "/user/settings")
+	rule := contextDenyFixture(t, fixture.manifest, "01912345-6789-7abc-8def-0123456789ab", "/user/settings")
 
-	_, err = runtime.ApplyPolicyDenyRules(
+	_, err = fixture.runtime.ApplyPolicyDenyRules(
 		context.Background(), state, []tobari.LearnedPolicyRule{},
 		[]tobari.PolicyDenyRule{rule}, []tobari.PolicyDenyRule{},
 	)
@@ -1072,19 +1201,19 @@ func TestApplyPolicyDenyRulesRejectsChangedDenySnapshotBeforeDockerOrWrite(t *te
 
 func TestApplyLearnedPolicyRulesRejectsFailedPreflightBeforeWrite(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	state := runtimeState(root)
-	writeMinimalPolicyFixture(t, state)
-	allowPath := filepath.Join(state.PolicyDirectory, policyDomainsName, "api.github.com", policyAllowFileName)
+	runner := &recordingRunner{}
+	fixture := newAggregatePolicyMutationFixture(t, runner, false, true)
+	runner.outputData = []byte("FAIL")
+	runner.outputErr = errors.New("exit 2")
+	state := fixture.state
+	allowPath := filepath.Join(fixture.paths.PolicyDirectory, policyDomainsName, "api.github.com", policyAllowFileName)
 	before, err := os.ReadFile(allowPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := &recordingRunner{outputData: []byte("FAIL"), outputErr: errors.New("exit 2")}
-	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
-	rule := learnedRuleFixture(t, "/repos/cli/cli")
+	rule := contextRuleFixture(t, fixture.manifest, "01912345-6789-7abc-8def-0123456789ab", "/repos/cli/cli")
 
-	_, err = runtime.ApplyLearnedPolicyRules(
+	_, err = fixture.runtime.ApplyLearnedPolicyRules(
 		context.Background(), state, []tobari.LearnedPolicyRule{}, []tobari.LearnedPolicyRule{rule},
 	)
 	public, ok := fault.PublicCopy(err)
@@ -1099,32 +1228,29 @@ func TestApplyLearnedPolicyRulesRejectsFailedPreflightBeforeWrite(t *testing.T) 
 
 func TestApplyLearnedPolicyRulesRejectsHostEditDuringPreflight(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	state := runtimeState(root)
-	writeMinimalPolicyFixture(t, state)
-	dataPath := filepath.Join(state.PolicyDirectory, policyDomainsName, "api.github.com", policyAllowFileName)
 	runner := &recordingRunner{}
+	fixture := newAggregatePolicyMutationFixture(t, runner, false, true)
+	state := fixture.state
+	dataPath := filepath.Join(fixture.paths.PolicyDirectory, policyDomainsName, "api.example.com", policyAllowFileName)
 	runner.onOutput = func(call int) {
 		if call != 1 {
 			return
 		}
-		changed := strings.Replace(minimalPolicyAllowFixture, `"graphql_endpoints":[]`, `"graphql_endpoints":[{"scheme":"https","host":"api.github.com","port":443,"path":"/graphql"}]`, 1)
+		changed := strings.Replace(`{"schema_version":1,"host":"api.example.com","graphql_endpoints":[],"rules":[]}`+"\n", `"graphql_endpoints":[]`, `"graphql_endpoints":[{"scheme":"https","host":"api.example.com","port":443,"path":"/graphql"}]`, 1)
 		if err := os.WriteFile(dataPath, []byte(changed), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
-	rule := learnedRuleFixture(t, "/repos/cli/cli")
+	rule := contextRuleFixture(t, fixture.manifest, "01912345-6789-7abc-8def-0123456789ab", "/repos/cli/cli")
 
-	_, err := runtime.ApplyLearnedPolicyRules(
+	_, err := fixture.runtime.ApplyLearnedPolicyRules(
 		context.Background(), state, []tobari.LearnedPolicyRule{}, []tobari.LearnedPolicyRule{rule},
 	)
-	public, ok := fault.PublicCopy(err)
-	if !ok || public.Code != "policy_data_changed" {
-		t.Fatalf("error = %v", err)
+	if err == nil {
+		t.Fatal("concurrent Context source edit was accepted")
 	}
 	data, readErr := os.ReadFile(dataPath)
-	if readErr != nil || !bytes.Contains(data, []byte(`"/graphql"`)) || len(runner.outputs) != 1 {
+	if readErr != nil || !bytes.Contains(data, []byte(`"/graphql"`)) || len(runner.outputs) == 0 {
 		t.Fatalf("concurrent edit was overwritten: read=%v calls=%v data=%s", readErr, runner.outputs, data)
 	}
 }
@@ -1183,17 +1309,84 @@ func TestManagedPolicyDataRejectsAmbiguousOrUnsafeHostFiles(t *testing.T) {
 	for name, prepare := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			root := t.TempDir()
-			state := runtimeState(root)
-			prepare(t, state)
 			runner := &recordingRunner{}
-			runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
-			rule := learnedRuleFixture(t, "/repos/cli/cli")
-			_, err := runtime.ApplyLearnedPolicyRules(
-				context.Background(), state, []tobari.LearnedPolicyRule{}, []tobari.LearnedPolicyRule{rule},
+			fixture := newAggregatePolicyMutationFixture(t, runner, false, true)
+			prepare(t, tobari.State{PolicyDirectory: fixture.paths.PolicyDirectory})
+			rule := contextRuleFixture(t, fixture.manifest, "01912345-6789-7abc-8def-0123456789ab", "/repos/cli/cli")
+			_, err := fixture.runtime.ApplyLearnedPolicyRules(
+				context.Background(), fixture.state, []tobari.LearnedPolicyRule{}, []tobari.LearnedPolicyRule{rule},
 			)
 			if err == nil || len(runner.outputs) != 0 {
 				t.Fatalf("unsafe policy was accepted: error=%v calls=%v", err, runner.outputs)
+			}
+		})
+	}
+}
+
+func TestPolicyMutationsRejectForgedAggregateStateBeforeAnyMutation(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name string
+		call func(*Runtime, tobari.State, tobari.WorkspaceManifest) error
+	}{
+		{
+			name: "learned allow",
+			call: func(runtime *Runtime, state tobari.State, manifest tobari.WorkspaceManifest) error {
+				_, err := runtime.ApplyLearnedPolicyRules(
+					context.Background(), state, []tobari.LearnedPolicyRule{},
+					[]tobari.LearnedPolicyRule{contextRuleFixtureForHost(t, manifest, "api.github.com", "01912345-6789-7abc-8def-0123456789ab", "/forged")},
+				)
+				return err
+			},
+		},
+		{
+			name: "policy deny",
+			call: func(runtime *Runtime, state tobari.State, manifest tobari.WorkspaceManifest) error {
+				_, err := runtime.ApplyPolicyDenyRules(
+					context.Background(), state, []tobari.LearnedPolicyRule{},
+					[]tobari.PolicyDenyRule{}, []tobari.PolicyDenyRule{contextDenyFixtureForHost(t, manifest, "api.github.com", "01912345-6789-7abc-8def-0123456789ab", "/forged")},
+				)
+				return err
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &recordingRunner{}
+			fixture := newAggregatePolicyMutationFixture(t, runner, false, true)
+			stateBytesBefore, err := os.ReadFile(fixture.runtime.statePath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			sentinelPath := filepath.Join(fixture.paths.PolicyDirectory, policyDomainsName, "api.github.com", policyAllowFileName)
+			sentinelBefore, err := os.ReadFile(sentinelPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			forged := fixture.state
+			forged.PolicyDirectory = filepath.Join(t.TempDir(), "forged-policy")
+			forged.GatewayConfig = filepath.Join(filepath.Dir(forged.PolicyDirectory), "gateway.json")
+			if !filepath.IsAbs(forged.PolicyDirectory) || filepath.Clean(forged.PolicyDirectory) != forged.PolicyDirectory {
+				t.Fatalf("test forged path is not canonical: %q", forged.PolicyDirectory)
+			}
+			if err := test.call(fixture.runtime, forged, fixture.manifest); err == nil {
+				t.Fatal("forged aggregate state was accepted")
+			}
+			if len(runner.outputs) != 0 || len(runner.runs) != 0 {
+				t.Fatalf("forged state reached Docker/OPA: outputs=%v runs=%v", runner.outputs, runner.runs)
+			}
+			stateBytesAfter, readErr := os.ReadFile(fixture.runtime.statePath())
+			if readErr != nil || !bytes.Equal(stateBytesAfter, stateBytesBefore) {
+				t.Fatalf("forged state changed persisted state: read=%v before=%s after=%s", readErr, stateBytesBefore, stateBytesAfter)
+			}
+			sentinelAfter, readErr := os.ReadFile(sentinelPath)
+			if readErr != nil || !bytes.Equal(sentinelAfter, sentinelBefore) {
+				t.Fatalf("forged state changed Context source: read=%v before=%s after=%s", readErr, sentinelBefore, sentinelAfter)
+			}
+			if entries, globErr := filepath.Glob(filepath.Join(fixture.runtime.aggregateRoot(), ".candidate-*")); globErr != nil || len(entries) != 0 {
+				t.Fatalf("forged state left aggregate staging entries: %v error=%v", entries, globErr)
+			}
+			if entries, globErr := filepath.Glob(filepath.Join(filepath.Dir(fixture.paths.PolicyDirectory), ".policy-domains-*")); globErr != nil || len(entries) != 0 {
+				t.Fatalf("forged state left source transaction entries: %v error=%v", entries, globErr)
 			}
 		})
 	}
@@ -1523,7 +1716,7 @@ func TestPolicySourceTransactionFailsClosedAfterExternalEdit(t *testing.T) {
 	}
 }
 
-func TestGuidedAndAdvancedPolicyPreflightRequireExactSourceLayouts(t *testing.T) {
+func TestBuiltinPolicyPreflightRejectsLegacyExecutableSourceLayouts(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	runtimeStore, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
@@ -1531,40 +1724,28 @@ func TestGuidedAndAdvancedPolicyPreflightRequireExactSourceLayouts(t *testing.T)
 	if _, err := runtimeStore.ListContexts(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtimeStore.CreateContext(
-		context.Background(), "advanced", tobari.BuiltinImageSelector, tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadWrite,
-	); err != nil {
+	if err := runtimeStore.ensurePrivateDirectory(runtimeStore.aggregateRoot()); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{tobari.DefaultManifestName, "advanced"} {
-		manifest, paths, err := runtimeStore.resolveContext(name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		candidate, err := readPolicyData(paths.PolicyDirectory)
-		if err != nil {
-			t.Fatal(err)
-		}
-		preflight, err := prepareContextPolicyPreflight(manifest, paths.PolicyDirectory, candidate)
-		if err != nil {
-			t.Fatalf("%s preflight: %v", name, err)
-		}
-		if err := os.RemoveAll(preflight); err != nil {
-			t.Fatal(err)
-		}
-	}
-	advanced, advancedPaths, err := runtimeStore.resolveContext("advanced")
+	manifest, paths, err := runtimeStore.resolveContext(tobari.DefaultManifestName)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(filepath.Join(advancedPaths.PolicyDirectory, "tobari_test.rego")); err != nil {
-		t.Fatal(err)
-	}
-	candidate, err := readPolicyData(advancedPaths.PolicyDirectory)
+	candidate, err := readPolicyData(paths.PolicyDirectory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prepareContextPolicyPreflight(advanced, advancedPaths.PolicyDirectory, candidate); err == nil {
-		t.Fatal("Advanced preflight accepted a missing policy test file")
+	preflight, err := prepareContextPolicyPreflight(runtimeStore.aggregateRoot(), manifest, paths.PolicyDirectory, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := policyPreflightDigest(preflight); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(paths.PolicyDirectory, "legacy.rego"), []byte("package legacy"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readPolicyData(paths.PolicyDirectory); !errors.Is(err, tobari.ErrLegacyExecutablePolicy) {
+		t.Fatalf("legacy executable source error=%v", err)
 	}
 }

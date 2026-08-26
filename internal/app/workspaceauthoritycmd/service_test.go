@@ -31,7 +31,7 @@ func digest(c string) tobari.SemanticDigest {
 func bodyFixture(path string) tobari.WorkspaceTemplateBody {
 	return tobari.WorkspaceTemplateBody{
 		Boundary:        tobari.WorkspaceTemplateBoundary{SourceAccess: tobari.ManifestSourceAccessReadOnly, DestinationCeiling: tobari.ManifestPolicyDestinationCeiling{Mode: "exact", Authorities: []tobari.ManifestPolicyAuthority{{Scheme: "https", Host: "api.example.dev", Port: 443}}}, MethodPolicy: tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview, Overrides: []tobari.ManifestMethodOverride{{Method: "GET", Decision: tobari.ManifestMethodAllow}}}},
-		Policy:          tobari.WorkspaceTemplatePolicyBody{AgentProfile: tobari.DefaultProfile, Mode: tobari.ManifestPolicyModeGuided, NativeReadiness: tobari.ManifestNativeReadinessEnabled, BaselineGrants: []tobari.ManifestPolicyExactRule{{Scheme: "https", Host: "api.example.dev", Port: 443, Method: "GET", Path: path}}, BaselineTemplates: []tobari.ManifestPolicyPathTemplateRule{}, MCPBaselineGrants: []tobari.ManifestPolicyMCPRule{}, BaselineDenies: []tobari.ManifestPolicyExactRule{}, GraphQLEndpoints: []tobari.ManifestPolicyExactRule{}, MCPEndpoints: []tobari.ManifestPolicyExactRule{}},
+		Policy:          tobari.WorkspaceTemplatePolicyBody{AgentProfile: tobari.DefaultProfile, NativeReadiness: tobari.ManifestNativeReadinessEnabled, BaselineGrants: []tobari.ManifestPolicyExactRule{{Scheme: "https", Host: "api.example.dev", Port: 443, Method: "GET", Path: path}}, BaselineTemplates: []tobari.ManifestPolicyPathTemplateRule{}, MCPBaselineGrants: []tobari.ManifestPolicyMCPRule{}, BaselineDenies: []tobari.ManifestPolicyExactRule{}, GraphQLEndpoints: []tobari.ManifestPolicyExactRule{}, MCPEndpoints: []tobari.ManifestPolicyExactRule{}},
 		EntryDefaults:   tobari.WorkspaceTemplateEntryDefaults{Runtime: tobari.RuntimeBinding{RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Revision: string(digest("f")), Ordinal: 1, Image: "tobari-runtime:test"}},
 		SessionDefaults: tobari.WorkspaceTemplateSessionDefaults{ShellEnvironment: []tobari.ManifestShellEnvironmentSetting{}}, CreationDefaults: tobari.WorkspaceTemplateCreationDefaults{},
 	}
@@ -863,23 +863,30 @@ func TestInvalidMutationIntentFailsBeforePort(t *testing.T) {
 }
 
 func TestPreReleaseLegacyAuthorityHasOneZeroMutationGuidanceFault(t *testing.T) {
-	legacy := fmt.Errorf("%w: synthetic legacy root", tobari.ErrPreReleaseLegacyAuthority)
-	readService := NewTemplateService(&fakePort{template: templateFixture(t), readErr: legacy})
-	_, err := readService.List(context.Background())
-	public, ok := fault.PublicCopy(err)
-	if !ok || public.Code != "legacy_state_present" || public.Phase != fault.PhaseObservation || public.ChangeState != fault.ChangeNotApplicable ||
-		len(public.NextActions) != 1 || public.NextActions[0].Command != "help" || !strings.Contains(public.NextActions[0].Reason, "reset/recreate") {
-		t.Fatalf("read legacy fault = %#v, ok=%t", public, ok)
-	}
+	for name, sentinel := range map[string]error{
+		"pre_release_envelope": tobari.ErrPreReleaseLegacyAuthority,
+		"executable_policy":    fmt.Errorf("%w: %w", tobari.ErrPreReleaseLegacyAuthority, tobari.ErrLegacyExecutablePolicy),
+	} {
+		t.Run(name, func(t *testing.T) {
+			legacy := fmt.Errorf("%w: synthetic legacy root", sentinel)
+			readService := NewTemplateService(&fakePort{template: templateFixture(t), readErr: legacy})
+			_, err := readService.List(context.Background())
+			public, ok := fault.PublicCopy(err)
+			if !ok || public.Code != "legacy_state_present" || public.Phase != fault.PhaseObservation || public.ChangeState != fault.ChangeNotApplicable ||
+				len(public.NextActions) != 1 || public.NextActions[0].Command != "help" || !strings.Contains(public.NextActions[0].Reason, "reset/recreate") {
+				t.Fatalf("read legacy fault = %#v, ok=%t", public, ok)
+			}
 
-	template := templateFixture(t)
-	ref, _ := tobari.WorkspaceTemplateRef(template.ID)
-	mutationPort := &fakePort{template: template, createContextErr: legacy}
-	contextService := NewContextService(mutationPort)
-	intent := intent(TaskContextCreate, operation.EffectCreate, operation.TargetRef{Kind: tobari.ContextReferenceKind, ParentID: ref}, ContextCreateImpact())
-	_, err = contextService.Create(context.Background(), intent, ref, "/workspace/example")
-	public, ok = fault.PublicCopy(err)
-	if !ok || public.Code != "legacy_state_present" || public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone || mutationPort.calls != 1 {
-		t.Fatalf("mutation legacy fault = %#v ok=%t calls=%d", public, ok, mutationPort.calls)
+			template := templateFixture(t)
+			ref, _ := tobari.WorkspaceTemplateRef(template.ID)
+			mutationPort := &fakePort{template: template, createContextErr: legacy}
+			contextService := NewContextService(mutationPort)
+			intent := intent(TaskContextCreate, operation.EffectCreate, operation.TargetRef{Kind: tobari.ContextReferenceKind, ParentID: ref}, ContextCreateImpact())
+			_, err = contextService.Create(context.Background(), intent, ref, "/workspace/example")
+			public, ok = fault.PublicCopy(err)
+			if !ok || public.Code != "legacy_state_present" || public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone || mutationPort.calls != 1 {
+				t.Fatalf("mutation legacy fault = %#v ok=%t calls=%d", public, ok, mutationPort.calls)
+			}
+		})
 	}
 }

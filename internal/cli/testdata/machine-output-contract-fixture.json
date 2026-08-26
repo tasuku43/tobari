@@ -5,10 +5,11 @@
     "unconfigured_cluster": {
       "configured": false,
       "running": false,
-      "policy": null,
       "workspace_count": 0,
       "workspace_manifest_count": 0,
-      "policy_revision": null,
+      "aggregate_revision": null,
+      "evaluator_identity": null,
+      "policy_data_identity": null,
       "policy_projection": "unavailable",
       "principal_registry": "unavailable",
       "gateway_projection": "unavailable",

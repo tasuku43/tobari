@@ -30,7 +30,7 @@ const (
 	opaContainer             = "tobari-opa"
 	policyBundleVolume       = "tobari-policy-bundle"
 	authBrokerContainer      = "tobari-auth-broker"
-	policyTestFailureMessage = "OPA policy tests failed; check Rego syntax and ensure the XDG policy directory is accessible to the Docker Engine VM"
+	policyTestFailureMessage = "built-in policy checks failed; reconcile the typed policy data and owned Docker policy bundle"
 )
 
 var errOwnedResourceMissing = errors.New("owned Docker resource is missing")
@@ -170,6 +170,10 @@ type Runtime struct {
 	// activation-root parent durability barrier without weakening production
 	// directory fsync behavior.
 	finalPolicyRootSync func(string) error
+	// policyBeforeBundleAssembly is nil in production. Focused publication
+	// tests use it to inject a host-data replacement between the first complete
+	// aggregate verification and the byte-authoritative bundle assembly.
+	policyBeforeBundleAssembly func()
 	// finalPolicyActivationLimit is zero in production. Tests lower the exact
 	// task-owned journal/receipt byte ceiling to prove rejection precedes OPA.
 	finalPolicyActivationLimit int64

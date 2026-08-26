@@ -56,7 +56,6 @@ type contextRuntimeFake struct {
 	lastName             string
 	lastShowName         string
 	lastImage            string
-	lastMode             tobari.ManifestPolicyMode
 	lastSourceAccess     tobari.ManifestSourceAccess
 	lastComposition      tobari.ManifestCreateComposition
 	lastChange           tobari.ManifestShellEnvironmentSetting
@@ -91,20 +90,20 @@ func (f *contextRuntimeFake) ShowContext(_ context.Context, name string) (tobari
 }
 
 func (f *contextRuntimeFake) CreateContext(
-	_ context.Context, name, image string, mode tobari.ManifestPolicyMode, sourceAccess tobari.ManifestSourceAccess,
+	_ context.Context, name, image string, sourceAccess tobari.ManifestSourceAccess,
 ) (tobari.ManifestReport, error) {
 	f.createCalls++
-	f.lastName, f.lastImage, f.lastMode = name, image, mode
+	f.lastName, f.lastImage = name, image
 	f.lastSourceAccess = sourceAccess
 	return f.createResult, f.createErr
 }
 
 func (f *contextRuntimeFake) CreateContextWithComposition(
-	_ context.Context, name, image string, mode tobari.ManifestPolicyMode, sourceAccess tobari.ManifestSourceAccess,
+	_ context.Context, name, image string, sourceAccess tobari.ManifestSourceAccess,
 	composition tobari.ManifestCreateComposition,
 ) (tobari.ManifestReport, error) {
 	f.createCalls++
-	f.lastName, f.lastImage, f.lastMode = name, image, mode
+	f.lastName, f.lastImage = name, image
 	f.lastSourceAccess, f.lastComposition = sourceAccess, composition.Clone()
 	return f.createResult, f.createErr
 }
@@ -184,7 +183,6 @@ func contextReport(task, name string) tobari.ManifestReport {
 		Task: task, ManifestState: tobari.ManifestObservationPersisted, ID: "018bcfe5-687b-7000-8000-000000000099", Name: name, Default: task == tobari.TaskManifestDefaultSet,
 		Desired:      testWorkspaceManifestRevision("f"),
 		AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector,
-		PolicyMode:       tobari.ManifestPolicyModeGuided,
 		SourceAccess:     tobari.ManifestSourceAccessReadWrite,
 		PolicyRevision:   tobari.DefaultContextPolicyRevision(),
 		NativeReadiness:  tobari.ManifestNativeReadinessEnabled,
@@ -640,7 +638,6 @@ func contextImpact() operation.Impact {
 
 func TestCreateValidatesIntentAndPassesRuntimeImageToPort(t *testing.T) {
 	created := contextReport(tobari.TaskManifestCreate, "project-tools")
-	created.PolicyMode = tobari.ManifestPolicyModeAdvanced
 	fake := &contextRuntimeFake{createResult: created}
 	service := New(fake)
 	intent := operation.Intent{
@@ -650,15 +647,15 @@ func TestCreateValidatesIntentAndPassesRuntimeImageToPort(t *testing.T) {
 	}
 	result, err := service.Create(
 		context.Background(), intent, "project-tools", tobari.BuiltinImageSelector,
-		tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadWrite,
+		tobari.ManifestSourceAccessReadWrite,
 	)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 	if result.Name != "project-tools" || fake.createCalls != 1 || fake.lastName != "project-tools" ||
-		fake.lastImage != tobari.BuiltinImageSelector || fake.lastMode != tobari.ManifestPolicyModeAdvanced ||
+		fake.lastImage != tobari.BuiltinImageSelector ||
 		fake.lastSourceAccess != tobari.ManifestSourceAccessReadWrite {
-		t.Fatalf("result/call = %+v, calls=%d name=%q image=%q mode=%q", result, fake.createCalls, fake.lastName, fake.lastImage, fake.lastMode)
+		t.Fatalf("result/call = %+v, calls=%d name=%q image=%q", result, fake.createCalls, fake.lastName, fake.lastImage)
 	}
 }
 
@@ -672,7 +669,7 @@ func TestCreateRejectsInvalidImageBeforePortCall(t *testing.T) {
 	}
 	_, err := service.Create(
 		context.Background(), intent, "project-tools", "--pull=always",
-		tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite,
+		tobari.ManifestSourceAccessReadWrite,
 	)
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Kind != fault.KindInvalidInput || public.Code != "invalid_context" {
@@ -693,7 +690,7 @@ func TestCreateRejectsInvalidSourceAccessBeforePortCall(t *testing.T) {
 	}
 	_, err := service.Create(
 		context.Background(), intent, "project-tools", tobari.BuiltinImageSelector,
-		tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccess("snapshot"),
+		tobari.ManifestSourceAccess("snapshot"),
 	)
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Kind != fault.KindInvalidInput || public.Code != "invalid_context" {
@@ -712,8 +709,7 @@ func TestCreateDuplicateRecoversThroughContextList(t *testing.T) {
 		Impact: contextImpact(),
 	}
 	_, err := New(fake).Create(
-		context.Background(), intent, "review", tobari.BuiltinImageSelector, tobari.ManifestPolicyModeGuided,
-		tobari.ManifestSourceAccessReadWrite,
+		context.Background(), intent, "review", tobari.BuiltinImageSelector, tobari.ManifestSourceAccessReadWrite,
 	)
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Kind != fault.KindRejected || public.Code != "manifest_exists" || public.Retryable ||
@@ -741,7 +737,7 @@ func TestCreateWithCompositionPreservesTypedMethodSelection(t *testing.T) {
 	}
 	result, err := New(fake).CreateWithComposition(
 		context.Background(), intent, "coding", tobari.BuiltinImageSelector,
-		tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite,
+		tobari.ManifestSourceAccessReadWrite,
 		tobari.ManifestCreateComposition{
 			NativeReadiness: tobari.ManifestNativeReadinessEnabled,
 			MethodPolicy:    &policy,
@@ -759,7 +755,7 @@ func TestCreateWithCompositionPreservesTypedMethodSelection(t *testing.T) {
 func TestCreationBaseAndCreatePreserveReviewedStandaloneComposition(t *testing.T) {
 	base := tobari.ManifestCopySnapshot{
 		ID: "018bcfe5-687b-7000-8000-000000000120", Name: "engineering",
-		Revision: "sha256:" + strings.Repeat("a", 64), PolicyMode: tobari.ManifestPolicyModeAdvanced,
+		Revision:     "sha256:" + strings.Repeat("a", 64),
 		Desired:      testWorkspaceManifestRevision("a"),
 		SourceAccess: tobari.ManifestSourceAccessReadOnly, NativeReadiness: tobari.ManifestNativeReadinessDisabled,
 		MethodPolicy:     tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodDeny, Overrides: []tobari.ManifestMethodOverride{{Method: "GET", Decision: tobari.ManifestMethodAllow}}},
@@ -769,7 +765,7 @@ func TestCreationBaseAndCreatePreserveReviewedStandaloneComposition(t *testing.T
 	}
 	report := contextReport(tobari.TaskManifestCreate, "standalone")
 	report.ID = "018bcfe5-687b-7000-8000-000000000121"
-	report.PolicyMode, report.SourceAccess, report.NativeReadiness = base.PolicyMode, base.SourceAccess, base.NativeReadiness
+	report.SourceAccess, report.NativeReadiness = base.SourceAccess, base.NativeReadiness
 	report.MethodPolicy, report.ShellEnvironment, report.GitIdentity = base.MethodPolicy.Clone(), base.ShellEnvironment, base.GitIdentity
 	fake := &contextRuntimeFake{baseResult: base, createResult: report}
 	service := New(fake)
@@ -788,7 +784,7 @@ func TestCreationBaseAndCreatePreserveReviewedStandaloneComposition(t *testing.T
 		Target: operation.TargetRef{Kind: tobari.ManifestCatalogTargetKind, ParentID: tobari.ManifestCatalogTargetID}, Impact: contextImpact(),
 	}
 	_, err = service.CreateWithComposition(
-		context.Background(), intent, report.Name, tobari.BuiltinImageSelector, observed.PolicyMode, observed.SourceAccess,
+		context.Background(), intent, report.Name, tobari.BuiltinImageSelector, observed.SourceAccess,
 		tobari.ManifestCreateComposition{NativeReadiness: observed.NativeReadiness, MethodPolicy: &policy, RuntimeSelection: observed.RuntimeSelection, CopyFrom: &observed},
 	)
 	if err != nil {
@@ -802,7 +798,7 @@ func TestCreationBaseAndCreatePreserveReviewedStandaloneComposition(t *testing.T
 func TestCreateMapsChangedBaseToRetryableReviewFault(t *testing.T) {
 	base := tobari.ManifestCopySnapshot{
 		ID: "018bcfe5-687b-7000-8000-000000000120", Name: "engineering",
-		Revision: "sha256:" + strings.Repeat("a", 64), PolicyMode: tobari.ManifestPolicyModeGuided,
+		Revision:     "sha256:" + strings.Repeat("a", 64),
 		Desired:      testWorkspaceManifestRevision("a"),
 		SourceAccess: tobari.ManifestSourceAccessReadWrite, NativeReadiness: tobari.ManifestNativeReadinessEnabled,
 		MethodPolicy:     tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview, Overrides: []tobari.ManifestMethodOverride{}},
@@ -811,7 +807,7 @@ func TestCreateMapsChangedBaseToRetryableReviewFault(t *testing.T) {
 	fake := &contextRuntimeFake{createErr: tobari.ErrManifestCopySourceChanged}
 	intent := operation.Intent{Command: "manifest create", Effect: operation.EffectCreate, Target: operation.TargetRef{Kind: tobari.ManifestCatalogTargetKind, ParentID: tobari.ManifestCatalogTargetID}, Impact: contextImpact()}
 	policy := base.MethodPolicy.Clone()
-	_, err := New(fake).CreateWithComposition(context.Background(), intent, "standalone", tobari.BuiltinImageSelector, base.PolicyMode, base.SourceAccess, tobari.ManifestCreateComposition{NativeReadiness: base.NativeReadiness, MethodPolicy: &policy, RuntimeSelection: base.RuntimeSelection, CopyFrom: &base})
+	_, err := New(fake).CreateWithComposition(context.Background(), intent, "standalone", tobari.BuiltinImageSelector, base.SourceAccess, tobari.ManifestCreateComposition{NativeReadiness: base.NativeReadiness, MethodPolicy: &policy, RuntimeSelection: base.RuntimeSelection, CopyFrom: &base})
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Code != "manifest_copy_source_changed" || !public.Retryable || len(public.NextActions) != 1 || public.NextActions[0].Command != "manifest list" {
 		t.Fatalf("changed Base fault = %#v, ok=%t", public, ok)
@@ -832,7 +828,7 @@ func TestCreateFirstWithCompositionRevalidatesKnownEmptyInsideLifecycle(t *testi
 	}
 	_, err := New(fake).CreateFirstWithComposition(
 		context.Background(), intent, tobari.DefaultManifestName, tobari.BuiltinImageSelector,
-		tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite,
+		tobari.ManifestSourceAccessReadWrite,
 		tobari.ManifestCreateComposition{NativeReadiness: tobari.ManifestNativeReadinessEnabled, RuntimeSelection: "standard@1"},
 	)
 	if err != nil || fake.listCalls != 1 || fake.createCalls != 1 {
@@ -847,8 +843,8 @@ func TestCreateFirstWithCompositionRejectsConcurrentCollectionChange(t *testing.
 		Items: []tobari.ManifestSummary{{
 			ID: "018bcfe5-687b-7000-8000-000000000099", Name: "other", ManifestState: tobari.ManifestObservationPersisted,
 			Default: true, AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector,
-			Desired:    testWorkspaceManifestRevision("e"),
-			PolicyMode: tobari.ManifestPolicyModeGuided, SourceAccess: tobari.ManifestSourceAccessReadWrite,
+			Desired:        testWorkspaceManifestRevision("e"),
+			SourceAccess:   tobari.ManifestSourceAccessReadWrite,
 			PolicyRevision: tobari.DefaultContextPolicyRevision(), NativeReadiness: tobari.ManifestNativeReadinessEnabled,
 			MethodPolicy:  tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview, Overrides: []tobari.ManifestMethodOverride{}},
 			RuntimeStatus: tobari.ManifestRuntimeStatusOfficial, RuntimeSelection: "standard@1",
@@ -863,7 +859,7 @@ func TestCreateFirstWithCompositionRejectsConcurrentCollectionChange(t *testing.
 	}
 	_, err := New(fake).CreateFirstWithComposition(
 		context.Background(), intent, tobari.DefaultManifestName, tobari.BuiltinImageSelector,
-		tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite,
+		tobari.ManifestSourceAccessReadWrite,
 		tobari.ManifestCreateComposition{NativeReadiness: tobari.ManifestNativeReadinessEnabled, RuntimeSelection: "standard@1"},
 	)
 	public, ok := fault.PublicCopy(err)

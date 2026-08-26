@@ -106,7 +106,7 @@ growth easier than manually operating Docker, OPA, or host policy files.
 ## Trust boundaries
 
 Trusted components are the host OS and user, Docker Engine or its Linux VM,
-Tobari CLI, Gateway, OPA, and Rego policy. The research surface additionally
+Tobari CLI, Gateway, OPA, and the fixed Tobari evaluator bundle. The research surface additionally
 trusts its reviewed provider drivers, Auth Broker, root-key provider, owner
 manifests, and encrypted Context vaults. Every Workspace and
 process in it, coding agents, project files, Workspace home, copied opaque
@@ -118,7 +118,7 @@ revisions. WorkspaceTemplateID plus semantic digest is authority; name and
 generation cannot select or widen content. Generation is correlation only, so
 no-op mutation does not increment it and A→B→A may reuse A's digest at a later
 generation. The creation-time Boundary remains immutable:
-source-access choice, policy mode, normalized Workspace Template-owned policy snapshot and
+source-access choice, normalized canonical Workspace Template policy data and
 revision, terminal destination/method ceilings, and enabled/disabled
 native-readiness choice. They remain secret-free authority metadata in
 separate owner-only state; project files, runtime images, Workspaces, and
@@ -494,15 +494,15 @@ For ordinary external traffic, Gateway first establishes a valid
 principal/schema/Workspace Template. OPA then applies the terminal destination and method
 Boundary; one exact-Deny tier containing trusted baseline Deny and remembered
 exact Deny with no order between its members; the Workspace Template-policy positive tier;
-and only while unresolved either Guided remembered Allow or Advanced Rego.
-Anything still unresolved fails closed or becomes eligible for exact review.
+remembered reviewed Allow; and unresolved review/default deny. Anything still
+unresolved fails closed or becomes eligible for exact review.
 No lower tier can override a terminal decision.
 
 Host Loopback does not enter that order. Gateway must first resolve an active
 principal-owned route and Attachment Epoch. OPA then applies exact Attachment
 Deny, exact Attachment Allow, and exact attachment review in that order.
-Template policy, Context Policy Memory, baseline/native authority, and
-Advanced Rego are inapplicable. Attachment decisions are likewise
+Template policy, Context Policy Memory, baseline/native authority, and the
+fixed evaluator are inapplicable. Attachment decisions are likewise
 inapplicable to ordinary traffic. Gateway opens the bridge only after Allow;
 the relay revalidates the active Context/Workspace principal, epoch, target port, and Allow before
 physical-host I/O. Closing the owning attachment closes the relay before route
@@ -519,17 +519,21 @@ bounded strict parameter set, rejects mutation, and replaces the complete URL
 query map with an empty map before OPA. Source, variables, operation name, and
 extensions remain absent from policy and audit in both transports.
 The input includes the host-issued Context principal, a structured request
-authority, method, path and path segments, multi-valued query, redacted headers,
-and an authorization object containing only a non-secret broker provider ID
-when a handle has been successfully introspected. Both stable IDs are derived from the local Gateway
+authority, method, path and path segments, an empty query map by default, and
+an authorization object containing only a non-secret broker provider ID when a
+handle has been successfully introspected. It contains no request headers and
+no client/raw query values. Only after the exact Git classifier validates a
+body-free GET discovery request does Gateway project its normalized `service`
+coordinate into the query map required by the fixed evaluator. Both stable IDs are derived from the local Gateway
 interface address and an owner-only host registry. Caller headers, environment,
 URLs, session metadata, profile names, and supplied Context IDs are not
 authorization inputs. Missing, unknown, stale, ambiguous, or mismatched Workspace Template
 bindings deny before OPA and upstream I/O.
-Guided Workspace Templates supply no executable Rego: aggregate generation uses the
-current Tobari-owned shared evaluator and tests with each Workspace Template's policy
-data. Only Advanced Workspace Templates own Rego source; source and runtime documents use
-exact schema 1, and every other input shape fails before policy activation.
+All Workspace Templates supply canonical typed policy data: aggregate generation
+uses the current Tobari-owned shared evaluator and tests with that data. User-owned
+Template, Context, and configuration layouts contain no executable policy source;
+the internal bundle is generated and verified only inside Tobari-managed runtime
+material before policy activation.
 
 Secret header values, handles, credential revisions, queries, headers, and
 request/response body content are absent from denial audit. GraphQL source,
@@ -601,9 +605,10 @@ to non-local destinations is denied by the initialized policy. The initialized
 policy also requires an explicit port for each supported scheme; learned rules
 retain the observed Context/scheme/host/port/method/path and optional
 GraphQL, AWS, Kubernetes, Git, or OCI coordinate and cannot be used on another
-Context, Workspace, port, or scheme. Query and headers may be available to
-Advanced Rego as additional deny constraints but never become guided
-candidate/rule identity.
+Context, Workspace, port, or scheme. Request headers and client/raw query values
+never enter OPA. The normalized classifier-derived Git GET `service` coordinate
+is the sole query input required by the fixed evaluator and may become Git
+candidate/rule identity only through its typed protocol coordinate.
 Ordinary body presence and content are not authorization or learning dimensions;
 an exact learned rule covers every body value at its exact
 Context/scheme/host/port/method/path. Immediately before an upstream connection,
@@ -754,14 +759,14 @@ host-browser navigation.
 Session-close summaries use the same untrusted request projection
 and are best-effort host stderr output.
 
-Before any baseline, learned, or Advanced allow, the Tobari-owned evaluator
+Before any positive authority, the Tobari-owned evaluator
 applies the immutable destination ceiling and resolves one complete method
 decision from an exact override or the Workspace Template policy default. Method `deny` is
 terminal; `allow` enters the Workspace Template-policy baseline path; `exact_review` grants nothing
 by itself. Terminal denial emits no
 permission candidate and causes zero external DNS, Auth Broker resolution, or
-upstream calls. The Workspace Template policy ceiling cannot be replaced by Workspace Template Rego,
-learned state, provider metadata, or a Workspace-supplied value. The fixed
+upstream calls. The Workspace Template policy ceiling cannot be replaced by user
+source, learned state, provider metadata, or a Workspace-supplied value. The fixed
 agent-ready baseline is not selectable and Workspace Template creation can choose a
 deny-only or GET-only method policy directly;
 enabled native readiness grants the reviewed Claude Code 2.1.220 and Codex 0.147.0
@@ -1243,11 +1248,11 @@ treats a failed read as no candidates, never as shell source or authority.
 | Static broker credentials cannot cross Context principals | Encrypted Context vaults, explicit project-bound handles, pre-OPA introspection, same-revision post-allow replacement, cross-Context tests, and integration |
 | Unknown effects fail closed | Domain and catalog validation |
 | Denials support safe policy learning | Typed Context/scheme/host/port/method/path denial validation, fixed navigation-response schema, host-only session summary, secret canaries, and integration projection |
-| Learned permissions stay explicit and Context-bound | Context-scoped opaque-reference round trips, exact effect domain tests, Rego cross-Context canaries, preflight-before-aggregate activation tests, and Docker integration |
+| Learned permissions stay explicit and Context-bound | Context-scoped opaque-reference round trips, exact effect domain tests, fixed-evaluator cross-Context canaries, preflight-before-aggregate activation tests, and Docker integration |
 | One bad Workspace Template cannot replace known-good policy | Strict host-paired source validation, mutex plus cross-process locking, digest-bound source journal recovery, serialized content-addressed aggregate generation, reserved namespace validation, whole-candidate OPA tests, atomic publish, rollback tests, and integration |
 | Workspace Template changes cannot mutate existing Context or Workspace authority | Immutable Context binding, permanent Workspace-to-Context binding, desired-versus-AppliedEntry tests, and explicit-entry reconciliation |
 | Source access is exact and not a snapshot claim | Runtime spec/hash and Docker inspect tests, read-only mutation/Git-metadata failures, writable home/tmpfs canaries, no writable alias, and same-root host/read-write observation tests |
-| Workspace Template policy ceilings cannot be bypassed | Default-plus-override method-decision tests plus destination/method terminal zero-candidate/DNS/Broker/upstream canaries and exact-Deny precedence above broad Allow, baseline, learned, and Advanced policy |
+| Workspace Template policy ceilings cannot be bypassed | Default-plus-override method-decision tests plus destination/method terminal zero-candidate/DNS/Broker/upstream canaries and exact-Deny precedence above broad Allow, baseline, and learned policy |
 | Overlapping roots are not misrepresented as isolated | Product contract, Workspace Template-selected direct mounts, same-root/parent-child integration canaries, and absence of overlay/root-lock paths |
 | Gateway does not retain allowed streaming bodies | Header-hook ordering unit tests plus incremental chunked-request and SSE-response integration canaries |
 | Declared oversized bodies retain the transport bound | Fixed mitmproxy body-size asset test, over-limit `Content-Length` integration request, incremental unknown-length transport-cap evidence, and complete-body semantic-cap tests |

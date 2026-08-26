@@ -25,7 +25,6 @@ var contextCreateHTTPMethods = []string{
 
 type contextCreateSelection struct {
 	CopyFrom            *tobari.ManifestCopySnapshot
-	PolicyMode          tobari.ManifestPolicyMode
 	Name                string
 	RuntimeSelection    string
 	SourceAccess        tobari.ManifestSourceAccess
@@ -92,7 +91,6 @@ const (
 
 type contextCreateRawDraft struct {
 	base             *tobari.ManifestCopySnapshot
-	policyMode       tobari.ManifestPolicyMode
 	name             string
 	sourceIndex      int
 	methodSelected   int
@@ -265,7 +263,6 @@ func (w *terminalContextCreateWizard) composeRaw(
 func contextCreateDraftFromSeed(seed contextCreateWizardSeed) contextCreateRawDraft {
 	draft := contextCreateRawDraft{
 		base:             seed.Selection.CopyFrom,
-		policyMode:       seed.Selection.PolicyMode,
 		name:             seed.Selection.Name,
 		sourceIndex:      0,
 		runtimeSelection: seed.Selection.RuntimeSelection,
@@ -275,9 +272,6 @@ func contextCreateDraftFromSeed(seed contextCreateWizardSeed) contextCreateRawDr
 	}
 	if draft.runtimeSelection == "" {
 		draft.runtimeSelection = tobari.StandardRuntimeName
-	}
-	if draft.policyMode == "" {
-		draft.policyMode = tobari.ManifestPolicyModeGuided
 	}
 	if draft.nativeReadiness == "" {
 		draft.nativeReadiness = tobari.ManifestNativeReadinessEnabled
@@ -305,7 +299,7 @@ func resetContextCreateDraftBase(draft *contextCreateRawDraft, base *tobari.Mani
 	if base != nil {
 		copy := base.Clone()
 		seed.Selection = contextCreateSelection{
-			CopyFrom: &copy, PolicyMode: copy.PolicyMode, RuntimeSelection: copy.RuntimeSelection,
+			CopyFrom: &copy, RuntimeSelection: copy.RuntimeSelection,
 			SourceAccess: copy.SourceAccess, NativeReadiness: copy.NativeReadiness,
 			MethodPolicy: copy.MethodPolicy.Clone(),
 		}
@@ -908,9 +902,8 @@ func contextCreateSelectionFromDraft(draft contextCreateRawDraft) (contextCreate
 		return contextCreateSelection{}, err
 	}
 	selection := contextCreateSelection{
-		CopyFrom:   draft.base,
-		PolicyMode: draft.policyMode,
-		Name:       draft.name, RuntimeSelection: draft.runtimeSelection,
+		CopyFrom: draft.base,
+		Name:     draft.name, RuntimeSelection: draft.runtimeSelection,
 		NativeReadiness: draft.nativeReadiness,
 		SourceAccess: []tobari.ManifestSourceAccess{
 			tobari.ManifestSourceAccessReadWrite,
@@ -939,7 +932,6 @@ func contextCreateReviewLines(style bool, selection contextCreateSelection) []st
 		applyStyleToken(style, styleText, "Workspace Manifest"),
 		selectorDetail(style, "Base", contextCreateBaseDisplay(selection.CopyFrom), styleText),
 		selectorDetail(style, "Name", safeExternalText(selection.Name), styleText),
-		selectorDetail(style, "Policy mode", string(selection.PolicyMode), styleText),
 		"", applyStyleToken(style, styleText, "Filesystem"),
 		applyStyleToken(style, styleMuted, "  LOCATION                  ACCESS"),
 		fmt.Sprintf("  %-25s %s", "Project source", selection.SourceAccess),

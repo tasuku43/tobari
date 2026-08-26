@@ -449,8 +449,8 @@ func (r *Runtime) ApplyAttachmentGrantDecisionSet(
 			return err
 		}
 		digest := sha256.Sum256(encoded)
-		receipt = tobari.PolicyActivationReceipt{PolicyDirectory: r.hostLoopbackDirectory(), ActiveRevision: hex.EncodeToString(digest[:])}
-		return receipt.Validate()
+		receipt = tobari.PolicyActivationReceipt{ActiveRevision: hex.EncodeToString(digest[:])}
+		return receipt.ValidateAttachment()
 	})
 	return receipt, err
 }

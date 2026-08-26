@@ -41,7 +41,7 @@ func validSnapshot() tobari.FinalOperatorConsoleSnapshot {
 	if err != nil {
 		panic(err)
 	}
-	cluster := tobari.FinalClusterStatus{SchemaVersion: tobari.FinalClusterLifecycleSchemaVersion, Task: tobari.TaskClusterStatus, Authority: tobari.FinalClusterAuthorityAbsent, Runtime: tobari.FinalClusterRuntimeAbsent, Receipt: tobari.FinalClusterReceiptAbsent, Contexts: []tobari.FinalClusterContextReceiptObservation{}, Components: []tobari.FinalClusterComponentObservation{}}
+	cluster := tobari.FinalClusterStatus{SchemaVersion: tobari.FinalClusterStatusSchemaVersion, Task: tobari.TaskClusterStatus, Authority: tobari.FinalClusterAuthorityAbsent, Runtime: tobari.FinalClusterRuntimeAbsent, Receipt: tobari.FinalClusterReceiptAbsent, Contexts: []tobari.FinalClusterContextReceiptObservation{}, Components: []tobari.FinalClusterComponentObservation{}}
 	result, err := tobari.NewFinalOperatorConsoleSnapshot(cluster, review)
 	if err != nil {
 		panic(err)
@@ -59,7 +59,7 @@ func validReviewedSnapshot(t *testing.T) tobari.FinalOperatorConsoleSnapshot {
 	const workspaceID tobari.WorkspaceID = "01912345-6789-7abc-8def-0123456789a3"
 	body := tobari.WorkspaceTemplateBody{
 		Boundary:      tobari.WorkspaceTemplateBoundary{SourceAccess: tobari.ManifestSourceAccessReadOnly, DestinationCeiling: tobari.ManifestPolicyDestinationCeiling{Mode: "exact", Authorities: []tobari.ManifestPolicyAuthority{{Scheme: "https", Host: "api.example.dev", Port: 443}}}, MethodPolicy: tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview, Overrides: []tobari.ManifestMethodOverride{{Method: "GET", Decision: tobari.ManifestMethodAllow}}}},
-		Policy:        tobari.WorkspaceTemplatePolicyBody{AgentProfile: tobari.DefaultProfile, Mode: tobari.ManifestPolicyModeGuided, NativeReadiness: tobari.ManifestNativeReadinessEnabled, BaselineGrants: []tobari.ManifestPolicyExactRule{}, BaselineTemplates: []tobari.ManifestPolicyPathTemplateRule{}, MCPBaselineGrants: []tobari.ManifestPolicyMCPRule{}, BaselineDenies: []tobari.ManifestPolicyExactRule{}, GraphQLEndpoints: []tobari.ManifestPolicyExactRule{}, MCPEndpoints: []tobari.ManifestPolicyExactRule{}},
+		Policy:        tobari.WorkspaceTemplatePolicyBody{AgentProfile: tobari.DefaultProfile, NativeReadiness: tobari.ManifestNativeReadinessEnabled, BaselineGrants: []tobari.ManifestPolicyExactRule{}, BaselineTemplates: []tobari.ManifestPolicyPathTemplateRule{}, MCPBaselineGrants: []tobari.ManifestPolicyMCPRule{}, BaselineDenies: []tobari.ManifestPolicyExactRule{}, GraphQLEndpoints: []tobari.ManifestPolicyExactRule{}, MCPEndpoints: []tobari.ManifestPolicyExactRule{}},
 		EntryDefaults: tobari.WorkspaceTemplateEntryDefaults{Runtime: tobari.RuntimeBinding{RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Revision: string(digest("f")), Ordinal: 1, Image: "tobari-runtime:test"}}, SessionDefaults: tobari.WorkspaceTemplateSessionDefaults{ShellEnvironment: []tobari.ManifestShellEnvironmentSetting{}}, CreationDefaults: tobari.WorkspaceTemplateCreationDefaults{},
 	}
 	revision, err := tobari.NewWorkspaceTemplateRevision(templateID, 1, body)
@@ -87,7 +87,13 @@ func validReviewedSnapshot(t *testing.T) tobari.FinalOperatorConsoleSnapshot {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cluster := tobari.FinalClusterStatus{SchemaVersion: tobari.FinalClusterLifecycleSchemaVersion, Task: tobari.TaskClusterStatus, Authority: tobari.FinalClusterAuthorityPresent, Generation: collection.Generation, CollectionRevision: collection.Revision, TemplateCount: 1, ContextCount: 1, WorkspaceCount: 1, Runtime: tobari.FinalClusterRuntimeRunning, Receipt: tobari.FinalClusterReceiptActive, Contexts: []tobari.FinalClusterContextReceiptObservation{{ContextID: contextID}}, Components: []tobari.FinalClusterComponentObservation{}}
+	cluster := tobari.FinalClusterStatus{SchemaVersion: tobari.FinalClusterStatusSchemaVersion, Task: tobari.TaskClusterStatus, Authority: tobari.FinalClusterAuthorityPresent, Generation: collection.Generation, CollectionRevision: collection.Revision, TemplateCount: 1, ContextCount: 1, WorkspaceCount: 1, Runtime: tobari.FinalClusterRuntimeRunning, Receipt: tobari.FinalClusterReceiptActive, Contexts: []tobari.FinalClusterContextReceiptObservation{{ContextID: contextID}}, Components: []tobari.FinalClusterComponentObservation{}}
+	aggregateRevision := strings.Repeat("a", 64)
+	evaluatorIdentity := tobari.PolicyEvaluatorIdentity{SchemaVersion: 1, Version: "test-evaluator", Digest: digest("b")}
+	policyDataIdentity := tobari.PolicyDataIdentity{SchemaVersion: 1, Digest: digest("c")}
+	cluster.AggregateRevision = &aggregateRevision
+	cluster.EvaluatorIdentity = &evaluatorIdentity
+	cluster.PolicyDataIdentity = &policyDataIdentity
 	result, err := tobari.NewFinalOperatorConsoleSnapshot(cluster, review)
 	if err != nil {
 		t.Fatal(err)

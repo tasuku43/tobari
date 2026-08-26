@@ -106,7 +106,7 @@ type Mutator struct {
 	sync   func(string) error
 }
 
-const effectDecisionSchemaVersion = 1
+const effectDecisionSchemaVersion = 2
 const maxEffectDecisionBytes = 8 << 20
 
 func finalMutationRecoveryError(detail string) error {
@@ -114,28 +114,29 @@ func finalMutationRecoveryError(detail string) error {
 }
 
 type effectDecision struct {
-	SchemaVersion       int                                                 `json:"schema_version"`
-	Operation           string                                              `json:"operation"`
-	Target              string                                              `json:"target"`
-	PreviousGeneration  uint64                                              `json:"previous_generation"`
-	PreviousRevision    tobari.SemanticDigest                               `json:"previous_revision"`
-	NextGeneration      uint64                                              `json:"next_generation"`
-	NextRevision        tobari.SemanticDigest                               `json:"next_revision"`
-	ContextID           *tobari.ContextID                                   `json:"context_id,omitempty"`
-	WorkspaceID         *tobari.WorkspaceID                                 `json:"workspace_id,omitempty"`
-	Workspace           *tobari.WorkspaceBinding                            `json:"workspace,omitempty"`
-	Force               *bool                                               `json:"force,omitempty"`
-	Candidate           *tobari.PolicyCandidateAuthority                    `json:"candidate,omitempty"`
-	RuleID              string                                              `json:"rule_id,omitempty"`
-	Decision            tobari.PolicyMemoryDecision                         `json:"decision,omitempty"`
-	PreviousMemory      *tobari.PolicyMemoryRevision                        `json:"previous_policy_memory,omitempty"`
-	EntryPlan           *tobari.WorkspaceEntryReconciliationPlan            `json:"workspace_entry_plan,omitempty"`
-	ReviewedSet         *tobari.PolicyMemoryReviewedDecisionSet             `json:"reviewed_set,omitempty"`
-	ReviewedPublication *reviewedTerminalPublication                        `json:"reviewed_publication,omitempty"`
-	AuthDecision        *authbroker.ContextAuthDecisionAuthority            `json:"auth_decision,omitempty"`
-	AuthResult          *authbroker.ContextMutationObservation              `json:"auth_result,omitempty"`
-	ClusterPlan         *tobari.WorkspaceAuthorityClusterReconciliationPlan `json:"cluster_plan,omitempty"`
-	ClusterDownPlan     *tobari.WorkspaceAuthorityClusterDownPlan           `json:"cluster_down_plan,omitempty"`
+	SchemaVersion             int                                                 `json:"schema_version"`
+	Operation                 string                                              `json:"operation"`
+	Target                    string                                              `json:"target"`
+	PreviousGeneration        uint64                                              `json:"previous_generation"`
+	PreviousRevision          tobari.SemanticDigest                               `json:"previous_revision"`
+	NextGeneration            uint64                                              `json:"next_generation"`
+	NextRevision              tobari.SemanticDigest                               `json:"next_revision"`
+	ContextID                 *tobari.ContextID                                   `json:"context_id,omitempty"`
+	WorkspaceID               *tobari.WorkspaceID                                 `json:"workspace_id,omitempty"`
+	Workspace                 *tobari.WorkspaceBinding                            `json:"workspace,omitempty"`
+	Force                     *bool                                               `json:"force,omitempty"`
+	Candidate                 *tobari.PolicyCandidateAuthority                    `json:"candidate,omitempty"`
+	RuleID                    string                                              `json:"rule_id,omitempty"`
+	Decision                  tobari.PolicyMemoryDecision                         `json:"decision,omitempty"`
+	PreviousMemory            *tobari.PolicyMemoryRevision                        `json:"previous_policy_memory,omitempty"`
+	EntryPlan                 *tobari.WorkspaceEntryReconciliationPlan            `json:"workspace_entry_plan,omitempty"`
+	ReviewedSet               *tobari.PolicyMemoryReviewedDecisionSet             `json:"reviewed_set,omitempty"`
+	ReviewedPublication       *reviewedTerminalPublication                        `json:"reviewed_publication,omitempty"`
+	AuthDecision              *authbroker.ContextAuthDecisionAuthority            `json:"auth_decision,omitempty"`
+	AuthResult                *authbroker.ContextMutationObservation              `json:"auth_result,omitempty"`
+	ClusterPlan               *tobari.WorkspaceAuthorityClusterReconciliationPlan `json:"cluster_plan,omitempty"`
+	ClusterProjectionIdentity *tobari.PolicyProjectionIdentity                    `json:"cluster_projection_identity,omitempty"`
+	ClusterDownPlan           *tobari.WorkspaceAuthorityClusterDownPlan           `json:"cluster_down_plan,omitempty"`
 }
 
 type reviewedTerminalAppliedDecision struct {
@@ -249,8 +250,13 @@ func (d effectDecision) validate() error {
 			d.ReviewedPublication != nil || d.AuthDecision != nil || d.AuthResult != nil {
 			return fmt.Errorf("final cluster reconciliation effect decision is invalid")
 		}
+		if d.ClusterProjectionIdentity != nil {
+			if err := d.ClusterProjectionIdentity.Validate(); err != nil {
+				return fmt.Errorf("final cluster reconciliation identity is invalid: %w", err)
+			}
+		}
 	case finalClusterDownOperation:
-		if d.Target != finalClusterAuthorityTarget || d.ClusterPlan != nil || d.ClusterDownPlan == nil || d.ClusterDownPlan.Validate() != nil ||
+		if d.Target != finalClusterAuthorityTarget || d.ClusterPlan != nil || d.ClusterProjectionIdentity != nil || d.ClusterDownPlan == nil || d.ClusterDownPlan.Validate() != nil ||
 			d.ClusterDownPlan.PreviousGeneration != d.PreviousGeneration || d.ClusterDownPlan.PreviousRevision != d.PreviousRevision ||
 			d.ClusterDownPlan.NextGeneration != d.NextGeneration || d.ClusterDownPlan.NextRevision != d.NextRevision ||
 			d.ContextID != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil ||
@@ -259,25 +265,25 @@ func (d effectDecision) validate() error {
 			return fmt.Errorf("final cluster down effect decision is invalid")
 		}
 	case "workspace-delete", "workspace-delete-force":
-		if d.ClusterPlan != nil || d.NextGeneration != d.PreviousGeneration+1 || d.ContextID != nil || d.WorkspaceID == nil || d.WorkspaceID.Validate() != nil || d.Workspace == nil || d.Workspace.ID != *d.WorkspaceID || d.Force == nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil || d.EntryPlan != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil || d.AuthDecision != nil || d.AuthResult != nil {
+		if d.ClusterPlan != nil || d.ClusterProjectionIdentity != nil || d.NextGeneration != d.PreviousGeneration+1 || d.ContextID != nil || d.WorkspaceID == nil || d.WorkspaceID.Validate() != nil || d.Workspace == nil || d.Workspace.ID != *d.WorkspaceID || d.Force == nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil || d.EntryPlan != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil || d.AuthDecision != nil || d.AuthResult != nil {
 			return fmt.Errorf("Workspace delete effect decision is invalid")
 		}
 	case "context-delete":
 		contextID, err := tobari.ParseContextRef(d.Target)
-		if d.ClusterPlan != nil || err != nil || d.NextGeneration != d.PreviousGeneration+1 || d.ContextID == nil || *d.ContextID != contextID || d.ContextID.Validate() != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil || d.EntryPlan != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil || d.AuthDecision != nil || d.AuthResult != nil {
+		if d.ClusterPlan != nil || d.ClusterProjectionIdentity != nil || err != nil || d.NextGeneration != d.PreviousGeneration+1 || d.ContextID == nil || *d.ContextID != contextID || d.ContextID.Validate() != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil || d.EntryPlan != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil || d.AuthDecision != nil || d.AuthResult != nil {
 			return fmt.Errorf("Context delete effect decision is invalid")
 		}
 	case "policy-allow", "policy-deny":
-		if d.ClusterPlan != nil || d.NextGeneration != d.PreviousGeneration+1 || d.ContextID != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate == nil || d.Candidate.Validate() != nil || d.RuleID == "" || d.PreviousMemory == nil || d.PreviousMemory.Validate() != nil || d.Decision.Validate() != nil || d.EntryPlan != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil || d.AuthDecision != nil || d.AuthResult != nil {
+		if d.ClusterPlan != nil || d.ClusterProjectionIdentity != nil || d.NextGeneration != d.PreviousGeneration+1 || d.ContextID != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate == nil || d.Candidate.Validate() != nil || d.RuleID == "" || d.PreviousMemory == nil || d.PreviousMemory.Validate() != nil || d.Decision.Validate() != nil || d.EntryPlan != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil || d.AuthDecision != nil || d.AuthResult != nil {
 			return fmt.Errorf("Policy candidate effect decision is invalid")
 		}
 	case "policy-reset":
-		if d.ClusterPlan != nil || d.NextGeneration != d.PreviousGeneration+1 || d.ContextID != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID == "" || d.PreviousMemory == nil || d.PreviousMemory.Validate() != nil || d.Decision != "" || d.EntryPlan != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil || d.AuthDecision != nil || d.AuthResult != nil {
+		if d.ClusterPlan != nil || d.ClusterProjectionIdentity != nil || d.NextGeneration != d.PreviousGeneration+1 || d.ContextID != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID == "" || d.PreviousMemory == nil || d.PreviousMemory.Validate() != nil || d.Decision != "" || d.EntryPlan != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil || d.AuthDecision != nil || d.AuthResult != nil {
 			return fmt.Errorf("Policy reset effect decision is invalid")
 		}
 	case "context-entry":
 		contextID, err := tobari.ParseContextRef(d.Target)
-		if d.ClusterPlan != nil || err != nil || d.EntryPlan == nil || d.EntryPlan.Workspace.ContextID != contextID || d.EntryPlan.Applied.ContextID != contextID || d.ContextID != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil || d.AuthDecision != nil || d.AuthResult != nil {
+		if d.ClusterPlan != nil || d.ClusterProjectionIdentity != nil || err != nil || d.EntryPlan == nil || d.EntryPlan.Workspace.ContextID != contextID || d.EntryPlan.Applied.ContextID != contextID || d.ContextID != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil || d.AuthDecision != nil || d.AuthResult != nil {
 			return fmt.Errorf("Context entry effect decision is invalid")
 		}
 		binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, ProjectRoot: d.EntryPlan.Workspace.ProjectRoot, TemplateID: d.EntryPlan.Applied.TemplateID}
@@ -291,7 +297,7 @@ func (d effectDecision) validate() error {
 			return fmt.Errorf("Context entry no-op transition changed revision")
 		}
 	case "policy-apply-reviewed":
-		if d.ClusterPlan != nil || d.Target != tobari.PolicyDecisionSetID || d.NextGeneration != d.PreviousGeneration+1 || d.ContextID != nil ||
+		if d.ClusterPlan != nil || d.ClusterProjectionIdentity != nil || d.Target != tobari.PolicyDecisionSetID || d.NextGeneration != d.PreviousGeneration+1 || d.ContextID != nil ||
 			d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID != "" ||
 			d.Decision != "" || d.PreviousMemory != nil || d.EntryPlan != nil || d.ReviewedSet == nil || d.ReviewedSet.Validate() != nil || d.AuthDecision != nil || d.AuthResult != nil ||
 			d.ReviewedSet.ObservedGeneration != d.PreviousGeneration || d.ReviewedSet.ObservedRevision != d.PreviousRevision {
@@ -306,7 +312,7 @@ func (d effectDecision) validate() error {
 		}
 	case "research-auth-login", "research-auth-import", "research-auth-logout":
 		contextID, err := tobari.ParseContextRef(d.Target)
-		if d.ClusterPlan != nil || err != nil || d.NextGeneration != d.PreviousGeneration || d.NextRevision != d.PreviousRevision || d.AuthDecision == nil || d.AuthDecision.Context.ContextID != contextID || d.AuthDecision.Context.ContextRef != d.Target || d.ContextID != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil || d.EntryPlan != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil {
+		if d.ClusterPlan != nil || d.ClusterProjectionIdentity != nil || err != nil || d.NextGeneration != d.PreviousGeneration || d.NextRevision != d.PreviousRevision || d.AuthDecision == nil || d.AuthDecision.Context.ContextID != contextID || d.AuthDecision.Context.ContextRef != d.Target || d.ContextID != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil || d.EntryPlan != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil {
 			return fmt.Errorf("final Context authentication effect decision is invalid")
 		}
 		wantTask := map[string]string{"research-auth-login": authbroker.TaskLogin, "research-auth-import": authbroker.TaskImport, "research-auth-logout": authbroker.TaskLogout}[d.Operation]
@@ -1334,6 +1340,14 @@ func (m *Mutator) effectfulMutate(
 		complete.PreviousRevision = current.Revision
 		complete.NextGeneration = plan.next.Generation
 		complete.NextRevision = plan.next.Revision
+		// A cluster action may have crossed the external settlement boundary
+		// before host publication failed. Preserve the already-confirmed
+		// identity while rebuilding the same durable decision for recovery; it
+		// is terminal evidence, not a fresh caller-side observation.
+		if active && operation == finalClusterReconciliationOperation && decision.ClusterProjectionIdentity != nil {
+			identity := *decision.ClusterProjectionIdentity
+			complete.ClusterProjectionIdentity = &identity
+		}
 		if active && decision.ReviewedPublication != nil {
 			value, err := newReviewedTerminalPublication(decision.ReviewedPublication.publication())
 			if err != nil {
@@ -1419,7 +1433,7 @@ func isResearchAuthOperation(operation string) bool {
 func (m *Mutator) terminalConsequenceCurrent(current tobari.WorkspaceAuthorityCollection, decision effectDecision) error {
 	switch decision.Operation {
 	case finalClusterReconciliationOperation:
-		if decision.ClusterPlan == nil {
+		if decision.ClusterPlan == nil || decision.ClusterProjectionIdentity == nil {
 			return fmt.Errorf("terminal final cluster reconciliation evidence is incomplete")
 		}
 		return decision.ClusterPlan.ValidateCurrent(current)
@@ -1522,13 +1536,13 @@ func (m *Mutator) confirmCommittedEffect(ctx context.Context, current tobari.Wor
 	switch decision.Operation {
 	case finalClusterReconciliationOperation:
 		settlement, ok := m.settlement.(finalClusterSettlementAuthority)
-		if !ok || decision.ClusterPlan == nil {
+		if !ok || decision.ClusterPlan == nil || decision.ClusterProjectionIdentity == nil {
 			return fmt.Errorf("final cluster reconciliation recovery authority is unavailable")
 		}
 		if err := decision.ClusterPlan.ValidateCurrent(current); err != nil {
 			return err
 		}
-		return settlement.ConfirmFinalClusterAuthoritySettled(ctx, current.Clone())
+		return settlement.ConfirmFinalClusterAuthoritySettled(ctx, current.Clone(), *decision.ClusterProjectionIdentity)
 	case finalClusterDownOperation:
 		settlement, ok := m.settlement.(finalClusterDownSettlementAuthority)
 		if !ok || decision.ClusterDownPlan == nil {
@@ -1704,6 +1718,9 @@ func (m *Mutator) readTerminalEffectDecision() (effectDecision, bool, error) {
 	}
 	if err := decision.validate(); err != nil {
 		return effectDecision{}, false, err
+	}
+	if decision.Operation == finalClusterReconciliationOperation && decision.ClusterProjectionIdentity == nil {
+		return effectDecision{}, false, fmt.Errorf("terminal final cluster reconciliation decision omits aggregate identity")
 	}
 	return decision, true, nil
 }
@@ -2018,6 +2035,9 @@ func (m *Mutator) readPublishedComplete() (tobari.WorkspaceAuthorityCollection, 
 	}
 	data, err := readAuthorityFile(filepath.Join(m.store.root, authorityFileName))
 	if err != nil {
+		return tobari.WorkspaceAuthorityCollection{}, false, err
+	}
+	if err := rejectLegacyAdvancedAuthorityBytes(data); err != nil {
 		return tobari.WorkspaceAuthorityCollection{}, false, err
 	}
 	var collection tobari.WorkspaceAuthorityCollection

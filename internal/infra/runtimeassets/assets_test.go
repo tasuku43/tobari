@@ -32,12 +32,58 @@ func TestMaterializeAndVersion(t *testing.T) {
 	if opener.Mode().Perm() != 0o700 {
 		t.Fatalf("browser opener mode = %o, want 700", opener.Mode().Perm())
 	}
+	if err := filepath.WalkDir(destination, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if strings.HasSuffix(entry.Name(), ".rego") {
+			t.Errorf("materialized evaluator source on host filesystem: %s", path)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	version, err := Version()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(version) != 16 {
 		t.Fatalf("version length = %d, want 16", len(version))
+	}
+}
+
+func TestMaterializeRejectsStaleEvaluatorSourceBeforeWriting(t *testing.T) {
+	for _, relative := range []string{"stale.rego", filepath.Join("policy", "nested.rego")} {
+		t.Run(relative, func(t *testing.T) {
+			destination := filepath.Join(t.TempDir(), "runtime")
+			if err := os.MkdirAll(filepath.Dir(filepath.Join(destination, relative)), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			stalePath := filepath.Join(destination, relative)
+			stale := []byte("package user.supplied\n")
+			if err := os.WriteFile(stalePath, stale, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			markerPath := filepath.Join(destination, "owner-marker")
+			marker := []byte("unchanged")
+			if err := os.WriteFile(markerPath, marker, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			err := Materialize(destination)
+			if err == nil || !strings.Contains(err.Error(), "executable evaluator source") || !strings.Contains(err.Error(), "reset or recreate") {
+				t.Fatalf("stale evaluator source result = %v", err)
+			}
+			if _, err := os.Lstat(filepath.Join(destination, "compose.yaml")); !os.IsNotExist(err) {
+				t.Fatalf("materialization wrote compose before rejecting stale evaluator: %v", err)
+			}
+			for path, want := range map[string][]byte{stalePath: stale, markerPath: marker} {
+				got, err := os.ReadFile(path)
+				if err != nil || string(got) != string(want) {
+					t.Fatalf("pre-existing %s changed: got=%q err=%v", path, got, err)
+				}
+			}
+		})
 	}
 }
 

@@ -74,7 +74,7 @@ The retained public surface is:
 | Discovery and diagnostics | `help`, `version`, `doctor` | Claims and checks describe the narrower provider/runtime surface. |
 | Shared enforcement | `cluster up`, `cluster status`, `cluster denials`, `cluster logs`, `cluster down` | One Gateway, one OPA, and one locked Auth Broker remain; companion state and lifecycle are removed. |
 | HTTP permission workflow | `policy candidates`, `review permissions`, `policy rules`, `policy allow`, `policy deny`, `policy reset`; `policy preset list`, `policy preset show`, `policy preset init`, `policy preset validate` | Exact learned rules and explicit human batch review remain below one immutable Context guardrail. The internal `policy apply-reviewed` completion stays catalog-owned but is not a public command. Built-in and strict local custom presets replace implicit initial policy. `policy compactions` and `policy compact` are removed. No automatic retry follows allow. |
-| Context and runtime | `context list`, `context show`, `context create`, `context use`, `config shell`, `config git`, `runtime init`, `runtime build` | Context creation fixes `--source-access read-only|read-write` and snapshots `--policy-preset`; guided/advanced policy and narrow host projections remain below that guardrail. Docker recipe build is still an explicit trusted-host effect. |
+| Context and runtime | `context list`, `context show`, `context create`, `context use`, `config shell`, `config git`, `runtime init`, `runtime build` | Context creation fixes `--source-access read-only|read-write` and snapshots `--policy-preset`; canonical typed policy data is evaluated by the fixed evaluator below that guardrail. Docker recipe build is still an explicit trusted-host effect. |
 | Workspace lifecycle | `tobari`, `status`, `list`, `delete` | Direct source access follows the permanently bound Context; persistent per-Workspace home, fixed resources, and Docker-only runtime remain explicit. |
 | Authentication | `auth login`, `auth import`, `auth status`, `auth logout` | `auth login` requires `--provider github`; `auth import` accepts strict static owner manifests. Status and help say “brokered.” Tool-native state is separately described as Workspace-owned. |
 
@@ -112,11 +112,12 @@ V1 owns three built-ins:
   effect outside its destination ceiling.
 
 The guardrail is evaluated by the trusted Tobari-owned system policy before
-baseline grants, learned exact rules, or Advanced Rego. None can exceed it.
+baseline grants, learned exact rules, or any user-authored executable source.
+None can exceed it.
 Custom presets are strict, bounded, owner-only, non-executable data with an
 explicit destination ceiling, method ceiling, optional exact baseline grants,
 baseline denies, and declared GraphQL classification points. They contain no
-secret, wildcard host, IP literal, arbitrary Rego, shell, provider refresh, or
+secret, wildcard host, IP literal, executable source, shell, provider refresh, or
 external-fetch behavior. A baseline grant is Context-wide and must be shown as
 such; learned rules remain project-bound. Deny retains terminal precedence.
 
@@ -332,7 +333,7 @@ publication remains downstream of the integration join.
   provider, Gateway, Auth Broker, runtime, and documentation generators.
 - Context/preset tests: immutable source access; exact Docker mount mode;
   writable home under read-only source; preset digest snapshots; no live
-  propagation; guardrail precedence over baseline, learned, and Advanced
+  propagation; guardrail precedence over baseline, learned, and typed policy
   allows; terminal non-learnability; and no model-provider bypass.
 - Negative side-effect tests: zero DNS/upstream/secret resolution on deny;
   unsupported provider/plan/adapter/compaction inputs have zero provider,

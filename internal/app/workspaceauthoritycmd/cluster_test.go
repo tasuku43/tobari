@@ -3,7 +3,9 @@ package workspaceauthoritycmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
@@ -12,14 +14,15 @@ import (
 )
 
 type fakeFinalClusterPort struct {
-	plan  tobari.WorkspaceAuthorityClusterReconciliationPlan
-	err   error
-	calls int
+	plan     tobari.WorkspaceAuthorityClusterReconciliationPlan
+	identity tobari.PolicyProjectionIdentity
+	err      error
+	calls    int
 }
 
-func (f *fakeFinalClusterPort) Reconcile(context.Context) (tobari.WorkspaceAuthorityClusterReconciliationPlan, error) {
+func (f *fakeFinalClusterPort) Reconcile(context.Context) (tobari.WorkspaceAuthorityClusterReconciliationPlan, tobari.PolicyProjectionIdentity, error) {
 	f.calls++
-	return f.plan, f.err
+	return f.plan, f.identity, f.err
 }
 
 func finalClusterPlanFixture(t *testing.T) tobari.WorkspaceAuthorityClusterReconciliationPlan {
@@ -48,15 +51,23 @@ func finalClusterIntent() operation.Intent {
 	)
 }
 
+func finalClusterIdentityFixture() tobari.PolicyProjectionIdentity {
+	return tobari.PolicyProjectionIdentity{
+		AggregateRevision:  strings.TrimPrefix(string(digest("7")), "sha256:"),
+		EvaluatorIdentity:  tobari.PolicyEvaluatorIdentity{SchemaVersion: 1, Version: "test-evaluator", Digest: digest("6")},
+		PolicyDataIdentity: tobari.PolicyDataIdentity{SchemaVersion: 1, Digest: digest("5")},
+	}
+}
+
 func TestFinalClusterServiceBindsFixedTargetAndReturnsExactReceipts(t *testing.T) {
-	port := &fakeFinalClusterPort{plan: finalClusterPlanFixture(t)}
+	port := &fakeFinalClusterPort{plan: finalClusterPlanFixture(t), identity: finalClusterIdentityFixture()}
 	result, err := NewFinalClusterService(port).Reconcile(context.Background(), finalClusterIntent())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if port.calls != 1 || result.Task != tobari.TaskClusterUp || result.Generation != port.plan.NextGeneration ||
 		result.CollectionRevision != port.plan.NextRevision || result.ContentDigest != port.plan.Projection.ContentDigest ||
-		result.PlanDigest != port.plan.Projection.PlanDigest || !result.Applied || len(result.Contexts) != 1 {
+		result.PlanDigest != port.plan.Projection.PlanDigest || result.PolicyProjectionIdentity != port.identity || !result.Applied || len(result.Contexts) != 1 {
 		t.Fatalf("final cluster result=%#v calls=%d", result, port.calls)
 	}
 	want := port.plan.Projection.Contexts[0]
@@ -91,7 +102,7 @@ func TestFinalClusterServiceRejectsEveryMutationDimensionBeforeAdapter(t *testin
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
-			port := &fakeFinalClusterPort{plan: finalClusterPlanFixture(t)}
+			port := &fakeFinalClusterPort{plan: finalClusterPlanFixture(t), identity: finalClusterIdentityFixture()}
 			request := valid
 			mutate(&request)
 			if _, err := NewFinalClusterService(port).Reconcile(context.Background(), request); err == nil || port.calls != 0 {
@@ -104,7 +115,7 @@ func TestFinalClusterServiceRejectsEveryMutationDimensionBeforeAdapter(t *testin
 func TestFinalClusterServiceRejectsInvalidAdapterResultAsUnknownConfirmedBoundary(t *testing.T) {
 	plan := finalClusterPlanFixture(t)
 	plan.Projection.Contexts[0].MemoryReceipt.Revision = digest("8")
-	port := &fakeFinalClusterPort{plan: plan}
+	port := &fakeFinalClusterPort{plan: plan, identity: finalClusterIdentityFixture()}
 	_, err := NewFinalClusterService(port).Reconcile(context.Background(), finalClusterIntent())
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Code != "invalid_cluster_reconciliation_result" ||
@@ -114,15 +125,20 @@ func TestFinalClusterServiceRejectsInvalidAdapterResultAsUnknownConfirmedBoundar
 }
 
 func TestFinalClusterServicePreservesLegacyAndUnknownMutationClassification(t *testing.T) {
-	t.Run("legacy before effect", func(t *testing.T) {
-		port := &fakeFinalClusterPort{err: tobari.ErrPreReleaseLegacyAuthority}
-		_, err := NewFinalClusterService(port).Reconcile(context.Background(), finalClusterIntent())
-		public, ok := fault.PublicCopy(err)
-		if !ok || public.Code != "legacy_state_present" || public.Phase != fault.PhasePrecondition ||
-			public.ChangeState != fault.ChangeNone || port.calls != 1 {
-			t.Fatalf("legacy fault=%#v ok=%t calls=%d", public, ok, port.calls)
-		}
-	})
+	for name, sentinel := range map[string]error{
+		"pre-release envelope": tobari.ErrPreReleaseLegacyAuthority,
+		"executable policy":    fmt.Errorf("%w: %w", tobari.ErrPreReleaseLegacyAuthority, tobari.ErrLegacyExecutablePolicy),
+	} {
+		t.Run(name, func(t *testing.T) {
+			port := &fakeFinalClusterPort{err: sentinel}
+			_, err := NewFinalClusterService(port).Reconcile(context.Background(), finalClusterIntent())
+			public, ok := fault.PublicCopy(err)
+			if !ok || public.Code != "legacy_state_present" || public.Phase != fault.PhasePrecondition ||
+				public.ChangeState != fault.ChangeNone || port.calls != 1 {
+				t.Fatalf("legacy fault=%#v ok=%t calls=%d", public, ok, port.calls)
+			}
+		})
+	}
 	t.Run("unclassified adapter failure", func(t *testing.T) {
 		port := &fakeFinalClusterPort{err: errors.New("unknown settlement result")}
 		_, err := NewFinalClusterService(port).Reconcile(context.Background(), finalClusterIntent())
@@ -135,7 +151,7 @@ func TestFinalClusterServicePreservesLegacyAndUnknownMutationClassification(t *t
 }
 
 func TestFinalClusterReconciliationValidationRejectsRelabeledConsequence(t *testing.T) {
-	result, err := NewFinalClusterReconciliation(finalClusterPlanFixture(t))
+	result, err := NewFinalClusterReconciliation(finalClusterPlanFixture(t), finalClusterIdentityFixture())
 	if err != nil {
 		t.Fatal(err)
 	}

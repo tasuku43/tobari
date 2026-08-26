@@ -25,6 +25,7 @@ type runnerCall struct{ args []string }
 type recordingRunner struct {
 	runs        []runnerCall
 	outputs     []runnerCall
+	inputs      [][]byte
 	outputData  []byte
 	outputErr   error
 	outputQueue [][]byte
@@ -76,6 +77,7 @@ type interruptedClusterUpRunner struct {
 
 type rollbackClusterUpRunner struct {
 	clusterUpProgressRunner
+	runs                        []runnerCall
 	activationErr               error
 	rollbackErr                 error
 	predecessorGatewayID        string
@@ -109,6 +111,7 @@ func (r *rollbackClusterUpRunner) bindPredecessor(state tobari.State) {
 func (r *rollbackClusterUpRunner) Run(
 	ctx context.Context, args, environment []string, input io.Reader, output, errorOutput io.Writer,
 ) error {
+	r.runs = append(r.runs, runnerCall{args: append([]string{}, args...)})
 	if slices.Contains(args, "tobari-policy-publish") {
 		r.policyPublishes = append(r.policyPublishes, strings.Join(args, " "))
 	}
@@ -212,6 +215,10 @@ func (r *rollbackClusterUpRunner) Output(ctx context.Context, args, environment 
 		r.prepareImagesErr = nil
 		return nil, err
 	}
+	if len(args) >= 5 && args[0] == "image" && args[1] == "inspect" &&
+		strings.Contains(strings.Join(args, " "), tobari.RuntimeImageAPILabel) {
+		return compatibleImageInspection(), nil
+	}
 	if r.networkErr != nil && r.composed && len(args) >= 2 && args[0] == "network" && args[1] == "connect" {
 		err := r.networkErr
 		r.networkErr = nil
@@ -312,6 +319,7 @@ func (*boundedAppliedInspectRunner) Output(context.Context, []string, []string) 
 
 type clusterUpProgressRunner struct {
 	events             []string
+	outputs            []runnerCall
 	composeEnvironment []string
 	networkConnections []runnerCall
 	policyQueries      []runnerCall
@@ -507,6 +515,7 @@ func (r *clusterUpProgressRunner) Run(_ context.Context, args, environment []str
 }
 
 func (r *clusterUpProgressRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
+	r.outputs = append(r.outputs, runnerCall{args: append([]string{}, args...)})
 	if len(args) >= 3 && args[0] == "exec" && args[1] == opaContainer && args[2] == "/opa" {
 		r.policyQueries = append(r.policyQueries, runnerCall{args: append([]string{}, args...)})
 		if !r.composed {
@@ -1011,6 +1020,162 @@ func TestFailedActivationRestoresExactAppliedServiceIDsAndProfile(t *testing.T) 
 	}
 }
 
+// installPreRefactorGuidedAggregate creates the exact predecessor shape that
+// matters at this boundary: schema-2 State has no evaluator/data identities,
+// its aggregate contains the old router/guided modules plus data.json, and the
+// sibling Gateway projection is present. The modules are deliberately never
+// passed to OPA by the test; the upgrade guard must reject the shape before
+// live activation rather than attempting to interpret predecessor source.
+func installPreRefactorGuidedAggregate(t *testing.T, runtime *Runtime, candidate tobari.State) tobari.State {
+	t.Helper()
+	revision := strings.Repeat("c", 64)
+	if revision == candidate.AggregateRevision {
+		revision = strings.Repeat("d", 64)
+	}
+	revisionDirectory := filepath.Join(runtime.aggregateRoot(), revision)
+	policyDirectory := filepath.Join(revisionDirectory, "policy")
+	if err := os.MkdirAll(policyDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(candidate.PolicyDirectory, "data.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	metadata, ok := document["tobari"].(map[string]any)
+	if !ok {
+		t.Fatal("candidate aggregate omitted metadata")
+	}
+	metadata["aggregate_revision"] = revision
+	delete(metadata, "evaluator_identity")
+	delete(metadata, "policy_data_identity")
+	if err := writeAtomicJSON(filepath.Join(policyDirectory, "data.json"), document); err != nil {
+		t.Fatal(err)
+	}
+	gateway, err := os.ReadFile(candidate.GatewayConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(revisionDirectory, "gateway.json"), gateway, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(policyDirectory, "router.rego"), []byte("package tobari.http\n\n# git-HEAD-era context-dependent router fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(policyDirectory, "guided.rego"), []byte("package tobari.system.guided\n\n# git-HEAD-era guided evaluator fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state := candidate
+	state.SchemaVersion = 2
+	state.AggregateRevision = revision
+	state.PolicyDirectory = policyDirectory
+	state.GatewayConfig = filepath.Join(revisionDirectory, "gateway.json")
+	state.EvaluatorIdentity = tobari.PolicyEvaluatorIdentity{}
+	state.PolicyDataIdentity = tobari.PolicyDataIdentity{}
+	state.Applied = tobari.SharedClusterAppliedEntry{
+		AggregateRevision: revision, AssetVersion: candidate.AssetVersion,
+		ComposeAssets:  testComposeAssets(t, tobari.SharedClusterProfileUnix),
+		GatewayImageID: testGatewayDigest, OPAImageID: "sha256:" + strings.Repeat("2", 64),
+		PermissionProfile: tobari.SharedClusterProfileUnix,
+	}
+	if brokerRuntimeEnabled {
+		state.Applied.AuthBrokerImageID = "sha256:" + strings.Repeat("3", 64)
+	}
+	if err := state.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	return state
+}
+
+func TestPredecessorGuidedSchemaTwoFailsBeforeLiveMutation(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &rollbackClusterUpRunner{}
+	runtime := configuredClusterUpRuntime(t, root, runner)
+	candidate, err := runtime.prepareState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := installPreRefactorGuidedAggregate(t, runtime, candidate)
+	runner.bindPredecessor(legacy)
+	if err := runtime.writeState(legacy); err != nil {
+		t.Fatal(err)
+	}
+	stateBefore, err := os.ReadFile(runtime.statePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.runs = nil
+	runner.outputs = nil
+	if _, err := runtime.ClusterUp(context.Background()); !errors.Is(err, tobari.ErrLegacyExecutablePolicy) ||
+		!strings.Contains(err.Error(), "reset or recreate") {
+		t.Fatalf("predecessor Guided upgrade error = %v", err)
+	}
+	if len(runner.runs) != 0 || len(runner.outputs) != 0 {
+		t.Fatalf("predecessor Guided rejection reached Docker: runs=%v outputs=%v", runner.runs, runner.outputs)
+	}
+	stateAfter, err := os.ReadFile(runtime.statePath())
+	if err != nil || !bytes.Equal(stateBefore, stateAfter) {
+		t.Fatalf("predecessor Guided rejection changed persisted State: error=%v before=%s after=%s", err, stateBefore, stateAfter)
+	}
+	if _, exists, err := runtime.readClusterJournal(); err != nil || exists {
+		t.Fatalf("predecessor Guided rejection left journal: exists=%t error=%v", exists, err)
+	}
+}
+
+func TestPredecessorAdvancedSchemaTwoFailsClosedWithZeroLiveEffect(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &rollbackClusterUpRunner{}
+	runtime := configuredClusterUpRuntime(t, root, runner)
+	candidate, err := runtime.prepareState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := installPreRefactorGuidedAggregate(t, runtime, candidate)
+	runner.bindPredecessor(legacy)
+	if err := runtime.writeState(legacy); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := runtime.contextManifestPath(tobari.DefaultManifestName)
+	manifestBytes, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	manifest["policy_mode"] = "advanced"
+	manifest["advanced_policy"] = map[string]any{"source": "package tobari.http"}
+	if err := writeAtomicJSON(manifestPath, manifest); err != nil {
+		t.Fatal(err)
+	}
+	stateBefore, err := os.ReadFile(runtime.statePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.runs = nil
+	runner.outputs = nil
+	if _, err := runtime.ClusterUp(context.Background()); !errors.Is(err, tobari.ErrLegacyExecutablePolicy) ||
+		!strings.Contains(err.Error(), "legacy Advanced") {
+		t.Fatalf("predecessor Advanced upgrade error = %v", err)
+	}
+	if len(runner.runs) != 0 || len(runner.outputs) != 0 {
+		t.Fatalf("predecessor Advanced rejection reached Docker: runs=%v outputs=%v", runner.runs, runner.outputs)
+	}
+	stateAfter, err := os.ReadFile(runtime.statePath())
+	if err != nil || !bytes.Equal(stateBefore, stateAfter) {
+		t.Fatalf("predecessor Advanced rejection changed persisted State: error=%v", err)
+	}
+	if _, exists, err := runtime.readClusterJournal(); err != nil || exists {
+		t.Fatalf("predecessor Advanced rejection left journal: exists=%t error=%v", exists, err)
+	}
+}
+
 func TestFailedActivationRestoresMigratedPrePlatformBaseOnly(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -1076,6 +1241,7 @@ func TestRollbackFailureJoinsActivationEvidence(t *testing.T) {
 	retained.SchemaVersion = 2
 	retained.Applied = tobari.SharedClusterAppliedEntry{
 		AggregateRevision: candidate.AggregateRevision, AssetVersion: candidate.AssetVersion,
+		EvaluatorIdentity: candidate.EvaluatorIdentity, PolicyDataIdentity: candidate.PolicyDataIdentity,
 		ComposeAssets:     testComposeAssets(t, tobari.SharedClusterProfileUnix),
 		GatewayImageID:    "sha256:" + strings.Repeat("4", 64),
 		OPAImageID:        "sha256:" + strings.Repeat("5", 64),
@@ -1111,6 +1277,7 @@ func TestRollbackVerificationDriftRetainsRecoveryJournal(t *testing.T) {
 	retained.SchemaVersion = 2
 	retained.Applied = tobari.SharedClusterAppliedEntry{
 		AggregateRevision: candidate.AggregateRevision, AssetVersion: candidate.AssetVersion,
+		EvaluatorIdentity: candidate.EvaluatorIdentity, PolicyDataIdentity: candidate.PolicyDataIdentity,
 		ComposeAssets:     testComposeAssets(t, tobari.SharedClusterProfileUnix),
 		GatewayImageID:    "sha256:" + strings.Repeat("4", 64),
 		OPAImageID:        "sha256:" + strings.Repeat("5", 64),
@@ -1154,6 +1321,7 @@ func TestRollbackJournalClearFailureKeepsExactPreviousAuthority(t *testing.T) {
 	retained.SchemaVersion = 2
 	retained.Applied = tobari.SharedClusterAppliedEntry{
 		AggregateRevision: candidate.AggregateRevision, AssetVersion: candidate.AssetVersion,
+		EvaluatorIdentity: candidate.EvaluatorIdentity, PolicyDataIdentity: candidate.PolicyDataIdentity,
 		ComposeAssets:     testComposeAssets(t, tobari.SharedClusterProfileUnix),
 		GatewayImageID:    "sha256:" + strings.Repeat("4", 64),
 		OPAImageID:        "sha256:" + strings.Repeat("5", 64),
@@ -1197,15 +1365,42 @@ func TestActivationFailuresRestorePolicyComponentsAndPrincipalTopology(t *testin
 			injected := errors.New("synthetic activation failure")
 			runner := &rollbackClusterUpRunner{}
 			runtime := configuredClusterUpRuntime(t, root, runner)
+			retained, err := runtime.prepareState(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest, paths, err := runtime.resolveContext(tobari.DefaultManifestName)
+			if err != nil {
+				t.Fatal(err)
+			}
+			original, err := readPolicyData(paths.PolicyDirectory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			updatedAllows := append([]tobari.LearnedPolicyRule{}, original.rules...)
+			updatedAllows = append(updatedAllows, contextRuleFixture(t, manifest, "01912345-6789-7abc-8def-0123456789ab", "/rollback-candidate"))
+			updated, err := original.withPolicyRules(updatedAllows, original.denyRules)
+			if err != nil {
+				t.Fatal(err)
+			}
+			transaction, err := beginPolicySourceTransaction(paths.PolicyDirectory, original.sources, updated.sources)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := transaction.commit(); err != nil {
+				t.Fatal(err)
+			}
 			candidate, err := runtime.prepareState(context.Background())
 			if err != nil {
 				t.Fatal(err)
 			}
-			retained := candidate
+			if candidate.AggregateRevision == retained.AggregateRevision {
+				t.Fatal("candidate aggregate revision did not change after typed Context policy mutation")
+			}
 			retained.SchemaVersion = 2
-			retained.AggregateRevision = strings.Repeat("e", 64)
 			retained.Applied = tobari.SharedClusterAppliedEntry{
 				AggregateRevision: retained.AggregateRevision, AssetVersion: retained.AssetVersion,
+				EvaluatorIdentity: retained.EvaluatorIdentity, PolicyDataIdentity: retained.PolicyDataIdentity,
 				ComposeAssets:     testComposeAssets(t, tobari.SharedClusterProfileLoopbackTCP),
 				GatewayImageID:    "sha256:" + strings.Repeat("4", 64),
 				OPAImageID:        "sha256:" + strings.Repeat("5", 64),
@@ -1242,7 +1437,7 @@ func TestActivationFailuresRestorePolicyComponentsAndPrincipalTopology(t *testin
 			if len(runner.policyPublishes) < 2 ||
 				!strings.Contains(runner.policyPublishes[0], candidate.AggregateRevision) ||
 				!strings.Contains(runner.policyPublishes[len(runner.policyPublishes)-1], retained.AggregateRevision) {
-				t.Fatalf("policy publication sequence = %v", runner.policyPublishes)
+				t.Fatalf("policy publication sequence = %v; activation error = %v", runner.policyPublishes, activationErr)
 			}
 			if _, journalExists, err := runtime.readClusterJournal(); err != nil || journalExists {
 				t.Fatalf("successful rollback journal = exists:%t error:%v activation:%v", journalExists, err, activationErr)
@@ -1331,8 +1526,15 @@ func TestStatePublicationOutcomeControlsRollback(t *testing.T) {
 			if test.wantCommitted && (loaded.SchemaVersion != 2 || loaded.Applied.GatewayImageID != testGatewayDigest) {
 				t.Fatalf("exact new state was not retained: %+v", loaded)
 			}
-			if _, journalExists, journalErr := runtime.readClusterJournal(); journalErr != nil || !journalExists {
-				t.Fatalf("publication failure journal = exists:%t error:%v", journalExists, journalErr)
+			_, journalExists, journalErr := runtime.readClusterJournal()
+			if journalErr != nil {
+				t.Fatalf("publication failure journal error = %v", journalErr)
+			}
+			if test.wantRollback && journalExists {
+				t.Fatalf("completed rollback journal = exists:%t", journalExists)
+			}
+			if !test.wantRollback && !journalExists {
+				t.Fatalf("uncertain publication journal = exists:%t", journalExists)
 			}
 		})
 	}
@@ -1819,6 +2021,7 @@ func TestExistingActivationValidatesRollbackComposeClosureBeforeMutation(t *test
 			state.SchemaVersion = 2
 			state.Applied = tobari.SharedClusterAppliedEntry{
 				AggregateRevision: state.AggregateRevision, AssetVersion: state.AssetVersion,
+				EvaluatorIdentity: state.EvaluatorIdentity, PolicyDataIdentity: state.PolicyDataIdentity,
 				ComposeAssets:  testComposeAssets(t, tobari.SharedClusterProfileUnix),
 				GatewayImageID: "sha256:" + strings.Repeat("4", 64),
 				OPAImageID:     "sha256:" + strings.Repeat("5", 64), PermissionProfile: tobari.SharedClusterProfileUnix,
@@ -1892,6 +2095,7 @@ func TestCrashRecoveryRevalidatesRollbackComposeClosureBeforeMutation(t *testing
 			retained.SchemaVersion = 2
 			retained.Applied = tobari.SharedClusterAppliedEntry{
 				AggregateRevision: retained.AggregateRevision, AssetVersion: retained.AssetVersion,
+				EvaluatorIdentity: retained.EvaluatorIdentity, PolicyDataIdentity: retained.PolicyDataIdentity,
 				ComposeAssets:  testComposeAssets(t, tobari.SharedClusterProfileUnix),
 				GatewayImageID: "sha256:" + strings.Repeat("4", 64), OPAImageID: "sha256:" + strings.Repeat("5", 64),
 				PermissionProfile: tobari.SharedClusterProfileUnix,
@@ -2086,8 +2290,15 @@ func (r *policyProbeRunner) Output(_ context.Context, args, _ []string) ([]byte,
 	return nil, nil
 }
 
-func (r *recordingRunner) Run(_ context.Context, args, _ []string, _ io.Reader, out, _ io.Writer) error {
+func (r *recordingRunner) Run(_ context.Context, args, _ []string, in io.Reader, out, _ io.Writer) error {
 	r.runs = append(r.runs, runnerCall{args: append([]string{}, args...)})
+	if in != nil {
+		data, err := io.ReadAll(in)
+		if err != nil {
+			return err
+		}
+		r.inputs = append(r.inputs, data)
+	}
 	if slices.Contains(args, "authbroker.control") {
 		_, _ = io.WriteString(out, `{"schema_version":1,"ok":true,"state":"unlocked"}`+"\n")
 	}
@@ -2304,15 +2515,31 @@ func retainedAppliedState(t *testing.T, root, aggregate string, profile tobari.S
 	state := runtimeState(root)
 	state.SchemaVersion = 2
 	state.AggregateRevision = aggregate
+	revisionDirectory := filepath.Join(root, "state", "cluster-projections", aggregate)
+	state.PolicyDirectory = filepath.Join(revisionDirectory, "policy")
+	state.GatewayConfig = filepath.Join(revisionDirectory, "gateway.json")
+	data, err := os.ReadFile(filepath.Join(state.PolicyDirectory, "data.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document aggregatePolicyDataDocument
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	state.ManifestCount = len(document.Contexts)
+	state.EvaluatorIdentity = document.Tobari.EvaluatorIdentity
+	state.PolicyDataIdentity = document.Tobari.PolicyDataIdentity
 	state.AssetVersion = "retained-asset"
 	state.RuntimeDirectory = filepath.Join(root, "state", "runtime", state.AssetVersion)
 	state.Applied = tobari.SharedClusterAppliedEntry{
-		AggregateRevision: aggregate,
-		AssetVersion:      "retained-asset",
-		ComposeAssets:     testComposeAssets(t, profile),
-		GatewayImageID:    "sha256:" + strings.Repeat("4", 64),
-		OPAImageID:        "sha256:" + strings.Repeat("5", 64),
-		PermissionProfile: profile,
+		AggregateRevision:  aggregate,
+		AssetVersion:       "retained-asset",
+		EvaluatorIdentity:  state.EvaluatorIdentity,
+		PolicyDataIdentity: state.PolicyDataIdentity,
+		ComposeAssets:      testComposeAssets(t, profile),
+		GatewayImageID:     "sha256:" + strings.Repeat("4", 64),
+		OPAImageID:         "sha256:" + strings.Repeat("5", 64),
+		PermissionProfile:  profile,
 	}
 	if brokerRuntimeEnabled {
 		state.Applied.AuthBrokerImageID = "sha256:" + strings.Repeat("6", 64)
@@ -2535,13 +2762,26 @@ func TestPolicyValidationUsesReadOnlyMountAndPolicyOwner(t *testing.T) {
 	root := t.TempDir()
 	runner := &recordingRunner{}
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
-	if err := runtime.testPolicy(context.Background(), runtimeState(root)); err != nil {
+	state := aggregatePolicyTestState(t, runtime)
+	runner.outputs = nil
+	if err := runtime.testPolicyDirectory(context.Background(), state.PolicyDirectory); err != nil {
 		t.Fatal(err)
 	}
-	args := runner.outputs[0].args
-	uid, gid := currentIDs()
-	wantUser := strconv.Itoa(uid) + ":" + strconv.Itoa(gid)
-	if !slices.Contains(args, wantUser) || !slices.Contains(args, "type=bind,src="+filepath.Join(root, "policy")+",dst=/policy,readonly") {
+	if len(runner.outputs) < 2 {
+		t.Fatalf("policy validation calls = %v", runner.outputs)
+	}
+	var args []string
+	for _, call := range runner.outputs {
+		if slices.Contains(call.args, "test") {
+			args = call.args
+			break
+		}
+	}
+	if len(args) == 0 {
+		t.Fatalf("policy validation did not invoke OPA test: %v", runner.outputs)
+	}
+	if !slices.Contains(args, "type=volume,src="+policyBundleVolume+",dst=/bundle") || slices.Contains(args, "type=bind") ||
+		!slices.Contains(args, "test") || !containsArgPrefix(args, "/bundle/.test-") {
 		t.Fatalf("policy argv = %v", args)
 	}
 }
@@ -2649,6 +2889,7 @@ func TestClusterDownRevalidatesRetainedComposeAuthorityBeforeMutation(t *testing
 			state.SchemaVersion = 2
 			state.Applied = tobari.SharedClusterAppliedEntry{
 				AggregateRevision: state.AggregateRevision, AssetVersion: state.AssetVersion,
+				EvaluatorIdentity: state.EvaluatorIdentity, PolicyDataIdentity: state.PolicyDataIdentity,
 				ComposeAssets:  testComposeAssets(t, tobari.SharedClusterProfileUnix),
 				GatewayImageID: "sha256:" + strings.Repeat("4", 64), OPAImageID: "sha256:" + strings.Repeat("5", 64),
 				PermissionProfile: tobari.SharedClusterProfileUnix,
@@ -2801,7 +3042,8 @@ func TestPrepareStateUsesAggregateProjection(t *testing.T) {
 		t.Fatalf("state = %+v", state)
 	}
 	for path, want := range map[string]os.FileMode{
-		state.PolicyDirectory: 0o700, filepath.Join(state.PolicyDirectory, "router.rego"): 0o600,
+		state.PolicyDirectory:                              0o700,
+		filepath.Join(state.PolicyDirectory, "data.json"):  0o600,
 		state.GatewayConfig:                                0o600,
 		runtime.interactiveAttachmentDirectory():           0o700,
 		runtime.interactiveAttachmentSessionRegistryPath(): 0o600,

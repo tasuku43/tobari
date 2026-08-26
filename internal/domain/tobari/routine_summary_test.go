@@ -59,8 +59,8 @@ func TestContextRoutineSummaryOwnsDefaultsRuntimeAndAction(t *testing.T) {
 	report := ManifestReport{
 		Task: TaskManifestShow, ManifestState: ManifestObservationPersisted,
 		ID: "018bcfe5-687b-7000-8000-000000000099", Name: "review", Default: false,
-		AgentProfile: DefaultProfile, Image: BuiltinImageSelector,
-		PolicyMode: ManifestPolicyModeGuided, SourceAccess: ManifestSourceAccessReadWrite,
+		AgentProfile: DefaultProfile, Image: "tobari-context-review:123456789abc",
+		SourceAccess:   ManifestSourceAccessReadWrite,
 		PolicyRevision: DefaultContextPolicyRevision(), NativeReadiness: ManifestNativeReadinessDisabled,
 		MethodPolicy: ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}},
 		ShellEnvironment: []ManifestShellEnvironmentSetting{
@@ -93,7 +93,7 @@ func TestContextRoutineSummaryOwnsDefaultsRuntimeAndAction(t *testing.T) {
 
 	listSummary, err := (ManifestSummary{
 		ID: report.ID, Name: report.Name, ManifestState: report.ManifestState, Default: false,
-		AgentProfile: report.AgentProfile, Image: report.Image, PolicyMode: report.PolicyMode,
+		AgentProfile: report.AgentProfile, Image: report.Image,
 		SourceAccess: report.SourceAccess, PolicyRevision: report.PolicyRevision,
 		NativeReadiness: report.NativeReadiness, MethodPolicy: report.MethodPolicy,
 		RuntimeStatus: ManifestRuntimeStatusInvalid, RuntimeSelection: "frontend@4",
@@ -114,7 +114,7 @@ func TestContextRoutineSummaryRejectsMismatchedEffectiveAccess(t *testing.T) {
 	summary := ManifestSummary{
 		ID: "018bcfe5-687b-7000-8000-000000000099", Name: "default",
 		ManifestState: ManifestObservationPersisted, Default: true, AgentProfile: DefaultProfile,
-		Image: BuiltinImageSelector, PolicyMode: ManifestPolicyModeGuided,
+		Image:        BuiltinImageSelector,
 		SourceAccess: ManifestSourceAccessReadWrite, PolicyRevision: DefaultContextPolicyRevision(),
 		NativeReadiness: ManifestNativeReadinessEnabled, MethodPolicy: methods, RoutineAccess: &access,
 		RuntimeStatus: ManifestRuntimeStatusOfficial, RuntimeSelection: StandardRuntimeName + "@1",

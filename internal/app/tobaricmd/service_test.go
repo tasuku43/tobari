@@ -34,6 +34,8 @@ type fakeRuntime struct {
 	attachmentCalls     int
 	attachmentGrants    []tobari.AttachmentGrant
 	activationReceipt   tobari.PolicyActivationReceipt
+	attachmentReceipt   tobari.PolicyActivationReceipt
+	activationExact     bool
 	denials             []tobari.PolicyDenial
 	unparsedDenialLines int
 	rules               []tobari.LearnedPolicyRule
@@ -96,8 +98,9 @@ func (f *fakeRuntime) InspectCluster(context.Context, tobari.State) (tobari.Clus
 	}
 	return tobari.ClusterStatus{
 		Configured: true, Running: running,
-		Policy: f.state.PolicyDirectory, TobariCount: 0,
+		TobariCount:   0,
 		ManifestCount: f.state.ManifestCount, PolicyRevision: f.state.AggregateRevision,
+		EvaluatorIdentity: f.state.EvaluatorIdentity, PolicyDataIdentity: f.state.PolicyDataIdentity,
 		PolicyProjection: policyProjection, PrincipalRegistry: "valid", GatewayProjection: "valid",
 		AuthProviderProjection: "valid", AuthBrokerState: "ready", CredentialCompanionState: "ready", RootKeyBackend: "xdg_file",
 		Components: []tobari.ComponentStatus{
@@ -225,15 +228,24 @@ func (f *fakeRuntime) ApplyPolicyDecisionSet(
 func (f *fakeRuntime) ApplyAttachmentGrantDecisionSet(_ context.Context, grants []tobari.AttachmentGrant) (tobari.PolicyActivationReceipt, error) {
 	f.attachmentCalls++
 	f.attachmentGrants = append([]tobari.AttachmentGrant{}, grants...)
-	return tobari.PolicyActivationReceipt{PolicyDirectory: filepath.Join(filepath.Dir(f.state.PolicyDirectory), "host-loopback"), ActiveRevision: strings.Repeat("e", 64)}, nil
+	if f.attachmentReceipt.ActiveRevision != "" || f.activationExact {
+		return f.attachmentReceipt, nil
+	}
+	return tobari.PolicyActivationReceipt{ActiveRevision: strings.Repeat("e", 64)}, nil
 }
 
 func (f *fakeRuntime) policyActivationReceipt() tobari.PolicyActivationReceipt {
-	if f.activationReceipt.PolicyDirectory == "" {
-		f.activationReceipt.PolicyDirectory = filepath.Join(filepath.Dir(f.state.PolicyDirectory), "confirmed", "policy")
+	if f.activationExact {
+		return f.activationReceipt
 	}
 	if f.activationReceipt.ActiveRevision == "" {
 		f.activationReceipt.ActiveRevision = strings.Repeat("c", 64)
+	}
+	if f.activationReceipt.EvaluatorIdentity == (tobari.PolicyEvaluatorIdentity{}) {
+		f.activationReceipt.EvaluatorIdentity = f.state.EvaluatorIdentity
+	}
+	if f.activationReceipt.PolicyDataIdentity == (tobari.PolicyDataIdentity{}) {
+		f.activationReceipt.PolicyDataIdentity = f.state.PolicyDataIdentity
 	}
 	return f.activationReceipt
 }
@@ -333,7 +345,7 @@ func testWorkspaceManifest(name string) (tobari.WorkspaceManifest, error) {
 	manifest := tobari.WorkspaceManifest{
 		SchemaVersion: tobari.WorkspaceManifestSchemaVersion, ID: "018bcfe5-687b-7000-8000-000000000099",
 		Name: name, AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector,
-		PolicyMode: tobari.ManifestPolicyModeGuided, SourceAccess: tobari.ManifestSourceAccessReadWrite,
+		SourceAccess:   tobari.ManifestSourceAccessReadWrite,
 		PolicyRevision: tobari.DefaultContextPolicyRevision(),
 		RuntimeBinding: &tobari.RuntimeBinding{RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Revision: "sha256:" + strings.Repeat("0", 64), Ordinal: 1, Image: "tobari-runtime:test"},
 	}
@@ -421,6 +433,8 @@ func testState(root string) tobari.State {
 		AggregateRevision: strings.Repeat("a", 64), ManifestCount: 1,
 		PolicyDirectory: filepath.Join(root, "policy"),
 		GatewayConfig:   filepath.Join(root, "gateway.json"), AssetVersion: "asset",
+		EvaluatorIdentity:  tobari.PolicyEvaluatorIdentity{SchemaVersion: 1, Version: "tobari-evaluator-v1", Digest: tobari.SemanticDigest("sha256:" + strings.Repeat("b", 64))},
+		PolicyDataIdentity: tobari.PolicyDataIdentity{SchemaVersion: 1, Digest: tobari.SemanticDigest("sha256:" + strings.Repeat("c", 64))},
 	}
 }
 
@@ -942,7 +956,7 @@ func TestClusterDenialsReturnsPolicyAndEmptyBoundedScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.Task != tobari.TaskClusterDenials ||
-		result.PolicyDirectory != runtime.state.PolicyDirectory ||
+		result.PolicyProjectionIdentity != runtime.state.PolicyProjectionIdentity() ||
 		result.WindowLines != 75 || result.UnparsedLines != 2 || result.Items == nil || len(result.Items) != 0 {
 		t.Fatalf("denial result = %+v", result)
 	}
@@ -1060,7 +1074,9 @@ func TestAllowPolicyCandidateBindsReferenceBeforeApplying(t *testing.T) {
 	}
 	if runtime.learnedCalls != 1 || result.TargetID != candidate.ID ||
 		result.Rule.Match != tobari.PolicyMatchExact || !result.Applied ||
-		result.PolicyDirectory != runtime.policyActivationReceipt().PolicyDirectory {
+		result.AggregateRevision != runtime.policyActivationReceipt().ActiveRevision ||
+		result.EvaluatorIdentity != runtime.policyActivationReceipt().EvaluatorIdentity ||
+		result.PolicyDataIdentity != runtime.policyActivationReceipt().PolicyDataIdentity {
 		t.Fatalf("result=%+v calls=%d", result, runtime.learnedCalls)
 	}
 
@@ -1089,8 +1105,7 @@ func TestPolicyActivationReceiptFailureDoesNotMakeConfirmedMutationRetryable(t *
 		state:   testState(t.TempDir()),
 		denials: []tobari.PolicyDenial{denial},
 		activationReceipt: tobari.PolicyActivationReceipt{
-			PolicyDirectory: "relative/policy",
-			ActiveRevision:  strings.Repeat("d", 64),
+			ActiveRevision: "invalid-revision",
 		},
 	}
 	_, err = New(runtime).AllowPolicyCandidate(
@@ -1099,8 +1114,138 @@ func TestPolicyActivationReceiptFailureDoesNotMakeConfirmedMutationRetryable(t *
 		candidate.ID,
 	)
 	public, ok := fault.PublicCopy(err)
-	if !ok || public.Code != "unclassified_mutation_outcome" || public.Retryable || runtime.learnedCalls != 1 {
+	if !ok || public.Code != "unclassified_mutation_outcome" || public.Retryable ||
+		public.Phase != fault.PhaseVerification || public.ChangeState != fault.ChangeConfirmed || runtime.learnedCalls != 1 {
 		t.Fatalf("fault=%#v mutation calls=%d", public, runtime.learnedCalls)
+	}
+}
+
+func TestPolicyMutationsClassifyMalformedAggregateReceiptsAfterAction(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		receipt  func(tobari.State) tobari.PolicyActivationReceipt
+		invoke   func(*Service, string) error
+		calls    func(*fakeRuntime) int
+		recovery string
+	}{
+		{
+			name: "allow missing evaluator",
+			receipt: func(state tobari.State) tobari.PolicyActivationReceipt {
+				return tobari.PolicyActivationReceipt{
+					ActiveRevision: strings.Repeat("d", 64), PolicyDataIdentity: state.PolicyDataIdentity,
+				}
+			},
+			invoke: func(service *Service, id string) error {
+				_, err := service.AllowPolicyCandidate(context.Background(), policyLearningIntent("policy allow", tobari.PolicyCandidateKind, id), id)
+				return err
+			},
+			calls:    func(runtime *fakeRuntime) int { return runtime.learnedCalls },
+			recovery: "cluster status",
+		},
+		{
+			name: "deny missing data",
+			receipt: func(state tobari.State) tobari.PolicyActivationReceipt {
+				return tobari.PolicyActivationReceipt{
+					ActiveRevision: strings.Repeat("d", 64), EvaluatorIdentity: state.EvaluatorIdentity,
+				}
+			},
+			invoke: func(service *Service, id string) error {
+				_, err := service.DenyPolicyCandidate(context.Background(), policyLearningIntent("policy deny", tobari.PolicyCandidateKind, id), id)
+				return err
+			},
+			calls:    func(runtime *fakeRuntime) int { return runtime.denyCalls },
+			recovery: "cluster status",
+		},
+		{
+			name: "allow revision did not advance",
+			receipt: func(state tobari.State) tobari.PolicyActivationReceipt {
+				return tobari.PolicyActivationReceipt{
+					ActiveRevision: state.AggregateRevision, EvaluatorIdentity: state.EvaluatorIdentity,
+					PolicyDataIdentity: state.PolicyDataIdentity,
+				}
+			},
+			invoke: func(service *Service, id string) error {
+				_, err := service.AllowPolicyCandidate(context.Background(), policyLearningIntent("policy allow", tobari.PolicyCandidateKind, id), id)
+				return err
+			},
+			calls:    func(runtime *fakeRuntime) int { return runtime.learnedCalls },
+			recovery: "cluster status",
+		},
+		{
+			name: "deny malformed revision",
+			receipt: func(state tobari.State) tobari.PolicyActivationReceipt {
+				return tobari.PolicyActivationReceipt{
+					ActiveRevision: "invalid-revision", EvaluatorIdentity: state.EvaluatorIdentity,
+					PolicyDataIdentity: state.PolicyDataIdentity,
+				}
+			},
+			invoke: func(service *Service, id string) error {
+				_, err := service.DenyPolicyCandidate(context.Background(), policyLearningIntent("policy deny", tobari.PolicyCandidateKind, id), id)
+				return err
+			},
+			calls:    func(runtime *fakeRuntime) int { return runtime.denyCalls },
+			recovery: "cluster status",
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			denial := validServiceDenial()
+			candidate, err := tobari.NewPolicyCandidate(denial)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runtime := &fakeRuntime{state: testState(t.TempDir()), denials: []tobari.PolicyDenial{denial}, activationExact: true}
+			runtime.activationReceipt = test.receipt(runtime.state)
+			err = test.invoke(New(runtime), candidate.ID)
+			public, ok := fault.PublicCopy(err)
+			if !ok || public.Code != "unclassified_mutation_outcome" || public.Retryable ||
+				public.Phase != fault.PhaseVerification || public.ChangeState != fault.ChangeConfirmed ||
+				len(public.NextActions) != 1 || public.NextActions[0].Command != test.recovery || test.calls(runtime) != 1 {
+				t.Fatalf("fault=%#v calls=%d", public, test.calls(runtime))
+			}
+		})
+	}
+}
+
+func TestAttachmentPolicyReviewPreservesConfirmedReceiptFault(t *testing.T) {
+	t.Parallel()
+	project := testProjectInstance()
+	route, err := tobari.NewAttachmentHostLoopbackRoute("att_0123456789abcdef0123456789abcdef", project, 43179, strings.Repeat("3", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	denial := tobari.PolicyDenial{
+		PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "http", Protocol: tobari.PolicyProtocolHTTP},
+		Timestamp:              "2026-08-17T12:00:00Z", RequestID: "0123456789abcdef0123456789abcdef",
+		WorkspaceManifestID: route.ContextID, WorkspaceManifestName: route.ContextPresentation, ProjectID: route.WorkspaceID,
+		ProjectRoot: route.ProjectRoot, Host: route.Hostname, Port: 3000, Method: "GET", Path: "/health",
+		Reason: "review", StatusCode: 403, Learnable: true, DestinationKind: tobari.PolicyDestinationHostLoopback,
+		AuthorityLifetime: tobari.AuthorityLifetimeAttachment, AttachmentEpochID: route.EpochID,
+	}
+	candidate, err := tobari.NewPolicyCandidate(denial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &fakeRuntime{
+		state: testState(t.TempDir()), denials: []tobari.PolicyDenial{denial}, activationExact: true,
+		attachmentReceipt: tobari.PolicyActivationReceipt{ActiveRevision: "invalid-revision"},
+	}
+	intent := operation.Intent{
+		Command: "policy apply-reviewed", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.PolicyDecisionSetKind, ID: tobari.PolicyDecisionSetID},
+		Impact: operation.Impact{Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo},
+	}
+	_, err = New(runtime).ApplyPolicyReviewDecisionSet(context.Background(), intent, tobari.PolicyReviewDecisionSet{Decisions: []tobari.PolicyReviewDecision{{
+		ReviewItemID: candidate.ID, Decision: tobari.PolicyDecisionAllow, Match: tobari.PolicyMatchExact,
+	}}})
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "unclassified_mutation_outcome" || public.Retryable ||
+		public.Phase != fault.PhaseVerification || public.ChangeState != fault.ChangeConfirmed ||
+		len(public.NextActions) != 1 || public.NextActions[0].Command != "review permissions" || runtime.attachmentCalls != 1 {
+		t.Fatalf("fault=%#v attachment_calls=%d", public, runtime.attachmentCalls)
 	}
 }
 
@@ -1135,7 +1280,8 @@ func TestApplyPolicyReviewDecisionSetRevalidatesAndActivatesOnce(t *testing.T) {
 	if runtime.decisionSetCalls != 1 || len(runtime.rules) != 1 || len(runtime.denyRules) != 1 ||
 		result.AllowCount != 1 || result.DenyCount != 1 || !result.Applied ||
 		result.ActiveRevision != strings.Repeat("b", 64) || len(result.Decisions) != 2 ||
-		result.PolicyDirectory != runtime.policyActivationReceipt().PolicyDirectory ||
+		result.EvaluatorIdentity != runtime.policyActivationReceipt().EvaluatorIdentity ||
+		result.PolicyDataIdentity != runtime.policyActivationReceipt().PolicyDataIdentity ||
 		result.Decisions[0].ReviewItemID != allowCandidate.ID ||
 		result.Decisions[1].ReviewItemID != denyCandidate.ID {
 		t.Fatalf("result=%+v calls=%d allows=%+v denies=%+v", result, runtime.decisionSetCalls, runtime.rules, runtime.denyRules)
@@ -1317,7 +1463,9 @@ func TestDenyPolicyCandidateBindsExactReferenceAndRemovesQueueItem(t *testing.T)
 		t.Fatal(err)
 	}
 	if runtime.denyCalls != 1 || result.TargetID != candidate.ID || !result.Applied ||
-		result.PolicyDirectory != runtime.policyActivationReceipt().PolicyDirectory ||
+		result.AggregateRevision != runtime.policyActivationReceipt().ActiveRevision ||
+		result.EvaluatorIdentity != runtime.policyActivationReceipt().EvaluatorIdentity ||
+		result.PolicyDataIdentity != runtime.policyActivationReceipt().PolicyDataIdentity ||
 		len(runtime.denyRules) != 1 || !runtime.denyRules[0].MatchesIdentity(
 		candidate.WorkspaceManifestID, candidate.ProjectID, candidate.Host, candidate.Port, candidate.Method, candidate.Path,
 		candidate.PolicyProtocolIdentity,
@@ -1380,7 +1528,9 @@ func TestPolicyRulesAndResetKeepAllowAndDenyReversible(t *testing.T) {
 		t.Fatal(err)
 	}
 	if resetAllow.Decision != tobari.PolicyDecisionAllow || !resetAllow.Applied || runtime.learnedCalls != 1 || len(runtime.rules) != 0 || len(runtime.denyRules) != 1 ||
-		resetAllow.PolicyDirectory != runtime.policyActivationReceipt().PolicyDirectory {
+		resetAllow.AggregateRevision != runtime.policyActivationReceipt().ActiveRevision ||
+		resetAllow.EvaluatorIdentity != runtime.policyActivationReceipt().EvaluatorIdentity ||
+		resetAllow.PolicyDataIdentity != runtime.policyActivationReceipt().PolicyDataIdentity {
 		t.Fatalf("allow reset=%+v learned calls=%d rules=%+v denies=%+v", resetAllow, runtime.learnedCalls, runtime.rules, runtime.denyRules)
 	}
 
@@ -1391,7 +1541,9 @@ func TestPolicyRulesAndResetKeepAllowAndDenyReversible(t *testing.T) {
 		t.Fatal(err)
 	}
 	if resetDeny.Decision != tobari.PolicyDecisionDeny || !resetDeny.Applied || runtime.denyCalls != 1 || len(runtime.denyRules) != 0 ||
-		resetDeny.PolicyDirectory != runtime.policyActivationReceipt().PolicyDirectory {
+		resetDeny.AggregateRevision != runtime.policyActivationReceipt().ActiveRevision ||
+		resetDeny.EvaluatorIdentity != runtime.policyActivationReceipt().EvaluatorIdentity ||
+		resetDeny.PolicyDataIdentity != runtime.policyActivationReceipt().PolicyDataIdentity {
 		t.Fatalf("deny reset=%+v deny calls=%d denies=%+v", resetDeny, runtime.denyCalls, runtime.denyRules)
 	}
 	if report, err := service.PolicyRules(context.Background()); err != nil || len(report.Items) != 0 {

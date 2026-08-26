@@ -110,7 +110,6 @@ export const navigationGroups = [
     ),
     item("Authentication details", "認証の詳細", "/guides/authentication/"),
     item("Policy review", "ポリシーレビュー", "/guides/policy-review/"),
-    item("Advanced policy", "高度なポリシー", "/guides/advanced-policy/"),
     item("Colima and Lima", "Colima と Lima", "/guides/colima-and-lima/"),
     item(
       "Troubleshooting",

@@ -41,14 +41,14 @@ func readFault(err error, code, message string) error {
 	if _, ok := fault.PublicCopy(err); ok {
 		return err
 	}
-	if errors.Is(err, tobari.ErrPreReleaseLegacyAuthority) {
+	if isPreReleaseLegacyAuthority(err) {
 		return preReleaseLegacyFault(err, fault.PhaseObservation, fault.ChangeNotApplicable)
 	}
 	return fault.WithClassification(fault.Wrap(fault.KindUnavailable, code, message, false, err), fault.PhaseObservation, fault.ChangeNotApplicable)
 }
 
 func preReleaseLegacyMutationFault(err error) (error, bool) {
-	if !errors.Is(err, tobari.ErrPreReleaseLegacyAuthority) {
+	if !isPreReleaseLegacyAuthority(err) {
 		return nil, false
 	}
 	return preReleaseLegacyFault(err, fault.PhasePrecondition, fault.ChangeNone), true
@@ -66,6 +66,10 @@ func finalAuthorityMutationRecoveryFault(err error) (error, bool) {
 		err,
 		fault.NextAction{Command: "status", Reason: "Read the preserved final-authority decision and follow the safe recovery command."},
 	), fault.PhasePrecondition, fault.ChangeNone), true
+}
+
+func isPreReleaseLegacyAuthority(err error) bool {
+	return errors.Is(err, tobari.ErrPreReleaseLegacyAuthority)
 }
 
 func preReleaseLegacyFault(err error, phase fault.Phase, change fault.ChangeState) error {

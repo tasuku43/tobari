@@ -10,6 +10,7 @@
   pre-release compatibility, typed identity, protection,
   authentication-owner, and policy-owner seams
 - Related: ADR 0066 and WP11
+- Revised by: ADR 0087 at the executable-policy and evaluator-identity seam
 - Superseded by: None
 
 ## Implementation-authority status
@@ -140,10 +141,11 @@ semantic digests are recomputed from that body during validation. Digests are
 receipts and activation identities, not a substitute body or permission to read
 the predecessor Manifest store. Copy, entry derivation, and cluster projection
 must therefore be derivable from the one validated final revision alone.
-Advanced policy retains the existing closed executable-source boundary: exactly
-`tobari.rego` and `tobari_test.rego`, both present and bounded. Alternate,
-missing, duplicate, or extra source paths are not Template authority and fail
-before publication or migration; WP11 does not add arbitrary policy files.
+The final authority retains only canonical typed policy data. The evaluator is
+Tobari-owned and is materialized from embedded runtime assets; user-owned
+Template, Context, and configuration state contains no executable policy
+source. Persisted V1 Advanced markers are rejected by the bounded clean-break
+guard described in ADR 0087 rather than decoded or translated.
 
 Template copy and Context creation are separate outcomes. `template copy
 --from TEMPLATE_REVISION_REF --name NAME` consumes one exact retained immutable

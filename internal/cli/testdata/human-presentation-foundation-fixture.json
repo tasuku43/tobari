@@ -31,7 +31,16 @@
   },
   "empty_policy_candidates": {
     "task": "policy.candidates",
-    "policy": "/config/example/policy",
+    "aggregate_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "evaluator_identity": {
+      "schema_version": 1,
+      "version": "tobari-evaluator-v1",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "policy_data_identity": {
+      "schema_version": 1,
+      "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
     "window_lines": 200,
     "items": []
   },

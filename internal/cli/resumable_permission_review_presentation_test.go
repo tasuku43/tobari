@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	resumablePermissionReviewFixtureSHA256 = "28ae2aebd704272fe4c7d7e4c98e242d7586da7b334371f4eef4ccd5e59f1489"
+	resumablePermissionReviewFixtureSHA256 = "6ee16b544eae589b511ff3a23285ae0f6db20335f6b97ded381b05d9ce7c94d3"
 	resumablePermissionReviewAnswerSHA256  = "d61aaea1ba6e57712b0abd139eaa0ab6bc0047c9ed2e71d8dcd0f7f415d43003"
 )
 

@@ -1,6 +1,8 @@
 package dockerruntime
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -164,14 +166,30 @@ func TestPolicyTransitionFencePublishesAtomicPermissionWaitObservation(t *testin
 	if err != nil || !configured {
 		t.Fatalf("load state = configured %t, %v", configured, err)
 	}
-	fence, cleanup, err := runtime.policyFenceState(state)
+	archive, _, err := policyFenceArchive(state.AggregateRevision)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cleanup()
-	rego, err := os.ReadFile(fence.PolicyDirectory + "/fence.rego")
-	if err != nil {
-		t.Fatal(err)
+	reader := tar.NewReader(bytes.NewReader(archive))
+	var rego []byte
+	for {
+		header, readErr := reader.Next()
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		contents, readErr := io.ReadAll(reader)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if header.Name == "fence.rego" {
+			rego = contents
+		}
+	}
+	if len(rego) == 0 {
+		t.Fatal("transition fence archive omitted fence.rego")
 	}
 	want := `permission_wait_observation := {"revision": data.tobari.aggregate_revision, "decision": decision}`
 	if strings.Count(string(rego), want) != 1 {

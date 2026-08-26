@@ -125,7 +125,7 @@ func TestBatchDChangedPublicSchemasAreExact(t *testing.T) {
 		"template list": 1, "template show": 1, "template create": 1, "template copy": 1, "template default set": 1, "template delete": 1,
 		"context list": 1, "context show": 1, "context create": 1, "context enter": 1, "context delete": 1,
 		"workspace list": 1, "workspace status": 1, "workspace delete": 1,
-		"status": 3, "cluster status": 2, "cluster denials": 3,
+		"status": 3, "cluster status": 3, "cluster denials": 4,
 		"policy candidates": 2, "review permissions": 2, "policy rules": 2, "policy apply-reviewed": 2,
 		"runtime prune dry-run": 2, "runtime prune apply": 2,
 	}

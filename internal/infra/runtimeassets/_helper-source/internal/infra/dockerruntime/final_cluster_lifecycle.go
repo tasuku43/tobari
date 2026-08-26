@@ -273,7 +273,7 @@ func (r *Runtime) resolveStatusClusterImageIDs(ctx context.Context, references .
 }
 
 func (r *Runtime) ObserveFinalCluster(ctx context.Context, collection tobari.WorkspaceAuthorityCollection, present bool) (tobari.FinalClusterStatus, error) {
-	status := tobari.FinalClusterStatus{SchemaVersion: tobari.FinalClusterLifecycleSchemaVersion, Task: tobari.TaskClusterStatus, Authority: tobari.FinalClusterAuthorityAbsent, Runtime: tobari.FinalClusterRuntimeUnknown, Receipt: tobari.FinalClusterReceiptAbsent, Contexts: []tobari.FinalClusterContextReceiptObservation{}, Components: []tobari.FinalClusterComponentObservation{}}
+	status := tobari.FinalClusterStatus{SchemaVersion: tobari.FinalClusterStatusSchemaVersion, Task: tobari.TaskClusterStatus, Authority: tobari.FinalClusterAuthorityAbsent, Runtime: tobari.FinalClusterRuntimeUnknown, Receipt: tobari.FinalClusterReceiptAbsent, Contexts: []tobari.FinalClusterContextReceiptObservation{}, Components: []tobari.FinalClusterComponentObservation{}}
 	if present {
 		if err := collection.Validate(); err != nil {
 			return status, err
@@ -460,6 +460,30 @@ func (r *Runtime) ObserveFinalCluster(ctx context.Context, collection tobari.Wor
 	} else if journalCount != 0 {
 		status.Runtime = tobari.FinalClusterRuntimeDrifted
 		status.Receipt = tobari.FinalClusterReceiptUnknown
+	}
+	activeAfter, activePresentAfter, activeErrAfter := r.readOptionalFinalPolicyActivation(r.finalPolicyActiveReceiptPath())
+	if (activeErr == nil) != (activeErrAfter == nil) || activePresent != activePresentAfter ||
+		activeErr == nil && activeErrAfter == nil && activePresent && !reflect.DeepEqual(active, activeAfter) {
+		return tobari.FinalClusterStatus{}, tobari.ErrFinalClusterObservationChanged
+	}
+	if status.Authority == tobari.FinalClusterAuthorityPresent && status.Receipt == tobari.FinalClusterReceiptActive {
+		if !activePresent || activeErr != nil {
+			return tobari.FinalClusterStatus{}, fmt.Errorf("active final cluster status has no verified aggregate receipt")
+		}
+		identity := tobari.PolicyProjectionIdentity{
+			AggregateRevision:  active.Aggregate.AggregateRevision,
+			EvaluatorIdentity:  active.Aggregate.EvaluatorIdentity,
+			PolicyDataIdentity: active.Aggregate.PolicyDataIdentity,
+		}
+		if err := identity.Validate(); err != nil {
+			return tobari.FinalClusterStatus{}, fmt.Errorf("active final cluster aggregate identity is invalid: %w", err)
+		}
+		aggregateRevision := identity.AggregateRevision
+		evaluatorIdentity := identity.EvaluatorIdentity
+		policyDataIdentity := identity.PolicyDataIdentity
+		status.AggregateRevision = &aggregateRevision
+		status.EvaluatorIdentity = &evaluatorIdentity
+		status.PolicyDataIdentity = &policyDataIdentity
 	}
 	if err := status.Validate(); err != nil {
 		return tobari.FinalClusterStatus{}, err

@@ -58,7 +58,7 @@ func (g *genericFixture) ObserveFinalRuntimeMaterials(_ context.Context, collect
 }
 
 func emptyClusterStatus(runtime tobari.FinalClusterRuntimeState) tobari.FinalClusterStatus {
-	return tobari.FinalClusterStatus{SchemaVersion: tobari.FinalClusterLifecycleSchemaVersion, Task: tobari.TaskClusterStatus,
+	return tobari.FinalClusterStatus{SchemaVersion: tobari.FinalClusterStatusSchemaVersion, Task: tobari.TaskClusterStatus,
 		Authority: tobari.FinalClusterAuthorityAbsent, Runtime: runtime, Receipt: tobari.FinalClusterReceiptAbsent,
 		Contexts: []tobari.FinalClusterContextReceiptObservation{}, Components: []tobari.FinalClusterComponentObservation{}}
 }

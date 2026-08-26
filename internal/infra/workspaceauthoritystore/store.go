@@ -156,6 +156,9 @@ func (s *Store) readCompleteRaw(ctx context.Context) (tobari.WorkspaceAuthorityC
 	if err != nil {
 		return tobari.WorkspaceAuthorityCollection{}, false, err
 	}
+	if err := rejectLegacyAdvancedAuthorityBytes(data); err != nil {
+		return tobari.WorkspaceAuthorityCollection{}, false, err
+	}
 	rootAfter, err := os.Lstat(s.root)
 	if err != nil || !os.SameFile(rootInfo, rootAfter) || rootAfter.Mode()&os.ModeSymlink != 0 ||
 		!rootAfter.IsDir() || rootAfter.Mode().Perm() != 0o700 || !ownedByCurrentUser(rootAfter) {
@@ -182,6 +185,63 @@ func (s *Store) readCompleteRaw(ctx context.Context) (tobari.WorkspaceAuthorityC
 		return tobari.WorkspaceAuthorityCollection{}, false, err
 	}
 	return collection.Clone(), true, nil
+}
+
+// rejectLegacyAdvancedAuthorityBytes is intentionally a bounded marker
+// detector, not a predecessor decoder. It recognizes only the v1 final
+// envelope's policy markers, never reads or interprets executable source, and
+// leaves all other schema/JSON validation to the strict decoder below.
+func rejectLegacyAdvancedAuthorityBytes(data []byte) error {
+	var envelope struct {
+		Templates []json.RawMessage `json:"workspace_templates"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return nil
+	}
+	for _, templateData := range envelope.Templates {
+		var template struct {
+			Current  json.RawMessage   `json:"current"`
+			Retained []json.RawMessage `json:"retained"`
+		}
+		if err := json.Unmarshal(templateData, &template); err != nil {
+			return nil
+		}
+		revisions := append([]json.RawMessage{}, template.Retained...)
+		if len(template.Current) != 0 && string(template.Current) != "null" {
+			revisions = append(revisions, template.Current)
+		}
+		for _, revisionData := range revisions {
+			var revision struct {
+				Body json.RawMessage `json:"body"`
+			}
+			if err := json.Unmarshal(revisionData, &revision); err != nil {
+				return nil
+			}
+			var body struct {
+				Policy json.RawMessage `json:"policy"`
+			}
+			if err := json.Unmarshal(revision.Body, &body); err != nil {
+				return nil
+			}
+			var policy map[string]json.RawMessage
+			if err := json.Unmarshal(body.Policy, &policy); err != nil {
+				return nil
+			}
+			if rawMode, exists := policy["mode"]; exists {
+				var mode string
+				if json.Unmarshal(rawMode, &mode) == nil && (mode == "guided" || mode == "advanced") {
+					if mode == "advanced" {
+						return fmt.Errorf("%w: %w: persisted final authority contains legacy %s policy mode; reset or recreate the installation", tobari.ErrPreReleaseLegacyAuthority, tobari.ErrLegacyExecutablePolicy, mode)
+					}
+					return fmt.Errorf("%w: persisted final authority contains legacy %s policy mode; reset or recreate the installation", tobari.ErrPreReleaseLegacyAuthority, mode)
+				}
+			}
+			if _, exists := policy["advanced_policy"]; exists {
+				return fmt.Errorf("%w: %w: persisted final authority contains legacy Advanced policy; reset or recreate the installation", tobari.ErrPreReleaseLegacyAuthority, tobari.ErrLegacyExecutablePolicy)
+			}
+		}
+	}
+	return nil
 }
 
 func readAuthorityFile(path string) ([]byte, error) {

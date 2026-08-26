@@ -96,7 +96,7 @@ func newContextCreateBootstrapFixture(t *testing.T, withEKS bool) *contextCreate
 func contextCreateResetBaseFixture() tobari.ManifestCopySnapshot {
 	return tobari.ManifestCopySnapshot{
 		ID: "018bcfe5-687b-7000-8000-000000000120", Name: "engineering",
-		Revision: "sha256:" + strings.Repeat("a", 64), PolicyMode: tobari.ManifestPolicyModeAdvanced,
+		Revision:     "sha256:" + strings.Repeat("a", 64),
 		SourceAccess: tobari.ManifestSourceAccessReadOnly, NativeReadiness: tobari.ManifestNativeReadinessDisabled,
 		MethodPolicy:     tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodDeny, Overrides: []tobari.ManifestMethodOverride{{Method: "GET", Decision: tobari.ManifestMethodAllow}}},
 		RuntimeSelection: "standard@1", ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(), GitIdentity: tobari.DefaultContextGitIdentityReport(),
@@ -105,7 +105,7 @@ func contextCreateResetBaseFixture() tobari.ManifestCopySnapshot {
 
 func customizedContextCreateDraft() contextCreateRawDraft {
 	return contextCreateRawDraft{
-		name: "standalone", policyMode: tobari.ManifestPolicyModeGuided, sourceIndex: 0,
+		name: "standalone", sourceIndex: 0,
 		methodDefault: tobari.ManifestMethodAllow, methodOverrides: map[string]tobari.ManifestMethodDecision{"POST": tobari.ManifestMethodDeny},
 		runtimeSelection: "standard", nativeReadiness: tobari.ManifestNativeReadinessEnabled,
 	}
@@ -118,7 +118,7 @@ func assertDraftResetToBase(t *testing.T, draft contextCreateRawDraft, base toba
 		t.Fatal(err)
 	}
 	if selection.Name != "standalone" || selection.CopyFrom == nil || selection.CopyFrom.Revision != base.Revision ||
-		selection.PolicyMode != base.PolicyMode || selection.SourceAccess != base.SourceAccess ||
+		selection.SourceAccess != base.SourceAccess ||
 		selection.NativeReadiness != base.NativeReadiness || selection.RuntimeSelection != base.RuntimeSelection ||
 		selection.MethodPolicy.Default != base.MethodPolicy.Default || len(selection.MethodPolicy.Overrides) != len(base.MethodPolicy.Overrides) {
 		t.Fatalf("draft was not wholly reset from CopyFrom: %+v", selection)
@@ -909,7 +909,7 @@ func TestContextCreateDirectInputCompletenessDistinguishesPartialCompositionFrom
 	if contextCreateDirectInputsComplete(empty) || contextCreateCompositionInputProvided(empty) {
 		t.Fatal("argument-free create unexpectedly selected direct or prefilled mode")
 	}
-	for _, name := range []string{"--name", "--runtime", "--mode", "--source-access", "--native-readiness", "--bootstrap-aws-profile"} {
+	for _, name := range []string{"--name", "--runtime", "--source-access", "--native-readiness", "--bootstrap-aws-profile"} {
 		inputs := ParsedInputs{provided: map[string]bool{name: true}}
 		if contextCreateDirectInputsComplete(inputs) || !contextCreateCompositionInputProvided(inputs) {
 			t.Errorf("partial %s was not classified as an incomplete composition", name)
@@ -920,7 +920,7 @@ func TestContextCreateDirectInputCompletenessDistinguishesPartialCompositionFrom
 		t.Fatal("format-only input was treated as a supplied Workspace Manifest boundary")
 	}
 	complete := ParsedInputs{provided: map[string]bool{
-		"--name": true, "--runtime": true, "--mode": true,
+		"--name": true, "--runtime": true,
 		"--source-access": true, "--native-readiness": true,
 	}}
 	if !contextCreateDirectInputsComplete(complete) || !contextCreateCompositionInputProvided(complete) {

@@ -71,6 +71,7 @@ func finalClusterStatusSpec() CommandSpec {
 			Prerequisites: []string{},
 			Errors: readCommandErrors("cluster status", true,
 				declaredCommandError(fault.KindContract, "invalid_cluster_status_result", false, "doctor", "Repair the final cluster observation contract."),
+				declaredCommandError(fault.KindUnavailable, "cluster_observation_changed", true, "cluster status", "Retry one fresh bounded cluster observation."),
 				declaredCommandError(fault.KindContract, "output_encoding_failed", false, "version", "Report the exact build identity without repeating final-cluster JSON encoding."),
 				declaredCommandError(fault.KindInternal, "missing_port", false, "doctor", "Configure the final cluster status adapter."),
 			),
@@ -130,16 +131,18 @@ func finalClusterLogsSpec() CommandSpec {
 }
 
 func finalClusterDenialsSpec() CommandSpec {
+	fields := policyProjectionIdentityOutputFields(false)
+	fields = append(fields,
+		OutputField{Name: "task", Type: OutputFieldTypeString, Description: "Final denial observation task identity."},
+		OutputField{Name: "window_lines", Type: OutputFieldTypeInteger, Description: "Maximum recent Gateway lines inspected."},
+		OutputField{Name: "unparsed_lines", Type: OutputFieldTypeInteger, Description: "Denial-shaped lines rejected by strict decoding."},
+		OutputField{Name: "items", Type: OutputFieldTypeArray, Description: "Validated denials correlated to complete final authority.", SemanticScope: "Every valid denial in the requested bounded Gateway window.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One final denial observation.", Fields: finalClusterDenialFields()}},
+		OutputField{Name: "review_command", Type: OutputFieldTypeString, Description: "Exact Permission Inbox command."},
+	)
 	return CommandSpec{Path: "cluster denials", Summary: "Read final policy-denial evidence", Args: "[--tail <lines>] [--format text|json]", Effect: operation.EffectRead, Role: RoleUtility, Agent: AgentContract{
 		CapabilityID: "policy.learning", Outcome: "Inspect one bounded Gateway denial window correlated to exact final Context, Template, and Workspace authority", Inputs: []CommandInput{denialTailInput(), formatInput()},
 		Output: CommandOutput{Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
-			Fields: []OutputField{
-				{Name: "task", Type: OutputFieldTypeString, Description: "Final denial observation task identity."},
-				{Name: "window_lines", Type: OutputFieldTypeInteger, Description: "Maximum recent Gateway lines inspected."},
-				{Name: "unparsed_lines", Type: OutputFieldTypeInteger, Description: "Denial-shaped lines rejected by strict decoding."},
-				{Name: "items", Type: OutputFieldTypeArray, Description: "Validated denials correlated to complete final authority.", SemanticScope: "Every valid denial in the requested bounded Gateway window.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One final denial observation.", Fields: finalClusterDenialFields()}},
-				{Name: "review_command", Type: OutputFieldTypeString, Description: "Exact Permission Inbox command."},
-			}, Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow, JSONEnvelope: "denials", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: tobari.FinalClusterDenialSchemaVersion},
+			Fields: fields, Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow, JSONEnvelope: "denials", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: tobari.FinalClusterDenialSchemaVersion},
 		Prerequisites: []string{"The selected final cluster receipt and live component closure are exact and active."}, Errors: readCommandErrors("cluster denials", true,
 			declaredCommandError(fault.KindInvalidInput, "invalid_denial_request", false, "help cluster denials", "Select a valid bounded window."),
 			declaredCommandError(fault.KindRejected, "legacy_state_present", false, "doctor", "Reset or recreate this pre-release installation."),
@@ -161,7 +164,7 @@ func finalClusterDenialFields() []OutputField {
 	}
 	for _, field := range policyDenialOutputFields() {
 		switch field.Name {
-		case "context_id", "context", "workspace_id", "project_root":
+		case "context_id", "context", "workspace_id", "project_root", "workspace_manifest_id", "workspace_manifest":
 			continue
 		default:
 			fields = append(fields, field)
@@ -182,25 +185,27 @@ func finalClusterStatusOutput() CommandOutput {
 		Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
 		TextPresentation: TextPresentationSemanticTokens, Fields: finalClusterStatusFields(),
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-		JSONEnvelope: "cluster", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: tobari.FinalClusterLifecycleSchemaVersion,
+		JSONEnvelope: "cluster", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: tobari.FinalClusterStatusSchemaVersion,
 	}
 }
 
 func finalClusterUpOutput() CommandOutput {
+	fields := policyProjectionIdentityOutputFields(false)
+	fields = append(fields,
+		OutputField{Name: "task", Type: OutputFieldTypeString, Description: "Confirmed final cluster activation task."},
+		OutputField{Name: "generation", Type: OutputFieldTypeInteger, Description: "Final collection generation carrying the active consequence."},
+		OutputField{Name: "collection_revision", Type: OutputFieldTypeString, Description: "Exact final collection revision."},
+		OutputField{Name: "content_digest", Type: OutputFieldTypeString, Description: "Exact active policy content digest."},
+		OutputField{Name: "plan_digest", Type: OutputFieldTypeString, Description: "Exact active policy plan digest."},
+		OutputField{Name: "envelope_changed", Type: OutputFieldTypeBoolean, Description: "Whether activation published a new final envelope generation."},
+		OutputField{Name: "applied", Type: OutputFieldTypeBoolean, Description: "Always true after exact activation confirmation."},
+		OutputField{Name: "contexts", Type: OutputFieldTypeArray, Description: "Complete activated Context-axis receipt collection.", SemanticScope: "Every Context selected by the final activation plan.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One Context activation.", Fields: finalClusterActivationFields()}},
+	)
 	return CommandOutput{
 		Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
-		TextPresentation: TextPresentationSemanticTokens, Fields: []OutputField{
-			{Name: "task", Type: OutputFieldTypeString, Description: "Confirmed final cluster activation task."},
-			{Name: "generation", Type: OutputFieldTypeInteger, Description: "Final collection generation carrying the active consequence."},
-			{Name: "collection_revision", Type: OutputFieldTypeString, Description: "Exact final collection revision."},
-			{Name: "content_digest", Type: OutputFieldTypeString, Description: "Exact active policy content digest."},
-			{Name: "plan_digest", Type: OutputFieldTypeString, Description: "Exact active policy plan digest."},
-			{Name: "envelope_changed", Type: OutputFieldTypeBoolean, Description: "Whether activation published a new final envelope generation."},
-			{Name: "applied", Type: OutputFieldTypeBoolean, Description: "Always true after exact activation confirmation."},
-			{Name: "contexts", Type: OutputFieldTypeArray, Description: "Complete activated Context-axis receipt collection.", SemanticScope: "Every Context selected by the final activation plan.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One Context activation.", Fields: finalClusterActivationFields()}},
-		},
+		TextPresentation: TextPresentationSemanticTokens, Fields: fields,
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-		JSONEnvelope: "cluster_up", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: tobari.FinalClusterLifecycleSchemaVersion,
+		JSONEnvelope: "cluster_up", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: tobari.FinalClusterUpSchemaVersion,
 	}
 }
 
@@ -215,16 +220,17 @@ func finalClusterDownOutput() CommandOutput {
 			{Name: "envelope_changed", Type: OutputFieldTypeBoolean, Description: "Whether active Context receipts were cleared in a new envelope generation."},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-		JSONEnvelope: "cluster_down", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: tobari.FinalClusterLifecycleSchemaVersion,
+		JSONEnvelope: "cluster_down", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: tobari.FinalClusterDownSchemaVersion,
 	}
 }
 
 func finalClusterStatusFields() []OutputField {
-	return []OutputField{
+	fields := policyProjectionIdentityOutputFields(true)
+	return append(fields, []OutputField{
 		{Name: "task", Type: OutputFieldTypeString, Description: "Final cluster observation task identity."},
 		{Name: "authority", Type: OutputFieldTypeString, Description: "Whether final collection authority is present.", Enum: []string{"absent", "present"}},
-		{Name: "generation", Type: OutputFieldTypeInteger, Optional: true, Description: "Observed final collection generation; omitted with absent authority."},
-		{Name: "collection_revision", Type: OutputFieldTypeString, Optional: true, Description: "Observed final collection revision; omitted with absent authority."},
+		{Name: "generation", Type: OutputFieldTypeInteger, Description: "Observed final collection generation; omitted with absent authority.", Optional: true},
+		{Name: "collection_revision", Type: OutputFieldTypeString, Description: "Observed final collection revision; omitted with absent authority.", Optional: true},
 		{Name: "template_count", Type: OutputFieldTypeInteger, Description: "Number of retained final Templates."},
 		{Name: "context_count", Type: OutputFieldTypeInteger, Description: "Number of retained final Contexts."},
 		{Name: "workspace_count", Type: OutputFieldTypeInteger, Description: "Number of retained final Workspaces."},
@@ -232,12 +238,12 @@ func finalClusterStatusFields() []OutputField {
 		{Name: "receipt", Type: OutputFieldTypeString, Description: "Bounded final active or stopped receipt state.", Enum: []string{"absent", "active", "stopped", "drifted", "unknown"}},
 		{Name: "contexts", Type: OutputFieldTypeArray, Description: "Complete per-Context active receipt summary.", SemanticScope: "Every Context in the selected final collection at one observation.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One Context receipt summary.", Fields: []OutputField{
 			{Name: "context_id", Type: OutputFieldTypeString, Description: "Final Context identity."},
-			{Name: "template_policy", Type: OutputFieldTypeObject, Description: "Active Template-policy receipt when present.", Nullable: true, Fields: []OutputField{
+			{Name: "template_policy", Type: OutputFieldTypeObject, Description: "Active Template-policy receipt when present.", Optional: true, Fields: []OutputField{
 				{Name: "context_id", Type: OutputFieldTypeString, Description: "Receipt Context identity."},
 				{Name: "workspace_template_id", Type: OutputFieldTypeString, Description: "Receipt Template identity."},
 				{Name: "policy_slice_digest", Type: OutputFieldTypeString, Description: "Active Template-policy slice digest."},
 			}},
-			{Name: "policy_memory", Type: OutputFieldTypeObject, Description: "Active Policy-Memory receipt when present.", Nullable: true, Fields: []OutputField{
+			{Name: "policy_memory", Type: OutputFieldTypeObject, Description: "Active Policy-Memory receipt when present.", Optional: true, Fields: []OutputField{
 				{Name: "context_id", Type: OutputFieldTypeString, Description: "Receipt Context identity."},
 				{Name: "revision", Type: OutputFieldTypeString, Description: "Active Policy-Memory revision."},
 			}},
@@ -245,11 +251,11 @@ func finalClusterStatusFields() []OutputField {
 		{Name: "components", Type: OutputFieldTypeArray, Description: "Build-surface-selected semantic component observations.", SemanticScope: finalClusterComponentScope(), Items: &OutputField{Type: OutputFieldTypeObject, Description: "One selected component observation.", Fields: []OutputField{
 			{Name: "name", Type: OutputFieldTypeString, Description: "Semantic component name.", Enum: finalClusterComponentNames()},
 			{Name: "state", Type: OutputFieldTypeString, Description: "Observed component runtime state.", Enum: []string{"absent", "stopped", "running", "unhealthy", "drifted", "unknown"}},
-			{Name: "health", Type: OutputFieldTypeString, Description: "Accepted component health summary when present."},
+			{Name: "health", Type: OutputFieldTypeString, Description: "Accepted component health summary when present.", Optional: true},
 			{Name: "identity", Type: OutputFieldTypeString, Description: "Correlation to accepted component identity evidence.", Enum: []string{"absent", "exact", "drifted", "unknown"}},
 			{Name: "topology", Type: OutputFieldTypeString, Description: "Correlation to accepted topology evidence.", Enum: []string{"absent", "exact", "drifted", "unknown"}},
 		}}},
-	}
+	}...)
 }
 
 func finalClusterActivationFields() []OutputField {

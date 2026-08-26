@@ -52,7 +52,8 @@ indentation do not widen identity. Prefix learned rules and compaction do not
 exist.
 
 The immutable Context-owned policy ceiling is evaluated before baseline data, learned
-rules, and Advanced Rego. `builtin/agent-ready` grants a finite exact
+rules, and the fixed Tobari evaluator over canonical typed data.
+`builtin/agent-ready` grants a finite exact
 version-coupled Claude/Codex core matrix, GitHub native-auth effects, and TWG
 CLI 1.2.5 plus pup 1.10.7 native-auth effects when supplied by a custom runtime to every
 process in the Context; exact Deny remains terminal and optional agent surfaces
@@ -71,7 +72,7 @@ DNS, Broker resolution, or upstream call.
 
 Context policy snapshots are strict owner-only non-executable schema-V1 data, normalized,
 validated, digested, and snapshotted at Context creation. Wildcards, IP/private
-destinations, secrets, shell, Rego, includes, inheritance, remote fetch,
+destinations, secrets, shell, executable policy source, includes, inheritance, remote fetch,
 refresh, signing, symlinks, unsafe modes, and unknown fields fail closed.
 
 ### Secret exposure or policy bypass
@@ -86,9 +87,11 @@ provider, revision, and exact HTTPS header/signing plan. Gateway removes and
 introspects a recognized handle before OPA, then performs one same-revision
 static resolution, Datadog/OpenAI/Anthropic token action, or bounded AWS SigV4 action
 only after allow. Malformed, copied, stale, revoked, ambiguous, or mismatched
-handles fail without passthrough fallback. Secrets, raw handles,
-credential revisions, query, headers, and bodies do not enter OPA, audit,
-denial evidence, CLI output, or logs.
+handles fail without passthrough fallback. Secrets, raw handles, credential
+revisions, client/raw query values, all headers, and bodies do not enter OPA,
+audit, denial evidence, CLI output, or logs. The non-secret, validated and
+normalized Git GET `service` coordinate is the only query-derived value
+admitted to OPA and Git audit evidence.
 
 The Claude Workspace shim additionally contains the non-secret scope,
 subscription-type, and rate-limit-tier values captured from the pinned native

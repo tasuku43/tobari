@@ -80,7 +80,6 @@ func projectGitTestManifest(t *testing.T, setting *tobari.ManifestGitIdentitySet
 		Name:           "default",
 		AgentProfile:   tobari.DefaultProfile,
 		Image:          tobari.BuiltinImageSelector,
-		PolicyMode:     tobari.ManifestPolicyModeGuided,
 		SourceAccess:   tobari.ManifestSourceAccessReadWrite,
 		PolicyRevision: tobari.DefaultContextPolicyRevision(),
 		GitIdentity:    setting,

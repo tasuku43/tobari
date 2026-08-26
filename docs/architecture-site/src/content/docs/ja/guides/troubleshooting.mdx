@@ -107,7 +107,7 @@ tobari cluster logs --component opa --tail 100
 
 完全一致の許可、拒否、リセットでは、有効化する前に、変更した Context Policy Memory と全 Context の完全な集約ポリシーを検証します。失敗した場合は検証済みポリシーを保持します。同時に変更が行われた後は、不透明な参照をもう一度取得してください。表示順や古い ID を再利用しないでください。
 
-ホスト側で管理する高度なポリシーの場合は、信頼するホスト上で Rego とテストを修正し、`tobari doctor` と明示的な `tobari cluster up` をもう一度実行します。
+旧 executable-policy state が報告された場合は、reset/recreate の復旧手順に従ってください。Tobari はその state を変換も実行もしません。
 
 ## Workspace を削除できない、またはクラスターを停止できない
 

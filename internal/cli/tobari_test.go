@@ -120,13 +120,18 @@ func (f *policyReviewRuntimeApplyingFake) ApplyPolicyDecisionSet(
 }
 
 func policyReviewActivationReceipt(state tobari.State) tobari.PolicyActivationReceipt {
-	policyDirectory := state.PolicyDirectory
-	if policyDirectory == "" {
-		policyDirectory = "/tmp/policy"
-	}
 	return tobari.PolicyActivationReceipt{
-		PolicyDirectory: policyDirectory,
-		ActiveRevision:  strings.Repeat("b", 64),
+		ActiveRevision:     strings.Repeat("b", 64),
+		EvaluatorIdentity:  testCLIProjectionIdentity(strings.Repeat("b", 64)).EvaluatorIdentity,
+		PolicyDataIdentity: testCLIProjectionIdentity(strings.Repeat("b", 64)).PolicyDataIdentity,
+	}
+}
+
+func testCLIProjectionIdentity(revision string) tobari.PolicyProjectionIdentity {
+	return tobari.PolicyProjectionIdentity{
+		AggregateRevision:  revision,
+		EvaluatorIdentity:  tobari.PolicyEvaluatorIdentity{SchemaVersion: 1, Version: "tobari-evaluator-v1", Digest: tobari.SemanticDigest("sha256:" + strings.Repeat("a", 64))},
+		PolicyDataIdentity: tobari.PolicyDataIdentity{SchemaVersion: 1, Digest: tobari.SemanticDigest("sha256:" + strings.Repeat("b", 64))},
 	}
 }
 

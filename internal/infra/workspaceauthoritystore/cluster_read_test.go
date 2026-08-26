@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -62,12 +63,25 @@ func finalClusterReadStatus(collection tobari.WorkspaceAuthorityCollection) toba
 			PolicyMemory:   record.ActivePolicyMemoryRef,
 		}
 	}
+	aggregateRevision := strings.Repeat("a", 64)
+	evaluatorIdentity := tobari.PolicyEvaluatorIdentity{
+		SchemaVersion: 1,
+		Version:       "test-evaluator-v1",
+		Digest:        tobari.SemanticDigest("sha256:" + strings.Repeat("b", 64)),
+	}
+	policyDataIdentity := tobari.PolicyDataIdentity{
+		SchemaVersion: 1,
+		Digest:        tobari.SemanticDigest("sha256:" + strings.Repeat("c", 64)),
+	}
 	return tobari.FinalClusterStatus{
-		SchemaVersion:      tobari.FinalClusterLifecycleSchemaVersion,
+		SchemaVersion:      tobari.FinalClusterStatusSchemaVersion,
 		Task:               tobari.TaskClusterStatus,
 		Authority:          tobari.FinalClusterAuthorityPresent,
 		Generation:         collection.Generation,
 		CollectionRevision: collection.Revision,
+		AggregateRevision:  &aggregateRevision,
+		EvaluatorIdentity:  &evaluatorIdentity,
+		PolicyDataIdentity: &policyDataIdentity,
 		TemplateCount:      len(collection.Templates),
 		ContextCount:       len(collection.Contexts),
 		WorkspaceCount:     len(collection.Workspaces),
@@ -128,10 +142,12 @@ func TestBatchDClusterReadRejectsNonActiveAndLegacyAuthorityBeforeEffect(t *test
 	active := finalClusterReadStatus(collection)
 	stopped := active
 	stopped.Runtime, stopped.Receipt = tobari.FinalClusterRuntimeStopped, tobari.FinalClusterReceiptStopped
+	stopped.AggregateRevision, stopped.EvaluatorIdentity, stopped.PolicyDataIdentity = nil, nil, nil
 	drifted := active
 	drifted.Runtime, drifted.Receipt = tobari.FinalClusterRuntimeDrifted, tobari.FinalClusterReceiptDrifted
+	drifted.AggregateRevision, drifted.EvaluatorIdentity, drifted.PolicyDataIdentity = nil, nil, nil
 	absent := tobari.FinalClusterStatus{
-		SchemaVersion: tobari.FinalClusterLifecycleSchemaVersion,
+		SchemaVersion: tobari.FinalClusterStatusSchemaVersion,
 		Task:          tobari.TaskClusterStatus,
 		Authority:     tobari.FinalClusterAuthorityAbsent,
 		Runtime:       tobari.FinalClusterRuntimeAbsent,
@@ -204,7 +220,7 @@ func TestBatchDClusterReadDenialsCorrelateExactContextTemplateAndWorkspace(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := window.Validate(); err != nil || window.SchemaVersion != 3 || len(window.Items) != 1 {
+	if err := window.Validate(); err != nil || window.SchemaVersion != tobari.FinalClusterDenialSchemaVersion || len(window.Items) != 1 {
 		t.Fatalf("window=%#v err=%v", window, err)
 	}
 	item := window.Items[0]
@@ -227,6 +243,7 @@ func TestBatchDClusterReadRejectsStoreOrRuntimeDriftAfterEffect(t *testing.T) {
 	active := finalClusterReadStatus(collection)
 	driftedStatus := active
 	driftedStatus.Receipt = tobari.FinalClusterReceiptDrifted
+	driftedStatus.AggregateRevision, driftedStatus.EvaluatorIdentity, driftedStatus.PolicyDataIdentity = nil, nil, nil
 
 	t.Run("runtime receipt", func(t *testing.T) {
 		runtime := &finalClusterReadRuntimeFixture{statuses: []tobari.FinalClusterStatus{active, driftedStatus}, logs: []byte("observed")}

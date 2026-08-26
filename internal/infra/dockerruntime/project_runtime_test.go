@@ -362,7 +362,7 @@ func TestProjectShellExecEnvironmentUsesOnlyDeclaredSourcesAndQuotesPrompt(t *te
 		SchemaVersion: tobari.WorkspaceManifestSchemaVersion,
 		ID:            "018bcfe5-687b-7000-8000-000000000000", Name: "default",
 		AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector,
-		PolicyMode: tobari.ManifestPolicyModeGuided, SourceAccess: tobari.ManifestSourceAccessReadWrite,
+		SourceAccess:   tobari.ManifestSourceAccessReadWrite,
 		PolicyRevision: tobari.DefaultContextPolicyRevision(),
 		ShellEnvironment: []tobari.ManifestShellEnvironmentSetting{
 			{Variable: "PS1", Source: tobari.ManifestShellEnvironmentInherit},
@@ -406,7 +406,6 @@ func TestProjectShellExecEnvironmentFallsBackWhenInheritedPS1IsAbsent(t *testing
 		SchemaVersion: tobari.WorkspaceManifestSchemaVersion,
 		ID:            "018bcfe5-687b-7000-8000-000000000000", Name: "default",
 		AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector,
-		PolicyMode:       tobari.ManifestPolicyModeGuided,
 		SourceAccess:     tobari.ManifestSourceAccessReadWrite,
 		PolicyRevision:   tobari.DefaultContextPolicyRevision(),
 		ShellEnvironment: tobari.InitialContextShellEnvironment(),
@@ -425,7 +424,7 @@ func TestProjectShellExecEnvironmentRejectsOversizedInheritedValue(t *testing.T)
 		SchemaVersion: tobari.WorkspaceManifestSchemaVersion,
 		ID:            "018bcfe5-687b-7000-8000-000000000000", Name: "default",
 		AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector,
-		PolicyMode: tobari.ManifestPolicyModeGuided, SourceAccess: tobari.ManifestSourceAccessReadWrite,
+		SourceAccess:   tobari.ManifestSourceAccessReadWrite,
 		PolicyRevision: tobari.DefaultContextPolicyRevision(),
 		ShellEnvironment: []tobari.ManifestShellEnvironmentSetting{
 			{Variable: "TERM", Source: tobari.ManifestShellEnvironmentInherit},

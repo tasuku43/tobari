@@ -10,8 +10,10 @@ func validOperatorConsoleSnapshotFixture() OperatorConsoleSnapshot {
 		Task: TaskOperatorConsoleSnapshot,
 		Cluster: ClusterStatus{
 			Task: TaskClusterStatus, Configured: true, Running: true,
-			Policy: "/tmp/policy", ManifestCount: 1, PolicyRevision: strings.Repeat("a", 64),
-			PolicyProjection: "valid", PrincipalRegistry: "valid", GatewayProjection: "valid",
+			ManifestCount: 1, PolicyRevision: strings.Repeat("a", 64),
+			EvaluatorIdentity:  PolicyEvaluatorIdentity{SchemaVersion: 1, Version: "tobari-evaluator-v1", Digest: authorityDigest("b")},
+			PolicyDataIdentity: PolicyDataIdentity{SchemaVersion: 1, Digest: authorityDigest("c")},
+			PolicyProjection:   "valid", PrincipalRegistry: "valid", GatewayProjection: "valid",
 			Components: []ComponentStatus{
 				{Name: "gateway", State: "running", Health: "healthy"},
 				{Name: "opa", State: "running", Health: "healthy"},
@@ -21,7 +23,7 @@ func validOperatorConsoleSnapshotFixture() OperatorConsoleSnapshot {
 		WindowLines: 10_000,
 		ReviewItems: []PolicyReviewItem{},
 		Rules: PolicyRuleReport{
-			Task: TaskPolicyRules, PolicyDirectory: "/tmp/policy", Items: []PolicyRule{},
+			Task: TaskPolicyRules, PolicyProjectionIdentity: validPolicyProjectionIdentity(), Items: []PolicyRule{},
 		},
 	}
 }

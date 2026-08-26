@@ -351,8 +351,8 @@ func TestSharedClusterCatalogDeclaresAuthBrokerLifecycle(t *testing.T) {
 	if !found {
 		t.Fatal("default catalog lacks cluster status")
 	}
-	if status.Agent.Output.JSONSchemaVersion != tobari.FinalClusterLifecycleSchemaVersion {
-		t.Fatalf("cluster status schema version = %d, want %d", status.Agent.Output.JSONSchemaVersion, tobari.FinalClusterLifecycleSchemaVersion)
+	if status.Agent.Output.JSONSchemaVersion != tobari.FinalClusterStatusSchemaVersion {
+		t.Fatalf("cluster status schema version = %d, want %d", status.Agent.Output.JSONSchemaVersion, tobari.FinalClusterStatusSchemaVersion)
 	}
 	fieldNames := make([]string, 0, len(status.Agent.Output.Fields))
 	var components *OutputField

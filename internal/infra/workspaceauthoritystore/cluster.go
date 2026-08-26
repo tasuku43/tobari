@@ -21,8 +21,8 @@ type ClusterAdapter struct {
 }
 
 type finalClusterSettlementAuthority interface {
-	ReconcileFinalClusterAuthority(context.Context, tobari.WorkspaceAuthorityCollection, tobari.WorkspaceAuthorityCollection, string, string) error
-	ConfirmFinalClusterAuthoritySettled(context.Context, tobari.WorkspaceAuthorityCollection) error
+	ReconcileFinalClusterAuthorityWithIdentity(context.Context, tobari.WorkspaceAuthorityCollection, tobari.WorkspaceAuthorityCollection, string, string) (tobari.PolicyProjectionIdentity, error)
+	ConfirmFinalClusterAuthoritySettled(context.Context, tobari.WorkspaceAuthorityCollection, tobari.PolicyProjectionIdentity) error
 }
 
 func NewClusterAdapter(mutator *Mutator) (*ClusterAdapter, error) {
@@ -36,10 +36,11 @@ func NewClusterAdapter(mutator *Mutator) (*ClusterAdapter, error) {
 	return &ClusterAdapter{mutator: mutator, settlement: settlement}, nil
 }
 
-func (a *ClusterAdapter) Reconcile(ctx context.Context) (tobari.WorkspaceAuthorityClusterReconciliationPlan, error) {
+func (a *ClusterAdapter) Reconcile(ctx context.Context) (tobari.WorkspaceAuthorityClusterReconciliationPlan, tobari.PolicyProjectionIdentity, error) {
 	if a == nil || a.mutator == nil {
-		return tobari.WorkspaceAuthorityClusterReconciliationPlan{}, fmt.Errorf("final cluster reconciliation adapter is unavailable")
+		return tobari.WorkspaceAuthorityClusterReconciliationPlan{}, tobari.PolicyProjectionIdentity{}, fmt.Errorf("final cluster reconciliation adapter is unavailable")
 	}
+	var settledIdentity tobari.PolicyProjectionIdentity
 	committed, err := a.mutator.effectfulMutate(
 		ctx,
 		finalClusterReconciliationOperation,
@@ -58,19 +59,35 @@ func (a *ClusterAdapter) Reconcile(ctx context.Context) (tobari.WorkspaceAuthori
 					if err := plan.ValidateTransition(current, transition.Next); err != nil {
 						return err
 					}
-					return a.settlement.ReconcileFinalClusterAuthority(
+					var err error
+					settledIdentity, err = a.settlement.ReconcileFinalClusterAuthorityWithIdentity(
 						effectContext, current.Clone(), transition.Next.Clone(),
 						finalClusterReconciliationOperation, clusterReconciliationDecisionRef(transition.Next.Revision),
 					)
+					return err
+				},
+				finalizeDecision: func(decision effectDecision) (effectDecision, error) {
+					if err := settledIdentity.Validate(); err != nil {
+						return effectDecision{}, fmt.Errorf("final cluster settlement returned invalid aggregate identity: %w", err)
+					}
+					identity := settledIdentity
+					decision.ClusterProjectionIdentity = &identity
+					return decision, nil
 				},
 			}, nil
 		},
 	)
 	if err != nil {
-		return tobari.WorkspaceAuthorityClusterReconciliationPlan{}, err
+		return tobari.WorkspaceAuthorityClusterReconciliationPlan{}, tobari.PolicyProjectionIdentity{}, err
 	}
 	if committed.ClusterPlan == nil {
-		return tobari.WorkspaceAuthorityClusterReconciliationPlan{}, fmt.Errorf("committed final cluster reconciliation plan is unavailable")
+		return tobari.WorkspaceAuthorityClusterReconciliationPlan{}, tobari.PolicyProjectionIdentity{}, fmt.Errorf("committed final cluster reconciliation plan is unavailable")
 	}
-	return *committed.ClusterPlan, nil
+	if committed.ClusterProjectionIdentity == nil {
+		return tobari.WorkspaceAuthorityClusterReconciliationPlan{}, tobari.PolicyProjectionIdentity{}, fmt.Errorf("committed final cluster reconciliation identity is unavailable")
+	}
+	if err := committed.ClusterProjectionIdentity.Validate(); err != nil {
+		return tobari.WorkspaceAuthorityClusterReconciliationPlan{}, tobari.PolicyProjectionIdentity{}, fmt.Errorf("committed final cluster reconciliation identity is invalid: %w", err)
+	}
+	return *committed.ClusterPlan, *committed.ClusterProjectionIdentity, nil
 }

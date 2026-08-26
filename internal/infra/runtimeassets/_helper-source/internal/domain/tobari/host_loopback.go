@@ -302,7 +302,7 @@ func (p AttachmentGrantPublication) ValidateFor(candidateID string, decision Pol
 	if p.Grant != want {
 		return fmt.Errorf("attachment grant publication changed the requested exact decision")
 	}
-	return p.Activation.Validate()
+	return p.Activation.ValidateAttachment()
 }
 
 func (r AttachmentGrantRegistry) Validate() error {

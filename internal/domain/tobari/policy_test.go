@@ -25,10 +25,18 @@ func validPolicyDenial() PolicyDenial {
 	}
 }
 
+func validPolicyProjectionIdentity() PolicyProjectionIdentity {
+	return PolicyProjectionIdentity{
+		AggregateRevision:  strings.Repeat("a", 64),
+		EvaluatorIdentity:  PolicyEvaluatorIdentity{SchemaVersion: 1, Version: "tobari-evaluator-v1", Digest: authorityDigest("b")},
+		PolicyDataIdentity: PolicyDataIdentity{SchemaVersion: 1, Digest: authorityDigest("c")},
+	}
+}
+
 func TestDenialReportPreservesEmptyBoundedScope(t *testing.T) {
 	t.Parallel()
 	report := DenialReport{
-		Task: TaskClusterDenials, PolicyDirectory: "/config/tobari/policy",
+		Task: TaskClusterDenials, PolicyProjectionIdentity: validPolicyProjectionIdentity(),
 		WindowLines: 200, Items: []PolicyDenial{},
 	}
 	if err := report.Validate(); err != nil {
@@ -48,7 +56,7 @@ func TestDenialReadAndReportsPreserveBoundedUnparsedCount(t *testing.T) {
 		t.Fatal(err)
 	}
 	report := DenialReport{
-		Task: TaskClusterDenials, PolicyDirectory: "/config/tobari/policy",
+		Task: TaskClusterDenials, PolicyProjectionIdentity: validPolicyProjectionIdentity(),
 		WindowLines: 10, UnparsedLines: read.UnparsedLines, Items: read.Items,
 	}
 	if err := report.Validate(); err != nil {
@@ -59,7 +67,7 @@ func TestDenialReadAndReportsPreserveBoundedUnparsedCount(t *testing.T) {
 		t.Fatal(err)
 	}
 	candidateReport := PolicyCandidateReport{
-		Task: TaskPolicyReview, PolicyDirectory: report.PolicyDirectory,
+		Task: TaskPolicyReview, PolicyProjectionIdentity: report.PolicyProjectionIdentity,
 		WindowLines: report.WindowLines, UnparsedLines: read.UnparsedLines,
 		Items: candidates,
 	}
@@ -918,7 +926,7 @@ func TestPolicyReviewChangeRequiresExactOrderedReceiptAndActiveRevision(t *testi
 		t.Fatal(err)
 	}
 	valid := PolicyReviewChange{
-		Task: TaskPolicyReviewApply, PolicyDirectory: "/tmp/tobari/policy",
+		Task: TaskPolicyReviewApply, PolicyProjectionIdentity: validPolicyProjectionIdentity(),
 		AllowCount: 1, DenyCount: 0, Applied: true,
 		ActiveRevision: strings.Repeat("a", 64), Decisions: []PolicyReviewAppliedDecision{receipt},
 	}
@@ -947,22 +955,29 @@ func TestPolicyReviewChangeRequiresExactOrderedReceiptAndActiveRevision(t *testi
 func TestPolicyActivationReceiptRequiresAuthoritativeProjectionFacts(t *testing.T) {
 	t.Parallel()
 	valid := PolicyActivationReceipt{
-		PolicyDirectory: "/var/lib/tobari/projections/active/policy",
-		ActiveRevision:  strings.Repeat("a", 64),
+		ActiveRevision:     strings.Repeat("a", 64),
+		EvaluatorIdentity:  validPolicyProjectionIdentity().EvaluatorIdentity,
+		PolicyDataIdentity: validPolicyProjectionIdentity().PolicyDataIdentity,
 	}
-	if err := valid.Validate(); err != nil {
+	if err := valid.ValidateAggregate(); err != nil {
 		t.Fatalf("valid receipt: %v", err)
 	}
 	for name, mutate := range map[string]func(*PolicyActivationReceipt){
-		"relative directory": func(receipt *PolicyActivationReceipt) { receipt.PolicyDirectory = "relative/policy" },
-		"unclean directory":  func(receipt *PolicyActivationReceipt) { receipt.PolicyDirectory += "/../policy" },
 		"missing revision":   func(receipt *PolicyActivationReceipt) { receipt.ActiveRevision = "" },
 		"malformed revision": func(receipt *PolicyActivationReceipt) { receipt.ActiveRevision = strings.Repeat("g", 64) },
+		"missing evaluator":  func(receipt *PolicyActivationReceipt) { receipt.EvaluatorIdentity = PolicyEvaluatorIdentity{} },
+		"missing data":       func(receipt *PolicyActivationReceipt) { receipt.PolicyDataIdentity = PolicyDataIdentity{} },
+		"malformed evaluator": func(receipt *PolicyActivationReceipt) {
+			receipt.EvaluatorIdentity.Digest = "invalid"
+		},
+		"malformed data": func(receipt *PolicyActivationReceipt) {
+			receipt.PolicyDataIdentity.Digest = "invalid"
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			receipt := valid
 			mutate(&receipt)
-			if err := receipt.Validate(); err == nil {
+			if err := receipt.ValidateAggregate(); err == nil {
 				t.Fatalf("receipt %+v was accepted", receipt)
 			}
 		})
@@ -1004,7 +1019,7 @@ func TestCurrentPolicyRulesListsReversibleAllowAndDenyDecisions(t *testing.T) {
 		t.Fatalf("exact deny examples = %#v, want known empty collection", items[1].Examples)
 	}
 	report := PolicyRuleReport{
-		Task: TaskPolicyRules, PolicyDirectory: "/tmp/policy", Items: items,
+		Task: TaskPolicyRules, PolicyProjectionIdentity: validPolicyProjectionIdentity(), Items: items,
 	}
 	if err := report.Validate(); err != nil {
 		t.Fatal(err)

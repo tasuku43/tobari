@@ -2,6 +2,7 @@ package workspaceauthoritycmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/tasuku43/tobari/internal/app/execution"
@@ -38,6 +39,15 @@ func (s *FinalClusterLifecycleService) Status(ctx context.Context) (tobari.Final
 	}
 	result, err := s.status.Observe(ctx)
 	if err != nil {
+		if isPreReleaseLegacyAuthority(err) {
+			return tobari.FinalClusterStatus{}, preReleaseLegacyFault(err, fault.PhaseObservation, fault.ChangeNotApplicable)
+		}
+		if errors.Is(err, tobari.ErrFinalClusterObservationChanged) {
+			return tobari.FinalClusterStatus{}, fault.WithClassification(fault.Wrap(
+				fault.KindUnavailable, "cluster_observation_changed", "final cluster authority changed during observation", true, err,
+				fault.NextAction{Command: "cluster status", Reason: "Retry one fresh bounded cluster observation."},
+			), fault.PhaseObservation, fault.ChangeNotApplicable)
+		}
 		return tobari.FinalClusterStatus{}, err
 	}
 	if err := result.Validate(); err != nil {
@@ -57,12 +67,12 @@ type FinalClusterDownResult struct {
 }
 
 func newFinalClusterDownResult(plan tobari.WorkspaceAuthorityClusterDownPlan) (FinalClusterDownResult, error) {
-	result := FinalClusterDownResult{SchemaVersion: tobari.FinalClusterLifecycleSchemaVersion, Task: tobari.TaskClusterDown, Stopped: true, Generation: plan.NextGeneration, CollectionRevision: plan.NextRevision, EnvelopeChanged: plan.EnvelopeChanged, Plan: plan}
+	result := FinalClusterDownResult{SchemaVersion: tobari.FinalClusterDownSchemaVersion, Task: tobari.TaskClusterDown, Stopped: true, Generation: plan.NextGeneration, CollectionRevision: plan.NextRevision, EnvelopeChanged: plan.EnvelopeChanged, Plan: plan}
 	return result, result.Validate()
 }
 
 func (r FinalClusterDownResult) Validate() error {
-	if r.SchemaVersion != tobari.FinalClusterLifecycleSchemaVersion || r.Task != tobari.TaskClusterDown || !r.Stopped || r.Plan.Validate() != nil || r.Generation != r.Plan.NextGeneration || r.CollectionRevision != r.Plan.NextRevision || r.EnvelopeChanged != r.Plan.EnvelopeChanged {
+	if r.SchemaVersion != tobari.FinalClusterDownSchemaVersion || r.Task != tobari.TaskClusterDown || !r.Stopped || r.Plan.Validate() != nil || r.Generation != r.Plan.NextGeneration || r.CollectionRevision != r.Plan.NextRevision || r.EnvelopeChanged != r.Plan.EnvelopeChanged {
 		return fmt.Errorf("final cluster down result is invalid")
 	}
 	return nil

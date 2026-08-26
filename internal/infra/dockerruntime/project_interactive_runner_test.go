@@ -58,5 +58,8 @@ func (r *interactiveRecordingRunner) RunInteractive(
 ) error {
 	r.interactiveCalls++
 	r.colorize = colorize
-	return r.recordingRunner.Run(ctx, args, environment, in, out, errOut)
+	// This test double verifies runner selection only. Consuming a live PTY
+	// input stream here would wait for EOF that the caller intentionally keeps
+	// open for the interactive session.
+	return nil
 }

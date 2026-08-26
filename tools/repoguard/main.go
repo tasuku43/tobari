@@ -121,11 +121,21 @@ func inspect(root, scope string) ([]issue, error) {
 	issues = append(issues, checkRequired(root, config, scope)...)
 	issues = append(issues, checkLicense(root, config, scope)...)
 	issues = append(issues, checkAgentHarness(root)...)
+	policyRetirementIssues, err := checkPolicyRetirement(root)
+	if err != nil {
+		return nil, err
+	}
+	issues = append(issues, policyRetirementIssues...)
 	workIssues, err := checkWorkPackets(root, paths)
 	if err != nil {
 		return nil, err
 	}
 	issues = append(issues, workIssues...)
+	liveWorkPacketPolicyIssues, err := checkLiveWorkPacketPolicyRetirement(root, paths)
+	if err != nil {
+		return nil, err
+	}
+	issues = append(issues, liveWorkPacketPolicyIssues...)
 	historicalLocaleExemptions, err := historicalWorkPacketLocaleExemptions(root, paths)
 	if err != nil {
 		return nil, err

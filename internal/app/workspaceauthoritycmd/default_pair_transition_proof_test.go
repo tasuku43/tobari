@@ -77,7 +77,7 @@ func defaultPairClusterTransitionFixture(t *testing.T) (tobari.FinalDefaultPairO
 	if err != nil {
 		t.Fatal(err)
 	}
-	cluster, err := NewFinalClusterReconciliation(transition.Plan)
+	cluster, err := NewFinalClusterReconciliation(transition.Plan, finalClusterIdentityFixture())
 	if err != nil {
 		t.Fatal(err)
 	}

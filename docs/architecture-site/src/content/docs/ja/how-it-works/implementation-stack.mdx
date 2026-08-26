@@ -35,8 +35,8 @@ mitmproxy は透過的な HTTP/TLS の検査、ストリーミング処理用の
 
 ### OPA と Rego
 
-OPA は共有のポリシー判断サービスです。Rego は Workspace Template policy ceiling、既定拒否、Workspace Template routing、
-学習済み完全一致 allow/deny、credential metadata constraint を表します。first public V1 の
+OPA は共有のポリシー判断サービスです。Tobari が所有する一つの固定 Rego evaluator が Workspace Template policy ceiling、既定拒否、Workspace Template routing、
+学習済み完全一致 allow/deny、credential metadata constraint を表します。ユーザーが指定するのは canonical typed data であり、evaluator source ではありません。first public V1 の
 学習済み authority は完全一致のままです。
 
 OPA はリクエスト本文も認証情報の値も受け取らず、外部へ接続するインターフェースを持ちません。判断処理を分けることで、OPA にネットワーク転送権限を与えずに、判断の入力と結果の契約をテストできます。

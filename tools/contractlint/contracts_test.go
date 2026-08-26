@@ -67,6 +67,32 @@ func TestPublicJSONSchemaTablesRejectStaleMissingAndUnmarkedVersions(t *testing.
 	}
 }
 
+func TestGeneratedSiteJSONSchemasOwnPinnedSiteClaims(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, generatedSiteCatalogPath, []byte(`{
+  "scope": {"commands": [
+    {"output": {"json_envelope": "cluster", "json_schema_version": 2}},
+    {"output": {"json_envelope": "denials", "json_schema_version": 3}}
+  ]}
+}`))
+	expected, err := loadGeneratedSiteJSONSchemas(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, schema := range []publicCLISchema{
+		{Envelope: "error", Version: 2},
+		{Envelope: "cluster", Version: 2},
+		{Envelope: "denials", Version: 3},
+	} {
+		if _, exists := expected[schema]; !exists {
+			t.Fatalf("generated site schema set omits %+v: %+v", schema, expected)
+		}
+	}
+	if _, exists := expected[publicCLISchema{Envelope: "cluster", Version: 3}]; exists {
+		t.Fatal("generated site schema set adopted an unpinned current-tree version")
+	}
+}
+
 func TestInspectContractsAcceptsPublicCapabilitiesAndSchemaFixture(t *testing.T) {
 	root := t.TempDir()
 	writeJSON(t, root, capabilitiesPath, []capability{

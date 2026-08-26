@@ -47,7 +47,7 @@ func TestPlanWorkspaceAuthorityClusterDownRejectsRemainingWorkspace(t *testing.T
 }
 
 func TestFinalClusterStatusKeepsUnknownDistinctFromAbsence(t *testing.T) {
-	status := FinalClusterStatus{SchemaVersion: 2, Task: TaskClusterStatus, Authority: FinalClusterAuthorityAbsent, Runtime: FinalClusterRuntimeUnknown, Receipt: FinalClusterReceiptAbsent, Contexts: []FinalClusterContextReceiptObservation{}, Components: []FinalClusterComponentObservation{{Name: "gateway", State: FinalClusterRuntimeUnknown, Identity: FinalClusterEvidenceUnknown, Topology: FinalClusterEvidenceUnknown}, {Name: "opa", State: FinalClusterRuntimeAbsent, Identity: FinalClusterEvidenceAbsent, Topology: FinalClusterEvidenceAbsent}}}
+	status := FinalClusterStatus{SchemaVersion: FinalClusterStatusSchemaVersion, Task: TaskClusterStatus, Authority: FinalClusterAuthorityAbsent, Runtime: FinalClusterRuntimeUnknown, Receipt: FinalClusterReceiptAbsent, Contexts: []FinalClusterContextReceiptObservation{}, Components: []FinalClusterComponentObservation{{Name: "gateway", State: FinalClusterRuntimeUnknown, Identity: FinalClusterEvidenceUnknown, Topology: FinalClusterEvidenceUnknown}, {Name: "opa", State: FinalClusterRuntimeAbsent, Identity: FinalClusterEvidenceAbsent, Topology: FinalClusterEvidenceAbsent}}}
 	if err := status.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestFinalClusterStatusKeepsUnknownDistinctFromAbsence(t *testing.T) {
 
 func TestFinalClusterStoppedResearchClosureValidates(t *testing.T) {
 	status := FinalClusterStatus{
-		SchemaVersion:      FinalClusterLifecycleSchemaVersion,
+		SchemaVersion:      FinalClusterStatusSchemaVersion,
 		Task:               TaskClusterStatus,
 		Authority:          FinalClusterAuthorityPresent,
 		Generation:         1,

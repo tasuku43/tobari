@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -49,7 +50,7 @@ func (r *finalPolicyActivationRunner) Run(_ context.Context, args, _ []string, _
 		_, _ = out.Write(data)
 		return nil
 	case len(args) > 0 && args[0] == "run":
-		if slices.Contains(args, "--interactive") {
+		if slices.Contains(args, "--interactive") && containsArgPrefix(args, "/bundle/.source-") {
 			r.policyStageRuns++
 		}
 		return nil
@@ -103,23 +104,30 @@ func finalPolicyActivationFixture(t *testing.T) (*Runtime, *finalPolicyActivatio
 func largeFinalPolicyCollectionFixture(t *testing.T) tobari.WorkspaceAuthorityCollection {
 	t.Helper()
 	collection := finalProjectionCollectionFixture(t, "")
-	template := collection.Templates[0].Clone()
-	body := template.Current.Body.Clone()
-	body.Policy.Mode = tobari.ManifestPolicyModeAdvanced
-	body.Policy.AdvancedPolicy = &tobari.WorkspaceTemplateAdvancedPolicySources{
-		Tobari:     "package tobari.http\n\nimport rego.v1\ndecision := {\"allow\": false} if { input.schema_version == 1; data.tobari.schema_version == 1; false }\n#" + strings.Repeat("a", 192*1024),
-		TobariTest: "package tobari.http_test\n\nimport rego.v1\n#" + strings.Repeat("b", 192*1024),
+	record := collection.Contexts[0].Clone()
+	rules := make([]tobari.PolicyMemoryRule, 0, 2048)
+	for index := 0; index < cap(rules); index++ {
+		body := tobari.PolicyMemoryRuleBody{
+			PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP},
+			Match:                  tobari.PolicyMatchExact, Host: "api.example.dev", Port: 443, Method: "GET",
+			Path: fmt.Sprintf("/large/%04d", index), Examples: []string{fmt.Sprintf("/large/%04d", index)},
+			SourceCandidates: []string{fmt.Sprintf("pcy_%032x", index)},
+		}
+		rule, err := tobari.NewPolicyMemoryRule(record.Context.ID, tobari.PolicyMemoryAllow, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rules = append(rules, rule)
 	}
-	revision, err := tobari.NewWorkspaceTemplateRevision(template.ID, template.Current.Generation+1, body)
+	memory, _, err := tobari.PublishPolicyMemory(record.Context.ID, rules, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	template.Current = revision
-	template.Retained = []tobari.WorkspaceTemplateRevision{revision.Clone()}
-	record := collection.Contexts[0].Clone()
-	receipt := tobari.TemplatePolicyActivationReceipt{ContextID: record.Context.ID, TemplateID: template.ID, PolicySliceDigest: revision.Slices.PolicySliceDigest}
-	record.ActiveTemplatePolicy = &receipt
-	large, _, err := tobari.PublishWorkspaceAuthorityCollection([]tobari.WorkspaceTemplate{template}, []tobari.WorkspaceAuthorityContextRecord{record}, collection.Workspaces, collection.PendingCandidates, collection.DefaultTemplateID, nil)
+	receipt := tobari.PolicyMemoryActivationReceipt{ContextID: record.Context.ID, Revision: memory.Revision}
+	record.PolicyMemory = memory
+	record.ActivePolicyMemory = &memory
+	record.ActivePolicyMemoryRef = &receipt
+	large, _, err := tobari.PublishWorkspaceAuthorityCollection(collection.Templates, []tobari.WorkspaceAuthorityContextRecord{record}, collection.Workspaces, collection.PendingCandidates, collection.DefaultTemplateID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

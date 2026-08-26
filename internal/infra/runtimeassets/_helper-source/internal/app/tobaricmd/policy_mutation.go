@@ -2,6 +2,7 @@ package tobaricmd
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/tasuku43/tobari/internal/app/execution"
 	"github.com/tasuku43/tobari/internal/app/portcheck"
@@ -170,8 +171,9 @@ func (s *Service) ApplyPolicyReviewDecisionSet(
 		Intent: intent, ExpectedCommand: "policy apply-reviewed", ExpectedEffect: operation.EffectWrite,
 		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
 	}
-	activation := tobari.PolicyActivationReceipt{}
+	var result tobari.PolicyReviewChange
 	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		activation := tobari.PolicyActivationReceipt{}
 		var applyErr error
 		activation, applyErr = runtime.ApplyPolicyDecisionSet(
 			actionContext, state, rules, updatedAllows, denyRules.Exact, updatedDenies,
@@ -179,7 +181,22 @@ func (s *Service) ApplyPolicyReviewDecisionSet(
 		if applyErr != nil {
 			return applyErr
 		}
-		return activation.Validate()
+		if err := validateAggregateActivationReceipt(activation, state); err != nil {
+			return confirmedPolicyVerificationFault("aggregate policy activation receipt is invalid", err, "cluster status")
+		}
+		result = tobari.PolicyReviewChange{
+			Task: tobari.TaskPolicyReviewApply,
+			PolicyProjectionIdentity: tobari.PolicyProjectionIdentity{
+				AggregateRevision: activation.ActiveRevision, EvaluatorIdentity: activation.EvaluatorIdentity,
+				PolicyDataIdentity: activation.PolicyDataIdentity,
+			},
+			AllowCount: allowCount, DenyCount: denyCount, Applied: true,
+			ActiveRevision: activation.ActiveRevision, Decisions: receipt,
+		}
+		if err := result.Validate(); err != nil {
+			return confirmedPolicyVerificationFault("reviewed policy result is invalid", err, "cluster status")
+		}
+		return nil
 	})
 	if err != nil {
 		if _, structured := fault.PublicCopy(err); structured {
@@ -189,16 +206,6 @@ func (s *Service) ApplyPolicyReviewDecisionSet(
 			fault.KindUnavailable, "policy_learning_failed",
 			"reviewed policy activation did not complete; inspect cluster status", false, err,
 			fault.NextAction{Command: "cluster status", Reason: "Reconcile OPA and current policy state."},
-		)
-	}
-	result := tobari.PolicyReviewChange{
-		Task: tobari.TaskPolicyReviewApply, PolicyDirectory: activation.PolicyDirectory,
-		AllowCount: allowCount, DenyCount: denyCount, Applied: true,
-		ActiveRevision: activation.ActiveRevision, Decisions: receipt,
-	}
-	if err := result.Validate(); err != nil {
-		return tobari.PolicyReviewChange{}, fault.Wrap(
-			fault.KindContract, "invalid_policy_review_result", "reviewed policy result is invalid", false, err,
 		)
 	}
 	return result, nil
@@ -244,20 +251,30 @@ func (s *Service) applyAttachmentPolicyReview(
 		}
 	}
 	request := execution.Request{Intent: intent, ExpectedCommand: "policy apply-reviewed", ExpectedEffect: operation.EffectWrite, ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact}
-	activation := tobari.PolicyActivationReceipt{}
+	var result tobari.PolicyReviewChange
 	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		activation := tobari.PolicyActivationReceipt{}
 		var applyErr error
 		activation, applyErr = runtime.ApplyAttachmentGrantDecisionSet(actionContext, grants)
-		return applyErr
+		if applyErr != nil {
+			return applyErr
+		}
+		if err := activation.ValidateAttachment(); err != nil {
+			return confirmedPolicyVerificationFault("attachment policy activation receipt is invalid", err, "review permissions")
+		}
+		result = tobari.PolicyReviewChange{Task: tobari.TaskPolicyReviewApply,
+			AllowCount: allowCount, DenyCount: denyCount, Applied: true, ActiveRevision: activation.ActiveRevision, Decisions: receipts}
+		if err := result.Validate(); err != nil {
+			return confirmedPolicyVerificationFault("attachment policy result is invalid", err, "review permissions")
+		}
+		return nil
 	})
 	if err != nil {
+		if _, structured := fault.PublicCopy(err); structured {
+			return tobari.PolicyReviewChange{}, err
+		}
 		return tobari.PolicyReviewChange{}, fault.Wrap(fault.KindUnavailable, "attachment_policy_failed", "attachment policy activation did not complete", false, err,
 			fault.NextAction{Command: "review permissions", Reason: "Review the still-active attachment again."})
-	}
-	result := tobari.PolicyReviewChange{Task: tobari.TaskPolicyReviewApply, PolicyDirectory: activation.PolicyDirectory,
-		AllowCount: allowCount, DenyCount: denyCount, Applied: true, ActiveRevision: activation.ActiveRevision, Decisions: receipts}
-	if err := result.Validate(); err != nil {
-		return tobari.PolicyReviewChange{}, fault.Wrap(fault.KindContract, "invalid_policy_review_result", "attachment policy result is invalid", false, err)
 	}
 	return result, nil
 }
@@ -268,6 +285,30 @@ func policyReviewChangedFault() error {
 		"the reviewed permission set changed before Apply", false,
 		fault.NextAction{Command: "review permissions", Reason: "Review the current pending queue again."},
 	)
+}
+
+// confirmedPolicyVerificationFault records that the adapter returned after a
+// mutation call, so a malformed receipt/result must never become an implicit
+// retry suggestion. The result is checked inside the mutation callback before
+// the mutation-complete boundary returns success.
+func confirmedPolicyVerificationFault(message string, cause error, recovery string) error {
+	return fault.WithClassification(
+		fault.Wrap(
+			fault.KindContract, "unclassified_mutation_outcome", message, false, cause,
+			fault.NextAction{Command: recovery, Reason: "Reconcile the confirmed policy change before another mutation."},
+		),
+		fault.PhaseVerification, fault.ChangeConfirmed,
+	)
+}
+
+func validateAggregateActivationReceipt(receipt tobari.PolicyActivationReceipt, previous tobari.State) error {
+	if err := receipt.ValidateAggregate(); err != nil {
+		return err
+	}
+	if receipt.ActiveRevision == previous.AggregateRevision {
+		return fmt.Errorf("aggregate policy activation revision did not advance")
+	}
+	return nil
 }
 
 func policyReviewItemContextID(item tobari.PolicyReviewItem) string {
@@ -320,6 +361,7 @@ func validatePolicyMutationTarget(intent operation.Intent, kind, id string) erro
 func (s *Service) applyLearnedRules(
 	ctx context.Context, intent operation.Intent, expectedCommand string,
 	state tobari.State, expected, updated []tobari.LearnedPolicyRule,
+	validateResult func(tobari.PolicyActivationReceipt) error,
 ) (tobari.PolicyActivationReceipt, error) {
 	request := execution.Request{
 		Intent: intent, ExpectedCommand: expectedCommand, ExpectedEffect: operation.EffectWrite,
@@ -330,7 +372,15 @@ func (s *Service) applyLearnedRules(
 		var actionErr error
 		receipt, actionErr = s.runtime.ApplyLearnedPolicyRules(actionContext, state, expected, updated)
 		if actionErr == nil {
-			return receipt.Validate()
+			if err := validateAggregateActivationReceipt(receipt, state); err != nil {
+				return confirmedPolicyVerificationFault("aggregate policy activation receipt is invalid", err, "cluster status")
+			}
+			if validateResult != nil {
+				if err := validateResult(receipt); err != nil {
+					return confirmedPolicyVerificationFault("confirmed policy mutation result is invalid", err, "cluster status")
+				}
+			}
+			return nil
 		}
 		if _, structured := fault.PublicCopy(actionErr); structured {
 			return actionErr
@@ -351,6 +401,7 @@ func (s *Service) applyPolicyDenies(
 	ctx context.Context, intent operation.Intent, expectedCommand string, state tobari.State,
 	expectedAllows []tobari.LearnedPolicyRule,
 	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
+	validateResult func(tobari.PolicyActivationReceipt) error,
 ) (tobari.PolicyActivationReceipt, error) {
 	request := execution.Request{
 		Intent: intent, ExpectedCommand: expectedCommand, ExpectedEffect: operation.EffectWrite,
@@ -363,7 +414,15 @@ func (s *Service) applyPolicyDenies(
 			actionContext, state, expectedAllows, expectedDenies, updatedDenies,
 		)
 		if actionErr == nil {
-			return receipt.Validate()
+			if err := validateAggregateActivationReceipt(receipt, state); err != nil {
+				return confirmedPolicyVerificationFault("aggregate policy activation receipt is invalid", err, "cluster status")
+			}
+			if validateResult != nil {
+				if err := validateResult(receipt); err != nil {
+					return confirmedPolicyVerificationFault("confirmed policy mutation result is invalid", err, "cluster status")
+				}
+			}
+			return nil
 		}
 		if _, structured := fault.PublicCopy(actionErr); structured {
 			return actionErr
@@ -445,19 +504,20 @@ func (s *Service) AllowPolicyCandidate(
 			"exact learned policy is invalid", false, err,
 		)
 	}
-	activation, err := s.applyLearnedRules(ctx, intent, "policy allow", state, rules, updated)
+	var result tobari.PolicyLearningChange
+	_, err = s.applyLearnedRules(ctx, intent, "policy allow", state, rules, updated, func(activation tobari.PolicyActivationReceipt) error {
+		result = tobari.PolicyLearningChange{
+			Task: tobari.TaskPolicyAllow,
+			PolicyProjectionIdentity: tobari.PolicyProjectionIdentity{
+				AggregateRevision: activation.ActiveRevision, EvaluatorIdentity: activation.EvaluatorIdentity,
+				PolicyDataIdentity: activation.PolicyDataIdentity,
+			},
+			TargetID: id, Rule: rule, SourceRuleCount: 1, Applied: true,
+		}
+		return result.Validate()
+	})
 	if err != nil {
 		return tobari.PolicyLearningChange{}, err
-	}
-	result := tobari.PolicyLearningChange{
-		Task: tobari.TaskPolicyAllow, PolicyDirectory: activation.PolicyDirectory,
-		TargetID: id, Rule: rule, SourceRuleCount: 1, Applied: true,
-	}
-	if err := result.Validate(); err != nil {
-		return tobari.PolicyLearningChange{}, fault.Wrap(
-			fault.KindContract, "invalid_policy_learning_result",
-			"policy allow result is invalid", false, err,
-		)
 	}
 	return result, nil
 }
@@ -527,19 +587,20 @@ func (s *Service) DenyPolicyCandidate(
 			fault.KindContract, "invalid_policy_deny", "exact policy deny is invalid", false, err,
 		)
 	}
-	activation, err := s.applyPolicyDenies(ctx, intent, "policy deny", state, rules, denyRules.Exact, updatedDenies)
+	var result tobari.PolicyDenyChange
+	_, err = s.applyPolicyDenies(ctx, intent, "policy deny", state, rules, denyRules.Exact, updatedDenies, func(activation tobari.PolicyActivationReceipt) error {
+		result = tobari.PolicyDenyChange{
+			Task: tobari.TaskPolicyDeny,
+			PolicyProjectionIdentity: tobari.PolicyProjectionIdentity{
+				AggregateRevision: activation.ActiveRevision, EvaluatorIdentity: activation.EvaluatorIdentity,
+				PolicyDataIdentity: activation.PolicyDataIdentity,
+			},
+			TargetID: id, Rule: rule, SourceRuleCount: 1, Applied: true,
+		}
+		return result.Validate()
+	})
 	if err != nil {
 		return tobari.PolicyDenyChange{}, err
-	}
-	result := tobari.PolicyDenyChange{
-		Task: tobari.TaskPolicyDeny, PolicyDirectory: activation.PolicyDirectory,
-		TargetID: id, Rule: rule, SourceRuleCount: 1, Applied: true,
-	}
-	if err := result.Validate(); err != nil {
-		return tobari.PolicyDenyChange{}, fault.Wrap(
-			fault.KindContract, "invalid_policy_deny_result",
-			"policy deny result is invalid", false, err,
-		)
 	}
 	return result, nil
 }
@@ -576,27 +637,37 @@ func (s *Service) ResetPolicyRule(
 			"policy rule is stale, baseline-owned, or no longer current", false, err,
 		)
 	}
-	activation := tobari.PolicyActivationReceipt{}
+	var result tobari.PolicyRuleReset
 	if removed.Decision == tobari.PolicyDecisionAllow {
-		activation, err = s.applyLearnedRules(ctx, intent, "policy reset", state, rules, updatedRules)
+		_, err = s.applyLearnedRules(ctx, intent, "policy reset", state, rules, updatedRules, func(activation tobari.PolicyActivationReceipt) error {
+			result = tobari.PolicyRuleReset{
+				Task: tobari.TaskPolicyReset,
+				PolicyProjectionIdentity: tobari.PolicyProjectionIdentity{
+					AggregateRevision: activation.ActiveRevision, EvaluatorIdentity: activation.EvaluatorIdentity,
+					PolicyDataIdentity: activation.PolicyDataIdentity,
+				},
+				TargetID: id, Decision: removed.Decision, Applied: true,
+			}
+			return result.Validate()
+		})
 		if err != nil {
 			return tobari.PolicyRuleReset{}, err
 		}
 	} else {
-		activation, err = s.applyPolicyDenies(ctx, intent, "policy reset", state, rules, denyRules.Exact, updatedDenies)
+		_, err = s.applyPolicyDenies(ctx, intent, "policy reset", state, rules, denyRules.Exact, updatedDenies, func(activation tobari.PolicyActivationReceipt) error {
+			result = tobari.PolicyRuleReset{
+				Task: tobari.TaskPolicyReset,
+				PolicyProjectionIdentity: tobari.PolicyProjectionIdentity{
+					AggregateRevision: activation.ActiveRevision, EvaluatorIdentity: activation.EvaluatorIdentity,
+					PolicyDataIdentity: activation.PolicyDataIdentity,
+				},
+				TargetID: id, Decision: removed.Decision, Applied: true,
+			}
+			return result.Validate()
+		})
 		if err != nil {
 			return tobari.PolicyRuleReset{}, err
 		}
-	}
-	result := tobari.PolicyRuleReset{
-		Task: tobari.TaskPolicyReset, PolicyDirectory: activation.PolicyDirectory,
-		TargetID: id, Decision: removed.Decision, Applied: true,
-	}
-	if err := result.Validate(); err != nil {
-		return tobari.PolicyRuleReset{}, fault.Wrap(
-			fault.KindContract, "invalid_policy_rule_reset_result",
-			"policy rule reset result is invalid", false, err,
-		)
 	}
 	return result, nil
 }

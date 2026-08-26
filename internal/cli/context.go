@@ -427,7 +427,6 @@ func createContext(
 ) (tobari.ManifestReport, error) {
 	intent.Target = operation.TargetRef{Kind: tobari.ManifestCatalogTargetKind, ParentID: tobari.ManifestCatalogTargetID}
 	intent.Impact = command.Agent.Mutation.Impact
-	mode := tobari.ManifestPolicyMode(inputs.One("--mode"))
 	sourceAccess := tobari.ManifestSourceAccess(inputs.One("--source-access"))
 	name := inputs.One("--name")
 	var base *tobari.ManifestCopySnapshot
@@ -437,16 +436,13 @@ func createContext(
 			return tobari.ManifestReport{}, baseErr
 		}
 		base = &observed
-		if !inputs.Provided("--mode") {
-			mode = base.PolicyMode
-		}
 	}
 	if !contextCreateDirectInputsComplete(inputs) {
 		if format != successFormatText || invocationErrorFormat(ctx) == errorFormatJSON ||
 			c.tobari == nil || !c.tobari.IsInteractive(c.In, c.Err) {
 			return tobari.ManifestReport{}, fault.New(
 				fault.KindInvalidInput, "manifest_create_wizard_unavailable",
-				"Incomplete Workspace Manifest creation requires text success/error output and interactive terminal stdin and stderr; otherwise supply --copy-from with --name, or explicitly supply --name, --runtime, --mode, --source-access, and --native-readiness; usage: "+command.Usage(), false,
+				"Incomplete Workspace Manifest creation requires text success/error output and interactive terminal stdin and stderr; otherwise supply --copy-from with --name, or explicitly supply --name, --runtime, --source-access, and --native-readiness; usage: "+command.Usage(), false,
 				fault.NextAction{Command: "help manifest create", Reason: "Complete omitted settings interactively or supply the complete direct input group."},
 			)
 		}
@@ -458,9 +454,6 @@ func createContext(
 			}
 			base = selectedBase
 			availableBases = summaries
-			if base != nil && !inputs.Provided("--mode") {
-				mode = base.PolicyMode
-			}
 		}
 		if base != nil && len(availableBases) == 0 {
 			listed, listErr := c.context.List(ctx)
@@ -526,7 +519,7 @@ func createContext(
 			bootstrap = &prepared
 		}
 		return c.context.CreateWithComposition(
-			ctx, intent, selection.Name, tobari.BuiltinImageSelector, selection.PolicyMode, selection.SourceAccess,
+			ctx, intent, selection.Name, tobari.BuiltinImageSelector, selection.SourceAccess,
 			tobari.ManifestCreateComposition{
 				NativeReadiness:  selection.NativeReadiness,
 				MethodPolicy:     &policy,
@@ -544,10 +537,6 @@ func createContext(
 		)
 	}
 	if base != nil {
-		mode = base.PolicyMode
-		if inputs.Provided("--mode") {
-			mode = tobari.ManifestPolicyMode(inputs.One("--mode"))
-		}
 		sourceAccess = base.SourceAccess
 		if inputs.Provided("--source-access") {
 			sourceAccess = tobari.ManifestSourceAccess(inputs.One("--source-access"))
@@ -575,7 +564,7 @@ func createContext(
 			}
 			bootstrap = &prepared
 		}
-		return c.context.CreateWithComposition(ctx, intent, name, tobari.BuiltinImageSelector, mode, sourceAccess, tobari.ManifestCreateComposition{
+		return c.context.CreateWithComposition(ctx, intent, name, tobari.BuiltinImageSelector, sourceAccess, tobari.ManifestCreateComposition{
 			NativeReadiness: readiness, MethodPolicy: &policy, Bootstrap: bootstrap,
 			RuntimeSelection: runtimeSelection, CopyFrom: base,
 		})
@@ -591,16 +580,16 @@ func createContext(
 				return tobari.ManifestReport{}, prepareErr
 			}
 		}
-		return c.context.CreateWithComposition(ctx, intent, name, tobari.BuiltinImageSelector, mode, sourceAccess, tobari.ManifestCreateComposition{NativeReadiness: tobari.ManifestNativeReadiness(inputs.One("--native-readiness")), Bootstrap: &prepared, RuntimeSelection: inputs.One("--runtime")})
+		return c.context.CreateWithComposition(ctx, intent, name, tobari.BuiltinImageSelector, sourceAccess, tobari.ManifestCreateComposition{NativeReadiness: tobari.ManifestNativeReadiness(inputs.One("--native-readiness")), Bootstrap: &prepared, RuntimeSelection: inputs.One("--runtime")})
 	}
-	return c.context.CreateWithComposition(ctx, intent, name, tobari.BuiltinImageSelector, mode, sourceAccess, tobari.ManifestCreateComposition{NativeReadiness: tobari.ManifestNativeReadiness(inputs.One("--native-readiness")), RuntimeSelection: inputs.One("--runtime")})
+	return c.context.CreateWithComposition(ctx, intent, name, tobari.BuiltinImageSelector, sourceAccess, tobari.ManifestCreateComposition{NativeReadiness: tobari.ManifestNativeReadiness(inputs.One("--native-readiness")), RuntimeSelection: inputs.One("--runtime")})
 }
 
 func contextCreateDirectInputsComplete(inputs ParsedInputs) bool {
 	if inputs.Provided("--copy-from") {
 		return inputs.Provided("--name")
 	}
-	for _, name := range []string{"--name", "--runtime", "--mode", "--source-access", "--native-readiness"} {
+	for _, name := range []string{"--name", "--runtime", "--source-access", "--native-readiness"} {
 		if !inputs.Provided(name) {
 			return false
 		}
@@ -609,7 +598,7 @@ func contextCreateDirectInputsComplete(inputs ParsedInputs) bool {
 }
 
 func contextCreateCompositionInputProvided(inputs ParsedInputs) bool {
-	for _, name := range []string{"--copy-from", "--name", "--runtime", "--mode", "--source-access", "--native-readiness", "--bootstrap-aws-profile", "--bootstrap-eks-context"} {
+	for _, name := range []string{"--copy-from", "--name", "--runtime", "--source-access", "--native-readiness", "--bootstrap-aws-profile", "--bootstrap-eks-context"} {
 		if inputs.Provided(name) {
 			return true
 		}
@@ -620,7 +609,7 @@ func contextCreateCompositionInputProvided(inputs ParsedInputs) bool {
 func contextCreateSeedFromInputs(
 	ctx context.Context, c *CLI, inputs ParsedInputs, observedBase *tobari.ManifestCopySnapshot,
 ) (contextCreateWizardSeed, error) {
-	seed := contextCreateWizardSeed{Selection: contextCreateSelection{PolicyMode: tobari.ManifestPolicyModeGuided}}
+	seed := contextCreateWizardSeed{}
 	if observedBase != nil {
 		base := observedBase.Clone()
 		var bootstrap *tobari.ManifestBootstrapSnapshot
@@ -630,7 +619,7 @@ func contextCreateSeedFromInputs(
 		}
 		seed = contextCreateWizardSeed{
 			Selection: contextCreateSelection{
-				CopyFrom: &base, PolicyMode: base.PolicyMode, RuntimeSelection: base.RuntimeSelection,
+				CopyFrom: &base, RuntimeSelection: base.RuntimeSelection,
 				SourceAccess: base.SourceAccess, NativeReadiness: base.NativeReadiness,
 				MethodPolicy: base.MethodPolicy.Clone(), Bootstrap: bootstrap,
 			},
@@ -646,9 +635,6 @@ func contextCreateSeedFromInputs(
 		seed.Selection.RuntimeSelection = inputs.One("--runtime")
 		seed.RuntimeProvided = true
 	}
-	if inputs.Provided("--mode") {
-		seed.Selection.PolicyMode = tobari.ManifestPolicyMode(inputs.One("--mode"))
-	}
 	if inputs.Provided("--source-access") {
 		seed.Selection.SourceAccess = tobari.ManifestSourceAccess(inputs.One("--source-access"))
 		seed.FilesystemFilled = true
@@ -656,7 +642,7 @@ func contextCreateSeedFromInputs(
 	if inputs.Provided("--native-readiness") {
 		seed.Selection.NativeReadiness = tobari.ManifestNativeReadiness(inputs.One("--native-readiness"))
 	}
-	if inputs.Provided("--mode") && inputs.Provided("--native-readiness") {
+	if inputs.Provided("--native-readiness") {
 		seed.NetworkFilled = true
 	}
 	if seed.Selection.RuntimeSelection == "" {
@@ -892,7 +878,6 @@ type contextSummaryJSONProjection struct {
 	Desired         tobari.WorkspaceManifestRevision `json:"desired"`
 	AgentProfile    string                           `json:"agent_profile"`
 	Image           string                           `json:"image"`
-	PolicyMode      tobari.ManifestPolicyMode        `json:"policy_mode"`
 	SourceAccess    tobari.ManifestSourceAccess      `json:"source_access"`
 	PolicyRevision  string                           `json:"policy_revision"`
 	NativeReadiness tobari.ManifestNativeReadiness   `json:"native_readiness"`
@@ -929,7 +914,6 @@ type contextReportJSONProjection struct {
 	Desired          tobari.WorkspaceManifestRevision         `json:"desired"`
 	AgentProfile     string                                   `json:"agent_profile"`
 	Image            string                                   `json:"image"`
-	PolicyMode       tobari.ManifestPolicyMode                `json:"policy_mode"`
 	SourceAccess     tobari.ManifestSourceAccess              `json:"source_access"`
 	PolicyRevision   string                                   `json:"policy_revision"`
 	NativeReadiness  tobari.ManifestNativeReadiness           `json:"native_readiness"`
@@ -950,7 +934,7 @@ func contextReportJSONDocument(result tobari.ManifestReport) contextReportDocume
 		Manifest: contextReportJSONProjection{
 			Task: result.Task, ManifestState: result.ManifestState, ID: optionalString(result.ID), Name: result.Name, Default: result.Default,
 			Desired:      result.Desired,
-			AgentProfile: result.AgentProfile, Image: result.Image, PolicyMode: result.PolicyMode,
+			AgentProfile: result.AgentProfile, Image: result.Image,
 			SourceAccess:    result.SourceAccess,
 			PolicyRevision:  result.PolicyRevision,
 			NativeReadiness: nativeReadiness, MethodPolicy: result.MethodPolicy,
@@ -1004,7 +988,7 @@ func renderContextList(result tobari.ManifestListResult, format successFormat, c
 			document.WorkspaceManifests.Items = append(document.WorkspaceManifests.Items, contextSummaryJSONProjection{
 				ID: optionalString(item.ID), Name: item.Name, ManifestState: item.ManifestState, Default: item.Default,
 				Desired:      item.Desired,
-				AgentProfile: item.AgentProfile, Image: item.Image, PolicyMode: item.PolicyMode,
+				AgentProfile: item.AgentProfile, Image: item.Image,
 				SourceAccess: item.SourceAccess, RuntimeStatus: item.RuntimeStatus,
 				PolicyRevision:  item.PolicyRevision,
 				NativeReadiness: nativeReadiness, MethodPolicy: item.MethodPolicy,
@@ -1114,7 +1098,6 @@ func renderContextReportText(result tobari.ManifestReport, color bool) []byte {
 	writeStyledLine(&output, color, "Default:", fmt.Sprintf("%t", result.Default), styleText)
 	writeStyledLine(&output, color, "Image:", safeExternalText(result.Image), styleText)
 	writeStyledLine(&output, color, "Agent profile:", safeExternalText(result.AgentProfile), styleText)
-	writeStyledLine(&output, color, "Policy mode:", string(result.PolicyMode), styleText)
 	writeStyledLine(&output, color, "Source access:", "direct "+string(result.SourceAccess), styleText)
 	writeStyledLine(&output, color, "Policy revision:", result.PolicyRevision, styleText)
 	nativeReadiness, _ := tobari.ResolveContextNativeReadiness(result.NativeReadiness)
@@ -1441,7 +1424,7 @@ func renderContextSummaryText(result tobari.ManifestReport, color bool, presenta
 		policyRevision = "not persisted"
 	}
 	output.row("Policy", "revision "+policyRevision+" · readiness "+string(nativeReadiness), styleText)
-	output.row("Profile", string(result.PolicyMode)+" · agent "+safeExternalText(result.AgentProfile), styleText)
+	output.row("Profile", "agent "+safeExternalText(result.AgentProfile), styleText)
 	output.row("Git identity", contextShowGitIdentity(result.GitIdentity), styleText)
 	output.row("Runtime", contextRuntimeDisplay(result.Runtime), humanStatusToken(string(result.Runtime.Status)))
 	output.row("Image", safeExternalText(result.Image), styleText)
@@ -1484,7 +1467,6 @@ func renderContextShowDetailsText(result tobari.ManifestReport, color bool) []by
 
 	output.section("Boundary · fixed for this Workspace Manifest")
 	output.row("Source access", "direct "+string(result.SourceAccess), styleText)
-	output.row("Policy mode", string(result.PolicyMode), styleText)
 	output.row("Policy revision", result.PolicyRevision, styleText)
 	nativeReadiness, _ := tobari.ResolveContextNativeReadiness(result.NativeReadiness)
 	output.row("Native readiness", string(nativeReadiness), styleText)

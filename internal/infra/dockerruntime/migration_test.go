@@ -35,7 +35,7 @@ func TestInstallationMigrationPreservesAuthorityAndPromotesLegacyRuntime(t *test
 	if err := runtime.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CreateContext(context.Background(), "plain", tobari.BuiltinImageSelector, tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadOnly); err != nil {
+	if _, err := runtime.CreateContext(context.Background(), "plain", tobari.BuiltinImageSelector, tobari.ManifestSourceAccessReadOnly); err != nil {
 		t.Fatal(err)
 	}
 	plainManifest, err := runtime.readContextManifest("plain")
@@ -294,6 +294,20 @@ func TestInstallationMigrationRejectsDriftAndUnsafeSourcesWithoutContextWrites(t
 	}
 }
 
+func TestLegacyContextExecutablePolicyMarkersFailClosedBeforeDecode(t *testing.T) {
+	for name, raw := range map[string][]byte{
+		"policy mode":   []byte(`{"policy_mode":"advanced"}`),
+		"source marker": []byte(`{"advanced_policy":{"source":"package tobari.http"}}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := decodeLegacyContextManifest(raw, "default")
+			if !errors.Is(err, tobari.ErrLegacyExecutablePolicy) || !strings.Contains(err.Error(), "reset or recreate") {
+				t.Fatalf("legacy executable policy marker error = %v", err)
+			}
+		})
+	}
+}
+
 func TestInstallationMigrationRejectsRuntimeConflictBeforeContextWrites(t *testing.T) {
 	root := t.TempDir()
 	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
@@ -439,7 +453,7 @@ func installLegacyMigrationContext(t *testing.T, runtime *Runtime, name string, 
 	policyDigest := sha256.Sum256(policyBytes)
 	legacy := legacyContextManifest{
 		SchemaVersion: current.SchemaVersion, ID: current.ID, Name: current.Name,
-		AgentProfile: current.AgentProfile, Image: legacyStandardRuntimeImage, PolicyMode: current.PolicyMode,
+		AgentProfile: current.AgentProfile, Image: legacyStandardRuntimeImage,
 		SourceAccess: current.SourceAccess, NativeReadiness: current.NativeReadiness,
 		PolicyPresetOrigin: "builtin/agent-ready", PolicyPresetRevision: "sha256:" + strings.ToLower(hexDigest(policyDigest[:])),
 		ShellEnvironment: current.ShellEnvironment, GitIdentity: current.GitIdentity, Bootstrap: current.Bootstrap,

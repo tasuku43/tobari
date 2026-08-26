@@ -34,11 +34,16 @@ const (
 	publicCLISchemaEnd   = "public-cli-json-schemas:end"
 )
 
-var publicCLISchemaDocs = []string{
+var currentPublicCLISchemaDocs = []string{
 	"docs/01_product_contract.md",
+}
+
+var snapshotPublicCLISchemaDocs = []string{
 	"docs/architecture-site/src/content/docs/reference/json-schemas.mdx",
 	"docs/architecture-site/src/content/docs/ja/reference/json-schemas.mdx",
 }
+
+const generatedSiteCatalogPath = "docs/architecture-site/src/generated/catalog.json"
 
 type issue struct {
 	Path    string
@@ -103,7 +108,72 @@ func validatePublicJSONSchemaTables(root string, catalog cli.Catalog) ([]issue, 
 			}] = struct{}{}
 		}
 	}
-	return validatePublicJSONSchemaTableFiles(root, publicCLISchemaDocs, expected)
+	issues, err := validatePublicJSONSchemaTableFiles(root, currentPublicCLISchemaDocs, expected)
+	if err != nil {
+		return nil, err
+	}
+	snapshotExpected, err := loadGeneratedSiteJSONSchemas(root)
+	if err != nil {
+		return nil, err
+	}
+	snapshotIssues, err := validatePublicJSONSchemaTableFiles(root, snapshotPublicCLISchemaDocs, snapshotExpected)
+	if err != nil {
+		return nil, err
+	}
+	return append(issues, snapshotIssues...), nil
+}
+
+func loadGeneratedSiteJSONSchemas(root string) (map[publicCLISchema]struct{}, error) {
+	encoded, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(generatedSiteCatalogPath))) // #nosec G304 -- fixed repository path.
+	if err != nil {
+		return nil, err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.UseNumber()
+	var document any
+	if err := decoder.Decode(&document); err != nil {
+		return nil, fmt.Errorf("decode generated site Catalog: %w", err)
+	}
+	if decoder.Decode(&struct{}{}) != io.EOF {
+		return nil, fmt.Errorf("generated site Catalog has trailing data")
+	}
+	expected := map[publicCLISchema]struct{}{{Envelope: "error", Version: 2}: {}}
+	var walk func(any) error
+	walk = func(value any) error {
+		switch value := value.(type) {
+		case []any:
+			for _, item := range value {
+				if err := walk(item); err != nil {
+					return err
+				}
+			}
+		case map[string]any:
+			rawEnvelope, hasEnvelope := value["json_envelope"]
+			rawVersion, hasVersion := value["json_schema_version"]
+			if hasEnvelope {
+				envelope, envelopeOK := rawEnvelope.(string)
+				versionNumber, versionOK := rawVersion.(json.Number)
+				version, versionErr := strconv.Atoi(string(versionNumber))
+				if !envelopeOK || envelope == "" || !hasVersion || !versionOK || versionErr != nil || version <= 0 {
+					return fmt.Errorf("generated site Catalog contains an invalid JSON output contract")
+				}
+				expected[publicCLISchema{Envelope: envelope, Version: version}] = struct{}{}
+			}
+			for _, item := range value {
+				if err := walk(item); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	if err := walk(document); err != nil {
+		return nil, err
+	}
+	if len(expected) == 1 {
+		return nil, fmt.Errorf("generated site Catalog contains no JSON output contracts")
+	}
+	return expected, nil
 }
 
 func validatePublicJSONSchemaTableFiles(root string, paths []string, expected map[publicCLISchema]struct{}) ([]issue, error) {

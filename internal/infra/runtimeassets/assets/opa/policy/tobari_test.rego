@@ -378,6 +378,27 @@ test_http_rule_does_not_authorize_aws_operation if {
 	result.learnable
 }
 
+test_aws_coordinate_requires_matching_learned_allow_and_deny_is_terminal if {
+	allowed := decision with input as input_with_request(aws_query_request_fixture)
+		with data.tobari.rules.learned_allows as [aws_query_allow_fixture]
+	deny_rule := object.union(aws_query_allow_fixture, {"id": "pdr_1123456789abcdef0123456789abcdef"})
+	denied := decision with input as input_with_request(aws_query_request_fixture)
+		with data.tobari.rules.learned_allows as [aws_query_allow_fixture]
+		with data.tobari.rules.learned_denies as [deny_rule]
+	allowed.allow
+	not denied.allow
+	not denied.learnable
+}
+
+test_aws_mismatched_coordinate_never_falls_back_to_http if {
+	mismatched := object.union(aws_query_request_fixture, {"aws": {"wire_protocol": "query", "service": "sts", "operation": "AssumeRole"}})
+	http_rule := object.union(learned_exact_fixture, {"host": "sts.us-east-1.amazonaws.com", "method": "POST", "path": "/", "examples": ["/"]})
+	result := decision with input as input_with_request(mismatched)
+		with data.tobari.rules.learned_allows as [http_rule]
+	not result.allow
+	result.learnable
+}
+
 test_kubernetes_exact_rule_allows_without_http_fallback if {
 	http_rule := object.union(learned_exact_fixture, {
 		"host": "cluster.us-east-1.eks.amazonaws.com",
@@ -966,4 +987,71 @@ test_deny_mock_write_path if {
 	result := decision with input as input_with_request(request)
 	not result.allow
 	result.learnable
+}
+
+test_decision_evidence_has_exact_internal_schema_and_default_posture if {
+	evidence := decision_evidence with input as base_input
+	object.keys(evidence) == {"decision", "policy_layer", "rule_refs", "semantic_effect", "default_overridden"}
+	object.keys(evidence.semantic_effect) == {"protocol", "scheme", "host", "port", "method", "path", "coordinates"}
+	evidence.decision == decision with input as base_input
+	evidence.policy_layer == "default_posture"
+	evidence.rule_refs == []
+	not evidence.default_overridden
+	evidence.semantic_effect.protocol == "http"
+	evidence.semantic_effect.coordinates == {}
+}
+
+test_decision_evidence_identifies_matching_allow_and_deny_rules if {
+	request := object.union(request_with_path({"raw": "/http-review", "segments": ["http-review"]}), {"method": "PUT"})
+	matching_input := input_with_request(request)
+	allowed := decision_evidence with input as matching_input
+		with data.tobari.rules.learned_allows as [learned_exact_fixture]
+	allowed.decision.allow
+	allowed.policy_layer == "learned_allow"
+	allowed.rule_refs == [learned_exact_fixture.id]
+	allowed.default_overridden
+
+	deny_rule := object.union(learned_exact_fixture, {"id": "pdr_1123456789abcdef0123456789abcdef"})
+	denied := decision_evidence with input as matching_input
+		with data.tobari.rules.learned_allows as [learned_exact_fixture]
+		with data.tobari.rules.learned_denies as [deny_rule]
+	not denied.decision.allow
+	denied.policy_layer == "learned_deny"
+	denied.rule_refs == [deny_rule.id]
+	denied.default_overridden
+}
+
+test_decision_evidence_preserves_major_protocol_semantic_coordinates if {
+	graphql := decision_evidence with input as input_with_request(graphql_request_fixture)
+		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [graphql_allow_fixture]
+	graphql.semantic_effect.protocol == "graphql"
+	graphql.semantic_effect.coordinates == {"operation_type": "query", "root_fields": ["viewer"]}
+
+	mcp := decision_evidence with input as input_with_request(mcp_tool_request_fixture)
+		with data.tobari.boundary.mcp_endpoints as [mcp_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [mcp_tool_allow_fixture]
+	mcp.semantic_effect.protocol == "mcp"
+	mcp.semantic_effect.coordinates == {"method": "tools/call", "tool_name": "codex_apps.search"}
+
+	aws := decision_evidence with input as input_with_request(aws_query_request_fixture)
+		with data.tobari.rules.learned_allows as [aws_query_allow_fixture]
+	aws.semantic_effect.protocol == "aws"
+	aws.semantic_effect.coordinates == {"wire_protocol": "query", "service": "sts", "operation": "GetCallerIdentity"}
+
+	kubernetes := decision_evidence with input as input_with_request(kubernetes_request_fixture)
+		with data.tobari.boundary.kubernetes_endpoints as [kubernetes_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [kubernetes_allow_fixture]
+	kubernetes.semantic_effect.protocol == "kubernetes"
+	kubernetes.semantic_effect.coordinates == {"verb": "list", "resource": "core/v1/namespaces/team/pods", "dry_run": "none"}
+
+	git := decision_evidence with input as input_with_request(git_receive_request_fixture)
+		with data.tobari.rules.learned_allows as [git_receive_allow_fixture]
+	git.semantic_effect.protocol == "git"
+	git.semantic_effect.coordinates == {"service": "receive-pack", "repository": "/team/repo.git"}
+
+	oci := decision_evidence with input as input_with_request(oci_push_request_fixture)
+		with data.tobari.rules.learned_allows as [oci_push_allow_fixture]
+	oci.semantic_effect.protocol == "oci"
+	oci.semantic_effect.coordinates == {"action": "push", "repository": "team/app", "object": "manifest:latest"}
 }

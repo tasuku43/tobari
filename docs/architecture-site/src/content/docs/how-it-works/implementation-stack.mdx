@@ -45,10 +45,12 @@ policy interpretation or Workspace state storage.
 
 ### OPA and Rego
 
-OPA is the shared policy decision service. Rego expresses Workspace Template
-policy ceilings, default deny, exact learned allow/deny rules, and request
-metadata constraints. OPA receives no request body or credential value and has
-no egress interface.
+OPA is the shared policy decision service. Tobari owns one fixed Rego evaluator
+for Workspace Template policy ceilings, default deny, exact learned allow/deny
+rules, and request metadata constraints. Users supply canonical typed data,
+not evaluator source. OPA receives no request body or credential value and has
+no egress interface; evaluator source appears only in Tobari source and the
+Docker-managed bundle.
 
 ### Local OCI image boundaries
 

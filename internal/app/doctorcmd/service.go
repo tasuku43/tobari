@@ -127,7 +127,7 @@ func recoveryFor(id doctor.CheckID, status doctor.CheckStatus, cause doctor.Obse
 		doctor.CheckIDRootSharing:           "Repair Docker bind sharing for the selected project root.",
 		doctor.CheckIDContext:               "Repair the current Context selection and Tobari XDG runtime paths.",
 		doctor.CheckIDState:                 "Repair unsafe or invalid Tobari cluster state.",
-		doctor.CheckIDPolicy:                "Correct the active policy source or its Docker-readable path.",
+		doctor.CheckIDPolicy:                "Repair the active typed policy data and its Docker-readable path.",
 		doctor.CheckIDPolicyData:            "Repair invalid or unsafe learned policy data.",
 		doctor.CheckIDImageConfig:           "Repair the selected runtime image configuration.",
 		doctor.CheckIDAuthProviderManifests: "Repair the owner-controlled credential-provider manifest collection.",

@@ -29,6 +29,289 @@ decision := {
 	request_allowed
 }
 
+# decision_evidence is an internal evaluator result. Gateway authorization
+# continues to consume decision's exact four-field contract; this companion
+# document keeps future explanations tied to the same fixed evaluation without
+# retaining request bodies, headers, query values, or credentials.
+decision_evidence := {
+	"decision": {
+		"allow": false,
+		"reason": "request did not match an allow rule",
+		"status_code": 403,
+		"learnable": false,
+	},
+	"policy_layer": "default_posture",
+	"rule_refs": [],
+	"semantic_effect": semantic_effect,
+	"default_overridden": false,
+} if {
+	not explicitly_denied
+	not candidate_eligible
+}
+
+decision_evidence := {
+	"decision": decision,
+	"policy_layer": "learned_deny",
+	"rule_refs": matching_learned_deny_rule_refs,
+	"semantic_effect": semantic_effect,
+	"default_overridden": true,
+} if {
+	explicitly_denied
+}
+
+decision_evidence := {
+	"decision": decision,
+	"policy_layer": "learned_allow",
+	"rule_refs": matching_learned_allow_rule_refs,
+	"semantic_effect": semantic_effect,
+	"default_overridden": true,
+} if {
+	candidate_eligible
+	request_allowed
+}
+
+decision_evidence := {
+	"decision": decision,
+	"policy_layer": "default_posture",
+	"rule_refs": [],
+	"semantic_effect": semantic_effect,
+	"default_overridden": false,
+} if {
+	candidate_eligible
+	not request_allowed
+}
+
+matching_learned_allow_rule_refs := sort({rule.id |
+	some rule in learned_rules
+	learned_rule_valid(rule)
+	learned_allow_rule_matches_request(rule)
+})
+
+matching_learned_deny_rule_refs := sort({rule.id |
+	some rule in learned_deny_rules
+	is_string(object.get(rule, "id", null))
+	learned_deny_rule_matches_request(rule)
+})
+
+learned_allow_rule_matches_request(rule) if {
+	ordinary_http_request
+	http_rule_protocol_valid(rule)
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
+}
+
+learned_allow_rule_matches_request(rule) if {
+	mcp_request
+	mcp_rule_protocol_valid(rule)
+	rule.mcp_method == request_mcp.method
+	object.get(rule, "mcp_tool_name", "") == object.get(request_mcp, "tool_name", "")
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
+}
+
+learned_allow_rule_matches_request(rule) if {
+	graphql_request
+	some root_field in request_graphql.root_fields
+	graphql_rule_protocol_valid(rule)
+	rule.graphql_operation_type == request_graphql.operation_type
+	rule.graphql_root_field == root_field
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
+}
+
+learned_allow_rule_matches_request(rule) if {
+	aws_request
+	aws_rule_protocol_valid(rule)
+	rule.aws_wire_protocol == request_aws.wire_protocol
+	rule.aws_service == request_aws.service
+	rule.aws_operation == request_aws.operation
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
+}
+
+learned_allow_rule_matches_request(rule) if {
+	kubernetes_request
+	kubernetes_rule_protocol_valid(rule)
+	rule.kubernetes_verb == request_kubernetes.verb
+	rule.kubernetes_resource == request_kubernetes.resource
+	rule.kubernetes_dry_run == request_kubernetes.dry_run
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
+}
+
+learned_allow_rule_matches_request(rule) if {
+	git_request
+	git_rule_protocol_valid(rule)
+	rule.git_service == request_git.service
+	rule.git_repository == request_git.repository
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
+}
+
+learned_allow_rule_matches_request(rule) if {
+	oci_request
+	oci_rule_protocol_valid(rule)
+	rule.oci_action == request_oci.action
+	rule.oci_repository == request_oci.repository
+	rule.oci_object == request_oci.object
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
+}
+
+learned_deny_rule_matches_request(rule) if {
+	ordinary_http_request
+	http_rule_protocol_valid(rule)
+	rule.context_id == input.principal.context_id
+	rule.project_id == input.principal.project_id
+	rule.scheme == input.request.authority.scheme
+	rule.host == input.request.authority.host
+	rule.port == input.request.authority.port
+	rule.method == input.request.method
+	rule.path == input.request.path.raw
+}
+
+learned_deny_rule_matches_request(rule) if {
+	mcp_request
+	mcp_rule_protocol_valid(rule)
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
+	rule.mcp_method == request_mcp.method
+	object.get(rule, "mcp_tool_name", "") == object.get(request_mcp, "tool_name", "")
+}
+
+learned_deny_rule_matches_request(rule) if {
+	graphql_request
+	some root_field in request_graphql.root_fields
+	graphql_rule_protocol_valid(rule)
+	rule.context_id == input.principal.context_id
+	rule.project_id == input.principal.project_id
+	rule.scheme == input.request.authority.scheme
+	rule.host == input.request.authority.host
+	rule.port == input.request.authority.port
+	rule.method == input.request.method
+	rule.path == input.request.path.raw
+	rule.graphql_operation_type == request_graphql.operation_type
+	rule.graphql_root_field == root_field
+}
+
+learned_deny_rule_matches_request(rule) if {
+	aws_request
+	aws_rule_protocol_valid(rule)
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
+	rule.aws_wire_protocol == request_aws.wire_protocol
+	rule.aws_service == request_aws.service
+	rule.aws_operation == request_aws.operation
+}
+
+learned_deny_rule_matches_request(rule) if {
+	kubernetes_request
+	kubernetes_rule_protocol_valid(rule)
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
+	rule.kubernetes_verb == request_kubernetes.verb
+	rule.kubernetes_resource == request_kubernetes.resource
+	rule.kubernetes_dry_run == request_kubernetes.dry_run
+}
+
+learned_deny_rule_matches_request(rule) if {
+	git_request
+	git_rule_protocol_valid(rule)
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
+	rule.git_service == request_git.service
+	rule.git_repository == request_git.repository
+}
+
+learned_deny_rule_matches_request(rule) if {
+	oci_request
+	oci_rule_protocol_valid(rule)
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
+	rule.oci_action == request_oci.action
+	rule.oci_repository == request_oci.repository
+	rule.oci_object == request_oci.object
+}
+
+request_protocol := "graphql" if {
+	request_graphql != null
+} else := "mcp" if {
+	request_mcp != null
+} else := "aws" if {
+	request_aws != null
+} else := "kubernetes" if {
+	request_kubernetes != null
+} else := "git" if {
+	request_git != null
+} else := "oci" if {
+	request_oci != null
+} else := "http"
+
+default protocol_coordinates := {}
+
+protocol_coordinates := {
+	"operation_type": request_graphql.operation_type,
+	"root_fields": sort(request_graphql.root_fields),
+} if {
+	request_protocol == "graphql"
+	is_object(request_graphql)
+	is_string(object.get(request_graphql, "operation_type", null))
+	is_array(object.get(request_graphql, "root_fields", null))
+}
+
+protocol_coordinates := {
+	"method": request_mcp.method,
+	"tool_name": object.get(request_mcp, "tool_name", ""),
+} if {
+	request_protocol == "mcp"
+	is_object(request_mcp)
+	is_string(object.get(request_mcp, "method", null))
+}
+
+protocol_coordinates := {
+	"wire_protocol": request_aws.wire_protocol,
+	"service": request_aws.service,
+	"operation": request_aws.operation,
+} if {
+	request_protocol == "aws"
+	is_object(request_aws)
+	is_string(object.get(request_aws, "wire_protocol", null))
+	is_string(object.get(request_aws, "service", null))
+	is_string(object.get(request_aws, "operation", null))
+}
+
+protocol_coordinates := {
+	"verb": request_kubernetes.verb,
+	"resource": request_kubernetes.resource,
+	"dry_run": request_kubernetes.dry_run,
+} if {
+	request_protocol == "kubernetes"
+	is_object(request_kubernetes)
+	is_string(object.get(request_kubernetes, "verb", null))
+	is_string(object.get(request_kubernetes, "resource", null))
+	is_string(object.get(request_kubernetes, "dry_run", null))
+}
+
+protocol_coordinates := {
+	"service": request_git.service,
+	"repository": request_git.repository,
+} if {
+	request_protocol == "git"
+	is_object(request_git)
+	is_string(object.get(request_git, "service", null))
+	is_string(object.get(request_git, "repository", null))
+}
+
+protocol_coordinates := {
+	"action": request_oci.action,
+	"repository": request_oci.repository,
+	"object": request_oci.object,
+} if {
+	request_protocol == "oci"
+	is_object(request_oci)
+	is_string(object.get(request_oci, "action", null))
+	is_string(object.get(request_oci, "repository", null))
+	is_string(object.get(request_oci, "object", null))
+}
+
+semantic_effect := {
+	"protocol": request_protocol,
+	"scheme": object.get(object.get(object.get(input, "request", {}), "authority", {}), "scheme", ""),
+	"host": object.get(object.get(object.get(input, "request", {}), "authority", {}), "host", ""),
+	"port": object.get(object.get(object.get(input, "request", {}), "authority", {}), "port", 0),
+	"method": object.get(object.get(input, "request", {}), "method", ""),
+	"path": object.get(object.get(object.get(input, "request", {}), "path", {}), "raw", ""),
+	"coordinates": protocol_coordinates,
+}
+
 broker_provider := input.authorization.broker_provider
 
 candidate_eligible if {

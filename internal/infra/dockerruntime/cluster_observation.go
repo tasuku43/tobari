@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 
 	"github.com/tasuku43/tobari/internal/domain/doctor"
@@ -46,8 +45,9 @@ func (r *Runtime) InspectCluster(ctx context.Context, state tobari.State) (tobar
 	gatewayIntegrity := r.inspectGatewayProjectionIntegrity(ctx, state)
 	status := tobari.ClusterStatus{
 		Configured: true, Running: running,
-		Policy: state.PolicyDirectory, TobariCount: len(projects), ManifestCount: state.ManifestCount,
-		PolicyRevision: state.AggregateRevision, PolicyProjection: policyIntegrity,
+		TobariCount: len(projects), ManifestCount: state.ManifestCount,
+		PolicyRevision: state.AggregateRevision, EvaluatorIdentity: state.EvaluatorIdentity,
+		PolicyDataIdentity: state.PolicyDataIdentity, PolicyProjection: policyIntegrity,
 		PrincipalRegistry: principalIntegrity, GatewayProjection: gatewayIntegrity,
 		Components: components, RecentError: state.RecentError,
 	}
@@ -79,40 +79,8 @@ func (r *Runtime) InspectCluster(ctx context.Context, state tobari.State) (tobar
 }
 
 func (r *Runtime) inspectAggregatePolicyIntegrity(ctx context.Context, state tobari.State) string {
-	contexts, err := r.readAggregateContexts(ctx)
-	if err != nil || len(contexts) != state.ManifestCount {
+	if _, _, err := r.verifyPersistedAggregateState(ctx, state); err != nil {
 		return "invalid"
-	}
-	desiredRevision, err := aggregateRevision(contexts)
-	if err != nil || desiredRevision != state.AggregateRevision {
-		return "invalid"
-	}
-	if err := requirePrivateDirectory(state.PolicyDirectory); err != nil {
-		return "invalid"
-	}
-	if _, err := readOwnerPolicyFile(filepath.Join(state.PolicyDirectory, "router.rego"), maxPolicyPreflight); err != nil {
-		return "invalid"
-	}
-	data, err := readOwnerPolicyFile(filepath.Join(state.PolicyDirectory, "data.json"), maxPolicyPreflight)
-	if err != nil || validateNoDuplicateJSONKeys(data) != nil {
-		return "invalid"
-	}
-	var document struct {
-		Contexts map[string]json.RawMessage `json:"tobari_contexts"`
-		Tobari   struct {
-			AggregateSchemaVersion int    `json:"aggregate_schema_version"`
-			AggregateRevision      string `json:"aggregate_revision"`
-		} `json:"tobari"`
-	}
-	if err := json.Unmarshal(data, &document); err != nil || len(document.Contexts) != len(contexts) ||
-		document.Tobari.AggregateSchemaVersion != aggregateSchemaVersion ||
-		document.Tobari.AggregateRevision != state.AggregateRevision {
-		return "invalid"
-	}
-	for _, item := range contexts {
-		if _, exists := document.Contexts[item.manifest.ID]; !exists {
-			return "invalid"
-		}
 	}
 	return "valid"
 }

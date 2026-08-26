@@ -41,9 +41,9 @@ func (r *timeoutThenPolicyReviewReader) Read(value []byte) (int, error) {
 
 func testPolicyReviewReport() tobari.PolicyCandidateReport {
 	return tobari.PolicyCandidateReport{
-		Task:            tobari.TaskPolicyReview,
-		PolicyDirectory: "/tmp/config/tobari/policy",
-		WindowLines:     100,
+		Task:                     tobari.TaskPolicyReview,
+		PolicyProjectionIdentity: testCLIProjectionIdentity(strings.Repeat("a", 64)),
+		WindowLines:              100,
 		Items: []tobari.PolicyCandidate{
 			{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_0123456789abcdef0123456789abcdef",
 				ObservedAt: "2026-08-02T10:00:00Z", ObservationCount: 3,
@@ -155,7 +155,7 @@ func TestPolicyReviewSelectorWatchEmptyWaitsAndRequestsRefresh(t *testing.T) {
 	selector := &policyReviewSelector{
 		mode: &selectorModeFake{}, style: false, staged: map[string]policyReviewAction{}, watch: true, ticker: ticker,
 	}
-	report := tobari.PolicyCandidateReport{Task: tobari.TaskPolicyReview, PolicyDirectory: "/tmp/policy", WindowLines: 10_000, UnparsedLines: 2, Items: []tobari.PolicyCandidate{}}
+	report := tobari.PolicyCandidateReport{Task: tobari.TaskPolicyReview, PolicyProjectionIdentity: testCLIProjectionIdentity(strings.Repeat("a", 64)), WindowLines: 10_000, UnparsedLines: 2, Items: []tobari.PolicyCandidate{}}
 	var output bytes.Buffer
 	decision, err := selector.Select(context.Background(), report, &timeoutThenPolicyReviewReader{remaining: strings.NewReader("q")}, &output)
 	if err != nil {

@@ -122,7 +122,7 @@ func TestRuntimeBuildChangesOnlyCurrentContextAuthority(t *testing.T) {
 	if err := runtimeStore.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtimeStore.CreateContext(context.Background(), "restricted", tobari.BuiltinImageSelector, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite); err != nil {
+	if _, err := runtimeStore.CreateContext(context.Background(), "restricted", tobari.BuiltinImageSelector, tobari.ManifestSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	restrictedBefore, err := runtimeStore.ShowContext(context.Background(), "restricted")

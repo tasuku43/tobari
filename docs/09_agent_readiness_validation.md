@@ -303,11 +303,12 @@ telemetry, revoke, and neighboring OAuth effects receive no baseline grant.
 
 For each terminal denial, record zero permission candidates, external DNS
 lookups, and upstream attempts. Repeat with a learned
-exact allow, baseline grant, and Advanced Rego allow that would otherwise match;
+exact allow and baseline grant that would otherwise match;
 none may bypass the Workspace Template policy ceiling.
 
 Workspace Template-policy tests use strict owner-only schema-V1 data. Reject unknown fields,
-wildcards, IP/private destinations, secrets, shell, Rego, include, inheritance,
+wildcards, IP/private destinations, secrets, shell, executable policy source,
+include, inheritance,
 remote fetch, refresh, signing, symlinks, unsafe modes, duplicate keys, and
 ambiguous rules. Workspace Template creation normalizes, validates, digests, and snapshots
 the Workspace Template policy. Editing policy source afterward must not change the existing

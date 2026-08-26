@@ -165,7 +165,6 @@ type ManifestCopySnapshot struct {
 	Name             string
 	Revision         string
 	Desired          WorkspaceManifestRevision
-	PolicyMode       ManifestPolicyMode
 	SourceAccess     ManifestSourceAccess
 	NativeReadiness  ManifestNativeReadiness
 	MethodPolicy     ManifestMethodPolicy
@@ -188,9 +187,6 @@ func (b ManifestCopySnapshot) Validate() error {
 	}
 	if err := b.Desired.Validate(); err != nil || b.Desired.Revision != b.Revision {
 		return fmt.Errorf("Manifest copy source revision is invalid")
-	}
-	if err := b.PolicyMode.Validate(); err != nil {
-		return err
 	}
 	if err := b.SourceAccess.Validate(); err != nil {
 		return err
@@ -359,24 +355,6 @@ func NewWorkspaceManifestID(now time.Time, source io.Reader) (string, error) {
 		return "", err
 	}
 	return id, nil
-}
-
-// ManifestPolicyMode selects the policy-development experience associated with
-// a Context. It does not change Gateway authorization by itself.
-type ManifestPolicyMode string
-
-const (
-	ManifestPolicyModeGuided   ManifestPolicyMode = "guided"
-	ManifestPolicyModeAdvanced ManifestPolicyMode = "advanced"
-)
-
-func (m ManifestPolicyMode) Validate() error {
-	switch m {
-	case ManifestPolicyModeGuided, ManifestPolicyModeAdvanced:
-		return nil
-	default:
-		return fmt.Errorf("context policy mode is invalid: %q", m)
-	}
 }
 
 // ManifestSourceAccess selects the write authority of the one direct project
@@ -862,7 +840,6 @@ type WorkspaceManifest struct {
 	Desired          WorkspaceManifestRevision         `json:"desired"`
 	AgentProfile     string                            `json:"agent_profile"`
 	Image            string                            `json:"image"`
-	PolicyMode       ManifestPolicyMode                `json:"policy_mode"`
 	SourceAccess     ManifestSourceAccess              `json:"source_access"`
 	PolicyRevision   string                            `json:"policy_revision"`
 	NativeReadiness  ManifestNativeReadiness           `json:"native_readiness,omitempty"`
@@ -871,20 +848,6 @@ type WorkspaceManifest struct {
 	ShellEnvironment []ManifestShellEnvironmentSetting `json:"shell_environment,omitempty"`
 	GitIdentity      *ManifestGitIdentitySetting       `json:"git_identity,omitempty"`
 	Bootstrap        *ManifestBootstrapSnapshot        `json:"bootstrap,omitempty"`
-}
-
-type workspaceManifestSemanticBody struct {
-	AgentProfile     string
-	Image            string
-	PolicyMode       ManifestPolicyMode
-	SourceAccess     ManifestSourceAccess
-	PolicyRevision   string
-	NativeReadiness  ManifestNativeReadiness
-	Runtime          *ManifestRuntimeRecipe
-	RuntimeBinding   *RuntimeBinding
-	ShellEnvironment []ManifestShellEnvironmentSetting
-	GitIdentity      *ManifestGitIdentitySetting
-	Bootstrap        *ManifestBootstrapSnapshot
 }
 
 func semanticDigest(value any) (string, error) {
@@ -911,10 +874,9 @@ func PublishWorkspaceManifest(draft WorkspaceManifest, previous *WorkspaceManife
 	draft.NativeReadiness = readiness
 	boundary, err := semanticDigest(struct {
 		AgentProfile    string
-		PolicyMode      ManifestPolicyMode
 		SourceAccess    ManifestSourceAccess
 		NativeReadiness ManifestNativeReadiness
-	}{draft.AgentProfile, draft.PolicyMode, draft.SourceAccess, draft.NativeReadiness})
+	}{draft.AgentProfile, draft.SourceAccess, draft.NativeReadiness})
 	if err != nil {
 		return WorkspaceManifest{}, err
 	}
@@ -1085,9 +1047,6 @@ func (m WorkspaceManifest) Validate() error {
 	if err := ValidateImageSelector(m.Image); err != nil {
 		return fmt.Errorf("context image: %w", err)
 	}
-	if err := m.PolicyMode.Validate(); err != nil {
-		return err
-	}
 	if err := m.SourceAccess.Validate(); err != nil {
 		return err
 	}
@@ -1166,7 +1125,6 @@ type ManifestSummary struct {
 	Desired         WorkspaceManifestRevision `json:"desired"`
 	AgentProfile    string                    `json:"agent_profile"`
 	Image           string                    `json:"image"`
-	PolicyMode      ManifestPolicyMode        `json:"policy_mode"`
 	SourceAccess    ManifestSourceAccess      `json:"source_access"`
 	PolicyRevision  string                    `json:"policy_revision"`
 	NativeReadiness ManifestNativeReadiness   `json:"native_readiness"`
@@ -1195,7 +1153,6 @@ func (s ManifestSummary) Validate() error {
 		Name:            s.Name,
 		AgentProfile:    s.AgentProfile,
 		Image:           s.Image,
-		PolicyMode:      s.PolicyMode,
 		SourceAccess:    s.SourceAccess,
 		PolicyRevision:  s.PolicyRevision,
 		NativeReadiness: s.NativeReadiness,
@@ -1438,7 +1395,6 @@ type ManifestReport struct {
 	Desired         WorkspaceManifestRevision `json:"desired"`
 	AgentProfile    string                    `json:"agent_profile"`
 	Image           string                    `json:"image"`
-	PolicyMode      ManifestPolicyMode        `json:"policy_mode"`
 	SourceAccess    ManifestSourceAccess      `json:"source_access"`
 	PolicyRevision  string                    `json:"policy_revision"`
 	NativeReadiness ManifestNativeReadiness   `json:"native_readiness"`
@@ -1470,7 +1426,7 @@ func (r ManifestReport) Validate() error {
 		if err := ValidateName(r.Name); err != nil {
 			return err
 		}
-		if r.AgentProfile != DefaultProfile || ValidateImageSelector(r.Image) != nil || r.PolicyMode != ManifestPolicyModeGuided || r.SourceAccess != ManifestSourceAccessReadWrite {
+		if r.AgentProfile != DefaultProfile || ValidateImageSelector(r.Image) != nil || r.SourceAccess != ManifestSourceAccessReadWrite {
 			return fmt.Errorf("absent Manifest report defaults are invalid")
 		}
 	} else {
@@ -1483,7 +1439,6 @@ func (r ManifestReport) Validate() error {
 			Name:           r.Name,
 			AgentProfile:   r.AgentProfile,
 			Image:          r.Image,
-			PolicyMode:     r.PolicyMode,
 			SourceAccess:   r.SourceAccess,
 			PolicyRevision: r.PolicyRevision,
 		}

@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,7 +15,6 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 	"github.com/tasuku43/tobari/internal/infra/rootkey"
-	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
 
 const (
@@ -221,13 +219,13 @@ func (r *Runtime) doctorPolicyDirectory(ctx context.Context) (string, *tobari.St
 }
 
 func (r *Runtime) observeDoctorPolicy(ctx context.Context) doctor.Observation {
-	policyDirectory, _, err := r.doctorPolicyDirectory(ctx)
+	policyDirectory, state, err := r.doctorPolicyDirectory(ctx)
 	if err != nil {
 		return observed(doctor.CheckStatusFail, "the active policy directory could not be inspected")
 	}
-	sourceCount, err := r.validateDoctorPolicySources(ctx)
+	policyCount, err := r.validateDoctorPolicySources(ctx)
 	if err != nil {
-		return observed(doctor.CheckStatusFail, "a Context policy source structure is invalid or unsafe")
+		return observed(doctor.CheckStatusFail, "a Context typed policy-data structure is invalid or unsafe")
 	}
 	if _, err := os.Lstat(policyDirectory); errors.Is(err, os.ErrNotExist) {
 		return observed(doctor.CheckStatusWarn, "policy will be initialized by cluster up")
@@ -237,9 +235,12 @@ func (r *Runtime) observeDoctorPolicy(ctx context.Context) doctor.Observation {
 	if err := validateOwnerPolicyDirectory(policyDirectory); err != nil {
 		return observed(doctor.CheckStatusFail, "the XDG policy directory is unsafe")
 	}
+	if state != nil && r.inspectAggregatePolicyIntegrity(ctx, *state) != "valid" {
+		return observed(doctor.CheckStatusFail, "the active aggregate policy projection is drifted or unsafe")
+	}
 	return observed(
 		doctor.CheckStatusPass,
-		fmt.Sprintf("%d Context policy source structures are valid; executable OPA tests run during cluster up", sourceCount),
+		fmt.Sprintf("%d Context typed policy-data structures are valid; built-in policy checks run during cluster up", policyCount),
 	)
 }
 
@@ -249,14 +250,7 @@ func (r *Runtime) validateDoctorPolicySources(ctx context.Context) (int, error) 
 		return 0, err
 	}
 	if len(contexts.Items) == 0 {
-		source, err := runtimeassets.Read("opa/policy/tobari.rego")
-		if err != nil {
-			return 0, err
-		}
-		_, err = transformContextRego(aggregateContext{
-			manifest: tobari.WorkspaceManifest{Name: tobari.DefaultManifestName, PolicyMode: tobari.ManifestPolicyModeGuided, SourceAccess: tobari.ManifestSourceAccessReadWrite},
-			rego:     source,
-		})
+		_, err := fixedEvaluatorModule()
 		return 1, err
 	}
 	for _, summary := range contexts.Items {
@@ -272,16 +266,13 @@ func (r *Runtime) validateDoctorPolicySources(ctx context.Context) (int, error) 
 		if err := validateOwnerPolicyDirectory(paths.PolicyDirectory); err != nil {
 			return 0, err
 		}
-		var source []byte
-		if manifest.PolicyMode == tobari.ManifestPolicyModeGuided {
-			source, err = runtimeassets.Read("opa/policy/tobari.rego")
-		} else {
-			source, err = readOwnerPolicyFile(filepath.Join(paths.PolicyDirectory, "tobari.rego"), maxPolicyPreflight)
-		}
-		if err != nil {
+		if _, err := readPolicyData(paths.PolicyDirectory); err != nil {
 			return 0, err
 		}
-		if _, err := transformContextRego(aggregateContext{manifest: manifest, paths: paths, rego: source}); err != nil {
+		if err := validateContextPolicyLayout(paths.PolicyDirectory); err != nil {
+			return 0, err
+		}
+		if _, err := fixedEvaluatorModule(); err != nil {
 			return 0, err
 		}
 	}

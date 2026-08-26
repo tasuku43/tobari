@@ -61,8 +61,9 @@ func (s *Service) policyCandidates(
 		items = persistent
 	}
 	result := tobari.PolicyCandidateReport{
-		Task: task, PolicyDirectory: state.PolicyDirectory, WindowLines: tail,
-		UnparsedLines: denialRead.UnparsedLines, Items: items,
+		Task:                     task,
+		PolicyProjectionIdentity: state.PolicyProjectionIdentity(),
+		WindowLines:              tail, UnparsedLines: denialRead.UnparsedLines, Items: items,
 	}
 	if task == tobari.TaskPolicyReview {
 		result.ReviewItems, err = tobari.PolicyReviewItems(items, rules)
@@ -123,7 +124,8 @@ func (s *Service) PolicyRules(
 		)
 	}
 	result := tobari.PolicyRuleReport{
-		Task: tobari.TaskPolicyRules, PolicyDirectory: state.PolicyDirectory, Items: items,
+		Task:                     tobari.TaskPolicyRules,
+		PolicyProjectionIdentity: state.PolicyProjectionIdentity(), Items: items,
 	}
 	if err := result.Validate(); err != nil {
 		return tobari.PolicyRuleReport{}, fault.Wrap(

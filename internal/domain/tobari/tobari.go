@@ -71,6 +71,8 @@ type State struct {
 	WorkspaceManifestName string                    `json:"manifest_name,omitempty"`
 	AgentProfile          string                    `json:"agent_profile,omitempty"`
 	AggregateRevision     string                    `json:"aggregate_revision,omitempty"`
+	EvaluatorIdentity     PolicyEvaluatorIdentity   `json:"evaluator_identity,omitzero"`
+	PolicyDataIdentity    PolicyDataIdentity        `json:"policy_data_identity,omitzero"`
 	ManifestCount         int                       `json:"manifest_count,omitempty"`
 	PolicyDirectory       string                    `json:"policy_directory"`
 	GatewayConfig         string                    `json:"gateway_config"`
@@ -82,13 +84,15 @@ type State struct {
 // SharedClusterAppliedEntry is the closed last-successful Compose recreation
 // authority. Build-only image inputs are intentionally not part of it.
 type SharedClusterAppliedEntry struct {
-	AggregateRevision string                      `json:"aggregate_revision"`
-	AssetVersion      string                      `json:"asset_version"`
-	ComposeAssets     SharedClusterComposeAssets  `json:"compose_assets"`
-	GatewayImageID    string                      `json:"gateway_image_id"`
-	OPAImageID        string                      `json:"opa_image_id"`
-	AuthBrokerImageID string                      `json:"auth_broker_image_id,omitempty"`
-	PermissionProfile SharedClusterAppliedProfile `json:"permission_profile"`
+	AggregateRevision  string                      `json:"aggregate_revision"`
+	AssetVersion       string                      `json:"asset_version"`
+	EvaluatorIdentity  PolicyEvaluatorIdentity     `json:"evaluator_identity,omitzero"`
+	PolicyDataIdentity PolicyDataIdentity          `json:"policy_data_identity,omitzero"`
+	ComposeAssets      SharedClusterComposeAssets  `json:"compose_assets"`
+	GatewayImageID     string                      `json:"gateway_image_id"`
+	OPAImageID         string                      `json:"opa_image_id"`
+	AuthBrokerImageID  string                      `json:"auth_broker_image_id,omitempty"`
+	PermissionProfile  SharedClusterAppliedProfile `json:"permission_profile"`
 }
 
 // SharedClusterComposeAssets is the closed receipt for every retained Compose
@@ -141,6 +145,25 @@ func (e SharedClusterAppliedEntry) Validate() error {
 	if err := e.PermissionProfile.Validate(); err != nil {
 		return err
 	}
+	if err := validateOptionalAggregateIdentities(e.EvaluatorIdentity, e.PolicyDataIdentity); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateOptionalAggregateIdentities(evaluator PolicyEvaluatorIdentity, data PolicyDataIdentity) error {
+	if evaluator == (PolicyEvaluatorIdentity{}) && data == (PolicyDataIdentity{}) {
+		return nil
+	}
+	if evaluator == (PolicyEvaluatorIdentity{}) || data == (PolicyDataIdentity{}) {
+		return fmt.Errorf("aggregate evaluator and policy-data identities must be recorded together")
+	}
+	if err := evaluator.Validate(); err != nil {
+		return fmt.Errorf("aggregate evaluator identity: %w", err)
+	}
+	if err := data.Validate(); err != nil {
+		return fmt.Errorf("aggregate policy-data identity: %w", err)
+	}
 	return nil
 }
 
@@ -173,6 +196,17 @@ func (s State) Validate() error {
 		if s.AggregateRevision != s.Applied.AggregateRevision || s.AssetVersion != s.Applied.AssetVersion {
 			return fmt.Errorf("applied shared-cluster entry does not match state identity")
 		}
+		if err := validateOptionalAggregateIdentities(s.EvaluatorIdentity, s.PolicyDataIdentity); err != nil {
+			return err
+		}
+		if s.EvaluatorIdentity != s.Applied.EvaluatorIdentity || s.PolicyDataIdentity != s.Applied.PolicyDataIdentity {
+			return fmt.Errorf("applied shared-cluster aggregate identities do not match state identity")
+		}
+	}
+	if s.SchemaVersion == 1 {
+		if err := validateOptionalAggregateIdentities(s.EvaluatorIdentity, s.PolicyDataIdentity); err != nil {
+			return err
+		}
 	}
 	if s.WorkspaceManifestName != "" || s.AgentProfile != "" {
 		return fmt.Errorf("shared state must not contain a selected Workspace Manifest authority")
@@ -188,6 +222,25 @@ func (s State) Validate() error {
 	return nil
 }
 
+// ValidateAggregateProjectionRoot binds the persisted aggregate artifact
+// paths to the exact revision directory owned by the current Tobari state
+// root. Canonical absolute paths alone are insufficient because a valid state
+// shape could otherwise select another owner-only directory.
+func (s State) ValidateAggregateProjectionRoot(root string) error {
+	if err := s.Validate(); err != nil {
+		return err
+	}
+	if !filepath.IsAbs(root) || filepath.Clean(root) != root {
+		return fmt.Errorf("aggregate policy root must be a canonical absolute path")
+	}
+	revisionDirectory := filepath.Join(root, s.AggregateRevision)
+	if s.PolicyDirectory != filepath.Join(revisionDirectory, "policy") ||
+		s.GatewayConfig != filepath.Join(revisionDirectory, "gateway.json") {
+		return fmt.Errorf("aggregate policy and Gateway paths do not match the state revision")
+	}
+	return nil
+}
+
 // ComponentStatus is one exact managed container observation.
 type ComponentStatus struct {
 	Name   string `json:"name"`
@@ -197,22 +250,23 @@ type ComponentStatus struct {
 
 // ClusterStatus is a task-bound observation of shared enforcement.
 type ClusterStatus struct {
-	Task                     string            `json:"task"`
-	Configured               bool              `json:"configured"`
-	Running                  bool              `json:"running"`
-	Policy                   string            `json:"policy"`
-	TobariCount              int               `json:"tobari_count"`
-	ManifestCount            int               `json:"manifest_count"`
-	PolicyRevision           string            `json:"policy_revision"`
-	PolicyProjection         string            `json:"policy_projection"`
-	PrincipalRegistry        string            `json:"principal_registry"`
-	GatewayProjection        string            `json:"gateway_projection"`
-	AuthProviderProjection   string            `json:"auth_provider_projection,omitempty"`
-	AuthBrokerState          string            `json:"auth_broker_state,omitempty"`
-	CredentialCompanionState string            `json:"credential_companion_state,omitempty"`
-	RootKeyBackend           string            `json:"root_key_backend,omitempty"`
-	Components               []ComponentStatus `json:"components"`
-	RecentError              string            `json:"recent_error"`
+	Task                     string                  `json:"task"`
+	Configured               bool                    `json:"configured"`
+	Running                  bool                    `json:"running"`
+	TobariCount              int                     `json:"tobari_count"`
+	ManifestCount            int                     `json:"manifest_count"`
+	PolicyRevision           string                  `json:"policy_revision"`
+	EvaluatorIdentity        PolicyEvaluatorIdentity `json:"evaluator_identity,omitzero"`
+	PolicyDataIdentity       PolicyDataIdentity      `json:"policy_data_identity,omitzero"`
+	PolicyProjection         string                  `json:"policy_projection"`
+	PrincipalRegistry        string                  `json:"principal_registry"`
+	GatewayProjection        string                  `json:"gateway_projection"`
+	AuthProviderProjection   string                  `json:"auth_provider_projection,omitempty"`
+	AuthBrokerState          string                  `json:"auth_broker_state,omitempty"`
+	CredentialCompanionState string                  `json:"credential_companion_state,omitempty"`
+	RootKeyBackend           string                  `json:"root_key_backend,omitempty"`
+	Components               []ComponentStatus       `json:"components"`
+	RecentError              string                  `json:"recent_error"`
 }
 
 // UnconfiguredClusterStatus preserves an explicit finite observation for every
@@ -233,7 +287,8 @@ func (s ClusterStatus) Validate() error {
 		return fmt.Errorf("cluster status task identity is invalid")
 	}
 	if !s.Configured {
-		if s.Running || s.Policy != "" || s.TobariCount != 0 || s.ManifestCount != 0 || s.PolicyRevision != "" || len(s.Components) != 0 {
+		if s.Running || s.TobariCount != 0 || s.ManifestCount != 0 || s.PolicyRevision != "" ||
+			s.EvaluatorIdentity != (PolicyEvaluatorIdentity{}) || s.PolicyDataIdentity != (PolicyDataIdentity{}) || len(s.Components) != 0 {
 			return fmt.Errorf("unconfigured status contains cluster state")
 		}
 		if s.Components == nil || s.PolicyProjection != "unavailable" || s.PrincipalRegistry != "unavailable" ||
@@ -244,8 +299,9 @@ func (s ClusterStatus) Validate() error {
 		}
 		return nil
 	}
-	if !filepath.IsAbs(s.Policy) || s.TobariCount < 0 || s.ManifestCount < 1 ||
-		!regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(s.PolicyRevision) || s.Components == nil ||
+	if s.TobariCount < 0 || s.ManifestCount < 1 ||
+		!regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(s.PolicyRevision) ||
+		s.EvaluatorIdentity.Validate() != nil || s.PolicyDataIdentity.Validate() != nil || s.Components == nil ||
 		s.PolicyProjection == "" || s.PrincipalRegistry == "" || s.GatewayProjection == "" {
 		return fmt.Errorf("configured cluster status is incomplete")
 	}

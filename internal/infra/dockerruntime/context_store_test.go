@@ -1,7 +1,6 @@
 package dockerruntime
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -66,7 +65,7 @@ func newContextSwitchRuntime(t *testing.T, runner *contextSwitchRunner) *Runtime
 	if err := runtime.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CreateContext(context.Background(), "project-tools", tobari.BuiltinImageSelector, tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadWrite); err != nil {
+	if _, err := runtime.CreateContext(context.Background(), "project-tools", tobari.BuiltinImageSelector, tobari.ManifestSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	return runtime
@@ -251,7 +250,7 @@ func TestFreshExplicitDefaultCreateSucceedsOnceAndPreservesManifestOnDuplicate(t
 
 	created, err := runtime.CreateContext(
 		context.Background(), tobari.DefaultManifestName,
-		tobari.BuiltinImageSelector, tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadOnly,
+		tobari.BuiltinImageSelector, tobari.ManifestSourceAccessReadOnly,
 	)
 	if err != nil {
 		t.Fatalf("first CreateContext(default) error = %v", err)
@@ -262,7 +261,6 @@ func TestFreshExplicitDefaultCreateSucceedsOnceAndPreservesManifestOnDuplicate(t
 	if created.Task != tobari.TaskManifestCreate ||
 		created.ManifestState != tobari.ManifestObservationPersisted ||
 		created.Name != tobari.DefaultManifestName || !created.Default ||
-		created.PolicyMode != tobari.ManifestPolicyModeAdvanced ||
 		created.SourceAccess != tobari.ManifestSourceAccessReadOnly ||
 		created.Cluster != tobari.ManifestClusterStatusNotApplicable {
 		t.Fatalf("created default Context = %+v", created)
@@ -295,7 +293,7 @@ func TestFreshExplicitDefaultCreateSucceedsOnceAndPreservesManifestOnDuplicate(t
 	treeBefore := snapshotOwnedTree(t, root)
 	if _, err := runtime.CreateContext(
 		context.Background(), tobari.DefaultManifestName,
-		tobari.BuiltinImageSelector, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite,
+		tobari.BuiltinImageSelector, tobari.ManifestSourceAccessReadWrite,
 	); !errors.Is(err, tobari.ErrContextExists) {
 		t.Fatalf("second CreateContext(default) error = %v, want ErrContextExists", err)
 	}
@@ -431,7 +429,6 @@ func TestStoredContextMissingSourceAccessFailsClosed(t *testing.T) {
 		"name":                  tobari.DefaultManifestName,
 		"agent_profile":         tobari.DefaultProfile,
 		"image":                 tobari.BuiltinImageSelector,
-		"policy_mode":           tobari.ManifestPolicyModeGuided,
 	}
 	encoded, err := json.Marshal(manifest)
 	if err != nil {
@@ -450,6 +447,44 @@ func TestStoredContextMissingSourceAccessFailsClosed(t *testing.T) {
 	}
 }
 
+func TestStoredContextAdvancedPolicyMarkerFailsClosedWithoutMutation(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime, err := newRuntimeWithData(
+		filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), &contextSwitchRunner{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := runtime.contextDirectory(tobari.DefaultManifestName)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := map[string]any{
+		"schema_version":        tobari.WorkspaceManifestSchemaVersion,
+		"workspace_manifest_id": "018bcfe5-687b-7000-8000-000000000099",
+		"name":                  tobari.DefaultManifestName,
+		"agent_profile":         tobari.DefaultProfile,
+		"image":                 tobari.BuiltinImageSelector,
+		"policy_mode":           "advanced",
+	}
+	encoded, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := runtime.contextManifestPath(tobari.DefaultManifestName)
+	if err := os.WriteFile(path, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotOwnedTree(t, root)
+	if _, err := runtime.ShowContext(context.Background(), tobari.DefaultManifestName); !errors.Is(err, tobari.ErrLegacyExecutablePolicy) || !strings.Contains(err.Error(), "reset or recreate") {
+		t.Fatalf("legacy Advanced Context result error=%v", err)
+	}
+	if after := snapshotOwnedTree(t, root); !reflect.DeepEqual(after, before) {
+		t.Fatalf("legacy Advanced Context observation changed state\nbefore=%v\nafter=%v", before, after)
+	}
+}
+
 func TestListContextsRejectsExtraSymbolicLinkWithoutWrites(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -460,7 +495,7 @@ func TestListContextsRejectsExtraSymbolicLinkWithoutWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := runtime.CreateContext(
-		context.Background(), "fixture", tobari.BuiltinImageSelector, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite,
+		context.Background(), "fixture", tobari.BuiltinImageSelector, tobari.ManifestSourceAccessReadWrite,
 	); err != nil {
 		t.Fatalf("initialize valid default Context fixture: %v", err)
 	}
@@ -749,17 +784,22 @@ func TestContextCreateBaseCopiesOnlyStandaloneWorkModeSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	advanced := map[string][]byte{
-		"tobari.rego":      []byte("package tobari\nallow := true\n"),
-		"tobari_test.rego": []byte("package tobari\ntest_allow { allow }\n"),
+	learnedDomain := filepath.Join(runtime.contextPolicyDirectory(manifest.Name), policyDomainsName, "learned.example.com")
+	if err := os.Mkdir(learnedDomain, 0o700); err != nil {
+		t.Fatal(err)
 	}
-	for name, source := range advanced {
-		if err := os.WriteFile(filepath.Join(runtime.contextPolicyDirectory(manifest.Name), name), source, 0o600); err != nil {
-			t.Fatal(err)
-		}
+	allowData, err := marshalPolicySource(emptyDomainAllow("learned.example.com"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	learnedPath := filepath.Join(runtime.contextPolicyDirectory(manifest.Name), policyDomainsName, "learned.example.json")
-	if err := os.WriteFile(learnedPath, []byte(`{"decision":"allow"}`), 0o600); err != nil {
+	denyData, err := marshalPolicySource(emptyDomainDeny("learned.example.com"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(learnedDomain, policyAllowFileName), allowData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(learnedDomain, policyDenyFileName), denyData, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	base, err := runtime.ManifestCopySnapshot(context.Background(), manifest.Name)
@@ -769,7 +809,7 @@ func TestContextCreateBaseCopiesOnlyStandaloneWorkModeSettings(t *testing.T) {
 	baseTree := snapshotOwnedTree(t, runtime.contextDirectory(manifest.Name))
 	policy := base.MethodPolicy.Clone()
 	created, err := runtime.CreateContextWithComposition(
-		context.Background(), "standalone", tobari.BuiltinImageSelector, base.PolicyMode, base.SourceAccess,
+		context.Background(), "standalone", tobari.BuiltinImageSelector, base.SourceAccess,
 		tobari.ManifestCreateComposition{
 			NativeReadiness: base.NativeReadiness, MethodPolicy: &policy,
 			RuntimeSelection: base.RuntimeSelection, CopyFrom: &base,
@@ -778,7 +818,7 @@ func TestContextCreateBaseCopiesOnlyStandaloneWorkModeSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.ID == base.ID || created.Name != "standalone" || created.PolicyMode != base.PolicyMode ||
+	if created.ID == base.ID || created.Name != "standalone" ||
 		created.SourceAccess != base.SourceAccess || !reflect.DeepEqual(created.ShellEnvironment, base.ShellEnvironment) ||
 		!reflect.DeepEqual(created.GitIdentity, base.GitIdentity) ||
 		!reflect.DeepEqual(created.Bootstrap.Resolved(), tobari.ManifestBootstrapReportFrom(base.Bootstrap)) {
@@ -787,10 +827,17 @@ func TestContextCreateBaseCopiesOnlyStandaloneWorkModeSettings(t *testing.T) {
 	if after := snapshotOwnedTree(t, runtime.contextDirectory(manifest.Name)); !reflect.DeepEqual(after, baseTree) {
 		t.Fatal("creating from a Base changed the Base Context")
 	}
-	for name, want := range advanced {
-		got, readErr := os.ReadFile(filepath.Join(runtime.contextPolicyDirectory("standalone"), name))
-		if readErr != nil || !bytes.Equal(got, want) {
-			t.Fatalf("copied advanced policy %s = %q, %v", name, got, readErr)
+	for _, policyDirectory := range []string{
+		runtime.contextPolicyDirectory(manifest.Name), runtime.contextPolicyDirectory("standalone"),
+	} {
+		entries, readErr := os.ReadDir(policyDirectory)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		for _, entry := range entries {
+			if strings.HasSuffix(entry.Name(), ".rego") {
+				t.Fatalf("Context policy copied executable source %q", filepath.Join(policyDirectory, entry.Name()))
+			}
 		}
 	}
 	entries, err := os.ReadDir(filepath.Join(runtime.contextPolicyDirectory("standalone"), policyDomainsName))
@@ -814,7 +861,7 @@ func TestContextCreateRejectsChangedBaseWithoutPartialTarget(t *testing.T) {
 	}
 	policy := base.MethodPolicy.Clone()
 	_, err = runtime.CreateContextWithComposition(
-		context.Background(), "must-not-exist", tobari.BuiltinImageSelector, base.PolicyMode, base.SourceAccess,
+		context.Background(), "must-not-exist", tobari.BuiltinImageSelector, base.SourceAccess,
 		tobari.ManifestCreateComposition{NativeReadiness: base.NativeReadiness, MethodPolicy: &policy, RuntimeSelection: base.RuntimeSelection, CopyFrom: &base},
 	)
 	if !errors.Is(err, tobari.ErrManifestCopySourceChanged) {
@@ -831,6 +878,66 @@ func TestContextCreateRejectsChangedBaseWithoutPartialTarget(t *testing.T) {
 		if strings.HasPrefix(entry.Name(), ".context-create-") {
 			t.Fatalf("changed Base left staging state: %s", entry.Name())
 		}
+	}
+}
+
+func TestContextPolicyLayoutRejectsRootAndNestedRegoWithoutCreationResidue(t *testing.T) {
+	t.Parallel()
+	for name, relative := range map[string]string{
+		"root":   "tobari.rego",
+		"nested": filepath.Join(policyDomainsName, "legacy.rego"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			runtime := newContextSwitchRuntime(t, &contextSwitchRunner{})
+			base, err := runtime.ManifestCopySnapshot(context.Background(), "project-tools")
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(runtime.contextPolicyDirectory("project-tools"), relative)
+			if err := os.WriteFile(path, []byte("package tobari.http\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			before := snapshotOwnedTree(t, runtime.contextDirectory("project-tools"))
+			for _, observe := range []func() error{
+				func() error { _, err := runtime.ListContexts(context.Background()); return err },
+				func() error { _, err := runtime.ShowContext(context.Background(), "project-tools"); return err },
+				func() error {
+					_, err := runtime.ManifestCopySnapshot(context.Background(), "project-tools")
+					return err
+				},
+			} {
+				err := observe()
+				if !errors.Is(err, tobari.ErrLegacyExecutablePolicy) || !strings.Contains(err.Error(), "reset or recreate") {
+					t.Fatalf("executable Context source error = %v", err)
+				}
+			}
+			if after := snapshotOwnedTree(t, runtime.contextDirectory("project-tools")); !reflect.DeepEqual(after, before) {
+				t.Fatalf("Context observation changed the source tree\nbefore=%v\nafter=%v", before, after)
+			}
+
+			_, err = runtime.CreateContextWithComposition(
+				context.Background(), "must-not-exist-"+name, tobari.BuiltinImageSelector,
+				base.SourceAccess, tobari.ManifestCreateComposition{
+					NativeReadiness: base.NativeReadiness, RuntimeSelection: base.RuntimeSelection,
+					CopyFrom: &base,
+				},
+			)
+			if !errors.Is(err, tobari.ErrLegacyExecutablePolicy) || !strings.Contains(err.Error(), "reset or recreate") {
+				t.Fatalf("copy from executable Context source error = %v", err)
+			}
+			if _, statErr := os.Lstat(runtime.contextDirectory("must-not-exist-" + name)); !errors.Is(statErr, os.ErrNotExist) {
+				t.Fatalf("rejected copy left a target Context: %v", statErr)
+			}
+			entries, err := os.ReadDir(runtime.configDirectory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, entry := range entries {
+				if strings.HasPrefix(entry.Name(), ".context-create-") {
+					t.Fatalf("rejected copy left staging state: %s", entry.Name())
+				}
+			}
+		})
 	}
 }
 

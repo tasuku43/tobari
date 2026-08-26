@@ -25,7 +25,7 @@ their physically separate trust boundaries.
 
 ## Why now
 
-Context already composes runtime, policy mode, credentials, agent profile,
+Context already composes runtime, canonical typed policy data, credentials, agent profile,
 shell, and Git settings. ADR 0029 named its initial source/network authority,
 and ADR 0071 later corrected the packet's whole-Context immutability language:
 Runtime and narrow defaults have intentional mutable lifecycles, while the
@@ -39,7 +39,7 @@ fixed.
 - Making Context names security authority; the stable Context ID remains the
   enforcement identity.
 - Mutating an existing Context's source access, policy snapshot, method or
-  destination ceilings, policy mode, or native-readiness participation choice.
+  destination ceilings, or native-readiness participation choice.
 - Live propagation from policy source to an existing Context Boundary.
 - Context inheritance, templates of templates, organization policy, or remote
   distribution.
@@ -62,7 +62,7 @@ fixed.
       Workspace remains bound to its stable Context ID. Evidence: manifest,
       catalog, and Workspace-key tests; supported-platform live bind evidence
       remains in the child packet.
-- [x] The command contract fixes creation-time `--source-access`, `--mode`, and
+- [x] The command contract fixes creation-time `--source-access` and
       `--native-readiness` Boundary inputs with the reviewed defaults, while
       Runtime and bootstrap retain their separate initial values and later
       mutation paths. Evidence: current catalog and ADRs 0066/0067/0071.
@@ -70,8 +70,9 @@ fixed.
       revision/method facts, Runtime binding, and defaults without exposing
       source internals, secrets, or inferring whole-Workspace read-only or
       snapshot integrity. Evidence: schema-1 output contract tests.
-- [x] The Context policy ceiling is enforced before every
-      guided baseline/learned allow and every Advanced Rego allow.
+- [x] The Context policy ceiling is enforced before every typed baseline or
+      learned allow in the fixed evaluator; legacy executable markers fail
+      closed and cannot authorize.
 - [ ] The two child packets provide mechanical enforcement for every new
       manifest/report/CLI claim and pass their required checks.
 - [x] Durable lifecycle conclusions are propagated through theses, product,

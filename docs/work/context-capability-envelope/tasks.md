@@ -16,8 +16,8 @@
 - [x] Select an immutable Context source/network Boundary over live policy
       references or per-Workspace authority flags. Evidence: product-owner
       approval 2026-08-12 and ADR 0071 reconciliation on 2026-08-21.
-- [x] Select preset guardrail precedence over guided, learned, and Advanced
-      allows.
+- [x] Select preset guardrail precedence over typed baseline and learned
+      allows in the fixed evaluator; legacy executable markers are rejected.
 - [x] Select `read-write` and `builtin/reviewed-exact` omission defaults.
 - [x] Review and accept the exact CLI/report field names. Evidence: ADR 0029
       fixes `source_access`, `policy_preset_origin`,

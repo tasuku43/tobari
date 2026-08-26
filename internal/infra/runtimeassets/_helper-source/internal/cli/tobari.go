@@ -874,7 +874,7 @@ func createContextForGuidedEntry(
 	var err error
 	if requireEmpty {
 		report, err = c.context.CreateFirstWithComposition(
-			actionCtx, intent, draft.WorkspaceManifestName, tobari.BuiltinImageSelector, draft.PolicyMode,
+			actionCtx, intent, draft.WorkspaceManifestName, tobari.BuiltinImageSelector,
 			draft.Access.SourceAccess, draft.Composition(),
 		)
 	} else {
@@ -911,7 +911,7 @@ func createContextForGuidedEntry(
 					composition.Bootstrap = &bootstrap
 				}
 				report, err = c.context.CreateWithComposition(
-					actionCtx, intent, selection.Name, tobari.BuiltinImageSelector, draft.PolicyMode,
+					actionCtx, intent, selection.Name, tobari.BuiltinImageSelector,
 					selection.SourceAccess, composition,
 				)
 			}
@@ -1181,11 +1181,13 @@ type clusterDenialsDocument struct {
 }
 
 type clusterDenialsOutput struct {
-	Policy        string               `json:"policy"`
-	WindowLines   int                  `json:"window_lines"`
-	UnparsedLines int                  `json:"unparsed_lines"`
-	Items         []policyDenialOutput `json:"items"`
-	ReviewCommand string               `json:"review_command"`
+	AggregateRevision  string                         `json:"aggregate_revision"`
+	EvaluatorIdentity  tobari.PolicyEvaluatorIdentity `json:"evaluator_identity"`
+	PolicyDataIdentity tobari.PolicyDataIdentity      `json:"policy_data_identity"`
+	WindowLines        int                            `json:"window_lines"`
+	UnparsedLines      int                            `json:"unparsed_lines"`
+	Items              []policyDenialOutput           `json:"items"`
+	ReviewCommand      string                         `json:"review_command"`
 }
 
 type policyDenialOutput struct {
@@ -1265,13 +1267,20 @@ type policyCandidateOutput struct {
 }
 
 type policyCandidatesDocument struct {
-	SchemaVersion    int                     `json:"schema_version"`
-	PolicyCandidates []policyCandidateOutput `json:"policy_candidates"`
+	SchemaVersion int                         `json:"schema_version"`
+	Candidates    policyCandidateReportOutput `json:"policy_candidates"`
 }
 
 type policyReviewDocument struct {
-	SchemaVersion int                     `json:"schema_version"`
-	PolicyReview  []policyCandidateOutput `json:"policy_review"`
+	SchemaVersion int                         `json:"schema_version"`
+	Review        policyCandidateReportOutput `json:"policy_review"`
+}
+
+type policyCandidateReportOutput struct {
+	tobari.PolicyProjectionIdentity
+	WindowLines   int                     `json:"window_lines"`
+	UnparsedLines int                     `json:"unparsed_lines"`
+	Items         []policyCandidateOutput `json:"items"`
 }
 
 type policyRuleOutput struct {
@@ -1310,8 +1319,13 @@ type policyRuleOutput struct {
 }
 
 type policyRulesDocument struct {
-	SchemaVersion int                `json:"schema_version"`
-	PolicyRules   []policyRuleOutput `json:"policy_rules"`
+	SchemaVersion int                    `json:"schema_version"`
+	Rules         policyRuleReportOutput `json:"policy_rules"`
+}
+
+type policyRuleReportOutput struct {
+	tobari.PolicyProjectionIdentity
+	Items []policyRuleOutput `json:"items"`
 }
 
 func pairedPolicyCommand(command, from, to string) string {
@@ -1335,7 +1349,10 @@ func renderPolicyCandidatesWithColor(
 	items := policyCandidateOutputs(result, allowCommand, denyCommand)
 	if format == successFormatJSON {
 		output, err := marshalCommandJSON("policy candidates", policyCandidatesDocument{
-			SchemaVersion: 1, PolicyCandidates: items,
+			SchemaVersion: 2, Candidates: policyCandidateReportOutput{
+				PolicyProjectionIdentity: result.PolicyProjectionIdentity,
+				WindowLines:              result.WindowLines, UnparsedLines: result.UnparsedLines, Items: items,
+			},
 		})
 		if err != nil {
 			return nil, fault.Wrap(
@@ -1349,6 +1366,11 @@ func renderPolicyCandidatesWithColor(
 		return renderPolicyCandidatesHuman(result, allowCommand, color), nil
 	}
 	var output bytes.Buffer
+	fmt.Fprintf(&output, "aggregate_revision: %s\n", escapeTSVCell(result.AggregateRevision))
+	fmt.Fprintf(&output, "evaluator_identity: %s\n", escapeTSVCell(string(result.EvaluatorIdentity.Digest)))
+	fmt.Fprintf(&output, "policy_data_identity: %s\n", escapeTSVCell(string(result.PolicyDataIdentity.Digest)))
+	fmt.Fprintf(&output, "window_lines: %d\n", result.WindowLines)
+	fmt.Fprintf(&output, "unparsed_lines: %d\n", result.UnparsedLines)
 	for _, item := range result.Items {
 		action := allowCommand + " --id " + item.ID
 		fmt.Fprintf(
@@ -1405,7 +1427,7 @@ func renderPolicyCandidatesHuman(result tobari.PolicyCandidateReport, allowComma
 	if len(result.Items) == 0 {
 		output := newHumanOutput(color)
 		output.heading("○", "No policy candidates", styleMuted)
-		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+		writePolicyProjectionIdentity(output, result.PolicyProjectionIdentity)
 		output.row("Window", fmt.Sprintf("%d Gateway lines", result.WindowLines), styleText)
 		writeUnparsedDenialWarning(output, result.UnparsedLines)
 		output.row("Details", "No retained denied request is ready for approval.", styleText)
@@ -1414,7 +1436,7 @@ func renderPolicyCandidatesHuman(result tobari.PolicyCandidateReport, allowComma
 	}
 	output := newHumanOutput(color)
 	output.heading("✓", fmt.Sprintf("Policy candidates (%d)", len(result.Items)), styleSuccess)
-	output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+	writePolicyProjectionIdentity(output, result.PolicyProjectionIdentity)
 	output.row("Window", fmt.Sprintf("%d lines", result.WindowLines), styleText)
 	writeUnparsedDenialWarning(output, result.UnparsedLines)
 	for index, item := range result.Items {
@@ -1457,7 +1479,10 @@ func renderPolicyReviewWithCommands(
 	items := policyCandidateOutputs(result, allowCommand, denyCommand)
 	if format == successFormatJSON {
 		output, err := marshalCommandJSON("review permissions", policyReviewDocument{
-			SchemaVersion: 1, PolicyReview: items,
+			SchemaVersion: 2, Review: policyCandidateReportOutput{
+				PolicyProjectionIdentity: result.PolicyProjectionIdentity,
+				WindowLines:              result.WindowLines, UnparsedLines: result.UnparsedLines, Items: items,
+			},
 		})
 		if err != nil {
 			return nil, fault.Wrap(
@@ -1476,7 +1501,7 @@ func renderPolicyReviewHuman(
 	if len(result.Items) == 0 {
 		output := newHumanOutput(color)
 		output.heading("○", "No pending network permissions", styleMuted)
-		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+		writePolicyProjectionIdentity(output, result.PolicyProjectionIdentity)
 		output.row("Window", fmt.Sprintf("%d Gateway lines", result.WindowLines), styleText)
 		writeUnparsedDenialWarning(output, result.UnparsedLines)
 		output.row("Details", "No retained exact permission is waiting for host review.", styleText)
@@ -1484,6 +1509,7 @@ func renderPolicyReviewHuman(
 	}
 	output := newHumanOutput(color)
 	output.heading("⚠", fmt.Sprintf("Pending network permissions (%d)", len(result.Items)), styleWarning)
+	writePolicyProjectionIdentity(output, result.PolicyProjectionIdentity)
 	output.row("Window", fmt.Sprintf("%d Gateway lines", result.WindowLines), styleText)
 	writeUnparsedDenialWarning(output, result.UnparsedLines)
 	for index, item := range result.Items {
@@ -1559,6 +1585,10 @@ func renderPolicyReviewChange(result tobari.PolicyReviewChange, color bool) []by
 	var output bytes.Buffer
 	fmt.Fprintln(&output, applyStyleToken(color, styleSuccess, "✓ Reviewed permissions applied"))
 	fmt.Fprintf(&output, "  Revision  %s\n", result.ActiveRevision)
+	if result.AggregateRevision != "" {
+		fmt.Fprintf(&output, "  Evaluator %s\n", safeExternalText(string(result.EvaluatorIdentity.Digest)))
+		fmt.Fprintf(&output, "  Policy data %s\n", safeExternalText(string(result.PolicyDataIdentity.Digest)))
+	}
 	fmt.Fprintf(&output, "  Decisions %d (%d Allow, %d Deny)\n", len(result.Decisions), result.AllowCount, result.DenyCount)
 	for index, decision := range result.Decisions {
 		fmt.Fprintln(&output)
@@ -1617,7 +1647,9 @@ func renderPolicyRulesWithCommands(
 ) ([]byte, error) {
 	items := policyRuleOutputs(result, resetCommand)
 	if format == successFormatJSON {
-		output, err := marshalCommandJSON("policy rules", policyRulesDocument{SchemaVersion: 1, PolicyRules: items})
+		output, err := marshalCommandJSON("policy rules", policyRulesDocument{SchemaVersion: 2, Rules: policyRuleReportOutput{
+			PolicyProjectionIdentity: result.PolicyProjectionIdentity, Items: items,
+		}})
 		if err != nil {
 			return nil, fault.Wrap(
 				fault.KindContract, "output_encoding_failed",
@@ -1630,6 +1662,9 @@ func renderPolicyRulesWithCommands(
 		return renderPolicyRulesHuman(result, resetCommand, color), nil
 	}
 	var output bytes.Buffer
+	fmt.Fprintf(&output, "aggregate_revision: %s\n", escapeTSVCell(result.AggregateRevision))
+	fmt.Fprintf(&output, "evaluator_identity: %s\n", escapeTSVCell(string(result.EvaluatorIdentity.Digest)))
+	fmt.Fprintf(&output, "policy_data_identity: %s\n", escapeTSVCell(string(result.PolicyDataIdentity.Digest)))
 	for _, item := range items {
 		fmt.Fprintf(
 			&output,
@@ -1676,14 +1711,14 @@ func renderPolicyRulesHuman(result tobari.PolicyRuleReport, resetCommand string,
 	if len(result.Items) == 0 {
 		output := newHumanOutput(color)
 		output.heading("○", "No learned policy decisions", styleMuted)
-		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+		writePolicyProjectionIdentity(output, result.PolicyProjectionIdentity)
 		output.row("Details", "No current Allow or exact Deny decision is active.", styleText)
 		output.next("review permissions", "Review retained denied permissions when one needs a decision.")
 		return output.bytes()
 	}
 	output := newHumanOutput(color)
 	output.heading("✓", fmt.Sprintf("Learned policy decisions (%d)", len(result.Items)), styleSuccess)
-	output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+	writePolicyProjectionIdentity(output, result.PolicyProjectionIdentity)
 	for _, decision := range []string{tobari.PolicyDecisionAllow, tobari.PolicyDecisionDeny} {
 		count := 0
 		for _, item := range result.Items {
@@ -1731,7 +1766,7 @@ func renderPolicyRulesHuman(result tobari.PolicyRuleReport, resetCommand string,
 func renderPolicyRuleResetWithColor(result tobari.PolicyRuleReset, color bool) []byte {
 	output := newHumanOutput(color)
 	output.heading("✓", "Policy decision reset", styleSuccess)
-	output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+	writePolicyProjectionIdentity(output, result.PolicyProjectionIdentity)
 	output.row("Target", result.TargetID, styleText)
 	output.row("Removed", safeExternalText(result.Decision), styleText)
 	output.row("Default deny", humanBool(result.Applied), humanOutcomeBoolToken(result.Applied))
@@ -1766,7 +1801,7 @@ func renderPolicyLearningChangeWithColor(result tobari.PolicyLearningChange, col
 		marker, title, token = "!", "Policy rule recorded", styleWarning // #nosec G101 -- human-readable status text contains no credential.
 	}
 	output.heading(marker, title, token)
-	output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+	writePolicyProjectionIdentity(output, result.PolicyProjectionIdentity)
 	output.row("Target ID", result.TargetID, styleText)
 	output.row("Rule ID", result.Rule.ID, styleText)
 	output.row("Workspace Manifest", safeExternalText(result.Rule.WorkspaceManifestName), styleText)
@@ -1788,7 +1823,7 @@ func renderPolicyDenyChangeWithColor(result tobari.PolicyDenyChange, color bool)
 	output.heading("✓", "Permission denied", styleSuccess)
 	output.row("Workspace Manifest", safeExternalText(result.Rule.WorkspaceManifestName), styleText)
 	output.row("Workspace", safeExternalText(result.Rule.ProjectRoot), styleText)
-	output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+	writePolicyProjectionIdentity(output, result.PolicyProjectionIdentity)
 	output.row("Target ID", result.TargetID, styleText)
 	output.row("Rule ID", result.Rule.ID, styleText)
 	output.row("Workspace Manifest ID", result.Rule.WorkspaceManifestID, styleText)
@@ -1844,7 +1879,8 @@ func renderClusterDenialsWithReviewCommand(
 		output, err := marshalCommandJSON("cluster denials", clusterDenialsDocument{
 			SchemaVersion: 1,
 			Denials: clusterDenialsOutput{
-				Policy: safeExternalText(result.PolicyDirectory), WindowLines: result.WindowLines,
+				AggregateRevision: result.AggregateRevision, EvaluatorIdentity: result.EvaluatorIdentity,
+				PolicyDataIdentity: result.PolicyDataIdentity, WindowLines: result.WindowLines,
 				UnparsedLines: result.UnparsedLines, Items: items, ReviewCommand: reviewCommand,
 			},
 		})
@@ -1860,7 +1896,9 @@ func renderClusterDenialsWithReviewCommand(
 		return renderClusterDenialsHuman(result, reviewCommand, color), nil
 	}
 	var output bytes.Buffer
-	fmt.Fprintf(&output, "policy: %s\n", escapeTSVCell(result.PolicyDirectory))
+	fmt.Fprintf(&output, "aggregate_revision: %s\n", escapeTSVCell(result.AggregateRevision))
+	fmt.Fprintf(&output, "evaluator_identity: %s\n", escapeTSVCell(string(result.EvaluatorIdentity.Digest)))
+	fmt.Fprintf(&output, "policy_data_identity: %s\n", escapeTSVCell(string(result.PolicyDataIdentity.Digest)))
 	fmt.Fprintf(&output, "window_lines: %d\n", result.WindowLines)
 	fmt.Fprintf(&output, "unparsed_lines: %d\n", result.UnparsedLines)
 	fmt.Fprintf(&output, "denial_count: %d\n", len(result.Items))
@@ -1888,7 +1926,7 @@ func renderClusterDenialsHuman(result tobari.DenialReport, reviewCommand string,
 	if len(result.Items) == 0 {
 		output := newHumanOutput(color)
 		output.heading("○", "No policy denials", styleMuted)
-		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+		writePolicyProjectionIdentity(output, result.PolicyProjectionIdentity)
 		output.row("Window", fmt.Sprintf("%d Gateway lines", result.WindowLines), styleText)
 		writeUnparsedDenialWarning(output, result.UnparsedLines)
 		output.row("Details", "The selected Gateway log window contains no denied requests.", styleText)
@@ -1897,7 +1935,7 @@ func renderClusterDenialsHuman(result tobari.DenialReport, reviewCommand string,
 	}
 	output := newHumanOutput(color)
 	output.heading("!", fmt.Sprintf("Policy denials (%d)", len(result.Items)), styleDanger)
-	output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+	writePolicyProjectionIdentity(output, result.PolicyProjectionIdentity)
 	output.row("Window", fmt.Sprintf("%d lines", result.WindowLines), styleText)
 	writeUnparsedDenialWarning(output, result.UnparsedLines)
 	output.row("Review", reviewCommand, styleAccent)
@@ -1929,22 +1967,32 @@ func writeUnparsedDenialWarning(output *humanOutput, count int) {
 	}
 }
 
+func writePolicyProjectionIdentity(output *humanOutput, identity tobari.PolicyProjectionIdentity) {
+	if identity.AggregateRevision == "" {
+		return
+	}
+	output.row("Aggregate revision", safeExternalText(identity.AggregateRevision), styleText)
+	output.row("Evaluator identity", safeExternalText(string(identity.EvaluatorIdentity.Digest)), styleText)
+	output.row("Policy-data identity", safeExternalText(string(identity.PolicyDataIdentity.Digest)), styleText)
+}
+
 type clusterStatusOutput struct {
-	Configured               bool                     `json:"configured"`
-	Running                  bool                     `json:"running"`
-	Policy                   *string                  `json:"policy"`
-	WorkspaceCount           int                      `json:"workspace_count"`
-	ManifestCount            int                      `json:"manifest_count"`
-	PolicyRevision           *string                  `json:"policy_revision"`
-	PolicyProjection         string                   `json:"policy_projection"`
-	PrincipalRegistry        string                   `json:"principal_registry"`
-	GatewayProjection        string                   `json:"gateway_projection"`
-	AuthProviderProjection   string                   `json:"auth_provider_projection,omitempty"`
-	AuthBrokerState          string                   `json:"auth_broker_state,omitempty"`
-	CredentialCompanionState string                   `json:"credential_companion_state,omitempty"`
-	RootKeyBackend           string                   `json:"root_key_backend,omitempty"`
-	Components               []tobari.ComponentStatus `json:"components"`
-	RecentError              *string                  `json:"recent_error"`
+	Configured               bool                            `json:"configured"`
+	Running                  bool                            `json:"running"`
+	WorkspaceCount           int                             `json:"workspace_count"`
+	ManifestCount            int                             `json:"manifest_count"`
+	AggregateRevision        *string                         `json:"aggregate_revision"`
+	EvaluatorIdentity        *tobari.PolicyEvaluatorIdentity `json:"evaluator_identity"`
+	PolicyDataIdentity       *tobari.PolicyDataIdentity      `json:"policy_data_identity"`
+	PolicyProjection         string                          `json:"policy_projection"`
+	PrincipalRegistry        string                          `json:"principal_registry"`
+	GatewayProjection        string                          `json:"gateway_projection"`
+	AuthProviderProjection   string                          `json:"auth_provider_projection,omitempty"`
+	AuthBrokerState          string                          `json:"auth_broker_state,omitempty"`
+	CredentialCompanionState string                          `json:"credential_companion_state,omitempty"`
+	RootKeyBackend           string                          `json:"root_key_backend,omitempty"`
+	Components               []tobari.ComponentStatus        `json:"components"`
+	RecentError              *string                         `json:"recent_error"`
 }
 
 func renderClusterStatus(status tobari.ClusterStatus, format successFormat, color bool) ([]byte, error) {
@@ -1952,11 +2000,18 @@ func renderClusterStatus(status tobari.ClusterStatus, format successFormat, colo
 		return nil, fault.Wrap(fault.KindContract, "invalid_status_contract", "cluster status is invalid", false, err)
 	}
 	if format == successFormatJSON {
+		var evaluatorIdentity *tobari.PolicyEvaluatorIdentity
+		var policyDataIdentity *tobari.PolicyDataIdentity
+		if status.Configured {
+			evaluator := status.EvaluatorIdentity
+			data := status.PolicyDataIdentity
+			evaluatorIdentity, policyDataIdentity = &evaluator, &data
+		}
 		projection := clusterStatusOutput{
 			Configured: status.Configured, Running: status.Running,
-			Policy:         optionalExternalText(status.Policy),
 			WorkspaceCount: status.TobariCount, ManifestCount: status.ManifestCount,
-			PolicyRevision: optionalString(status.PolicyRevision), PolicyProjection: safeExternalText(status.PolicyProjection), PrincipalRegistry: safeExternalText(status.PrincipalRegistry),
+			AggregateRevision: optionalString(status.PolicyRevision), EvaluatorIdentity: evaluatorIdentity, PolicyDataIdentity: policyDataIdentity,
+			PolicyProjection: safeExternalText(status.PolicyProjection), PrincipalRegistry: safeExternalText(status.PrincipalRegistry),
 			GatewayProjection: safeExternalText(status.GatewayProjection),
 			Components:        append([]tobari.ComponentStatus{}, status.Components...),
 			RecentError:       optionalExternalText(status.RecentError),
@@ -2046,6 +2101,8 @@ func renderClusterStatusTextWithColor(status tobari.ClusterStatus, color bool) [
 	)
 	if status.PolicyRevision != "" {
 		fmt.Fprintf(&output, "  %s %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Revision")), status.PolicyRevision[:12])
+		fmt.Fprintf(&output, "  %s %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Evaluator")), safeExternalText(string(status.EvaluatorIdentity.Digest)))
+		fmt.Fprintf(&output, "  %s %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Policy data")), safeExternalText(string(status.PolicyDataIdentity.Digest)))
 		integrity := fmt.Sprintf("policy %s / principals %s / gateway %s", safeExternalText(status.PolicyProjection), safeExternalText(status.PrincipalRegistry), safeExternalText(status.GatewayProjection))
 		if buildIdentityHasBroker() && status.AuthProviderProjection != "" {
 			integrity += " / providers " + safeExternalText(status.AuthProviderProjection)
@@ -2054,14 +2111,6 @@ func renderClusterStatusTextWithColor(status tobari.ClusterStatus, color bool) [
 	}
 	if buildIdentityHasBroker() && (status.AuthBrokerState != "" || status.CredentialCompanionState != "" || status.RootKeyBackend != "") {
 		fmt.Fprintf(&output, "  %s broker %s / companion %s / root key %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Auth")), safeExternalText(status.AuthBrokerState), safeExternalText(status.CredentialCompanionState), safeExternalText(status.RootKeyBackend))
-	}
-	if status.Policy != "" {
-		fmt.Fprintln(&output)
-		fmt.Fprintf(
-			&output, "  %s %s\n",
-			applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Policy")),
-			applyStyleToken(color, styleText, escapeTSVCell(status.Policy)),
-		)
 	}
 	renderClusterRecentError(&output, status.RecentError, color)
 	return output.Bytes()

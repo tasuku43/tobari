@@ -162,9 +162,9 @@ Gateway と OPA の公開境界は、正規化した非秘密の判断入力と�
 スキーマ番号だけでは、それが適用される公開面を特定できません。
 
 <details>
-  <summary>Advanced ポリシーで V1 以外のスキーマを使えますか？</summary>
-  いいえ。activation は厳密な Template policy と Context-owned Policy Memory
-  の入力を要求し、 公開前に候補全体をテストします。
+  <summary>ユーザーポリシーで別の evaluator schema を選べますか？</summary>
+  いいえ。ユーザーポリシーは canonical typed data です。Tobari が固定 evaluator
+  を選択・検証し、公開前に候補全体をテストします。
 </details>
 
 <details>

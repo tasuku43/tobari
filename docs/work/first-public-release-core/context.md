@@ -22,18 +22,19 @@ kept in `goal.md` and `plan.md`.
   obtains the ordinary policy decision before DNS, upstream connection, or
   broker secret resolution.
 - The Gateway policy input carries scheme, host, port, method, path, query, and
-  redacted headers. Current guided denial, candidate, and learned-rule identity
-  binds Context, project, host, port, method, and path but omits scheme; its
-  exact learning also omits body, query values, and headers. Advanced owner
-  Rego can inspect the generic query/header input. The V1 envelope decision
-  must reconcile this implementation with the intended scheme-aware permission
-  identity before policy preset work begins. Declared GraphQL endpoints add
-  operation type and root field but not arguments or variables.
+  redacted headers. Current denial, candidate, and learned-rule identity binds
+  Context, project, host, port, method, and path but omits scheme; its exact
+  learning also omits body, query values, and headers. The fixed evaluator
+  receives only the typed, scheme-aware policy projection; no user-authored
+  executable source is accepted. The V1 envelope decision must reconcile this
+  implementation with the intended scheme-aware permission identity before
+  policy preset work begins. Declared GraphQL endpoints add operation type and
+  root field but not arguments or variables.
 - The public policy workflow includes exact candidate discovery, interactive
-  batch review, exact allow/deny/reset, and learned prefix compaction through
-  `policy compactions` plus `policy compact`.
-- Context already composes stable identity, runtime image/recipe, guided or
-  advanced policy mode, credential eligibility, shell/Git projections, and a
+  batch review, and exact allow/deny/reset; prefix compaction is retired.
+- Context already composes stable identity, runtime image/recipe, canonical
+  typed policy data for the fixed evaluator, credential eligibility, shell/Git
+  projections, and a
   permanently bound Workspace. It does not currently persist source access or
   a policy-preset origin/revision.
 - Context creation currently copies the same embedded `api.github.com`,
@@ -72,7 +73,7 @@ kept in `goal.md` and `plan.md`.
 - Context manifests now require immutable `source_access` and one normalized,
   digested policy-preset snapshot. Omission selects `read-write` and
   `builtin/reviewed-exact`.
-- Guided learning may produce exact or reviewed single-segment path-template
+- Learning may produce exact or reviewed single-segment path-template
   decisions. Public reference-bound allow/deny mutation remains exact-targeted;
   prefix authority, compaction commands/references/state, broad initial domain
   seeds, credential profiles, and dormant fallbacks are absent and old state

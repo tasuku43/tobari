@@ -143,7 +143,7 @@ export const learningPathPages = [
     "/guides/workspace-templates-and-contexts/",
     "Workspace Templates and separate configurations",
     "設定を分ける（Workspace Template）",
-    "Learn Workspace Templates only when you need different runtimes, authentication sets, or policy modes.",
+    "Learn Workspace Templates only when you need different runtimes, authentication sets, or policy-data boundaries.",
     "ランタイム、認証、ポリシーを用途ごとに分ける必要が出た段階で Workspace Template を学びます。",
   ),
   page(
@@ -161,14 +161,6 @@ export const learningPathPages = [
     "ランタイムの詳細設定",
     "Inspect image selection, compatibility, and reconciliation when managing multiple setups.",
     "複数の設定を扱う段階で、イメージ選択、互換性検査、再調整の詳細を確認します。",
-  ),
-  page(
-    10,
-    "/guides/advanced-policy/",
-    "Advanced policy",
-    "高度なポリシー",
-    "Use stricter or hand-authored policy only after the default review loop is familiar.",
-    "既定のレビューループに慣れてから、より厳格なポリシーや手動管理へ進みます。",
   ),
   page(
     11,

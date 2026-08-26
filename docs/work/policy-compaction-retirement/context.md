@@ -22,8 +22,9 @@
   remain opaque and unchanged between discovery and allow/deny.
 - Do not leave compatibility readers for unpublished development state; ADR
   0027 requires explicit state recreation.
-- Advanced owner Rego remains executable policy, but the later immutable preset
-  guardrail will be authoritative above it.
+- The fixed Tobari-owned evaluator is the only executable authority. Canonical
+  typed policy data is projected into it, and legacy executable-policy markers
+  are rejected rather than interpreted.
 
 ## Evidence to capture
 
