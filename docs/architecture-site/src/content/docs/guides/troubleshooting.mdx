@@ -97,10 +97,11 @@ For a managed Runtime:
 tobari runtime list
 tobari runtime show --name frontend
 tobari runtime build --id RUNTIME_REF
-tobari template runtime set --id TEMPLATE_REF --runtime RUNTIME_REVISION_REF
+tobari template plan --id TEMPLATE_REF
+tobari template apply --plan TEMPLATE_CHANGE_PLAN_REF
 ```
 
-A failed build appends no revision and changes no Workspace Template. A failed selection
+A failed build appends no revision and changes no Workspace Template. A failed Apply
 keeps the previous exact binding. Existing logical Workspace state and home
 remain. Correct compatibility instead of changing host mounts, user,
 entrypoint, lifetime command, or network controls.

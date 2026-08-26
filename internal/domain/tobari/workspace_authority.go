@@ -18,12 +18,14 @@ const (
 	PolicyMemorySchemaVersion      = 1
 	WorkspaceBindingSchemaVersion  = 3
 
-	WorkspaceTemplateReferenceKind         = "workspace-template"
-	WorkspaceTemplateRevisionReferenceKind = "workspace-template-revision"
-	ContextReferenceKind                   = "context"
-	WorkspaceReferenceKind                 = "workspace"
-	WorkspaceTemplateCatalogTargetKind     = "workspace-template-catalog"
-	WorkspaceTemplateCatalogTargetID       = "workspace-template-catalog"
+	WorkspaceTemplateReferenceKind           = "workspace-template"
+	WorkspaceTemplateRevisionReferenceKind   = "workspace-template-revision"
+	WorkspaceTemplateChangePlanReferenceKind = "workspace-template-change-plan"
+	ContextReferenceKind                     = "context"
+	ContextActivationPlanReferenceKind       = "context-activation-plan"
+	WorkspaceReferenceKind                   = "workspace"
+	WorkspaceTemplateCatalogTargetKind       = "workspace-template-catalog"
+	WorkspaceTemplateCatalogTargetID         = "workspace-template-catalog"
 )
 
 var (
@@ -33,6 +35,7 @@ var (
 	ErrWorkspaceTemplateProtected             = errors.New("Workspace Template is still referenced")
 	ErrDefaultTemplateSelectionRequired       = errors.New("default Workspace Template selection is required")
 	ErrPreReleaseLegacyAuthority              = errors.New("pre-release legacy authority is present or unsafe")
+	ErrFinalAuthorityMigrationRequired        = errors.New("final authority store migration is required")
 	ErrLegacyExecutablePolicy                 = errors.New("legacy executable policy is unsupported")
 	ErrContextBindingExists                   = errors.New("Context already exists")
 	ErrContextBindingNotFound                 = errors.New("Context does not exist")
@@ -52,10 +55,12 @@ var (
 )
 
 const (
-	workspaceTemplateRefPrefix         = "wtpl1_"
-	workspaceTemplateRevisionRefPrefix = "wtrev1_"
-	contextRefPrefix                   = "ctx1_"
-	workspaceRefPrefix                 = "wsp1_"
+	workspaceTemplateRefPrefix           = "wtpl1_"
+	workspaceTemplateRevisionRefPrefix   = "wtrev1_"
+	workspaceTemplateChangePlanRefPrefix = "wtplan1_"
+	contextRefPrefix                     = "ctx1_"
+	contextActivationPlanRefPrefix       = "ctxplan1_"
+	workspaceRefPrefix                   = "wsp1_"
 )
 
 // WorkspaceTemplateID, ContextID, and WorkspaceID are distinct V1 authority
@@ -569,13 +574,6 @@ func AdvanceWorkspaceTemplateRevision(previous WorkspaceTemplateRevision, body W
 	if err := previous.Validate(); err != nil {
 		return WorkspaceTemplateRevision{}, false, err
 	}
-	slices, err := body.slices()
-	if err != nil {
-		return WorkspaceTemplateRevision{}, false, err
-	}
-	if slices.BoundaryFingerprint != previous.Slices.BoundaryFingerprint {
-		return WorkspaceTemplateRevision{}, false, fmt.Errorf("Template Boundary is immutable")
-	}
 	next, err := NewWorkspaceTemplateRevision(previous.TemplateID, previous.Generation+1, body)
 	if err != nil {
 		return WorkspaceTemplateRevision{}, false, err
@@ -598,8 +596,8 @@ func ValidateWorkspaceTemplateHistory(revisions []WorkspaceTemplateRevision) err
 			continue
 		}
 		previous := revisions[index-1]
-		if revision.TemplateID != previous.TemplateID || revision.Slices.BoundaryFingerprint != previous.Slices.BoundaryFingerprint {
-			return fmt.Errorf("Template history crosses identity or Boundary")
+		if revision.TemplateID != previous.TemplateID {
+			return fmt.Errorf("Template history crosses identity")
 		}
 		if revision.Generation <= previous.Generation {
 			return fmt.Errorf("Template history generations must increase")
@@ -612,11 +610,82 @@ func ValidateWorkspaceTemplateHistory(revisions []WorkspaceTemplateRevision) err
 }
 
 type WorkspaceTemplate struct {
-	SchemaVersion int                         `json:"schema_version"`
-	ID            WorkspaceTemplateID         `json:"workspace_template_id"`
-	Name          string                      `json:"name"`
-	Current       WorkspaceTemplateRevision   `json:"current"`
-	Retained      []WorkspaceTemplateRevision `json:"retained"`
+	SchemaVersion    int                                 `json:"schema_version"`
+	ID               WorkspaceTemplateID                 `json:"workspace_template_id"`
+	Name             string                              `json:"name"`
+	Metadata         *WorkspaceTemplateMetadataRevision  `json:"metadata_revision,omitempty"`
+	RetainedMetadata []WorkspaceTemplateMetadataRevision `json:"retained_metadata_revisions,omitempty"`
+	Current          WorkspaceTemplateRevision           `json:"current"`
+	Retained         []WorkspaceTemplateRevision         `json:"retained"`
+}
+
+type WorkspaceTemplateMetadataRevision struct {
+	Generation uint64         `json:"generation"`
+	Name       string         `json:"name"`
+	Revision   SemanticDigest `json:"revision"`
+}
+
+func NewWorkspaceTemplateMetadataRevision(generation uint64, name string) (WorkspaceTemplateMetadataRevision, error) {
+	if generation == 0 {
+		return WorkspaceTemplateMetadataRevision{}, fmt.Errorf("Template metadata generation must be positive")
+	}
+	if err := ValidateName(name); err != nil {
+		return WorkspaceTemplateMetadataRevision{}, err
+	}
+	revision, err := semanticIdentity(struct{ Name string }{name})
+	if err != nil {
+		return WorkspaceTemplateMetadataRevision{}, err
+	}
+	return WorkspaceTemplateMetadataRevision{Generation: generation, Name: name, Revision: revision}, nil
+}
+
+func (r WorkspaceTemplateMetadataRevision) Validate() error {
+	want, err := NewWorkspaceTemplateMetadataRevision(r.Generation, r.Name)
+	if err != nil || r.Revision != want.Revision {
+		return fmt.Errorf("Template metadata revision is invalid")
+	}
+	return nil
+}
+
+func AdvanceWorkspaceTemplateMetadata(template *WorkspaceTemplate, name string) (bool, error) {
+	if template == nil || ValidateName(name) != nil {
+		return false, fmt.Errorf("Template metadata change is invalid")
+	}
+	if template.Name == name {
+		return false, nil
+	}
+	if template.Metadata == nil {
+		baseline, err := NewWorkspaceTemplateMetadataRevision(1, template.Name)
+		if err != nil {
+			return false, err
+		}
+		template.Metadata = &baseline
+		template.RetainedMetadata = []WorkspaceTemplateMetadataRevision{baseline}
+	}
+	next, err := NewWorkspaceTemplateMetadataRevision(template.Metadata.Generation+1, name)
+	if err != nil {
+		return false, err
+	}
+	template.Name = name
+	template.Metadata = &next
+	template.RetainedMetadata = append(template.RetainedMetadata, next)
+	return true, nil
+}
+
+func InitializeWorkspaceTemplateMetadata(template *WorkspaceTemplate) error {
+	if template == nil {
+		return fmt.Errorf("Template metadata owner is unavailable")
+	}
+	if template.Metadata != nil || template.RetainedMetadata != nil {
+		return template.Validate()
+	}
+	metadata, err := NewWorkspaceTemplateMetadataRevision(1, template.Name)
+	if err != nil {
+		return err
+	}
+	template.Metadata = &metadata
+	template.RetainedMetadata = []WorkspaceTemplateMetadataRevision{metadata}
+	return nil
 }
 
 func (t WorkspaceTemplate) Validate() error {
@@ -625,6 +694,23 @@ func (t WorkspaceTemplate) Validate() error {
 	}
 	if err := ValidateWorkspaceTemplateHistory(t.Retained); err != nil {
 		return err
+	}
+	if t.Metadata != nil || t.RetainedMetadata != nil {
+		if t.Metadata == nil || len(t.RetainedMetadata) == 0 {
+			return fmt.Errorf("Template metadata history is incomplete")
+		}
+		for index, revision := range t.RetainedMetadata {
+			if err := revision.Validate(); err != nil {
+				return err
+			}
+			if index > 0 && (revision.Generation <= t.RetainedMetadata[index-1].Generation || revision.Revision == t.RetainedMetadata[index-1].Revision) {
+				return fmt.Errorf("Template metadata history is invalid")
+			}
+		}
+		latest := t.RetainedMetadata[len(t.RetainedMetadata)-1]
+		if *t.Metadata != latest || latest.Name != t.Name {
+			return fmt.Errorf("Template current metadata is not retained exactly")
+		}
 	}
 	found := false
 	for _, revision := range t.Retained {
@@ -652,6 +738,13 @@ func (t WorkspaceTemplate) Clone() WorkspaceTemplate {
 	result := t
 	result.Current = t.Current.Clone()
 	result.Retained = make([]WorkspaceTemplateRevision, len(t.Retained))
+	if t.Metadata != nil {
+		value := *t.Metadata
+		result.Metadata = &value
+	}
+	if t.RetainedMetadata != nil {
+		result.RetainedMetadata = append([]WorkspaceTemplateMetadataRevision{}, t.RetainedMetadata...)
+	}
 	for index := range t.Retained {
 		result.Retained[index] = t.Retained[index].Clone()
 	}
@@ -708,6 +801,9 @@ func CopyWorkspaceTemplateRevision(id WorkspaceTemplateID, name string, source W
 	result := WorkspaceTemplate{
 		SchemaVersion: WorkspaceTemplateSchemaVersion, ID: id, Name: name,
 		Current: revision, Retained: []WorkspaceTemplateRevision{revision.Clone()},
+	}
+	if err := InitializeWorkspaceTemplateMetadata(&result); err != nil {
+		return WorkspaceTemplate{}, err
 	}
 	return result, result.Validate()
 }

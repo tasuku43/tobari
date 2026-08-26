@@ -445,7 +445,7 @@ func (m *Mutator) removeExactPreparedEntryStage(encoded []byte) error {
 	if err := m.validatePreparedStage(encoded); err != nil {
 		return err
 	}
-	stage := m.store.root + ".wp11-mutation-stage"
+	stage := mutationStagePath(m.store.root)
 	if err := os.Remove(stage); err != nil {
 		return fmt.Errorf("remove terminal no-op Context entry stage: %w", err)
 	}
@@ -453,7 +453,7 @@ func (m *Mutator) removeExactPreparedEntryStage(encoded []byte) error {
 }
 
 func (m *Mutator) removeTerminalEntryStage(decision effectDecision) error {
-	stage := m.store.root + ".wp11-mutation-stage"
+	stage := mutationStagePath(m.store.root)
 	if _, err := os.Lstat(stage); errors.Is(err, os.ErrNotExist) {
 		return nil
 	} else if err != nil {

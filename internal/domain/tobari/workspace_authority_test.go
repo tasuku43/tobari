@@ -130,8 +130,9 @@ func TestWorkspaceTemplateRevisionNoOpAndABAReturn(t *testing.T) {
 
 	widened := templateBodyFixture("b")
 	widened.Boundary.SourceAccess = ManifestSourceAccessReadWrite
-	if _, _, err := AdvanceWorkspaceTemplateRevision(b, widened); err == nil {
-		t.Fatal("same-Template Boundary change passed")
+	widenedRevision, changed, err := AdvanceWorkspaceTemplateRevision(b, widened)
+	if err != nil || !changed || widenedRevision.Slices.BoundaryFingerprint == b.Slices.BoundaryFingerprint {
+		t.Fatalf("reviewable same-Template Boundary change failed: changed=%t err=%v", changed, err)
 	}
 	staleNoOp := b
 	staleNoOp.Generation++

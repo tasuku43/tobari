@@ -226,7 +226,7 @@ func TestManagedRuntimeBuildCreatesImmutableRevisionWithoutChangingContext(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !created.Created || created.Runtime.SourcePath != filepath.Join(root, "config", "runtimes", "frontend", "source") {
+	if !created.Created || created.Runtime.SourcePath != filepath.Join(root, "config", "runtimes", string(created.Runtime.ID), "source") {
 		t.Fatalf("created = %+v", created)
 	}
 	install := filepath.Join(created.Runtime.SourcePath, "install.sh")
@@ -445,7 +445,7 @@ func TestManagedRuntimeBuildRetainsBuiltAuthorityWhenManifestPublicationIsUncert
 			if err != nil || journal == nil || journal.Phase != runtimeBuildPhaseSnapshotPublished {
 				t.Fatalf("retained built journal = %+v/%v", journal, err)
 			}
-			final := filepath.Join(runtime.runtimeRevisionsDirectory("frontend"), strings.TrimPrefix(journal.Revision, "sha256:"), "source")
+			final := filepath.Join(runtime.runtimeRevisionsDirectory(journal.RuntimeID), strings.TrimPrefix(journal.Revision, "sha256:"), "source")
 			rehashed, err := digestRuntimeSnapshot(context.Background(), final)
 			if err != nil || rehashed != journal.Revision {
 				t.Fatalf("retained final snapshot = %q/%v", rehashed, err)
@@ -855,18 +855,21 @@ func failedRuntimeBuildAttemptFixture(t *testing.T, artifact string) (*Runtime, 
 	if err := runtime.writeRuntimeBuildJournal(building, failed); err != nil {
 		t.Fatal(err)
 	}
-	runtimeRoot := runtime.runtimeDirectory(failed.RuntimeName)
+	runtimeRoot := runtime.runtimeDirectory(failed.RuntimeID)
 	if err := os.MkdirAll(filepath.Join(runtimeRoot, "source"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(runtimeRoot, "revisions"), 0o700); err != nil {
+	if err := writeRuntimeSourceMetadata(runtime.runtimeMetadataPath(failed.RuntimeID), runtimeSourceMetadata{SchemaVersion: 1, RuntimeID: failed.RuntimeID, Name: failed.RuntimeName}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(runtime.runtimeRevisionsDirectory(failed.RuntimeID), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(runtimeRoot, "source", "Dockerfile"), []byte("FROM scratch\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest := tobari.RuntimeManifest{SchemaVersion: tobari.RuntimeSchemaVersion, ID: failed.RuntimeID, Name: failed.RuntimeName, Kind: tobari.RuntimeKindManaged, SourcePath: filepath.Join(runtimeRoot, "source"), Revisions: []tobari.RuntimeRevision{}}
-	if err := writeAtomicJSON(runtime.runtimeManifestPath(failed.RuntimeName), manifest); err != nil {
+	if err := writeAtomicJSON(runtime.runtimeManifestPath(failed.RuntimeID), manifest); err != nil {
 		t.Fatal(err)
 	}
 	if err := runtime.WithLifecycleLock(context.Background(), func(context.Context) error { return nil }); err != nil {
@@ -1950,7 +1953,7 @@ func TestCompletingBuiltRecoveryRequiresExactCommittedAuthority(t *testing.T) {
 			switch drift {
 			case "manifest":
 				manifest.Revisions = manifest.Revisions[:len(manifest.Revisions)-1]
-				if err := writeAtomicJSON(runtime.runtimeManifestPath(manifest.Name), manifest); err != nil {
+				if err := writeAtomicJSON(runtime.runtimeManifestPath(manifest.ID), manifest); err != nil {
 					t.Fatal(err)
 				}
 			case "snapshot":
@@ -2031,7 +2034,7 @@ func TestBuiltJournalHasReachableExactRecoveryAfterManifestCommit(t *testing.T) 
 			switch drift {
 			case "manifest":
 				manifest.Revisions = manifest.Revisions[:len(manifest.Revisions)-1]
-				if err := writeAtomicJSON(runtime.runtimeManifestPath(manifest.Name), manifest); err != nil {
+				if err := writeAtomicJSON(runtime.runtimeManifestPath(manifest.ID), manifest); err != nil {
 					t.Fatal(err)
 				}
 			case "snapshot":
@@ -2296,7 +2299,7 @@ func TestManagedRuntimeBuildReferenceCannotRetargetSameNameReuse(t *testing.T) {
 	// Model retirement and same-name recreation in the window between the
 	// application read and the effect boundary. The effect must re-resolve the
 	// stable ID while locked instead of inheriting authority from this name.
-	if err := os.RemoveAll(runtime.runtimeDirectory("frontend")); err != nil {
+	if err := os.RemoveAll(runtime.runtimeDirectory(old.Runtime.ID)); err != nil {
 		t.Fatal(err)
 	}
 	fresh, err := runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
@@ -2306,7 +2309,7 @@ func TestManagedRuntimeBuildReferenceCannotRetargetSameNameReuse(t *testing.T) {
 	if fresh.Runtime.ID == old.Runtime.ID {
 		t.Fatalf("same-name recreation reused Runtime ID %q", fresh.Runtime.ID)
 	}
-	manifestBefore, err := os.ReadFile(runtime.runtimeManifestPath("frontend"))
+	manifestBefore, err := os.ReadFile(runtime.runtimeManifestPath(fresh.Runtime.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2318,7 +2321,7 @@ func TestManagedRuntimeBuildReferenceCannotRetargetSameNameReuse(t *testing.T) {
 	if _, err := runtime.BuildManagedRuntimeByReference(context.Background(), oldRef, nil); !errors.Is(err, tobari.ErrRuntimeNotFound) {
 		t.Fatalf("retired Runtime build error = %v", err)
 	}
-	manifestAfter, err := os.ReadFile(runtime.runtimeManifestPath("frontend"))
+	manifestAfter, err := os.ReadFile(runtime.runtimeManifestPath(fresh.Runtime.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2348,7 +2351,7 @@ func TestResolveRuntimeReferenceCannotRetargetSameNameReuse(t *testing.T) {
 		t.Fatal(err)
 	}
 	oldRef := tobari.RuntimeRef(old.Runtime.ID)
-	if err := os.RemoveAll(runtime.runtimeDirectory("frontend")); err != nil {
+	if err := os.RemoveAll(runtime.runtimeDirectory(old.Runtime.ID)); err != nil {
 		t.Fatal(err)
 	}
 	fresh, err := runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
@@ -2472,6 +2475,234 @@ func TestRuntimeCreateCancellationPublishesNoTarget(t *testing.T) {
 	}
 	if _, err := os.Lstat(runtime.runtimeDirectory("mobile")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("canceled creation published target: %v", err)
+	}
+}
+
+func TestRuntimeCreateTransactionRecoversEveryCrossRootPublicationBoundary(t *testing.T) {
+	for _, boundary := range []string{
+		"journal_prepared",
+		"state_renamed",
+		"journal_state_published",
+		"config_renamed",
+		"journal_config_published",
+	} {
+		t.Run(boundary, func(t *testing.T) {
+			root := t.TempDir()
+			runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			interrupted := errors.New("synthetic Runtime create crash")
+			failed := false
+			runtime.runtimeCreateBoundary = func(observed string) error {
+				if !failed && observed == boundary {
+					failed = true
+					return interrupted
+				}
+				return nil
+			}
+			if _, err := runtime.CreateRuntime(context.Background(), "mobile", tobari.RuntimeCopySource(tobari.StandardRuntimeName)); !errors.Is(err, interrupted) {
+				t.Fatalf("create interruption at %s = %v", boundary, err)
+			}
+			journal, err := runtime.readRuntimeCreateJournal()
+			if err != nil || journal == nil || journal.RuntimeName != "mobile" {
+				t.Fatalf("create journal at %s = %+v/%v", boundary, journal, err)
+			}
+			if _, _, err := runtime.ReadRuntimeLifecycleSnapshot(context.Background()); err == nil || !strings.Contains(err.Error(), "create transaction requires recovery") {
+				t.Fatalf("lifecycle read did not fail closed at %s: %v", boundary, err)
+			}
+			runtime.runtimeCreateBoundary = nil
+			recovered, err := runtime.CreateRuntime(context.Background(), "mobile", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
+			if err != nil || !recovered.Created || recovered.Runtime.ID != journal.RuntimeID || recovered.Runtime.Name != "mobile" {
+				t.Fatalf("create recovery at %s = %+v/%v", boundary, recovered, err)
+			}
+			if journal, err := runtime.readRuntimeCreateJournal(); err != nil || journal != nil {
+				t.Fatalf("create journal remained at %s = %+v/%v", boundary, journal, err)
+			}
+			if _, err := runtime.ResolveRuntimeReference(context.Background(), tobari.RuntimeRef(recovered.Runtime.ID)); err != nil {
+				t.Fatalf("recovered Runtime unresolved at %s: %v", boundary, err)
+			}
+		})
+	}
+}
+
+func TestRuntimeCreateFileSyncFailurePublishesNoJournalOrRuntimeAndRetrySucceeds(t *testing.T) {
+	root := t.TempDir()
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := errors.New("synthetic Runtime source file sync failure")
+	runtime.runtimeCreateFileSync = func(path string) error {
+		if filepath.Base(path) == "runtime.yaml" {
+			return want
+		}
+		return syncRegularRuntimeFile(path)
+	}
+	if _, err := runtime.CreateRuntime(context.Background(), "mobile", tobari.RuntimeCopySource(tobari.StandardRuntimeName)); !errors.Is(err, want) {
+		t.Fatalf("create sync failure = %v", err)
+	}
+	if journal, err := runtime.readRuntimeCreateJournal(); err != nil || journal != nil {
+		t.Fatalf("pre-journal sync failure retained journal = %+v/%v", journal, err)
+	}
+	entries, err := os.ReadDir(runtime.runtimesDirectory())
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("pre-journal sync failure published config = %v/%v", entries, err)
+	}
+	runtime.runtimeCreateFileSync = nil
+	created, err := runtime.CreateRuntime(context.Background(), "mobile", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
+	if err != nil || !created.Created {
+		t.Fatalf("retry after sync failure = %+v/%v", created, err)
+	}
+}
+
+func TestRuntimeCreateCopiedSourceSyncsEveryFileBeforeJournalAndRetry(t *testing.T) {
+	root := t.TempDir()
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(base.Runtime.SourcePath, "assets", "nested")
+	if err := os.MkdirAll(nested, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "config.txt"), []byte("synthetic copied input\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configBefore, err := os.ReadDir(runtime.runtimesDirectory())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateBefore, err := os.ReadDir(runtime.runtimeStatesDirectory())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := errors.New("synthetic nested Runtime source sync failure")
+	runtime.runtimeCreateFileSync = func(path string) error {
+		if filepath.Base(path) == "config.txt" {
+			return want
+		}
+		return syncRegularRuntimeFile(path)
+	}
+	if _, err := runtime.CreateRuntime(context.Background(), "mobile", tobari.RuntimeCopySource("frontend")); !errors.Is(err, want) {
+		t.Fatalf("copied source sync failure = %v", err)
+	}
+	if journal, err := runtime.readRuntimeCreateJournal(); err != nil || journal != nil {
+		t.Fatalf("pre-journal copied source sync failure retained journal = %+v/%v", journal, err)
+	}
+	configAfter, err := os.ReadDir(runtime.runtimesDirectory())
+	if err != nil || len(configAfter) != len(configBefore) {
+		t.Fatalf("pre-journal copied source sync failure published config = %v/%v", configAfter, err)
+	}
+	stateAfter, err := os.ReadDir(runtime.runtimeStatesDirectory())
+	if err != nil || len(stateAfter) != len(stateBefore) {
+		t.Fatalf("pre-journal copied source sync failure published state = %v/%v", stateAfter, err)
+	}
+	runtime.runtimeCreateFileSync = nil
+	created, err := runtime.CreateRuntime(context.Background(), "mobile", tobari.RuntimeCopySource("frontend"))
+	if err != nil || !created.Created {
+		t.Fatalf("retry after copied source sync failure = %+v/%v", created, err)
+	}
+	data, err := os.ReadFile(filepath.Join(created.Runtime.SourcePath, "assets", "nested", "config.txt"))
+	if err != nil || string(data) != "synthetic copied input\n" {
+		t.Fatalf("retry copied nested source = %q/%v", data, err)
+	}
+}
+
+func TestRuntimeMetadataAndConfigInventoryFailClosed(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*testing.T, *Runtime, tobari.RuntimeManifest)
+	}{
+		{name: "unknown metadata field", mutate: func(t *testing.T, runtime *Runtime, manifest tobari.RuntimeManifest) {
+			path := runtime.runtimeMetadataPath(manifest.ID)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, append(data, []byte("unknown: true\n")...), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "null required metadata", mutate: func(t *testing.T, runtime *Runtime, manifest tobari.RuntimeManifest) {
+			if err := os.WriteFile(runtime.runtimeMetadataPath(manifest.ID), []byte("schema_version: 1\nruntime_id: null\nname: null\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "metadata anchor", mutate: func(t *testing.T, runtime *Runtime, manifest tobari.RuntimeManifest) {
+			data := "schema_version: &version 1\nruntime_id: " + manifest.ID + "\nname: mobile\n"
+			if err := os.WriteFile(runtime.runtimeMetadataPath(manifest.ID), []byte(data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "metadata alias", mutate: func(t *testing.T, runtime *Runtime, manifest tobari.RuntimeManifest) {
+			data := "schema_version: &version 1\nruntime_id: " + manifest.ID + "\nname: *version\n"
+			if err := os.WriteFile(runtime.runtimeMetadataPath(manifest.ID), []byte(data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "metadata merge", mutate: func(t *testing.T, runtime *Runtime, manifest tobari.RuntimeManifest) {
+			data := "defaults: &defaults\n  name: mobile\nschema_version: 1\nruntime_id: " + manifest.ID + "\n<<: *defaults\n"
+			if err := os.WriteFile(runtime.runtimeMetadataPath(manifest.ID), []byte(data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "metadata explicit tag", mutate: func(t *testing.T, runtime *Runtime, manifest tobari.RuntimeManifest) {
+			data := "schema_version: !!int 1\nruntime_id: " + manifest.ID + "\nname: mobile\n"
+			if err := os.WriteFile(runtime.runtimeMetadataPath(manifest.ID), []byte(data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "metadata non-string key", mutate: func(t *testing.T, runtime *Runtime, manifest tobari.RuntimeManifest) {
+			data := "schema_version: 1\nruntime_id: " + manifest.ID + "\nname: mobile\n1: invalid\n"
+			if err := os.WriteFile(runtime.runtimeMetadataPath(manifest.ID), []byte(data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "metadata hardlink", mutate: func(t *testing.T, runtime *Runtime, manifest tobari.RuntimeManifest) {
+			if err := os.Link(runtime.runtimeMetadataPath(manifest.ID), filepath.Join(runtime.runtimeDirectory(manifest.ID), "metadata-link")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "metadata symlink", mutate: func(t *testing.T, runtime *Runtime, manifest tobari.RuntimeManifest) {
+			path := runtime.runtimeMetadataPath(manifest.ID)
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("source/Dockerfile", path); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "unknown config child", mutate: func(t *testing.T, runtime *Runtime, manifest tobari.RuntimeManifest) {
+			if err := os.WriteFile(filepath.Join(runtime.runtimeDirectory(manifest.ID), "extra"), []byte("unknown\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "missing source", mutate: func(t *testing.T, runtime *Runtime, manifest tobari.RuntimeManifest) {
+			if err := os.Rename(runtime.runtimeSourceDirectory(manifest.ID), filepath.Join(runtime.runtimeDirectory(manifest.ID), "source-missing")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			created, err := runtime.CreateRuntime(context.Background(), "mobile", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
+			if err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(t, runtime, created.Runtime)
+			if _, err := runtime.ResolveRuntimeReference(context.Background(), tobari.RuntimeRef(created.Runtime.ID)); err == nil {
+				t.Fatal("hostile Runtime source metadata/config was accepted")
+			}
+		})
 	}
 }
 

@@ -13,6 +13,7 @@ func finalReferenceInput(name, description, kind string) CommandInput {
 
 func finalAuthorityReadErrors(path, recovery string) []CommandError {
 	return readCommandErrors(path, true,
+		declaredCommandError(fault.KindRejected, "installation_migration_required", false, "installation migration plan", "Review the exact supported authority.json migration."),
 		declaredCommandError(fault.KindRejected, "legacy_state_present", false, "doctor", "Reset or recreate this pre-release installation before initializing final authority."),
 		declaredCommandError(fault.KindNotFound, "authority_not_found", false, recovery, "Discover current final authority references."),
 		declaredCommandError(fault.KindContract, "invalid_authority", false, recovery, "Repair the final authority envelope."),
@@ -21,6 +22,7 @@ func finalAuthorityReadErrors(path, recovery string) []CommandError {
 
 func finalAuthorityMutationErrors(path, recovery string) []CommandError {
 	return mutationCommandErrors(path, recovery,
+		declaredCommandError(fault.KindRejected, "installation_migration_required", false, "installation migration plan", "Review the exact supported authority.json migration."),
 		declaredCommandError(fault.KindInvalidInput, "invalid_template_ref", false, "template list", "Use one exact opaque Workspace Template reference emitted by Template discovery."),
 		declaredCommandError(fault.KindInvalidInput, "invalid_runtime_revision_ref", false, "review runtimes", "Use one exact opaque Runtime revision reference emitted by Runtime discovery."),
 		declaredCommandError(fault.KindUnavailable, "final_authority_mutation_recovery_required", false, "status", "Read and recover the preserved final-authority decision through the exact initiating command; do not remove authority files manually."),
@@ -62,58 +64,97 @@ func finalTemplateGraphQLEndpointOutputField() OutputField {
 
 func finalTemplateListFields() []OutputField {
 	return []OutputField{{Name: "items", Type: OutputFieldTypeArray, Description: "Complete final Workspace Template collection.", SemanticScope: "All final Workspace Templates at one coherent observation.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One Workspace Template.", Fields: []OutputField{
+		{Name: "lifecycle", Type: OutputFieldTypeString, Description: "Template lifecycle.", Enum: []string{"draft", "active"}},
 		{Name: "template_ref", Type: OutputFieldTypeString, Description: "Opaque Workspace Template reference.", ReferenceKind: tobari.WorkspaceTemplateReferenceKind},
 		{Name: "workspace_template_id", Type: OutputFieldTypeString, Description: "Exact final Template identity."},
 		{Name: "name", Type: OutputFieldTypeString, Description: "Template display name."},
-		{Name: "generation", Type: OutputFieldTypeInteger, Description: "Current immutable revision generation."},
-		{Name: "revision", Type: OutputFieldTypeString, Description: "Current complete-body digest."},
-		{Name: "runtime_id", Type: OutputFieldTypeString, Description: "Current Runtime identity."},
-		{Name: "runtime_revision", Type: OutputFieldTypeString, Description: "Current Runtime revision digest."},
-		{Name: "source_access", Type: OutputFieldTypeString, Description: "Immutable direct Project source access: read-only or read-write."},
-		finalTemplateGraphQLEndpointOutputField(),
+		{Name: "generation", Type: OutputFieldTypeInteger, Description: "Current immutable revision generation.", Optional: true},
+		{Name: "revision", Type: OutputFieldTypeString, Description: "Current complete-body digest.", Optional: true},
+		{Name: "runtime_id", Type: OutputFieldTypeString, Description: "Current Runtime identity.", Optional: true},
+		{Name: "runtime_revision", Type: OutputFieldTypeString, Description: "Current Runtime revision digest.", Optional: true},
+		{Name: "source_access", Type: OutputFieldTypeString, Description: "Desired or active direct Project source access: read-only or read-write.", Optional: true},
+		{Name: "source_path", Type: OutputFieldTypeString, Description: "Canonical absolute Template source directory file path."},
+		{Name: "source_state", Type: OutputFieldTypeString, Description: "Desired/active source state: in_sync, modified, invalid, or missing."},
+		{Name: "source_revision", Type: OutputFieldTypeString, Description: "Parsed desired semantic revision, absent when missing or invalid.", Optional: true},
+		{Name: "active_revision", Type: OutputFieldTypeString, Description: "Last successfully applied active Template revision.", Optional: true},
+		func() OutputField {
+			value := finalTemplateGraphQLEndpointOutputField()
+			value.Optional = true
+			return value
+		}(),
 	}}}}
 }
 
 func finalTemplateShowFields(includeRevisionRef bool) []OutputField {
 	fields := []OutputField{
+		{Name: "lifecycle", Type: OutputFieldTypeString, Description: "Template lifecycle.", Enum: []string{"draft", "active"}},
 		{Name: "template_ref", Type: OutputFieldTypeString, Description: "Opaque Workspace Template reference.", ReferenceKind: tobari.WorkspaceTemplateReferenceKind},
 		{Name: "workspace_template_id", Type: OutputFieldTypeString, Description: "Exact final Template identity."},
 		{Name: "name", Type: OutputFieldTypeString, Description: "Template display name."},
-		{Name: "generation", Type: OutputFieldTypeInteger, Description: "Current immutable revision generation."},
-		{Name: "revision", Type: OutputFieldTypeString, Description: "Current complete-body digest."},
-		{Name: "runtime_id", Type: OutputFieldTypeString, Description: "Current Runtime identity."},
-		{Name: "runtime_revision", Type: OutputFieldTypeString, Description: "Current Runtime revision digest."},
-		{Name: "source_access", Type: OutputFieldTypeString, Description: "Immutable direct Project source access: read-only or read-write."},
-		finalTemplateGraphQLEndpointOutputField(),
-		{Name: "policy_slice_digest", Type: OutputFieldTypeString, Description: "Current independent Template-policy slice digest."},
-		{Name: "entry_slice_digest", Type: OutputFieldTypeString, Description: "Current entry-authority slice digest."},
+		{Name: "generation", Type: OutputFieldTypeInteger, Description: "Current immutable revision generation.", Optional: true},
+		{Name: "revision", Type: OutputFieldTypeString, Description: "Current complete-body digest.", Optional: true},
+		{Name: "runtime_id", Type: OutputFieldTypeString, Description: "Current Runtime identity.", Optional: true},
+		{Name: "runtime_revision", Type: OutputFieldTypeString, Description: "Current Runtime revision digest.", Optional: true},
+		{Name: "source_access", Type: OutputFieldTypeString, Description: "Desired or active direct Project source access: read-only or read-write.", Optional: true},
+		{Name: "source_path", Type: OutputFieldTypeString, Description: "Canonical absolute path of template.yaml; policy.yaml is its closed sibling."},
+		{Name: "source_state", Type: OutputFieldTypeString, Description: "Desired/active source state: in_sync, modified, invalid, or missing."},
+		{Name: "source_revision", Type: OutputFieldTypeString, Description: "Parsed desired semantic revision, absent when missing or invalid.", Optional: true},
+		{Name: "active_revision", Type: OutputFieldTypeString, Description: "Last successfully applied active Template revision.", Optional: true},
+		func() OutputField {
+			value := finalTemplateGraphQLEndpointOutputField()
+			value.Optional = true
+			return value
+		}(),
+		{Name: "policy_slice_digest", Type: OutputFieldTypeString, Description: "Current independent Template-policy slice digest.", Optional: true},
+		{Name: "entry_slice_digest", Type: OutputFieldTypeString, Description: "Current entry-authority slice digest.", Optional: true},
 	}
 	if includeRevisionRef {
-		fields = append(fields[:1], append([]OutputField{{Name: "current_revision_ref", Type: OutputFieldTypeString, Description: "Opaque exact current Template revision reference.", ReferenceKind: tobari.WorkspaceTemplateRevisionReferenceKind}}, fields[1:]...)...)
+		fields = append(fields[:2], append([]OutputField{{Name: "current_revision_ref", Type: OutputFieldTypeString, Description: "Opaque exact current Template revision reference.", ReferenceKind: tobari.WorkspaceTemplateRevisionReferenceKind, Optional: true}}, fields[2:]...)...)
 	}
 	return fields
 }
 
 func finalTemplateMutationFields() []OutputField {
 	fields := finalTemplateShowFields(false)
-	return append([]OutputField{}, fields[1:]...)
+	result := make([]OutputField, 0, len(fields)-1)
+	for _, field := range fields {
+		if field.Name != "template_ref" {
+			result = append(result, field)
+		}
+	}
+	return result
 }
 
 func finalTemplateCreateFields() []OutputField {
-	return append([]OutputField{}, finalTemplateShowFields(false)...)
+	return []OutputField{
+		{Name: "lifecycle", Type: OutputFieldTypeString, Description: "Resource lifecycle; create always returns draft.", Enum: []string{"draft"}},
+		{Name: "template_ref", Type: OutputFieldTypeString, Description: "Opaque draft Template reference.", ReferenceKind: tobari.WorkspaceTemplateReferenceKind},
+		{Name: "workspace_template_id", Type: OutputFieldTypeString, Description: "Stable installation-owned Template ID."},
+		{Name: "name", Type: OutputFieldTypeString, Description: "Template display name."},
+		{Name: "source_path", Type: OutputFieldTypeString, Description: "Canonical absolute template.yaml path; policy.yaml is its closed sibling."},
+		{Name: "source_state", Type: OutputFieldTypeString, Description: "Desired source state; a new draft is modified until planned Apply."},
+		{Name: "source_revision", Type: OutputFieldTypeString, Description: "Canonical desired semantic revision."},
+		{Name: "source_access", Type: OutputFieldTypeString, Description: "Desired Project source access."},
+		finalTemplateGraphQLEndpointOutputField(),
+	}
 }
 
 func finalContextFields(includeContextRef bool) []OutputField {
 	fields := []OutputField{
+		{Name: "lifecycle", Type: OutputFieldTypeString, Description: "Context lifecycle.", Enum: []string{"draft", "active"}},
 		{Name: "context_id", Type: OutputFieldTypeString, Description: "Exact final Context identity."},
-		{Name: "workspace_template_id", Type: OutputFieldTypeString, Description: "Exact bound Template identity."},
-		{Name: "template_name", Type: OutputFieldTypeString, Description: "Bound Template display name."},
-		{Name: "project_root", Type: OutputFieldTypeString, Description: "Canonical Project root."},
-		{Name: "desired_template_generation", Type: OutputFieldTypeInteger, Description: "Current desired immutable Template generation."},
-		{Name: "desired_template_revision", Type: OutputFieldTypeString, Description: "Current desired complete Template revision digest."},
-		{Name: "desired_template_policy_slice_digest", Type: OutputFieldTypeString, Description: "Current desired Template-policy slice digest."},
+		{Name: "workspace_template_id", Type: OutputFieldTypeString, Description: "Exact bound Template identity.", Optional: true},
+		{Name: "template_name", Type: OutputFieldTypeString, Description: "Bound Template display name.", Optional: true},
+		{Name: "project_root", Type: OutputFieldTypeString, Description: "Canonical Project root.", Optional: true},
+		{Name: "source_path", Type: OutputFieldTypeString, Description: "Canonical absolute path of the immutable Context source document."},
+		{Name: "source_state", Type: OutputFieldTypeString, Description: "Desired/active source state: in_sync, modified, invalid, or missing."},
+		{Name: "source_revision", Type: OutputFieldTypeString, Description: "Parsed Context source identity, or null when missing or invalid.", Nullable: true},
+		{Name: "active_revision", Type: OutputFieldTypeString, Description: "Active immutable Context source identity.", Optional: true},
+		{Name: "desired_template_generation", Type: OutputFieldTypeInteger, Description: "Current desired immutable Template generation.", Optional: true},
+		{Name: "desired_template_revision", Type: OutputFieldTypeString, Description: "Current desired complete Template revision digest.", Optional: true},
+		{Name: "desired_template_policy_slice_digest", Type: OutputFieldTypeString, Description: "Current desired Template-policy slice digest.", Optional: true},
 		{Name: "active_template_policy_slice_digest", Type: OutputFieldTypeString, Description: "Independently active Template-policy slice digest, or null when inactive.", Nullable: true},
-		{Name: "current_policy_memory_revision", Type: OutputFieldTypeString, Description: "Current Context-owned Policy Memory revision."},
+		{Name: "current_policy_memory_revision", Type: OutputFieldTypeString, Description: "Current Context-owned Policy Memory revision.", Optional: true},
 		{Name: "active_policy_memory_revision", Type: OutputFieldTypeString, Description: "Independently active Policy Memory revision, or null when inactive.", Nullable: true},
 		{Name: "workspace_id", Type: OutputFieldTypeString, Description: "Current Workspace identity when present.", Optional: true},
 		{Name: "applied_entry", Type: OutputFieldTypeObject, Description: "Independent last-successful Workspace AppliedEntry, or null before entry.", Nullable: true, Fields: []OutputField{
@@ -167,7 +208,7 @@ func finalTemplateShowSpec() CommandSpec {
 }
 
 func finalTemplateCreateSpec() CommandSpec {
-	return CommandSpec{Path: "template create", Summary: "Create one direct final Workspace Template", Args: "--name <name> [--source-access read-only|read-write] [--graphql-endpoint <https-url>] [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Create one fresh Template from the reviewed standard body with bounded source access and optional exact GraphQL endpoint", Inputs: []CommandInput{
+	return CommandSpec{Path: "template create", Summary: "Create one unpublished Workspace Template draft", Args: "--name <name> [--source-access read-only|read-write] [--graphql-endpoint <https-url>] [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Write one fresh Template source draft from the reviewed standard body without active authority", Inputs: []CommandInput{
 		{Name: "--name", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Unique Template display name.", AllowedValues: []string{}},
 		{Name: "--source-access", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Immutable direct Project source access for this Template.", AllowedValues: []string{"read-only", "read-write"}, DefaultValue: stringPointer("read-write")},
 		{Name: "--graphql-endpoint", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: int64Pointer(1), Description: "One exact HTTPS GraphQL endpoint with an explicit port and path; it is bounded by the standard destination and POST method ceilings.", AllowedValues: []string{}},
@@ -175,7 +216,68 @@ func finalTemplateCreateSpec() CommandSpec {
 }
 
 func finalTemplateCopySpec() CommandSpec {
-	return CommandSpec{Path: "template copy", Summary: "Copy one immutable Template revision", Args: "--from <template-revision-ref> --name <name> [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Create one independent Template from one exact retained revision", Inputs: []CommandInput{finalReferenceInput("--from", "Opaque exact Template revision reference.", tobari.WorkspaceTemplateRevisionReferenceKind), {Name: "--name", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Unique new Template display name.", AllowedValues: []string{}}, formatInput()}, Output: finalJSONOutput("template", finalTemplateMutationFields(), CollectionCoverageNotApplicable), Prerequisites: []string{}, Errors: finalAuthorityMutationErrors("template copy", "template list"), Mutation: &MutationContract{TargetKind: tobari.WorkspaceTemplateReferenceKind, TargetInputs: []string{"--from"}, ParentInput: "--from", Impact: workspaceauthoritycmd.TemplateCreateImpact()}}, handler: runFinalTemplateCopy}
+	return CommandSpec{Path: "template copy", Summary: "Copy one immutable Template revision into a draft", Args: "--from <template-revision-ref> --name <name> [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Write one independent unpublished Template source draft from one exact retained revision", Inputs: []CommandInput{finalReferenceInput("--from", "Opaque exact Template revision reference.", tobari.WorkspaceTemplateRevisionReferenceKind), {Name: "--name", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Unique new Template display name.", AllowedValues: []string{}}, formatInput()}, Output: finalJSONOutput("template", finalTemplateCreateFields(), CollectionCoverageNotApplicable), Prerequisites: []string{"The source Template pair is in sync."}, Errors: finalAuthorityMutationErrors("template copy", "template list"), Mutation: &MutationContract{TargetKind: tobari.WorkspaceTemplateReferenceKind, TargetInputs: []string{"--from"}, ParentInput: "--from", Impact: workspaceauthoritycmd.TemplateCreateImpact()}}, handler: runFinalTemplateCopy}
+}
+
+func finalTemplateApplySpec() CommandSpec {
+	fields := append([]OutputField{}, finalTemplateShowFields(true)...)
+	fields = append(fields, OutputField{Name: "changed", Type: OutputFieldTypeBoolean, Description: "Whether one new active Template authority was published."})
+	errors := finalAuthorityMutationErrors("template apply", "template show")
+	errors = append(errors,
+		declaredCommandError(fault.KindInvalidInput, "invalid_template_change_plan_ref", false, "template list", "Use one exact opaque plan reference emitted by template plan."),
+		declaredCommandError(fault.KindRejected, "template_change_plan_stale", false, "template list", "Discover the Template and create a fresh plan after any source, active, Context, Memory, or Workspace drift."),
+		declaredCommandError(fault.KindNotFound, "resource_source_missing", false, "template show", "Inspect the canonical source path; missing source never deletes active authority."),
+		declaredCommandError(fault.KindInvalidInput, "resource_source_invalid", false, "template show", "Correct the strict source schema or closed file-set diagnostic."),
+		declaredCommandError(fault.KindRejected, "resource_source_changed", true, "template show", "Re-read the exact source and active revisions before retrying."),
+		declaredCommandError(fault.KindRejected, "resource_source_modified", false, "template show", "Re-read the exact source and active revisions before applying again."),
+		declaredCommandError(fault.KindUnavailable, "resource_source_recovery_required", false, "template show", "Inspect source and active identities before exact recovery."),
+	)
+	return CommandSpec{Path: "template apply", Summary: "Apply one reviewed Template change plan", Args: "--plan <template-change-plan-ref> [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct, Agent: AgentContract{
+		CapabilityID: "workspace.authority", Outcome: "Revalidate one exact Template change plan and publish at most one immutable moving-head Template revision",
+		Inputs:        []CommandInput{finalReferenceInput("--plan", "Opaque Template change plan reference emitted by template plan and consumed unchanged.", tobari.WorkspaceTemplateChangePlanReferenceKind), formatInput()},
+		Output:        finalJSONOutput("template", fields, CollectionCoverageNotApplicable),
+		Prerequisites: []string{"The reviewed plan still exactly matches source bytes, active/base revision, bound Contexts, Policy Memory, running Workspaces, and Runtime authority."}, Errors: errors,
+		Mutation: &MutationContract{TargetKind: tobari.WorkspaceTemplateChangePlanReferenceKind, TargetInputs: []string{"--plan"}, TargetIDInput: "--plan", Impact: workspaceauthoritycmd.TemplateApplyImpact()},
+	}, handler: runFinalTemplateApply}
+}
+
+func finalTemplatePlanSpec() CommandSpec {
+	fields := []OutputField{
+		{Name: "plan_ref", Type: OutputFieldTypeString, Description: "Opaque exact Template change plan reference.", ReferenceKind: tobari.WorkspaceTemplateChangePlanReferenceKind},
+		{Name: "template_ref", Type: OutputFieldTypeString, Description: "Opaque planned Workspace Template reference.", ReferenceKind: tobari.WorkspaceTemplateReferenceKind},
+		{Name: "active_revision", Type: OutputFieldTypeString, Description: "Exact active Template revision bound by the plan; absent for a draft.", Optional: true},
+		{Name: "active_metadata_revision", Type: OutputFieldTypeString, Description: "Exact active display-metadata revision bound by the plan; absent for a draft.", Optional: true},
+		{Name: "base_revision", Type: OutputFieldTypeString, Description: "Exact desired-source base revision bound by the plan; absent for a draft.", Optional: true},
+		{Name: "source_fingerprint", Type: OutputFieldTypeString, Description: "Exact template.yaml and policy.yaml byte-pair fingerprint."},
+		{Name: "source_revision", Type: OutputFieldTypeString, Description: "Canonical desired Template semantic revision."},
+		{Name: "impact", Type: OutputFieldTypeString, Description: "Classified authority impact.", Enum: []string{"widening", "reducing", "mixed", "no-op"}},
+		{Name: "diff", Type: OutputFieldTypeObject, Description: "Complete classified Template dimensions.", Fields: []OutputField{
+			{Name: "name", Type: OutputFieldTypeBoolean, Description: "Whether display metadata changes."},
+			{Name: "boundary", Type: OutputFieldTypeBoolean, Description: "Whether the Method/source/network Boundary changes."},
+			{Name: "semantic_policy", Type: OutputFieldTypeBoolean, Description: "Whether static semantic policy changes."},
+			{Name: "runtime", Type: OutputFieldTypeBoolean, Description: "Whether exact Runtime binding changes."},
+			{Name: "session_defaults", Type: OutputFieldTypeBoolean, Description: "Whether session defaults change."},
+			{Name: "workspace_defaults", Type: OutputFieldTypeBoolean, Description: "Whether future-Workspace creation defaults change."},
+		}},
+		{Name: "contexts", Type: OutputFieldTypeArray, Description: "All bound Context and relevant Memory revision evidence.", SemanticScope: "Every Context bound to the planned Template at one coherent observation.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One bound Context.", Fields: []OutputField{
+			{Name: "context_ref", Type: OutputFieldTypeString, Description: "Opaque affected Context reference.", ReferenceKind: tobari.ContextReferenceKind},
+			{Name: "policy_memory_revision", Type: OutputFieldTypeString, Description: "Exact relevant Context Policy Memory revision."},
+			{Name: "workspace_ref", Type: OutputFieldTypeString, Description: "Opaque running Workspace reference when present.", ReferenceKind: tobari.WorkspaceReferenceKind, Optional: true},
+		}}},
+		{Name: "affected_context_count", Type: OutputFieldTypeInteger, Description: "Exact bound Context count."},
+		{Name: "running_workspace_count", Type: OutputFieldTypeInteger, Description: "Exact bound Contexts with running Workspace authority."},
+	}
+	errors := append(finalAuthorityReadErrors("template plan", "template list"),
+		declaredCommandError(fault.KindNotFound, "template_not_found", false, "template list", "Discover an active or draft Template reference before planning."),
+		declaredCommandError(fault.KindNotFound, "resource_source_missing", false, "template show", "Restore the canonical source pair before planning."),
+		declaredCommandError(fault.KindInvalidInput, "resource_source_invalid", false, "template show", "Correct the strict source schema before planning."),
+		declaredCommandError(fault.KindRejected, "resource_source_modified", false, "template show", "Rebase the desired source on the exact active revision."),
+	)
+	return CommandSpec{Path: "template plan", Summary: "Review one exact desired Template change", Args: "--id <template-ref> [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{
+		CapabilityID: "workspace.authority", Outcome: "Classify one exact Template source change and bind all Apply-relevant authority without mutation",
+		Inputs: []CommandInput{finalReferenceInput("--id", "Opaque Workspace Template reference whose desired source is reviewed.", tobari.WorkspaceTemplateReferenceKind), formatInput()},
+		Output: finalJSONOutput("template_change_plan", fields, CollectionCoverageNotApplicable), Prerequisites: []string{"The strict canonical source pair and exact immutable Runtime revision are readable."}, Errors: errors,
+	}, handler: runFinalTemplatePlan}
 }
 
 func finalTemplateDefaultSetSpec() CommandSpec {
@@ -206,8 +308,45 @@ func finalContextListSpec() CommandSpec {
 func finalContextShowSpec() CommandSpec {
 	return CommandSpec{Path: "context show", Summary: "Inspect one final Context", Args: "--id <context-ref> [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Return one exact Context with desired and independently active authority", Inputs: []CommandInput{finalReferenceInput("--id", "Opaque Context reference.", tobari.ContextReferenceKind), formatInput()}, Output: finalJSONOutput("context", finalContextFields(true), CollectionCoverageNotApplicable), Prerequisites: []string{}, Errors: finalAuthorityReadErrors("context show", "context list")}, handler: runFinalContextShow}
 }
+func finalContextApplySpec() CommandSpec {
+	fields := append([]OutputField{}, finalContextFields(true)...)
+	fields = append(fields, OutputField{Name: "changed", Type: OutputFieldTypeBoolean, Description: "Whether the reviewed draft became active."})
+	errors := finalAuthorityMutationErrors("context apply", "context list")
+	errors = append(errors,
+		declaredCommandError(fault.KindInvalidInput, "invalid_context_activation_plan_ref", false, "context list", "Use one exact opaque Context plan emitted by context plan."),
+		declaredCommandError(fault.KindRejected, "context_activation_plan_stale", false, "context list", "Discover the Context and create a fresh activation plan."),
+		declaredCommandError(fault.KindNotFound, "resource_source_missing", false, "context list", "Rediscover the retained Context, then inspect its canonical source path; missing source never deletes active authority."),
+		declaredCommandError(fault.KindInvalidInput, "resource_source_invalid", false, "context list", "Rediscover the retained Context and correct the strict context.yaml diagnostic."),
+		declaredCommandError(fault.KindRejected, "context_identity_immutable", false, "context list", "Rediscover the current binding; another root or Template requires a fresh Context."),
+	)
+	return CommandSpec{Path: "context apply", Summary: "Apply one reviewed Context activation plan", Args: "--plan <context-activation-plan-ref> [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Revalidate and activate one immutable Context identity with new empty Policy Memory", Inputs: []CommandInput{finalReferenceInput("--plan", "Opaque Context activation plan emitted by context plan and consumed unchanged.", tobari.ContextActivationPlanReferenceKind), formatInput()}, Output: finalJSONOutput("context", fields, CollectionCoverageNotApplicable), Prerequisites: []string{"The reviewed context.yaml, Template revision, Project root, and duplicate observation remain exact."}, Errors: errors, Mutation: &MutationContract{TargetKind: tobari.ContextActivationPlanReferenceKind, TargetInputs: []string{"--plan"}, TargetIDInput: "--plan", Impact: workspaceauthoritycmd.ContextApplyImpact()}}, handler: runFinalContextApply}
+}
+func finalContextPlanSpec() CommandSpec {
+	fields := []OutputField{
+		{Name: "plan_ref", Type: OutputFieldTypeString, Description: "Opaque exact Context activation plan.", ReferenceKind: tobari.ContextActivationPlanReferenceKind},
+		{Name: "context_ref", Type: OutputFieldTypeString, Description: "Opaque planned Context reference.", ReferenceKind: tobari.ContextReferenceKind},
+		{Name: "source_fingerprint", Type: OutputFieldTypeString, Description: "Exact context.yaml byte fingerprint."},
+		{Name: "project_root", Type: OutputFieldTypeString, Description: "Canonical Project root."},
+		{Name: "template_ref", Type: OutputFieldTypeString, Description: "Opaque active Template reference.", ReferenceKind: tobari.WorkspaceTemplateReferenceKind},
+		{Name: "template_revision", Type: OutputFieldTypeString, Description: "Exact reviewed Template revision."},
+		{Name: "duplicate_binding", Type: OutputFieldTypeBoolean, Description: "Always false for an applicable plan."},
+		{Name: "no_op", Type: OutputFieldTypeBoolean, Description: "Whether the same immutable Context is already active."},
+		{Name: "source_access", Type: OutputFieldTypeString, Description: "Effective source access."},
+		{Name: "runtime_id", Type: OutputFieldTypeString, Description: "Exact effective Runtime ID."},
+		{Name: "runtime_revision", Type: OutputFieldTypeString, Description: "Exact effective Runtime revision."},
+		{Name: "boundary_fingerprint", Type: OutputFieldTypeString, Description: "Exact effective Method/source/network Boundary identity."},
+		{Name: "policy_slice_digest", Type: OutputFieldTypeString, Description: "Exact effective static Semantic Policy identity."},
+		{Name: "new_policy_memory_owner", Type: OutputFieldTypeString, Description: "New empty Policy Memory owner Context ID."},
+	}
+	errors := append(finalAuthorityReadErrors("context plan", "context list"),
+		declaredCommandError(fault.KindNotFound, "resource_source_missing", false, "context list", "Restore context.yaml before planning."),
+		declaredCommandError(fault.KindInvalidInput, "resource_source_invalid", false, "context list", "Correct strict context.yaml before planning."),
+		declaredCommandError(fault.KindRejected, "context_exists", false, "context list", "Use the existing root and Template binding."))
+	return CommandSpec{Path: "context plan", Summary: "Review one Context activation", Args: "--id <context-ref> [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Bind one exact Context source, active Template revision, and duplicate observation without mutation", Inputs: []CommandInput{finalReferenceInput("--id", "Opaque draft or active Context reference.", tobari.ContextReferenceKind), formatInput()}, Output: finalJSONOutput("context_activation_plan", fields, CollectionCoverageNotApplicable), Prerequisites: []string{"context.yaml and its exact active Template are readable."}, Errors: errors}, handler: runFinalContextPlan}
+}
 func finalContextCreateSpec() CommandSpec {
-	return CommandSpec{Path: "context create", Summary: "Create a final Context for the canonical current Project", Args: "--template <template-ref> [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Create one empty Context from one unchanged Template reference and canonical CWD", Inputs: []CommandInput{finalReferenceInput("--template", "Opaque parent Workspace Template reference.", tobari.WorkspaceTemplateReferenceKind), formatInput()}, Output: finalJSONOutput("context", finalContextFields(true), CollectionCoverageNotApplicable), Prerequisites: []string{"The canonical current Project root can be resolved without mutation."}, Errors: finalAuthorityMutationErrors("context create", "context list"), Mutation: &MutationContract{TargetKind: tobari.ContextReferenceKind, TargetInputs: []string{"--template"}, ParentInput: "--template", Impact: workspaceauthoritycmd.ContextCreateImpact()}}, handler: runFinalContextCreate}
+	fields := []OutputField{{Name: "lifecycle", Type: OutputFieldTypeString, Description: "Always draft.", Enum: []string{"draft"}}, {Name: "context_ref", Type: OutputFieldTypeString, Description: "Opaque draft Context reference.", ReferenceKind: tobari.ContextReferenceKind}, {Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context ID."}, {Name: "workspace_template_id", Type: OutputFieldTypeString, Description: "Bound active Template ID."}, {Name: "project_root", Type: OutputFieldTypeString, Description: "Canonical Project root."}, {Name: "source_path", Type: OutputFieldTypeString, Description: "Canonical context.yaml path."}, {Name: "source_state", Type: OutputFieldTypeString, Description: "Modified until planned Apply."}, {Name: "source_revision", Type: OutputFieldTypeString, Description: "Desired Context identity digest."}}
+	return CommandSpec{Path: "context create", Summary: "Create a draft Context for the canonical current Project", Args: "--template <template-ref> [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Write one draft context.yaml bound to an active Template and canonical Project root", Inputs: []CommandInput{finalReferenceInput("--template", "Opaque parent active Workspace Template reference.", tobari.WorkspaceTemplateReferenceKind), formatInput()}, Output: finalJSONOutput("context", fields, CollectionCoverageNotApplicable), Prerequisites: []string{"The canonical current Project root and active Template are available."}, Errors: finalAuthorityMutationErrors("context create", "context list"), Mutation: &MutationContract{TargetKind: tobari.ContextReferenceKind, TargetInputs: []string{"--template"}, ParentInput: "--template", Impact: workspaceauthoritycmd.ContextCreateImpact()}}, handler: runFinalContextCreate}
 }
 func finalContextEnterSpec() CommandSpec {
 	output := CommandOutput{Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
@@ -227,62 +366,4 @@ func finalWorkspaceStatusSpec() CommandSpec {
 }
 func finalWorkspaceDeleteSpec() CommandSpec {
 	return CommandSpec{Path: "workspace delete", Summary: "Delete one exact final Workspace", Args: "--id <workspace-ref> --confirm=delete [--force] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Retire one exact Workspace, home, native auth, and owned runtime resources while preserving Context Policy Memory", Inputs: []CommandInput{finalReferenceInput("--id", "Opaque Workspace reference.", tobari.WorkspaceReferenceKind), {Name: "--confirm", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Literal destructive confirmation.", AllowedValues: []string{"delete"}}, {Name: "--force", Source: InputSourceFlag, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Retire the exact live target session and owned container; missing, foreign, ambiguous, or unrelated live owners remain blocking.", AllowedValues: []string{}, DefaultValue: stringPointer("false")}, formatInput()}, Output: finalJSONOutput("result", []OutputField{{Name: "workspace_id", Type: OutputFieldTypeString, Description: "Deleted Workspace identity."}, {Name: "deleted", Type: OutputFieldTypeBoolean, Description: "Always true after confirmed deletion."}}, CollectionCoverageNotApplicable), Prerequisites: []string{"The exact target and canonical attachment authority can be observed without ambiguity."}, Errors: finalAuthorityMutationErrors("workspace delete", "workspace list"), Mutation: &MutationContract{TargetKind: tobari.WorkspaceReferenceKind, TargetInputs: []string{"--id"}, TargetIDInput: "--id", Impact: workspaceauthoritycmd.WorkspaceDeleteImpact()}}, handler: runFinalWorkspaceDelete}
-}
-
-func finalConfigShellSpec() CommandSpec {
-	return finalTemplateConfigSpec("config shell", "Update exact Template shell defaults", tobari.WorkspaceTemplateChangeShell, runFinalConfigShell, false)
-}
-func finalConfigGitSpec() CommandSpec {
-	return finalTemplateConfigSpec("config git", "Update exact Template Git defaults", tobari.WorkspaceTemplateChangeGit, runFinalConfigGit, false)
-}
-func finalConfigBootstrapAWSSpec() CommandSpec {
-	spec := finalTemplateConfigSpec("config bootstrap aws", "Update exact Template AWS creation defaults", tobari.WorkspaceTemplateChangeBootstrapAWS, runFinalConfigBootstrapAWS, false)
-	spec.Args = "--id <template-ref> [--profile <name>] [--refresh] [--remove] [--format text|json]"
-	actions := []CommandInput{
-		{Name: "--profile", Source: InputSourceFlag, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Exact host AWS profile to review and normalize.", AllowedValues: []string{}, ConflictsWith: []string{"--refresh", "--remove"}},
-		{Name: "--refresh", Source: InputSourceFlag, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Refresh the exact retained profile authority.", AllowedValues: []string{}, ConflictsWith: []string{"--profile", "--remove"}},
-		{Name: "--remove", Source: InputSourceFlag, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Remove future-Workspace AWS creation defaults.", AllowedValues: []string{}, ConflictsWith: []string{"--profile", "--refresh"}},
-	}
-	spec.Agent.Inputs = append(spec.Agent.Inputs[:1], append(actions, spec.Agent.Inputs[1:]...)...)
-	return spec
-}
-func finalConfigBootstrapEKSSpec() CommandSpec {
-	spec := finalTemplateConfigSpec("config bootstrap kubernetes eks", "Update exact Template EKS creation defaults", tobari.WorkspaceTemplateChangeBootstrapEKS, runFinalConfigBootstrapEKS, false)
-	spec.Args = "--id <template-ref> [--kube-context <name>] [--refresh] [--remove] [--format text|json]"
-	actions := []CommandInput{
-		{Name: "--kube-context", Source: InputSourceFlag, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Exact host Kubernetes EKS context to review and normalize.", AllowedValues: []string{}, ConflictsWith: []string{"--refresh", "--remove"}},
-		{Name: "--refresh", Source: InputSourceFlag, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Refresh the exact retained EKS source authority.", AllowedValues: []string{}, ConflictsWith: []string{"--kube-context", "--remove"}},
-		{Name: "--remove", Source: InputSourceFlag, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Remove future-Workspace EKS creation defaults.", AllowedValues: []string{}, ConflictsWith: []string{"--kube-context", "--refresh"}},
-	}
-	spec.Agent.Inputs = append(spec.Agent.Inputs[:1], append(actions, spec.Agent.Inputs[1:]...)...)
-	return spec
-}
-func finalTemplateRuntimeSetSpec() CommandSpec {
-	return finalTemplateConfigSpec("template runtime set", "Replace exact Template Runtime binding", tobari.WorkspaceTemplateChangeRuntime, runFinalTemplateRuntimeSet, true)
-}
-
-func finalTemplateConfigSpec(path, summary string, kind tobari.WorkspaceTemplateChangeKind, handler commandHandler, runtimeParent bool) CommandSpec {
-	inputs := []CommandInput{finalReferenceInput("--id", "Opaque Workspace Template target reference.", tobari.WorkspaceTemplateReferenceKind)}
-	args := "--id <template-ref>"
-	if runtimeParent {
-		inputs = append(inputs, finalReferenceInput("--runtime", "Opaque exact Runtime revision parent reference.", tobari.RuntimeRevisionReferenceKind))
-		args += " --runtime <runtime-revision-ref>"
-	}
-	if kind == tobari.WorkspaceTemplateChangeShell {
-		inputs = append(inputs, CommandInput{Name: "--variable", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Allowlisted shell variable.", AllowedValues: []string{"COLORTERM", "NO_COLOR", "PS1", "TERM"}}, CommandInput{Name: "--source", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Shell value source.", AllowedValues: []string{"default", "inherit", "literal"}}, CommandInput{Name: "--value", Source: InputSourceFlag, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Literal value when source is literal.", AllowedValues: []string{}})
-		args += " --variable COLORTERM|NO_COLOR|PS1|TERM --source default|inherit|literal [--value <value>]"
-	}
-	if kind == tobari.WorkspaceTemplateChangeGit {
-		inputs = append(inputs, CommandInput{Name: "--source", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Git identity source; literal requires both name and email, while default and inherit accept neither.", AllowedValues: []string{"default", "inherit", "literal"}}, CommandInput{Name: "--name", Source: InputSourceFlag, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Literal Git author name.", AllowedValues: []string{}, Requires: []string{"--source", "--email"}}, CommandInput{Name: "--email", Source: InputSourceFlag, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Literal Git author email.", AllowedValues: []string{}, Requires: []string{"--source", "--name"}})
-		args += " --source default|inherit|literal [--name <name> --email <email>]"
-	}
-	inputs = append(inputs, formatInput())
-	targetInputs := []string{"--id"}
-	parent := ""
-	if runtimeParent {
-		targetInputs = append(targetInputs, "--runtime")
-		parent = "--runtime"
-	}
-	impact, _ := workspaceauthoritycmd.TemplateConfigurationImpact(path)
-	return CommandSpec{Path: path, Summary: summary, Args: args + " [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: summary + " from the current body under the lifecycle lock", Inputs: inputs, Output: finalJSONOutput("template", finalTemplateMutationFields(), CollectionCoverageNotApplicable), Prerequisites: []string{}, Errors: finalAuthorityMutationErrors(path, "template show"), Mutation: &MutationContract{TargetKind: tobari.WorkspaceTemplateReferenceKind, TargetInputs: targetInputs, TargetIDInput: "--id", ParentInput: parent, Impact: impact}}, handler: handler}
 }

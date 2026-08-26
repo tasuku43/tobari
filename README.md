@@ -439,7 +439,9 @@ tobari runtime list
 # Copy the opaque Runtime reference shown for frontend.
 tobari runtime build --id '<runtime-ref>'
 tobari review runtimes
-tobari template runtime set --id <template-ref> --runtime <runtime-revision-ref>
+# Edit the Runtime id+revision in the reported Template template.yaml.
+tobari template plan --id <template-ref>
+tobari template apply --plan <template-change-plan-ref>
 tobari
 
 # Or initialize another standalone source from frontend's current editable source.
@@ -448,8 +450,8 @@ tobari runtime create --copy-source-from frontend --name frontend-node22
 
 The explicit build snapshots the complete bounded Runtime source tree,
 validates the result against runtime API 1, and appends an immutable successful
-revision without changing any Workspace Template. Selection is a separate
-Template action, so the same revision can be reused by several Templates. Existing Workspaces
+revision without changing any Workspace Template. Selection is a complete
+Template source edit plus planned Apply, so the same revision can be reused by several Templates. Existing Workspaces
 adopt a changed binding on their next entry while preserving home. On an
 interactive terminal, the review flows present the exact Runtime, Workspace
 Template, current binding, and impact before Build or Apply. Scripts remain
@@ -537,9 +539,11 @@ only to the research surface. External text is untrusted and
 visibly projected; printable prompt-like meaning is not filtered. Opaque
 references are validated and passed byte-for-byte unchanged.
 
-Pre-release predecessor authority has no migration command or compatibility
-reader. `doctor` fails closed on legacy or ambiguous state and gives explicit
-reset-and-recreate guidance; root never migrates implicitly.
+The exact supported typed predecessor authority migrates only through
+`installation migration plan` followed by
+`installation migration apply --plan <migration-plan-ref>`. Ordinary reads,
+startup, and `cluster up` never migrate implicitly. Unsupported, Advanced-Rego,
+corrupt, or ambiguous predecessor state fails closed.
 
 ## Development and verification
 

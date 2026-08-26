@@ -114,7 +114,7 @@ func TestDefaultPairAdapterLegacyFailureDoesNotDecodeOrMutatePredecessorBytes(t 
 func TestInitializeFinalDefaultPairPublishesOneCompleteEnvelopeAndReplaysExactly(t *testing.T) {
 	store, mutator, lifecycle, _, _ := newMutationFixture(t, nil)
 	body := storeCollectionFixture(t).Templates[0].Current.Body
-	publication, err := mutator.InitializeFinalDefaultPair(context.Background(), "/workspace/fresh", body)
+	publication, err := mutator.seedFinalDefaultPairForLegacyMigration(context.Background(), "/workspace/fresh", body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestInitializeFinalDefaultPairPublishesOneCompleteEnvelopeAndReplaysExactly
 	if err != nil || !present || len(collection.Templates) != 1 || len(collection.Contexts) != 1 || len(collection.Workspaces) != 0 || collection.DefaultTemplateID == nil || *collection.DefaultTemplateID != collection.Templates[0].ID || collection.Contexts[0].Context.ProjectRoot != "/workspace/fresh" {
 		t.Fatalf("fresh complete envelope mismatch: present=%t collection=%+v err=%v", present, collection, err)
 	}
-	replay, err := mutator.InitializeFinalDefaultPair(context.Background(), "/workspace/fresh", body)
+	replay, err := mutator.seedFinalDefaultPairForLegacyMigration(context.Background(), "/workspace/fresh", body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestInitializeFinalDefaultPairPublishesOneCompleteEnvelopeAndReplaysExactly
 func TestInitializeFinalDefaultPairPreservesExistingActiveWorkspaceOnExactNoOp(t *testing.T) {
 	existing := storeCollectionFixture(t)
 	store, mutator, lifecycle, _, _ := newMutationFixture(t, &existing)
-	publication, err := mutator.InitializeFinalDefaultPair(context.Background(), existing.Contexts[0].Context.ProjectRoot, existing.Templates[0].Current.Body)
+	publication, err := mutator.seedFinalDefaultPairForLegacyMigration(context.Background(), existing.Contexts[0].Context.ProjectRoot, existing.Templates[0].Current.Body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestInitializeFinalDefaultPairRejectsInitializedAuthorityWithoutDefaultZero
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = mutator.InitializeFinalDefaultPair(context.Background(), "/workspace/new", base.Templates[0].Current.Body)
+	_, err = mutator.seedFinalDefaultPairForLegacyMigration(context.Background(), "/workspace/new", base.Templates[0].Current.Body)
 	if !errors.Is(err, tobari.ErrDefaultTemplateSelectionRequired) {
 		t.Fatalf("missing default error=%v", err)
 	}
@@ -181,14 +181,14 @@ func TestInitializeFinalDefaultPairClassifiesRenameSuccessDespiteCancellation(t 
 		}
 		return context.Canceled
 	}
-	publication, err := mutator.InitializeFinalDefaultPair(context.Background(), "/workspace/fresh", body)
+	publication, err := mutator.seedFinalDefaultPairForLegacyMigration(context.Background(), "/workspace/fresh", body)
 	if err != nil || !publication.Changed {
 		t.Fatalf("confirmed rename was not classified as success: publication=%+v err=%v", publication, err)
 	}
 	if _, present, err := store.ReadComplete(context.Background()); err != nil || !present {
 		t.Fatalf("confirmed initialization is unavailable: present=%t err=%v", present, err)
 	}
-	if _, err := os.Stat(store.root + ".wp11-mutation-stage"); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(mutationStagePath(store.root)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("initialization stage remains after confirmed rename: %v", err)
 	}
 }

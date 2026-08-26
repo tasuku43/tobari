@@ -50,6 +50,10 @@ type WorkspaceTemplateRuntimeRevisionAuthority interface {
 	ResolveWorkspaceTemplateRuntimeRevision(context.Context, string) (tobari.RuntimeBinding, error)
 }
 
+type WorkspaceTemplateRunningWorkspaceAuthority interface {
+	ObserveStatusWorkspace(context.Context, tobari.ContextAuthoritySnapshot) (tobari.StatusWorkspaceObservation, error)
+}
+
 // WorkspaceTemplateBootstrapSourceAuthority normalizes only the fixed host
 // AWS/kubeconfig sources. It receives no Template name or store path and is
 // called while the installation lifecycle lock protects the exact current
@@ -95,6 +99,7 @@ type Mutator struct {
 	activation        PolicyMemoryActivationAuthority
 	settlement        FinalAuthoritySettlementAuthority
 	runtimeRevision   WorkspaceTemplateRuntimeRevisionAuthority
+	runningWorkspace  WorkspaceTemplateRunningWorkspaceAuthority
 	bootstrapSource   WorkspaceTemplateBootstrapSourceAuthority
 	researchAuth      FinalContextCredentialAuthority
 	credentialAbsence ContextCredentialAbsenceAuthority
@@ -102,8 +107,17 @@ type Mutator struct {
 	clock             func() time.Time
 	entropy           io.Reader
 
-	rename func(string, string) error
-	sync   func(string) error
+	rename                        func(string, string) error
+	sync                          func(string) error
+	installationMigrationBoundary func(string) error
+}
+
+// SetInstallationMigrationBoundaryForTest installs a process-death boundary
+// used only by the composed storage crash matrix.
+func (m *Mutator) SetInstallationMigrationBoundaryForTest(boundary func(string) error) {
+	if m != nil {
+		m.installationMigrationBoundary = boundary
+	}
 }
 
 const effectDecisionSchemaVersion = 2
@@ -372,6 +386,9 @@ func NewMutator(
 	if bootstrap, ok := runtimeRevision.(WorkspaceTemplateBootstrapSourceAuthority); ok {
 		mutator.bootstrapSource = bootstrap
 	}
+	if running, ok := runtimeRevision.(WorkspaceTemplateRunningWorkspaceAuthority); ok {
+		mutator.runningWorkspace = running
+	}
 	return mutator, nil
 }
 
@@ -381,7 +398,7 @@ func (m *Mutator) bindPolicyCandidateObservation(reader policyCandidateObservati
 	}
 }
 
-func (m *Mutator) CreateWorkspaceTemplate(ctx context.Context, name string, body tobari.WorkspaceTemplateBody) (created tobari.WorkspaceTemplate, resultErr error) {
+func (m *Mutator) seedWorkspaceTemplateForLegacyMigration(ctx context.Context, name string, body tobari.WorkspaceTemplateBody) (created tobari.WorkspaceTemplate, resultErr error) {
 	if err := tobari.ValidateName(name); err != nil {
 		return created, err
 	}
@@ -406,6 +423,9 @@ func (m *Mutator) CreateWorkspaceTemplate(ctx context.Context, name string, body
 			SchemaVersion: tobari.WorkspaceTemplateSchemaVersion, ID: id, Name: name,
 			Current: revision, Retained: []tobari.WorkspaceTemplateRevision{revision.Clone()},
 		}
+		if err := tobari.InitializeWorkspaceTemplateMetadata(&created); err != nil {
+			return current, false, err
+		}
 		templates := append(cloneTemplates(current.Templates), created.Clone())
 		next, changed, err := publishCollection(current, present, templates, current.Contexts, current.Workspaces, current.PendingCandidates, current.DefaultTemplateID)
 		return next, changed, err
@@ -413,11 +433,9 @@ func (m *Mutator) CreateWorkspaceTemplate(ctx context.Context, name string, body
 	return created.Clone(), resultErr
 }
 
-// InitializeFinalDefaultPair publishes the bare command's complete initial
-// authority in one envelope. An initialized collection without a selected
-// default is never repaired by display-name lookup; the user must select one
-// exact Template reference explicitly.
-func (m *Mutator) InitializeFinalDefaultPair(ctx context.Context, projectRoot string, freshBody tobari.WorkspaceTemplateBody) (publication tobari.FinalDefaultPairPublication, resultErr error) {
+// seedFinalDefaultPairForLegacyMigration exists only to construct predecessor
+// typed authority fixtures. No application or adapter may call it.
+func (m *Mutator) seedFinalDefaultPairForLegacyMigration(ctx context.Context, projectRoot string, freshBody tobari.WorkspaceTemplateBody) (publication tobari.FinalDefaultPairPublication, resultErr error) {
 	if err := tobari.ValidateCanonicalRoot(projectRoot); err != nil {
 		return publication, err
 	}
@@ -441,6 +459,9 @@ func (m *Mutator) InitializeFinalDefaultPair(ctx context.Context, projectRoot st
 				return current, false, err
 			}
 			template := tobari.WorkspaceTemplate{SchemaVersion: tobari.WorkspaceTemplateSchemaVersion, ID: templateID, Name: tobari.DefaultManifestName, Current: revision, Retained: []tobari.WorkspaceTemplateRevision{revision.Clone()}}
+			if err := tobari.InitializeWorkspaceTemplateMetadata(&template); err != nil {
+				return current, false, err
+			}
 			contextID, err := tobari.IssueContextID(m.clock().UTC(), m.entropy)
 			if err != nil {
 				return current, false, err
@@ -494,7 +515,7 @@ func (m *Mutator) InitializeFinalDefaultPair(ctx context.Context, projectRoot st
 	return publication, resultErr
 }
 
-func (m *Mutator) CopyWorkspaceTemplateByRevisionReference(ctx context.Context, revisionRef, name string) (publication tobari.WorkspaceTemplateCopyPublication, resultErr error) {
+func (m *Mutator) seedWorkspaceTemplateCopyForLegacyMigration(ctx context.Context, revisionRef, name string) (publication tobari.WorkspaceTemplateCopyPublication, resultErr error) {
 	sourceID, sourceDigest, err := tobari.ParseWorkspaceTemplateRevisionRef(revisionRef)
 	if err != nil {
 		return publication, err
@@ -537,9 +558,11 @@ func (m *Mutator) CopyWorkspaceTemplateByRevisionReference(ctx context.Context, 
 	return publication, resultErr
 }
 
-func (m *Mutator) UpdateWorkspaceTemplateByReference(
+func (m *Mutator) retiredUpdateWorkspaceTemplateByReference(
 	ctx context.Context, templateRef string, change tobari.WorkspaceTemplateChange,
 ) (publication tobari.WorkspaceTemplateRevisionPublication, resultErr error) {
+	return publication, tobari.ErrDirectTemplateMutationRetired
+	/* retired direct-active mutation
 	if err := change.Validate(); err != nil {
 		return publication, err
 	}
@@ -555,14 +578,377 @@ func (m *Mutator) UpdateWorkspaceTemplateByReference(
 		}
 		return change.Clone(), resolvedRuntime, nil
 	})
+	return publication, resultErr */
+}
+
+type WorkspaceTemplateSourceLoader func(context.Context) (tobari.WorkspaceTemplateSource, string, error)
+type ContextSourceLoader func(context.Context) (tobari.ContextSource, string, error)
+
+func (m *Mutator) PlanContextSourceByReference(ctx context.Context, contextRef string, load ContextSourceLoader) (tobari.ContextActivationPlan, error) {
+	id, err := tobari.ParseContextRef(contextRef)
+	if err != nil {
+		return tobari.ContextActivationPlan{}, err
+	}
+	if load == nil {
+		return tobari.ContextActivationPlan{}, fmt.Errorf("Context source loader is unavailable")
+	}
+	if err := m.rejectTombstoned("contexts", string(id)); err != nil {
+		return tobari.ContextActivationPlan{}, err
+	}
+	current, present, err := m.store.ReadComplete(ctx)
+	if err != nil {
+		return tobari.ContextActivationPlan{}, err
+	}
+	if !present {
+		return tobari.ContextActivationPlan{}, tobari.ErrWorkspaceTemplateNotFound
+	}
+	source, fingerprint, err := load(ctx)
+	if err != nil {
+		return tobari.ContextActivationPlan{}, err
+	}
+	if source.ContextID != id {
+		return tobari.ContextActivationPlan{}, tobari.ErrResourceSourceInvalid
+	}
+	return tobari.NewContextActivationPlan(current, source, fingerprint)
+}
+
+func (m *Mutator) ApplyContextSourceByPlan(ctx context.Context, planRef string, load ContextSourceLoader) (result tobari.ContextAuthoritySnapshot, changed bool, resultErr error) {
+	id, err := tobari.ParseContextActivationPlanRef(planRef)
+	if err != nil {
+		return result, false, err
+	}
+	if load == nil {
+		return result, false, fmt.Errorf("Context source loader is unavailable")
+	}
+	if err := m.rejectTombstoned("contexts", string(id)); err != nil {
+		return result, false, err
+	}
+	var selectedFingerprint string
+	resultErr = m.mutateWithFence(ctx, func(lockedContext context.Context, current tobari.WorkspaceAuthorityCollection, present bool) (tobari.WorkspaceAuthorityCollection, bool, error) {
+		if !present {
+			return current, false, tobari.ErrWorkspaceTemplateNotFound
+		}
+		source, fingerprint, err := load(lockedContext)
+		if err != nil {
+			return current, false, err
+		}
+		if source.ContextID != id {
+			return current, false, tobari.ErrResourceSourceInvalid
+		}
+		selectedFingerprint = fingerprint
+		plan, err := tobari.NewContextActivationPlan(current, source, fingerprint)
+		if err != nil {
+			return current, false, err
+		}
+		if plan.PlanRef != planRef {
+			return current, false, tobari.ErrWorkspaceTemplateChangePlanStale
+		}
+		if plan.NoOp {
+			result, err = m.store.ReadContextAuthorityByReference(lockedContext, plan.ContextRef)
+			return current, false, err
+		}
+		binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: id, ProjectRoot: source.ProjectRoot, TemplateID: source.TemplateID}
+		memory, _, err := tobari.PublishPolicyMemory(id, []tobari.PolicyMemoryRule{}, nil)
+		if err != nil {
+			return current, false, err
+		}
+		record := tobari.WorkspaceAuthorityContextRecord{Context: binding, PolicyMemory: memory}
+		next, published, err := publishCollection(current, true, current.Templates, append(cloneContextRecords(current.Contexts), record), current.Workspaces, current.PendingCandidates, current.DefaultTemplateID)
+		if err != nil {
+			return current, false, err
+		}
+		if published {
+			for _, snapshot := range mustContextSnapshots(next) {
+				if snapshot.Context.ID == id {
+					result = snapshot
+					break
+				}
+			}
+		}
+		changed = published
+		return next, published, nil
+	}, func(lockedContext context.Context) error {
+		_, finalFingerprint, err := load(lockedContext)
+		if err != nil {
+			return err
+		}
+		if selectedFingerprint == "" || finalFingerprint != selectedFingerprint {
+			return tobari.ErrResourceSourceChanged
+		}
+		return nil
+	})
+	if resultErr != nil {
+		return tobari.ContextAuthoritySnapshot{}, false, resultErr
+	}
+	return result, changed, resultErr
+}
+
+func mustContextSnapshots(collection tobari.WorkspaceAuthorityCollection) []tobari.ContextAuthoritySnapshot {
+	values, err := collection.ContextSnapshots()
+	if err != nil {
+		return nil
+	}
+	return values
+}
+
+// PlanWorkspaceTemplateSourceByReference creates a read-only plan from one
+// coherent active envelope and exact source pair. The plan itself is the
+// content-addressed review receipt; planning writes no journal or authority.
+func (m *Mutator) PlanWorkspaceTemplateSourceByReference(
+	ctx context.Context, templateRef string, load WorkspaceTemplateSourceLoader,
+) (plan tobari.WorkspaceTemplateChangePlan, resultErr error) {
+	id, err := tobari.ParseWorkspaceTemplateRef(templateRef)
+	if err != nil {
+		return plan, err
+	}
+	if load == nil {
+		return plan, fmt.Errorf("Template source loader is unavailable")
+	}
+	if err := m.rejectTombstoned("templates", string(id)); err != nil {
+		return plan, err
+	}
+	current, present, err := m.store.ReadComplete(ctx)
+	if err != nil {
+		return plan, err
+	}
+	if !present {
+		current, _, err = tobari.PublishWorkspaceAuthorityCollection([]tobari.WorkspaceTemplate{}, []tobari.WorkspaceAuthorityContextRecord{}, []tobari.WorkspaceBinding{}, []tobari.PolicyCandidateAuthority{}, nil, nil)
+		if err != nil {
+			return plan, err
+		}
+	}
+	source, fingerprint, err := load(ctx)
+	if err != nil {
+		return plan, err
+	}
+	plan, err = m.planWorkspaceTemplateChange(ctx, current, id, source, fingerprint)
+	return plan, err
+}
+
+func (m *Mutator) planWorkspaceTemplateChange(
+	ctx context.Context, current tobari.WorkspaceAuthorityCollection, id tobari.WorkspaceTemplateID,
+	source tobari.WorkspaceTemplateSource, fingerprint string,
+) (tobari.WorkspaceTemplateChangePlan, error) {
+	runtimeSource := source.Template.EntryDefaults.Runtime
+	runtimeRef := tobari.RuntimeRevisionRef(runtimeSource.ID, runtimeSource.Revision)
+	resolved, err := m.runtimeRevision.ResolveWorkspaceTemplateRuntimeRevision(ctx, runtimeRef)
+	if err != nil {
+		return tobari.WorkspaceTemplateChangePlan{}, err
+	}
+	if !runtimeSource.Matches(resolved) {
+		return tobari.WorkspaceTemplateChangePlan{}, fmt.Errorf("Template source Runtime binding does not match exact immutable Runtime authority")
+	}
+	running := make(map[tobari.WorkspaceID]bool)
+	snapshots, err := current.ContextSnapshots()
+	if err != nil {
+		return tobari.WorkspaceTemplateChangePlan{}, err
+	}
+	for _, snapshot := range snapshots {
+		if snapshot.Template.ID != id || snapshot.Workspace == nil {
+			continue
+		}
+		if m.runningWorkspace == nil {
+			return tobari.WorkspaceTemplateChangePlan{}, fmt.Errorf("running Workspace impact observer is unavailable")
+		}
+		observation, err := m.runningWorkspace.ObserveStatusWorkspace(ctx, snapshot)
+		if err != nil {
+			return tobari.WorkspaceTemplateChangePlan{}, err
+		}
+		running[snapshot.Workspace.ID] = observation.State == tobari.StatusWorkspaceRuntimeRunning
+	}
+	return tobari.NewWorkspaceTemplateChangePlan(current, id, source, resolved, running, fingerprint)
+}
+
+// ResolveWorkspaceTemplateRuntimeSource resolves only the exact immutable
+// Runtime identity carried by editable Template source. It does not accept or
+// derive a mutable name, ordinal, or image selector from that source.
+func (m *Mutator) ResolveWorkspaceTemplateRuntimeSource(ctx context.Context, source tobari.RuntimeSourceRef) (tobari.RuntimeBinding, error) {
+	if err := source.Validate(); err != nil {
+		return tobari.RuntimeBinding{}, err
+	}
+	resolved, err := m.runtimeRevision.ResolveWorkspaceTemplateRuntimeRevision(ctx, tobari.RuntimeRevisionRef(source.ID, source.Revision))
+	if err != nil {
+		return tobari.RuntimeBinding{}, err
+	}
+	if !source.Matches(resolved) {
+		return tobari.RuntimeBinding{}, fmt.Errorf("Template source Runtime binding does not match exact immutable Runtime authority")
+	}
+	return resolved, nil
+}
+
+// ApplyWorkspaceTemplateSourceByReference validates one complete file-backed
+// source pair against the exact active Template and publishes at most one
+// immutable moving-head revision. The byte identity is re-read at the final
+// pre-publication fence while the lifecycle lock is still held.
+func (m *Mutator) ApplyWorkspaceTemplateSourceByReference(
+	ctx context.Context, planRef string, load WorkspaceTemplateSourceLoader,
+) (publication tobari.WorkspaceTemplateRevisionPublication, resultErr error) {
+	id, err := tobari.ParseWorkspaceTemplateChangePlanRef(planRef)
+	if err != nil {
+		return publication, err
+	}
+	if load == nil {
+		return publication, fmt.Errorf("Template source loader is unavailable")
+	}
+	if err := m.rejectTombstoned("templates", string(id)); err != nil {
+		return publication, err
+	}
+	if recovered, ok, err := m.recoverTemplateApplySettlement(ctx, planRef, load); err != nil {
+		return publication, err
+	} else if ok {
+		return recovered, nil
+	}
+	var selectedFingerprint string
+	resultErr = m.mutateWithFence(ctx, func(lockedContext context.Context, current tobari.WorkspaceAuthorityCollection, present bool) (tobari.WorkspaceAuthorityCollection, bool, error) {
+		source, fingerprint, err := load(lockedContext)
+		if err != nil {
+			return current, false, err
+		}
+		if fingerprint == "" {
+			return current, false, fmt.Errorf("Template source byte identity is empty")
+		}
+		if err := source.Validate(); err != nil || source.Template.TemplateID != id {
+			if err == nil {
+				err = fmt.Errorf("Template source identity does not match the Apply target")
+			}
+			return current, false, err
+		}
+		selectedFingerprint = fingerprint
+		plan, err := m.planWorkspaceTemplateChange(lockedContext, current, id, source, fingerprint)
+		if err != nil {
+			return current, false, err
+		}
+		if plan.PlanRef != planRef {
+			return current, false, tobari.ErrWorkspaceTemplateChangePlanStale
+		}
+		templates := cloneTemplates(current.Templates)
+		for index := range templates {
+			if templates[index].ID != id {
+				continue
+			}
+			previous := templates[index].Current.Clone()
+			if err := source.ValidateFor(templates[index]); err != nil {
+				return current, false, errors.Join(tobari.ErrResourceSourceModified, err)
+			}
+			for other := range templates {
+				if other != index && templates[other].Name == source.Template.Name {
+					return current, false, tobari.ErrWorkspaceTemplateExists
+				}
+			}
+			runtimeSource := source.Template.EntryDefaults.Runtime
+			runtimeRef := tobari.RuntimeRevisionRef(runtimeSource.ID, runtimeSource.Revision)
+			resolved, err := m.runtimeRevision.ResolveWorkspaceTemplateRuntimeRevision(lockedContext, runtimeRef)
+			if err != nil {
+				return current, false, err
+			}
+			if !runtimeSource.Matches(resolved) {
+				return current, false, fmt.Errorf("Template source Runtime binding does not match exact immutable Runtime authority")
+			}
+			body, err := source.Body(resolved)
+			if err != nil {
+				return current, false, err
+			}
+			nextRevision, changed, err := tobari.AdvanceWorkspaceTemplateRevision(previous, body)
+			if err != nil {
+				return current, false, err
+			}
+			nameChanged := templates[index].Name != source.Template.Name
+			if _, err := tobari.AdvanceWorkspaceTemplateMetadata(&templates[index], source.Template.Name); err != nil {
+				return current, false, err
+			}
+			if changed {
+				templates[index].Current = nextRevision.Clone()
+				templates[index].Retained = append(templates[index].Retained, nextRevision.Clone())
+			}
+			publication = tobari.WorkspaceTemplateRevisionPublication{
+				Template: templates[index].Clone(), Previous: previous, Current: nextRevision.Clone(),
+				ResolvedRuntime: &resolved, Changed: changed || nameChanged,
+			}
+			if !changed && !nameChanged {
+				return current, false, nil
+			}
+			contexts := cloneContextRecords(current.Contexts)
+			pendingCandidates := clonePolicyCandidates(current.PendingCandidates)
+			if changed {
+				for contextIndex := range contexts {
+					if contexts[contextIndex].Context.TemplateID != id {
+						continue
+					}
+					contexts[contextIndex].ActiveTemplatePolicy = nil
+					if previous.Slices.BoundaryFingerprint != nextRevision.Slices.BoundaryFingerprint {
+						updated, _, supersedeErr := tobari.SupersedePolicyMemoryAllowsOutsideBoundary(contexts[contextIndex], nextRevision)
+						if supersedeErr != nil {
+							return current, false, supersedeErr
+						}
+						contexts[contextIndex] = updated
+					}
+				}
+				if previous.Slices.BoundaryFingerprint != nextRevision.Slices.BoundaryFingerprint {
+					var supersedeErr error
+					contexts, pendingCandidates, _, supersedeErr = tobari.SupersedePolicyCandidatesOutsideBoundary(contexts, pendingCandidates, nextRevision)
+					if supersedeErr != nil {
+						return current, false, supersedeErr
+					}
+				}
+			}
+			next, published, err := publishCollection(
+				current, true, templates, contexts, current.Workspaces, pendingCandidates, current.DefaultTemplateID,
+			)
+			return next, published, err
+		}
+		if source.Template.BaseRevision != nil {
+			return current, false, tobari.ErrWorkspaceTemplateNotFound
+		}
+		runtimeSource := source.Template.EntryDefaults.Runtime
+		runtimeRef := tobari.RuntimeRevisionRef(runtimeSource.ID, runtimeSource.Revision)
+		resolved, err := m.runtimeRevision.ResolveWorkspaceTemplateRuntimeRevision(lockedContext, runtimeRef)
+		if err != nil || !runtimeSource.Matches(resolved) {
+			if err == nil {
+				err = fmt.Errorf("Template source Runtime binding does not match exact immutable Runtime authority")
+			}
+			return current, false, err
+		}
+		body, err := source.Body(resolved)
+		if err != nil {
+			return current, false, err
+		}
+		revision, err := tobari.NewWorkspaceTemplateRevision(id, 1, body)
+		if err != nil {
+			return current, false, err
+		}
+		created := tobari.WorkspaceTemplate{SchemaVersion: tobari.WorkspaceTemplateSchemaVersion, ID: id, Name: source.Template.Name, Current: revision, Retained: []tobari.WorkspaceTemplateRevision{revision.Clone()}}
+		if err := tobari.InitializeWorkspaceTemplateMetadata(&created); err != nil {
+			return current, false, err
+		}
+		templates = append(templates, created.Clone())
+		publication = tobari.WorkspaceTemplateRevisionPublication{Template: created, Current: revision, ResolvedRuntime: &resolved, Changed: true}
+		next, published, err := publishCollection(current, present, templates, current.Contexts, current.Workspaces, current.PendingCandidates, current.DefaultTemplateID)
+		return next, published, err
+	}, func(fenceContext context.Context) error {
+		_, fingerprint, err := load(fenceContext)
+		if err != nil {
+			return err
+		}
+		if selectedFingerprint == "" || fingerprint != selectedFingerprint {
+			return tobari.ErrResourceSourceChanged
+		}
+		if publication.Changed {
+			if err := m.writeTemplateApplySettlement(planRef, selectedFingerprint, publication); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	return publication, resultErr
 }
 
-func (m *Mutator) UpdateWorkspaceTemplateBootstrapByReference(
+func (m *Mutator) retiredUpdateWorkspaceTemplateBootstrapByReference(
 	ctx context.Context,
 	templateRef string,
 	request tobari.WorkspaceTemplateBootstrapRequest,
 ) (publication tobari.WorkspaceTemplateRevisionPublication, resolvedChange tobari.WorkspaceTemplateChange, resultErr error) {
+	return publication, resolvedChange, tobari.ErrDirectTemplateMutationRetired
+	/* retired direct-active mutation
 	if err := request.Validate(); err != nil {
 		return publication, resolvedChange, err
 	}
@@ -572,7 +958,7 @@ func (m *Mutator) UpdateWorkspaceTemplateBootstrapByReference(
 	return m.updateWorkspaceTemplateByReference(ctx, templateRef, func(lockedContext context.Context, current tobari.WorkspaceTemplateBody) (tobari.WorkspaceTemplateChange, *tobari.RuntimeBinding, error) {
 		change, err := m.resolveWorkspaceTemplateBootstrapChange(lockedContext, current, request)
 		return change, nil, err
-	})
+	}) */
 }
 
 type workspaceTemplateChangeResolver func(context.Context, tobari.WorkspaceTemplateBody) (tobari.WorkspaceTemplateChange, *tobari.RuntimeBinding, error)
@@ -744,10 +1130,13 @@ func (m *Mutator) DeleteWorkspaceTemplateByReference(ctx context.Context, ref st
 		next, changed, err := publishCollection(current, present, templates, current.Contexts, current.Workspaces, current.PendingCandidates, current.DefaultTemplateID)
 		return next, changed, err
 	})
+	if resultErr == nil && result.Deleted {
+		resultErr = m.purgeDeletedAuthority("templates", string(result.TemplateID), result)
+	}
 	return result, resultErr
 }
 
-func (m *Mutator) CreateContextByTemplateReference(ctx context.Context, templateRef, projectRoot string) (created tobari.ContextAuthoritySnapshot, resultErr error) {
+func (m *Mutator) seedContextForLegacyMigration(ctx context.Context, templateRef, projectRoot string) (created tobari.ContextAuthoritySnapshot, resultErr error) {
 	templateID, err := tobari.ParseWorkspaceTemplateRef(templateRef)
 	if err != nil {
 		return created, err
@@ -841,6 +1230,9 @@ func (m *Mutator) DeleteContextByReference(ctx context.Context, ref string) (res
 	if resultErr == nil && !result.Deleted && committedDecision.ContextID != nil {
 		result = tobari.ContextDeleteResult{ContextID: *committedDecision.ContextID, Deleted: true}
 	}
+	if resultErr == nil && result.Deleted {
+		resultErr = m.purgeDeletedAuthority("contexts", string(result.ContextID), result)
+	}
 	return result, resultErr
 }
 
@@ -914,6 +1306,9 @@ func (m *Mutator) DeleteWorkspaceByReference(ctx context.Context, ref string, fo
 	})
 	if resultErr == nil && !result.Deleted && committedDecision.WorkspaceID != nil {
 		result = tobari.WorkspaceAuthorityDeleteResult{WorkspaceID: *committedDecision.WorkspaceID, Deleted: true}
+	}
+	if resultErr == nil && result.Deleted {
+		resultErr = m.purgeDeletedAuthority("workspaces", string(result.WorkspaceID), result)
 	}
 	return result, resultErr
 }
@@ -1697,7 +2092,9 @@ func clusterReconciliationDecisionRef(revision tobari.SemanticDigest) string {
 	return "cluster-reconciliation:" + string(revision)
 }
 
-func (m *Mutator) effectDecisionPath() string     { return m.store.root + ".wp11-mutation-decision.json" }
+func (m *Mutator) effectDecisionPath() string {
+	return filepath.Join(m.store.root, "journal", "mutation-decision.json")
+}
 func (m *Mutator) effectDecisionTempPath() string { return m.effectDecisionPath() + ".tmp" }
 func (m *Mutator) effectDecisionDonePath() string { return m.effectDecisionPath() + ".done" }
 
@@ -1858,7 +2255,7 @@ func (m *Mutator) reconcileDecisionArtifacts() error {
 }
 
 func (m *Mutator) prepareEffectStage(encoded []byte) error {
-	stage := m.store.root + ".wp11-mutation-stage"
+	stage := mutationStagePath(m.store.root)
 	if err := writeMutationFile(stage, encoded); err != nil {
 		return err
 	}
@@ -1866,30 +2263,38 @@ func (m *Mutator) prepareEffectStage(encoded []byte) error {
 }
 
 func (m *Mutator) validatePreparedStage(encoded []byte) error {
-	data, err := readAuthorityFile(m.store.root + ".wp11-mutation-stage")
+	data, err := readAuthorityFile(mutationStagePath(m.store.root))
 	if err != nil {
 		return fmt.Errorf("read durable final-authority mutation stage: %w", err)
 	}
-	if !bytes.Equal(data, encoded) {
-		return fmt.Errorf("durable final-authority mutation stage does not match the active decision")
+	if bytes.Equal(data, encoded) {
+		return nil
 	}
-	return nil
+	var next tobari.WorkspaceAuthorityCollection
+	if err := decodeStrictJSON(encoded, &next); err == nil {
+		if prepared, prepareErr := prepareAuthorityGeneration(next); prepareErr == nil && bytes.Equal(data, prepared.pointerData) {
+			return nil
+		}
+	}
+	return fmt.Errorf("durable final-authority mutation stage does not match the active decision")
 }
 
 func (m *Mutator) publishPreparedEffect(previous, next tobari.WorkspaceAuthorityCollection, encoded []byte) error {
-	stage := m.store.root + ".wp11-mutation-stage"
-	if err := m.rename(stage, filepath.Join(m.store.root, authorityFileName)); err != nil {
-		return m.classifyPublication(previous, true, next, encoded, err)
+	stage := mutationStagePath(m.store.root)
+	if err := os.Remove(stage); err != nil {
+		return err
 	}
-	if err := m.sync(m.store.root); err != nil {
-		return m.classifyPublication(previous, true, next, encoded, err)
-	}
-	return m.classifyPublication(previous, true, next, encoded, nil)
+	effectErr := m.publishGeneration(next)
+	return m.classifyPublication(previous, true, next, encoded, effectErr)
 }
 
 type collectionMutation func(context.Context, tobari.WorkspaceAuthorityCollection, bool) (tobari.WorkspaceAuthorityCollection, bool, error)
 
 func (m *Mutator) mutate(ctx context.Context, change collectionMutation) error {
+	return m.mutateWithFence(ctx, change, nil)
+}
+
+func (m *Mutator) mutateWithFence(ctx context.Context, change collectionMutation, beforePublish func(context.Context) error) error {
 	if m == nil || m.store == nil || m.lifecycle == nil || m.clock == nil || m.entropy == nil || m.rename == nil || m.sync == nil {
 		return fmt.Errorf("final Workspace authority mutator is unavailable")
 	}
@@ -1947,6 +2352,11 @@ func (m *Mutator) mutate(ctx context.Context, change collectionMutation) error {
 		if err := m.store.ConfirmSelected(lockedContext, current, present); err != nil {
 			return fmt.Errorf("confirm final Workspace authority selection before publication: %w", err)
 		}
+		if beforePublish != nil {
+			if err := beforePublish(lockedContext); err != nil {
+				return err
+			}
+		}
 		return m.publish(current, present, next, encoded)
 	})
 }
@@ -1963,44 +2373,15 @@ func (m *Mutator) publish(previous tobari.WorkspaceAuthorityCollection, present 
 	if err := validateMutationDirectory(parent, 0o700); err != nil {
 		return fmt.Errorf("validate final Workspace authority parent: %w", err)
 	}
-	stage := m.store.root + ".wp11-mutation-stage"
-	if present {
-		if err := writeMutationFile(stage, encoded); err != nil {
-			return err
-		}
-		if err := m.rename(stage, filepath.Join(m.store.root, authorityFileName)); err != nil {
-			return m.classifyPublication(previous, present, next, encoded, err)
-		}
-		if err := m.sync(m.store.root); err != nil {
-			return m.classifyPublication(previous, present, next, encoded, err)
-		}
-		return m.classifyPublication(previous, present, next, encoded, nil)
-	}
-	if err := os.Mkdir(stage, 0o700); err != nil {
-		return fmt.Errorf("create final Workspace authority stage: %w", err)
-	}
-	if err := writeMutationFile(filepath.Join(stage, authorityFileName), encoded); err != nil {
-		return err
-	}
-	if err := m.sync(stage); err != nil {
-		return err
-	}
-	if err := m.rename(stage, m.store.root); err != nil {
-		return m.classifyPublication(previous, present, next, encoded, err)
-	}
-	if err := m.sync(parent); err != nil {
-		return m.classifyPublication(previous, present, next, encoded, err)
-	}
-	return m.classifyPublication(previous, present, next, encoded, nil)
+	_ = parent
+	effectErr := m.publishGeneration(next)
+	return m.classifyPublication(previous, present, next, encoded, effectErr)
 }
 
 func (m *Mutator) classifyPublication(previous tobari.WorkspaceAuthorityCollection, previousPresent bool, next tobari.WorkspaceAuthorityCollection, encoded []byte, effectErr error) error {
 	observed, present, readErr := m.readPublishedComplete()
 	if readErr == nil && present && observed.Generation == next.Generation && observed.Revision == next.Revision {
-		actual, fileErr := readAuthorityFile(filepath.Join(m.store.root, authorityFileName))
-		if fileErr == nil && bytes.Equal(actual, encoded) {
-			return nil
-		}
+		return nil
 	}
 	if readErr == nil && previousPresent && present && observed.Generation == previous.Generation && observed.Revision == previous.Revision {
 		return fmt.Errorf("publish final Workspace authority had no effect: %w", effectErr)
@@ -2019,42 +2400,11 @@ func (m *Mutator) classifyPublication(previous tobari.WorkspaceAuthorityCollecti
 // success from no effect before returning replay guidance. Ordinary reads keep
 // using Store.ReadComplete and propagate their caller context.
 func (m *Mutator) readPublishedComplete() (tobari.WorkspaceAuthorityCollection, bool, error) {
-	rootInfo, err := os.Lstat(m.store.root)
-	if errors.Is(err, os.ErrNotExist) {
-		return tobari.WorkspaceAuthorityCollection{}, false, nil
-	}
-	if err != nil {
-		return tobari.WorkspaceAuthorityCollection{}, false, err
-	}
-	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() || rootInfo.Mode().Perm() != 0o700 || !ownedByCurrentUser(rootInfo) {
-		return tobari.WorkspaceAuthorityCollection{}, false, fmt.Errorf("final Workspace authority root is unsafe after publication")
-	}
-	entries, err := os.ReadDir(m.store.root)
-	if err != nil || len(entries) != 1 || entries[0].Name() != authorityFileName {
-		return tobari.WorkspaceAuthorityCollection{}, false, fmt.Errorf("final Workspace authority root is partial after publication")
-	}
-	data, err := readAuthorityFile(filepath.Join(m.store.root, authorityFileName))
-	if err != nil {
-		return tobari.WorkspaceAuthorityCollection{}, false, err
-	}
-	if err := rejectLegacyAdvancedAuthorityBytes(data); err != nil {
-		return tobari.WorkspaceAuthorityCollection{}, false, err
-	}
-	var collection tobari.WorkspaceAuthorityCollection
-	if err := decodeStrictJSON(data, &collection); err != nil {
-		return tobari.WorkspaceAuthorityCollection{}, false, err
-	}
-	if err := validateCollectionBounds(collection); err != nil {
-		return tobari.WorkspaceAuthorityCollection{}, false, err
-	}
-	if err := collection.Validate(); err != nil {
-		return tobari.WorkspaceAuthorityCollection{}, false, err
-	}
-	return collection, true, nil
+	return m.store.readGenerationRaw(m.lifetime)
 }
 
 func (m *Mutator) reconcileStage() error {
-	stage := m.store.root + ".wp11-mutation-stage"
+	stage := mutationStagePath(m.store.root)
 	info, err := os.Lstat(stage)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil

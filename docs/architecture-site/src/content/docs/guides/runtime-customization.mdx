@@ -67,12 +67,14 @@ Tobari does not misreport those as ready history.
 ## 4. Explicitly pin a Workspace Template
 
 ```sh
-tobari template runtime set --id TEMPLATE_REF --runtime RUNTIME_REVISION_REF
+tobari template plan --id TEMPLATE_REF
+tobari template apply --plan TEMPLATE_CHANGE_PLAN_REF
 tobari template show --name review
 ```
 
 The same revision may be pinned by several Workspace Templates. A later build does not
-upgrade them. Select another ordinal explicitly for upgrade or rollback.
+upgrade them. Edit each Template source and review a complete Apply explicitly
+for upgrade or rollback.
 
 ## 5. Re-enter an existing Workspace
 

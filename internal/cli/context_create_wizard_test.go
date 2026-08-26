@@ -369,7 +369,7 @@ func TestContextCreateWizardCanExplicitlyContinueWithoutRejectedOptionalBootstra
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selection.Bootstrap != nil || !strings.Contains(output.String(), "unsafe permissions") || !strings.Contains(output.String(), "help config bootstrap aws") {
+	if selection.Bootstrap != nil || !strings.Contains(output.String(), "unsafe permissions") || !strings.Contains(output.String(), "template show") {
 		t.Fatalf("rejected optional bootstrap = %+v / %q", selection, output.String())
 	}
 }

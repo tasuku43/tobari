@@ -73,7 +73,7 @@ func (s *Service) DiscoverAWSBootstraps(ctx context.Context) (tobari.ManifestAWS
 	}
 	result, err := runtime.DiscoverContextAWSBootstraps(ctx)
 	if err != nil {
-		return tobari.ManifestAWSBootstrapDiscovery{}, fault.Wrap(fault.KindUnavailable, "bootstrap_discovery_failed", "Host AWS bootstrap candidates could not be inspected", true, err, fault.NextAction{Command: "help config bootstrap aws", Reason: "Inspect the fixed host AWS shared-config boundary."})
+		return tobari.ManifestAWSBootstrapDiscovery{}, fault.Wrap(fault.KindUnavailable, "bootstrap_discovery_failed", "Host AWS bootstrap candidates could not be inspected", true, err, fault.NextAction{Command: "template show", Reason: "Inspect the fixed host AWS shared-config boundary."})
 	}
 	if err := result.Validate(); err != nil {
 		return tobari.ManifestAWSBootstrapDiscovery{}, fault.Wrap(fault.KindContract, "invalid_bootstrap_candidates", "AWS bootstrap candidates are invalid", false, err)
@@ -115,13 +115,13 @@ func (s *Service) PreviewAWSBootstrap(ctx context.Context, contextName, profile 
 	}
 	preview, err := runtime.PreviewContextAWSBootstrap(ctx, contextName, profile)
 	if errors.Is(err, tobari.ErrContextBootstrapNotConfigured) {
-		return tobari.ManifestBootstrapPreview{}, fault.New(fault.KindNotFound, "bootstrap_not_configured", "the selected Workspace Manifest has no AWS bootstrap snapshot to refresh", false, fault.NextAction{Command: "help config bootstrap aws", Reason: "Configure an IAM Identity Center profile first."})
+		return tobari.ManifestBootstrapPreview{}, fault.New(fault.KindNotFound, "bootstrap_not_configured", "the selected Workspace Manifest has no AWS bootstrap snapshot to refresh", false, fault.NextAction{Command: "template show", Reason: "Configure an IAM Identity Center profile first."})
 	}
 	if errors.Is(err, tobari.ErrContextBootstrapDependency) {
 		return tobari.ManifestBootstrapPreview{}, fault.New(fault.KindRejected, "bootstrap_dependency", "AWS profile cannot be replaced while the EKS adapter depends on it", false, fault.NextAction{Command: "config bootstrap kubernetes eks", Reason: "Remove the EKS adapter first with --remove."})
 	}
 	if err != nil {
-		return tobari.ManifestBootstrapPreview{}, fault.Wrap(fault.KindRejected, "aws_bootstrap_source_rejected", "Host AWS IAM Identity Center configuration could not be normalized", false, err, fault.NextAction{Command: "help config bootstrap aws", Reason: "Use a strict IAM Identity Center profile without credentials, helpers, or unsupported directives."})
+		return tobari.ManifestBootstrapPreview{}, fault.Wrap(fault.KindRejected, "aws_bootstrap_source_rejected", "Host AWS IAM Identity Center configuration could not be normalized", false, err, fault.NextAction{Command: "template show", Reason: "Use a strict IAM Identity Center profile without credentials, helpers, or unsupported directives."})
 	}
 	if err := preview.Validate(); err != nil {
 		return tobari.ManifestBootstrapPreview{}, fault.Wrap(fault.KindContract, "invalid_bootstrap_preview", "AWS bootstrap preview is invalid", false, err)
@@ -222,7 +222,7 @@ func (s *Service) PrepareAWSBootstrap(ctx context.Context, profile string) (toba
 		return tobari.ManifestBootstrapSnapshot{}, err
 	}
 	if profile == "" {
-		return tobari.ManifestBootstrapSnapshot{}, fault.New(fault.KindInvalidInput, "invalid_aws_bootstrap_profile", "AWS bootstrap profile is required", false, fault.NextAction{Command: "help config bootstrap aws", Reason: "Choose one IAM Identity Center profile from the host AWS shared config."})
+		return tobari.ManifestBootstrapSnapshot{}, fault.New(fault.KindInvalidInput, "invalid_aws_bootstrap_profile", "AWS bootstrap profile is required", false, fault.NextAction{Command: "template show", Reason: "Choose one IAM Identity Center profile from the host AWS shared config."})
 	}
 	runtime, ok := s.runtime.(contextAWSBootstrapRuntimePort)
 	if !ok {
@@ -230,7 +230,7 @@ func (s *Service) PrepareAWSBootstrap(ctx context.Context, profile string) (toba
 	}
 	snapshot, err := runtime.PrepareContextAWSBootstrap(ctx, profile)
 	if err != nil {
-		return tobari.ManifestBootstrapSnapshot{}, fault.Wrap(fault.KindRejected, "aws_bootstrap_source_rejected", "Host AWS IAM Identity Center configuration could not be normalized", false, err, fault.NextAction{Command: "help config bootstrap aws", Reason: "Use a strict IAM Identity Center profile without credentials, helpers, or unsupported directives."})
+		return tobari.ManifestBootstrapSnapshot{}, fault.Wrap(fault.KindRejected, "aws_bootstrap_source_rejected", "Host AWS IAM Identity Center configuration could not be normalized", false, err, fault.NextAction{Command: "template show", Reason: "Use a strict IAM Identity Center profile without credentials, helpers, or unsupported directives."})
 	}
 	if err := snapshot.Validate(); err != nil {
 		return tobari.ManifestBootstrapSnapshot{}, fault.Wrap(fault.KindContract, "invalid_bootstrap_snapshot", "AWS bootstrap snapshot is invalid", false, err)
@@ -268,7 +268,7 @@ func (s *Service) ConfigureAWSBootstrap(ctx context.Context, intent operation.In
 		}
 	}
 	if remove && profile != "" {
-		return tobari.ManifestReport{}, fault.New(fault.KindInvalidInput, "invalid_aws_bootstrap_change", "AWS bootstrap removal cannot select a profile", false, fault.NextAction{Command: "help config bootstrap aws", Reason: "Choose configure/refresh or remove."})
+		return tobari.ManifestReport{}, fault.New(fault.KindInvalidInput, "invalid_aws_bootstrap_change", "AWS bootstrap removal cannot select a profile", false, fault.NextAction{Command: "template show", Reason: "Choose configure/refresh or remove."})
 	}
 	runtime, ok := s.runtime.(contextAWSBootstrapRuntimePort)
 	if !ok {
@@ -282,7 +282,7 @@ func (s *Service) ConfigureAWSBootstrap(ctx context.Context, intent operation.In
 		case errors.Is(configureErr, tobari.ErrContextNotFound):
 			return fault.New(fault.KindNotFound, "manifest_not_found", "the named Workspace Manifest does not exist", false, fault.NextAction{Command: "manifest list", Reason: "Choose an existing Workspace Manifest."})
 		case errors.Is(configureErr, tobari.ErrContextBootstrapNotConfigured):
-			return fault.New(fault.KindNotFound, "bootstrap_not_configured", "the selected Workspace Manifest has no AWS bootstrap snapshot to refresh", false, fault.NextAction{Command: "help config bootstrap aws", Reason: "Configure an IAM Identity Center profile first."})
+			return fault.New(fault.KindNotFound, "bootstrap_not_configured", "the selected Workspace Manifest has no AWS bootstrap snapshot to refresh", false, fault.NextAction{Command: "template show", Reason: "Configure an IAM Identity Center profile first."})
 		case errors.Is(configureErr, tobari.ErrContextBootstrapSourceChanged):
 			return fault.New(fault.KindRejected, "bootstrap_source_changed", "Host AWS configuration changed during review; no Workspace Manifest change was applied", true, fault.NextAction{Command: "config bootstrap aws", Reason: "Review a fresh semantic diff before applying."})
 		case errors.Is(configureErr, tobari.ErrContextBootstrapDependency):

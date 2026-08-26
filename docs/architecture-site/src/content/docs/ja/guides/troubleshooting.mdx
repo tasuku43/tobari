@@ -88,7 +88,8 @@ tobari template show
 tobari runtime list
 tobari runtime show --name frontend
 tobari runtime build --id RUNTIME_REF
-tobari template runtime set --id TEMPLATE_REF --runtime RUNTIME_REVISION_REF
+tobari template plan --id TEMPLATE_REF
+tobari template apply --plan TEMPLATE_CHANGE_PLAN_REF
 ```
 
 ビルド失敗時はリビジョンを追加せず Workspace Template も変えません。選択失敗時は以前の正確な

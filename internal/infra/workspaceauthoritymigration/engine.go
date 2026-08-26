@@ -639,11 +639,11 @@ func (e *Engine) publishFinal(ctx context.Context, collection tobari.WorkspaceAu
 }
 
 func (e *Engine) writeFinalStage(stage string, collection tobari.WorkspaceAuthorityCollection) error {
-	data, err := workspaceauthoritystore.EncodeComplete(collection)
+	store, err := workspaceauthoritystore.New(stage)
 	if err != nil {
 		return err
 	}
-	if err := writePrivateFile(filepath.Join(stage, authorityFileName), data); err != nil {
+	if err := store.PublishMigrationStage(collection); err != nil {
 		return err
 	}
 	if e.afterStageWrite != nil {

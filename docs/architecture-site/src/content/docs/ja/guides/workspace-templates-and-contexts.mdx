@@ -36,9 +36,10 @@ tobari template show --name default --format json
 tobari template copy --from TEMPLATE_REVISION_REF --name review
 ```
 
-copyはfresh Template identityとgeneration 1を作ります。Context、Policy
-Memory、Workspace、home、credential、attachment、applied state、default
-selection、lineageはcopyしません。
+copyはfreshな未公開Template identityと、`base_revision: null`のsource pairを
+作ります。generation 1を公開するのは、その後のfreshなPlanとApplyです。
+Context、Policy Memory、Workspace、home、credential、attachment、applied
+state、default selection、lineageはcopyしません。
 
 ## インストールのdefaultを選ぶ
 
@@ -72,13 +73,11 @@ tobari context enter --id CONTEXT_REF -- codex exec ...
 ## exact Templateを設定する
 
 ```sh
-tobari config shell --id TEMPLATE_REF --variable PS1 --source inherit
-tobari config git --id TEMPLATE_REF --source inherit
-tobari config bootstrap aws --id TEMPLATE_REF --profile example
-tobari template runtime set --id TEMPLATE_REF --runtime RUNTIME_REVISION_REF
+tobari template plan --id TEMPLATE_REF
+tobari template apply --plan TEMPLATE_CHANGE_PLAN_REF
 ```
 
-これらは完全なimmutable Template revisionを発行します。Runtimeとsession
+Apply は完全なimmutable Template revisionを発行します。Runtimeとsession
 defaultは後続のentry/session境界、bootstrapは新しいWorkspace homeにだけ
 適用されます。
 

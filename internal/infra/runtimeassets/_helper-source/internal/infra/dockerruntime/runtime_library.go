@@ -15,19 +15,22 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
+	"gopkg.in/yaml.v3"
 )
 
 const (
-	runtimeSourceFileMode = 0o600
-	maxRuntimeSourceFiles = 1024
-	maxRuntimeSourceDirs  = 256
-	maxRuntimeSourceFile  = int64(32 * 1024 * 1024)
-	maxRuntimeSourceTotal = int64(64 * 1024 * 1024)
-	runtimeSourceCopySize = 128 * 1024
+	runtimeSourceFileMode  = 0o600
+	maxRuntimeSourceFiles  = 1024
+	maxRuntimeSourceDirs   = 256
+	maxRuntimeSourceFile   = int64(32 * 1024 * 1024)
+	maxRuntimeSourceTotal  = int64(64 * 1024 * 1024)
+	runtimeSourceCopySize  = 128 * 1024
+	maxRuntimeMetadataSize = int64(64 * 1024)
 )
 
 const managedRuntimeTemplate = `# This directory is the complete build context for this Tobari Runtime.
@@ -43,18 +46,115 @@ USER root
 USER tobari
 `
 
-func (r *Runtime) runtimesDirectory() string { return filepath.Join(r.configDirectory, "runtimes") }
-func (r *Runtime) runtimeDirectory(name string) string {
-	return filepath.Join(r.runtimesDirectory(), name)
+func (r *Runtime) runtimesDirectory() string      { return filepath.Join(r.configDirectory, "runtimes") }
+func (r *Runtime) runtimeStatesDirectory() string { return filepath.Join(r.stateDirectory, "runtimes") }
+func (r *Runtime) runtimeDirectory(runtimeID string) string {
+	return filepath.Join(r.runtimesDirectory(), runtimeID)
 }
-func (r *Runtime) runtimeSourceDirectory(name string) string {
-	return filepath.Join(r.runtimeDirectory(name), "source")
+func (r *Runtime) runtimeStateDirectory(runtimeID string) string {
+	return filepath.Join(r.runtimeStatesDirectory(), runtimeID)
 }
-func (r *Runtime) runtimeRevisionsDirectory(name string) string {
-	return filepath.Join(r.runtimeDirectory(name), "revisions")
+func (r *Runtime) runtimeSourceDirectory(runtimeID string) string {
+	return filepath.Join(r.runtimeDirectory(runtimeID), "source")
 }
-func (r *Runtime) runtimeManifestPath(name string) string {
-	return filepath.Join(r.runtimeDirectory(name), "runtime.json")
+func (r *Runtime) runtimeRevisionsDirectory(runtimeID string) string {
+	return filepath.Join(r.runtimeStateDirectory(runtimeID), "revisions")
+}
+func (r *Runtime) runtimeManifestPath(runtimeID string) string {
+	return filepath.Join(r.runtimeStateDirectory(runtimeID), "runtime.json")
+}
+func (r *Runtime) runtimeMetadataPath(runtimeID string) string {
+	return filepath.Join(r.runtimeDirectory(runtimeID), "runtime.yaml")
+}
+
+type runtimeSourceMetadata struct {
+	SchemaVersion int    `yaml:"schema_version"`
+	RuntimeID     string `yaml:"runtime_id"`
+	Name          string `yaml:"name"`
+}
+
+func writeRuntimeSourceMetadata(path string, metadata runtimeSourceMetadata) error {
+	if metadata.SchemaVersion != 1 || tobari.ValidateRuntimeID(metadata.RuntimeID) != nil || tobari.ValidateName(metadata.Name) != nil {
+		return fmt.Errorf("Runtime source metadata is invalid")
+	}
+	data, err := yaml.Marshal(metadata)
+	if err != nil {
+		return err
+	}
+	return initializeBytes(path, data, 0o600)
+}
+
+func readRuntimeSourceMetadata(path string) (runtimeSourceMetadata, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return runtimeSourceMetadata{}, err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 || info.Size() <= 0 || info.Size() > maxRuntimeMetadataSize || !ok || stat.Nlink != 1 || int64(stat.Uid) != int64(os.Geteuid()) {
+		return runtimeSourceMetadata{}, fmt.Errorf("Runtime metadata must be a bounded regular owner-only file")
+	}
+	file, err := os.Open(path) // #nosec G304 -- exact ID-owned Runtime metadata path, fenced against replacement below.
+	if err != nil {
+		return runtimeSourceMetadata{}, err
+	}
+	opened, statErr := file.Stat()
+	data, readErr := io.ReadAll(io.LimitReader(file, maxRuntimeMetadataSize+1))
+	closeErr := file.Close()
+	after, afterErr := os.Lstat(path)
+	if statErr != nil || readErr != nil || closeErr != nil || afterErr != nil || !os.SameFile(info, opened) || !os.SameFile(info, after) || int64(len(data)) != info.Size() {
+		return runtimeSourceMetadata{}, errors.Join(statErr, readErr, closeErr, afterErr, fmt.Errorf("Runtime metadata changed during observation"))
+	}
+	var document yaml.Node
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		return runtimeSourceMetadata{}, err
+	}
+	if err := validateRuntimeMetadataYAMLNode(&document); err != nil {
+		return runtimeSourceMetadata{}, err
+	}
+	var metadata runtimeSourceMetadata
+	decoder := yaml.NewDecoder(strings.NewReader(string(data)))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&metadata); err != nil {
+		return metadata, err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return metadata, fmt.Errorf("Runtime metadata contains multiple documents")
+	}
+	if metadata.SchemaVersion != 1 || tobari.ValidateRuntimeID(metadata.RuntimeID) != nil || tobari.ValidateName(metadata.Name) != nil {
+		return metadata, fmt.Errorf("Runtime source metadata is invalid")
+	}
+	return metadata, nil
+}
+
+func validateRuntimeMetadataYAMLNode(node *yaml.Node) error {
+	if node == nil || node.Kind != yaml.DocumentNode || len(node.Content) != 1 {
+		return fmt.Errorf("Runtime metadata YAML document is invalid")
+	}
+	var inspect func(*yaml.Node) error
+	inspect = func(current *yaml.Node) error {
+		if current == nil || current.Kind == yaml.AliasNode || current.Anchor != "" || current.Style&yaml.TaggedStyle != 0 || current.Tag == "!!merge" {
+			return fmt.Errorf("Runtime metadata YAML aliases, anchors, merges, and explicit tags are forbidden")
+		}
+		if current.Kind == yaml.MappingNode {
+			if len(current.Content)%2 != 0 {
+				return fmt.Errorf("Runtime metadata YAML mapping is invalid")
+			}
+			for index := 0; index < len(current.Content); index += 2 {
+				key := current.Content[index]
+				if key.Kind != yaml.ScalarNode || key.Tag != "!!str" {
+					return fmt.Errorf("Runtime metadata YAML keys must be strings")
+				}
+			}
+		}
+		for _, child := range current.Content {
+			if err := inspect(child); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return inspect(node)
 }
 
 func (r *Runtime) standardRuntimeManifest() (tobari.RuntimeManifest, error) {
@@ -185,13 +285,51 @@ func (r *Runtime) readRuntimeManifest(name string) (tobari.RuntimeManifest, erro
 		}
 		return tobari.RuntimeManifest{}, fmt.Errorf("inspect Runtime catalog: %w", err)
 	}
-	if err := requirePrivateDirectory(r.runtimeDirectory(name)); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return tobari.RuntimeManifest{}, tobari.ErrRuntimeNotFound
+	entries, err := os.ReadDir(r.runtimesDirectory())
+	if err != nil {
+		return tobari.RuntimeManifest{}, err
+	}
+	for _, entry := range entries {
+		if entry.Type()&os.ModeSymlink != 0 || !entry.IsDir() || tobari.ValidateRuntimeID(entry.Name()) != nil {
+			return tobari.RuntimeManifest{}, fmt.Errorf("Runtime catalog contains an unsafe or non-ID entry")
 		}
+		manifest, err := r.readRuntimeManifestByID(entry.Name())
+		if err != nil {
+			return tobari.RuntimeManifest{}, err
+		}
+		if manifest.Name == name {
+			return manifest, nil
+		}
+	}
+	return tobari.RuntimeManifest{}, tobari.ErrRuntimeNotFound
+}
+
+func (r *Runtime) readRuntimeManifestByID(runtimeID string) (tobari.RuntimeManifest, error) {
+	if err := tobari.ValidateRuntimeID(runtimeID); err != nil {
+		return tobari.RuntimeManifest{}, err
+	}
+	if err := requirePrivateDirectory(r.runtimeDirectory(runtimeID)); err != nil {
 		return tobari.RuntimeManifest{}, fmt.Errorf("inspect Runtime directory: %w", err)
 	}
-	path := r.runtimeManifestPath(name)
+	configEntries, err := os.ReadDir(r.runtimeDirectory(runtimeID))
+	wantConfig := map[string]bool{"runtime.yaml": true, "source": true}
+	if err != nil || len(configEntries) != len(wantConfig) {
+		return tobari.RuntimeManifest{}, fmt.Errorf("Runtime source directory inventory is invalid")
+	}
+	for _, entry := range configEntries {
+		if entry.Type()&os.ModeSymlink != 0 || !wantConfig[entry.Name()] {
+			return tobari.RuntimeManifest{}, fmt.Errorf("Runtime source directory inventory is invalid")
+		}
+		delete(wantConfig, entry.Name())
+	}
+	metadata, err := readRuntimeSourceMetadata(r.runtimeMetadataPath(runtimeID))
+	if err != nil || metadata.RuntimeID != runtimeID {
+		return tobari.RuntimeManifest{}, fmt.Errorf("read Runtime source metadata: %w", err)
+	}
+	if err := requirePrivateDirectory(r.runtimeStateDirectory(runtimeID)); err != nil {
+		return tobari.RuntimeManifest{}, fmt.Errorf("inspect Runtime state directory: %w", err)
+	}
+	path := r.runtimeManifestPath(runtimeID)
 	if info, err := os.Lstat(path); err == nil {
 		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
 			return tobari.RuntimeManifest{}, fmt.Errorf("Runtime manifest must be a regular owner-only file")
@@ -211,11 +349,11 @@ func (r *Runtime) readRuntimeManifest(name string) (tobari.RuntimeManifest, erro
 	if err := manifest.Validate(); err != nil {
 		return tobari.RuntimeManifest{}, fmt.Errorf("validate Runtime manifest: %w", err)
 	}
-	if manifest.Name != name || manifest.Kind != tobari.RuntimeKindManaged || manifest.SourcePath != r.runtimeSourceDirectory(name) {
+	if manifest.ID != runtimeID || manifest.Name != metadata.Name || manifest.Kind != tobari.RuntimeKindManaged || manifest.SourcePath != r.runtimeSourceDirectory(runtimeID) {
 		return tobari.RuntimeManifest{}, fmt.Errorf("Runtime manifest does not match its store path")
 	}
 	for _, revision := range manifest.Revisions {
-		expected := filepath.Join(r.runtimeRevisionsDirectory(name), strings.TrimPrefix(revision.Revision, "sha256:"), "source")
+		expected := filepath.Join(r.runtimeRevisionsDirectory(runtimeID), strings.TrimPrefix(revision.Revision, "sha256:"), "source")
 		if revision.SnapshotPath != expected {
 			return tobari.RuntimeManifest{}, fmt.Errorf("Runtime revision snapshot does not match its semantic identity")
 		}
@@ -229,6 +367,9 @@ func (r *Runtime) readRuntimeManifest(name string) (tobari.RuntimeManifest, erro
 // ListRuntimes observes the complete local Runtime catalog without creating it.
 func (r *Runtime) ListRuntimes(ctx context.Context) (tobari.RuntimeListResult, error) {
 	if err := ctx.Err(); err != nil {
+		return tobari.RuntimeListResult{}, err
+	}
+	if err := r.requireNoInstallationRuntimeMigration(); err != nil {
 		return tobari.RuntimeListResult{}, err
 	}
 	standard, err := r.standardRuntimeManifest()
@@ -251,7 +392,7 @@ func (r *Runtime) ListRuntimes(ctx context.Context) (tobari.RuntimeListResult, e
 		if !entry.IsDir() {
 			continue
 		}
-		manifest, err := r.readRuntimeManifest(entry.Name())
+		manifest, err := r.readRuntimeManifestByID(entry.Name())
 		if err != nil {
 			return tobari.RuntimeListResult{}, err
 		}
@@ -272,6 +413,9 @@ func (r *Runtime) ResolveRuntimeReference(ctx context.Context, reference string)
 	if err := tobari.ValidateRuntimeRef(reference); err != nil {
 		return tobari.RuntimeManifest{}, err
 	}
+	if err := r.requireNoInstallationRuntimeMigration(); err != nil {
+		return tobari.RuntimeManifest{}, err
+	}
 	if reference == tobari.StandardRuntimeID {
 		return r.standardRuntimeManifest()
 	}
@@ -282,6 +426,9 @@ func (r *Runtime) ResolveRuntimeReference(ctx context.Context, reference string)
 
 func (r *Runtime) ShowRuntime(ctx context.Context, name string) (tobari.RuntimeReport, error) {
 	if err := ctx.Err(); err != nil {
+		return tobari.RuntimeReport{}, err
+	}
+	if err := r.requireNoInstallationRuntimeMigration(); err != nil {
 		return tobari.RuntimeReport{}, err
 	}
 	manifest, err := r.readRuntimeManifest(name)
@@ -329,6 +476,18 @@ func (r *Runtime) createRuntimeLifecycleLocked(ctx context.Context, name string,
 	}
 	var result tobari.RuntimeReport
 	err := r.withRuntimeStoreLock(ctx, func() error {
+		if pending, err := r.readRuntimeCreateJournal(); err != nil {
+			return err
+		} else if pending != nil {
+			recovered, err := r.settleRuntimeCreate(*pending)
+			if err != nil {
+				return fmt.Errorf("recover Runtime create transaction: %w", err)
+			}
+			if recovered.Runtime.Name == name {
+				result = recovered
+				return nil
+			}
+		}
 		if deletion, err := r.readRuntimeDeleteJournalObserved(); err != nil {
 			return err
 		} else if deletion != nil {
@@ -339,21 +498,34 @@ func (r *Runtime) createRuntimeLifecycleLocked(ctx context.Context, name string,
 		} else if prune != nil {
 			return fmt.Errorf("a Runtime prune journal requires recovery before Runtime creation")
 		}
-		if _, err := os.Lstat(r.runtimeDirectory(name)); err == nil {
+		if _, err := r.readRuntimeManifest(name); err == nil {
 			return tobari.ErrRuntimeExists
-		} else if !errors.Is(err, os.ErrNotExist) {
+		} else if !errors.Is(err, tobari.ErrRuntimeNotFound) {
 			return err
 		}
 		if err := r.ensurePrivateDirectory(r.runtimesDirectory()); err != nil {
+			return err
+		}
+		if err := r.ensurePrivateDirectory(r.runtimeStatesDirectory()); err != nil {
 			return err
 		}
 		staging, err := os.MkdirTemp(r.configDirectory, ".runtime-create-")
 		if err != nil {
 			return err
 		}
-		defer func() { _ = os.RemoveAll(staging) }() // #nosec G301 -- exact MkdirTemp-owned staging child.
+		stateStaging, err := os.MkdirTemp(r.stateDirectory, ".runtime-create-")
+		if err != nil {
+			return err
+		}
+		ownedByTransaction := false
+		defer func() {
+			if !ownedByTransaction {
+				_ = os.RemoveAll(staging)      // #nosec G301 -- exact MkdirTemp-owned staging child.
+				_ = os.RemoveAll(stateStaging) // #nosec G301 -- exact MkdirTemp-owned staging child.
+			}
+		}()
 		stagedSource := filepath.Join(staging, "source")
-		if err := os.Mkdir(filepath.Join(staging, "revisions"), 0o700); err != nil {
+		if err := os.Mkdir(filepath.Join(stateStaging, "revisions"), 0o700); err != nil {
 			return err
 		}
 		id, err := r.identities.newRuntimeID()
@@ -362,7 +534,7 @@ func (r *Runtime) createRuntimeLifecycleLocked(ctx context.Context, name string,
 		}
 		manifest := tobari.RuntimeManifest{
 			SchemaVersion: tobari.RuntimeSchemaVersion, ID: id, Name: name, Kind: tobari.RuntimeKindManaged,
-			SourcePath: r.runtimeSourceDirectory(name), Revisions: []tobari.RuntimeRevision{},
+			SourcePath: r.runtimeSourceDirectory(id), Revisions: []tobari.RuntimeRevision{},
 		}
 		if err := manifest.Validate(); err != nil {
 			return err
@@ -387,25 +559,108 @@ func (r *Runtime) createRuntimeLifecycleLocked(ctx context.Context, name string,
 				return err
 			}
 		}
-		if err := writeAtomicJSON(filepath.Join(staging, "runtime.json"), manifest); err != nil {
+		if err := writeRuntimeSourceMetadata(filepath.Join(staging, "runtime.yaml"), runtimeSourceMetadata{SchemaVersion: 1, RuntimeID: id, Name: name}); err != nil {
+			return err
+		}
+		if err := writeAtomicJSON(filepath.Join(stateStaging, "runtime.json"), manifest); err != nil {
 			return err
 		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := os.Rename(staging, r.runtimeDirectory(name)); err != nil {
-			if errors.Is(err, os.ErrExist) {
-				return tobari.ErrRuntimeExists
-			}
+		fileSync := r.runtimeCreateFileSync
+		if fileSync == nil {
+			fileSync = syncRegularRuntimeFile
+		}
+		if err := fileSync(filepath.Join(staging, "runtime.yaml")); err != nil {
 			return err
 		}
-		result = tobari.RuntimeReport{Task: tobari.TaskRuntimeCreate, Runtime: manifest, Created: true}
-		return result.Validate()
+		if err := syncRuntimeSourceTree(stagedSource, fileSync); err != nil {
+			return err
+		}
+		if err := syncDirectoryIfPresent(staging); err != nil {
+			return err
+		}
+		if err := syncDirectoryIfPresent(stateStaging); err != nil {
+			return err
+		}
+		journal := runtimeCreateJournal{SchemaVersion: runtimeCreateSchema, Phase: runtimeCreatePrepared, RuntimeID: id, RuntimeName: name, ConfigStage: staging, StateStage: stateStaging}
+		if err := r.writeRuntimeCreateJournal(nil, journal); err != nil {
+			return err
+		}
+		ownedByTransaction = true
+		if err := r.runtimeCreateBoundaryCall("journal_prepared"); err != nil {
+			return err
+		}
+		var settleErr error
+		result, settleErr = r.settleRuntimeCreate(journal)
+		return settleErr
 	})
 	if err != nil {
 		return tobari.RuntimeReport{}, err
 	}
 	return result, nil
+}
+
+func syncRegularRuntimeFile(path string) error {
+	file, err := os.Open(path) // #nosec G304 -- exact transaction-owned Runtime staging file.
+	if err != nil {
+		return err
+	}
+	err = file.Sync()
+	return errors.Join(err, file.Close())
+}
+
+// syncRuntimeSourceTree makes the complete transaction-owned source snapshot
+// durable before any create journal or canonical Runtime directory can name it.
+// A Dockerfile-only barrier is insufficient because managed Runtime copies may
+// contain arbitrary validated regular files and nested directories.
+func syncRuntimeSourceTree(root string, syncFile func(string) error) error {
+	directories := make([]string, 0)
+	files := make([]string, 0)
+	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return runtimeSourceInvalid(fmt.Sprintf("Runtime source path %s changed to a symbolic link before publication.", runtimeSourcePathLabel(path)))
+		}
+		if entry.IsDir() {
+			directories = append(directories, path)
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return runtimeSourceInvalid(fmt.Sprintf("Runtime source path %s changed to a special file before publication.", runtimeSourcePathLabel(path)))
+		}
+		files = append(files, path)
+		return nil
+	}); err != nil {
+		return err
+	}
+	sort.Strings(files)
+	for _, path := range files {
+		if err := syncFile(path); err != nil {
+			return err
+		}
+	}
+	sort.Slice(directories, func(i, j int) bool {
+		depthI := strings.Count(filepath.Clean(directories[i]), string(filepath.Separator))
+		depthJ := strings.Count(filepath.Clean(directories[j]), string(filepath.Separator))
+		if depthI == depthJ {
+			return directories[i] > directories[j]
+		}
+		return depthI > depthJ
+	})
+	for _, path := range directories {
+		if err := syncDirectoryIfPresent(path); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type runtimeSourceEntry struct {
@@ -1001,7 +1256,7 @@ func (r *Runtime) freezeRuntimeBuildSnapshot(root string) error {
 }
 
 func (r *Runtime) publishRuntimeBuildManifest(manifest tobari.RuntimeManifest) error {
-	path := r.runtimeManifestPath(manifest.Name)
+	path := r.runtimeManifestPath(manifest.ID)
 	var err error
 	if r.runtimeBuildManifestWrite != nil {
 		err = r.runtimeBuildManifestWrite(path, manifest)
@@ -1067,7 +1322,7 @@ func exactRuntimeBuildDirectory(path string) (bool, error) {
 }
 
 func (r *Runtime) publishManagedRuntimeSnapshot(ctx context.Context, journal runtimeBuildJournal) (string, error) {
-	revisionsRoot := r.runtimeRevisionsDirectory(journal.RuntimeName)
+	revisionsRoot := r.runtimeRevisionsDirectory(journal.RuntimeID)
 	finalParent := filepath.Join(revisionsRoot, strings.TrimPrefix(journal.Revision, "sha256:"))
 	final := filepath.Join(finalParent, "source")
 	stagingPresent, err := exactRuntimeBuildDirectory(journal.SnapshotPath)
@@ -1147,7 +1402,7 @@ func (r *Runtime) publishManagedRuntimeManifestRevision(_ context.Context, journ
 	if err != nil || manifest.ID != journal.RuntimeID {
 		return tobari.RuntimeManifest{}, fmt.Errorf("Runtime manifest authority changed during build publication: %w", err)
 	}
-	final := filepath.Join(r.runtimeRevisionsDirectory(journal.RuntimeName), strings.TrimPrefix(journal.Revision, "sha256:"), "source")
+	final := filepath.Join(r.runtimeRevisionsDirectory(journal.RuntimeID), strings.TrimPrefix(journal.Revision, "sha256:"), "source")
 	createdAt, err := time.Parse(time.RFC3339Nano, journal.CreatedAt)
 	if err != nil {
 		return tobari.RuntimeManifest{}, err
@@ -1339,7 +1594,7 @@ func (r *Runtime) buildManagedRuntimeLifecycleLocked(ctx context.Context, name, 
 		if err != nil {
 			return err
 		}
-		revisionsRoot := r.runtimeRevisionsDirectory(name)
+		revisionsRoot := r.runtimeRevisionsDirectory(manifest.ID)
 		if err := requirePrivateDirectory(revisionsRoot); err != nil {
 			return err
 		}
@@ -1351,7 +1606,7 @@ func (r *Runtime) buildManagedRuntimeLifecycleLocked(ctx context.Context, name, 
 			return r.rollbackRuntimeBuildBeforeDocker(ctx, err, journal)
 		}
 		snapshot := journal.SnapshotPath
-		revision, err := copyRuntimeSource(ctx, r.runtimeSourceDirectory(name), snapshot)
+		revision, err := copyRuntimeSource(ctx, manifest.SourcePath, snapshot)
 		if err != nil {
 			return r.rollbackRuntimeBuildBeforeDocker(ctx, err, journal)
 		}
@@ -1502,7 +1757,7 @@ func (r *Runtime) resolveManagedRuntimeReferenceUnlocked(reference string) (toba
 		if entry.Type()&os.ModeSymlink != 0 || !entry.IsDir() {
 			return tobari.RuntimeManifest{}, fmt.Errorf("Runtime catalog contains an unsafe entry")
 		}
-		manifest, err := r.readRuntimeManifest(entry.Name())
+		manifest, err := r.readRuntimeManifestByID(entry.Name())
 		if err != nil {
 			return tobari.RuntimeManifest{}, err
 		}

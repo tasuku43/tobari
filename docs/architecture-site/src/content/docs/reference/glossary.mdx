@@ -264,11 +264,12 @@ request header.
 
 ## State and public contracts
 
-### authority envelope
+### active authority generation
 
-The owner-only atomic file containing the installation's schema-1 Templates,
-Contexts, and Policy Memory plus schema-3 Workspaces and optional default
-Template selection. Bare `status` reads this authority without creating or
+The verified content-addressed manifest selecting immutable Template, Context,
+Policy-Memory, and Workspace objects plus optional default Template selection.
+Its small owner-only pointer is atomically published only after the complete
+generation is durable. Bare `status` reads this authority without creating or
 repairing it; Docker state is observation, not authority.
 
 ### AppliedEntry

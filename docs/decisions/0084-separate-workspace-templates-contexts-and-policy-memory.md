@@ -10,8 +10,18 @@
   pre-release compatibility, typed identity, protection,
   authentication-owner, and policy-owner seams
 - Related: ADR 0066 and WP11
-- Revised by: ADR 0087 at the executable-policy and evaluator-identity seam
+- Revised by: ADR 0087 at the executable-policy and evaluator-identity seam;
+  ADR 0088 at the persistence, desired-source, Boundary revision, draft, and
+  explicit installed-state migration seams
 - Superseded by: None
+
+ADR 0088 makes Template and Context desired sources concept-separated files
+and active authority a concept-object generation selected by an atomic pointer,
+not one monolithic envelope. Method Boundary changes are planned moving-head
+revisions, create/copy issue drafts, and the exact supported typed predecessor
+has one explicit `installation migration plan/apply` path. Older immutable-
+Boundary, direct-active create/copy, and no-public-migration statements below
+are decision history rather than current contract.
 
 ## Implementation-authority status
 
@@ -276,8 +286,9 @@ hostname, retirement guard, lock order, and attachment lifetime do not change.
 - Static copy cannot accidentally copy dynamic authority or state.
 - Routine Current/Next output can expose three independent receipts without
   inventing one combined revision.
-- Immutable Boundary and reference-bound actions close two normal name-reuse
-  and authority-reactivation races.
+- Planned complete-revision Apply and reference-bound actions close normal
+  name-reuse, stale-source, and authority-reactivation races. Boundary changes
+  are reviewed moving-head Template revisions rather than in-place mutations.
 
 ### Negative
 

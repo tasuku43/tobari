@@ -17,20 +17,29 @@ type TemplateReadPort interface {
 	DiscoverWorkspaceTemplate(context.Context, string) (tobari.WorkspaceTemplate, error)
 }
 
-type TemplateCreatePort interface {
-	CreateWorkspaceTemplate(context.Context, string, tobari.WorkspaceTemplateBody) (tobari.WorkspaceTemplate, error)
+type TemplateSourceObservationPort interface {
+	ObserveWorkspaceTemplateSource(context.Context, tobari.WorkspaceTemplate) (tobari.ResourceSourceObservation, error)
 }
 
-type TemplateCopyPort interface {
-	CopyWorkspaceTemplateByRevisionReference(context.Context, string, string) (tobari.WorkspaceTemplateCopyPublication, error)
+type TemplateDraftReadPort interface {
+	ListWorkspaceTemplateDrafts(context.Context) ([]tobari.WorkspaceTemplateDraft, error)
+	DiscoverWorkspaceTemplateDraft(context.Context, string) (tobari.WorkspaceTemplateDraft, error)
 }
 
-type TemplateUpdatePort interface {
-	UpdateWorkspaceTemplateByReference(context.Context, string, tobari.WorkspaceTemplateChange) (tobari.WorkspaceTemplateRevisionPublication, error)
+type TemplateApplyPort interface {
+	ApplyWorkspaceTemplateSourceByReference(context.Context, string) (tobari.WorkspaceTemplateRevisionPublication, error)
 }
 
-type TemplateBootstrapUpdatePort interface {
-	UpdateWorkspaceTemplateBootstrapByReference(context.Context, string, tobari.WorkspaceTemplateBootstrapRequest) (tobari.WorkspaceTemplateRevisionPublication, tobari.WorkspaceTemplateChange, error)
+type TemplatePlanPort interface {
+	PlanWorkspaceTemplateSourceByReference(context.Context, string) (tobari.WorkspaceTemplateChangePlan, error)
+}
+
+type TemplateDraftCreatePort interface {
+	CreateWorkspaceTemplateDraft(context.Context, string, tobari.WorkspaceTemplateBody) (tobari.WorkspaceTemplateDraft, error)
+}
+
+type TemplateDraftCopyPort interface {
+	CopyWorkspaceTemplateDraftByRevisionReference(context.Context, string, string) (tobari.WorkspaceTemplateDraft, error)
 }
 
 type TemplateDefaultPort interface {
@@ -59,75 +68,63 @@ func (templateMutationPolicy) Check(_ context.Context, intent operation.Intent) 
 			return err
 		}
 		return nil
+	case intent.Effect == operation.EffectWrite && intent.Target.Kind == tobari.WorkspaceTemplateChangePlanReferenceKind && intent.Target.ID != "" && intent.Target.ParentID == "":
+		_, err := tobari.ParseWorkspaceTemplateChangePlanRef(intent.Target.ID)
+		return err
 	default:
 		return fault.New(fault.KindRejected, "mutation_rejected", "Workspace Template mutation target is not owned by Tobari", false)
 	}
 }
 
 type TemplateService struct {
-	read       TemplateReadPort
-	create     TemplateCreatePort
-	copy       TemplateCopyPort
-	update     TemplateUpdatePort
-	bootstrap  TemplateBootstrapUpdatePort
-	defaultSet TemplateDefaultPort
-	delete     TemplateDeletePort
-	mutator    *execution.Invoker
+	read        TemplateReadPort
+	draftCreate TemplateDraftCreatePort
+	draftCopy   TemplateDraftCopyPort
+	defaultSet  TemplateDefaultPort
+	delete      TemplateDeletePort
+	apply       TemplateApplyPort
+	planner     TemplatePlanPort
+	sources     TemplateSourceObservationPort
+	drafts      TemplateDraftReadPort
+	mutator     *execution.Invoker
 }
 
 func NewTemplateService(port any) *TemplateService {
 	service := &TemplateService{mutator: execution.New(templateMutationPolicy{})}
 	service.read, _ = port.(TemplateReadPort)
-	service.create, _ = port.(TemplateCreatePort)
-	service.copy, _ = port.(TemplateCopyPort)
-	service.update, _ = port.(TemplateUpdatePort)
-	service.bootstrap, _ = port.(TemplateBootstrapUpdatePort)
+	service.draftCreate, _ = port.(TemplateDraftCreatePort)
+	service.draftCopy, _ = port.(TemplateDraftCopyPort)
 	service.defaultSet, _ = port.(TemplateDefaultPort)
 	service.delete, _ = port.(TemplateDeletePort)
+	service.apply, _ = port.(TemplateApplyPort)
+	service.planner, _ = port.(TemplatePlanPort)
+	service.sources, _ = port.(TemplateSourceObservationPort)
+	service.drafts, _ = port.(TemplateDraftReadPort)
 	return service
 }
 
-func (s *TemplateService) UpdateBootstrap(
-	ctx context.Context,
-	intent operation.Intent,
-	templateRef string,
-	request tobari.WorkspaceTemplateBootstrapRequest,
-) (tobari.WorkspaceTemplateRevisionPublication, error) {
-	if s == nil || portcheck.IsNil(s.bootstrap) {
-		return tobari.WorkspaceTemplateRevisionPublication{}, missingPort("Workspace Template bootstrap update")
+func TemplateApplyImpact() operation.Impact {
+	return operation.Impact{Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}
+}
+
+func (s *TemplateService) Plan(ctx context.Context, templateRef string) (tobari.WorkspaceTemplateChangePlan, error) {
+	if s == nil || portcheck.IsNil(s.planner) {
+		return tobari.WorkspaceTemplateChangePlan{}, missingPort("Workspace Template change planning")
 	}
 	if _, err := tobari.ParseWorkspaceTemplateRef(templateRef); err != nil {
-		return tobari.WorkspaceTemplateRevisionPublication{}, invalidFault("invalid_template_ref", "Workspace Template reference is invalid", err, "template list")
+		return tobari.WorkspaceTemplateChangePlan{}, invalidFault("invalid_template_ref", "Workspace Template reference is invalid", err, "template list")
 	}
-	if err := request.Validate(); err != nil {
-		return tobari.WorkspaceTemplateRevisionPublication{}, invalidFault("invalid_template_bootstrap", "Workspace Template bootstrap action is invalid", err, "help "+intent.Command)
-	}
-	wantKind, err := templateChangeKindForCommand(intent.Command)
-	if err != nil || request.Kind != wantKind {
-		return tobari.WorkspaceTemplateRevisionPublication{}, invalidFault("invalid_template_change", "Workspace Template bootstrap action does not match its task", fmt.Errorf("Template bootstrap kind does not match command"), "help "+intent.Command)
-	}
-	impact, err := TemplateConfigurationImpact(intent.Command)
+	plan, err := s.planner.PlanWorkspaceTemplateSourceByReference(ctx, templateRef)
 	if err != nil {
-		return tobari.WorkspaceTemplateRevisionPublication{}, invalidFault("invalid_template_task", "Workspace Template bootstrap task is invalid", err, "help")
+		return tobari.WorkspaceTemplateChangePlan{}, templateMutationFault(err)
 	}
-	target := operation.TargetRef{Kind: tobari.WorkspaceTemplateReferenceKind, ID: templateRef}
-	invocation := execution.Request{Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectWrite, ExpectedTarget: target, ExpectedImpact: impact}
-	var result tobari.WorkspaceTemplateRevisionPublication
-	err = s.mutator.Invoke(ctx, invocation, func(actionContext context.Context, _ operation.Intent) error {
-		publication, change, err := s.bootstrap.UpdateWorkspaceTemplateBootstrapByReference(actionContext, templateRef, request)
-		if err != nil {
-			return templateMutationFault(err)
+	if err := plan.Validate(); err != nil || plan.TemplateRef != templateRef {
+		if err == nil {
+			err = fmt.Errorf("Template plan target does not match the request")
 		}
-		if change.Kind != request.Kind {
-			return contractFault("invalid_template_revision_result", "Workspace Template bootstrap publication is invalid", fmt.Errorf("resolved Template change kind does not match request"))
-		}
-		if err := publication.ValidateFor(templateRef, change); err != nil {
-			return contractFault("invalid_template_revision_result", "Workspace Template bootstrap publication is invalid", err)
-		}
-		result = publication
-		return nil
-	})
-	return result, err
+		return tobari.WorkspaceTemplateChangePlan{}, contractFault("invalid_template_change_plan", "Workspace Template change plan is invalid", err)
+	}
+	return plan, nil
 }
 
 func TemplateCreateImpact() operation.Impact {
@@ -142,83 +139,6 @@ func TemplateDeleteImpact() operation.Impact {
 	return operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationYes}
 }
 
-func TemplateConfigurationImpact(command string) (operation.Impact, error) {
-	impact := operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo}
-	switch command {
-	case TaskTemplateConfigShell, TaskTemplateConfigGit, TaskTemplateBootstrapAWS, TaskTemplateBootstrapEKS:
-		return impact, nil
-	case TaskTemplateRuntimeSet:
-		impact.AccessChange = operation.DeclarationYes
-		return impact, nil
-	default:
-		return operation.Impact{}, fmt.Errorf("Template configuration task is invalid")
-	}
-}
-
-func templateChangeKindForCommand(command string) (tobari.WorkspaceTemplateChangeKind, error) {
-	switch command {
-	case TaskTemplateConfigShell:
-		return tobari.WorkspaceTemplateChangeShell, nil
-	case TaskTemplateConfigGit:
-		return tobari.WorkspaceTemplateChangeGit, nil
-	case TaskTemplateBootstrapAWS:
-		return tobari.WorkspaceTemplateChangeBootstrapAWS, nil
-	case TaskTemplateBootstrapEKS:
-		return tobari.WorkspaceTemplateChangeBootstrapEKS, nil
-	case TaskTemplateRuntimeSet:
-		return tobari.WorkspaceTemplateChangeRuntime, nil
-	default:
-		return "", fmt.Errorf("Template configuration task is invalid")
-	}
-}
-
-func (s *TemplateService) UpdateConfiguration(
-	ctx context.Context,
-	intent operation.Intent,
-	templateRef string,
-	change tobari.WorkspaceTemplateChange,
-) (tobari.WorkspaceTemplateRevisionPublication, error) {
-	if s == nil || portcheck.IsNil(s.update) {
-		return tobari.WorkspaceTemplateRevisionPublication{}, missingPort("Workspace Template update")
-	}
-	if _, err := tobari.ParseWorkspaceTemplateRef(templateRef); err != nil {
-		return tobari.WorkspaceTemplateRevisionPublication{}, invalidFault("invalid_template_ref", "Workspace Template reference is invalid", err, "template list")
-	}
-	impact, err := TemplateConfigurationImpact(intent.Command)
-	if err != nil {
-		return tobari.WorkspaceTemplateRevisionPublication{}, invalidFault("invalid_template_task", "Workspace Template configuration task is invalid", err, "help")
-	}
-	wantKind, err := templateChangeKindForCommand(intent.Command)
-	if err != nil || change.Kind != wantKind {
-		return tobari.WorkspaceTemplateRevisionPublication{}, invalidFault("invalid_template_change", "Workspace Template configuration change does not match its task", fmt.Errorf("Template change kind does not match command"), "help "+intent.Command)
-	}
-	if err := change.Validate(); err != nil {
-		return tobari.WorkspaceTemplateRevisionPublication{}, invalidFault("invalid_template_change", "Workspace Template configuration change is invalid", err, "help "+intent.Command)
-	}
-	parent := ""
-	if intent.Command == TaskTemplateRuntimeSet {
-		if _, _, err := tobari.ParseRuntimeRevisionRef(change.RuntimeRevisionRef); err != nil {
-			return tobari.WorkspaceTemplateRevisionPublication{}, invalidFault("invalid_runtime_revision_ref", "Runtime revision reference is invalid", err, "runtime history")
-		}
-		parent = change.RuntimeRevisionRef
-	}
-	target := operation.TargetRef{Kind: tobari.WorkspaceTemplateReferenceKind, ID: templateRef, ParentID: parent}
-	request := execution.Request{Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectWrite, ExpectedTarget: target, ExpectedImpact: impact}
-	var result tobari.WorkspaceTemplateRevisionPublication
-	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		publication, err := s.update.UpdateWorkspaceTemplateByReference(actionContext, templateRef, change.Clone())
-		if err != nil {
-			return templateMutationFault(err)
-		}
-		if err := publication.ValidateFor(templateRef, change); err != nil {
-			return contractFault("invalid_template_revision_result", "Workspace Template revision publication is invalid", err)
-		}
-		result = publication
-		return nil
-	})
-	return result, err
-}
-
 func (s *TemplateService) List(ctx context.Context) (TemplateList, error) {
 	if s == nil || portcheck.IsNil(s.read) {
 		return TemplateList{}, missingPort("Workspace Template read")
@@ -231,7 +151,49 @@ func (s *TemplateService) List(ctx context.Context) (TemplateList, error) {
 	if err != nil {
 		return TemplateList{}, contractFault("invalid_template_list", "Workspace Template list is invalid", err)
 	}
+	if !portcheck.IsNil(s.sources) {
+		for index := range result.Items {
+			observation, observeErr := s.sources.ObserveWorkspaceTemplateSource(ctx, result.Items[index].Template)
+			if observeErr != nil {
+				return TemplateList{}, readFault(observeErr, "template_source_read_failed", "Workspace Template source could not be inspected")
+			}
+			result.Items[index].Source = &observation
+		}
+	}
+	if !portcheck.IsNil(s.drafts) {
+		drafts, draftErr := s.drafts.ListWorkspaceTemplateDrafts(ctx)
+		if draftErr != nil {
+			return TemplateList{}, readFault(draftErr, "template_source_read_failed", "Workspace Template drafts could not be inspected")
+		}
+		result.Drafts = make([]TemplateDraftView, len(drafts))
+		for index, draft := range drafts {
+			view, viewErr := NewTemplateDraftView(draft)
+			if viewErr != nil {
+				return TemplateList{}, contractFault("invalid_template_list", "Workspace Template draft list is invalid", viewErr)
+			}
+			result.Drafts[index] = view
+		}
+	}
 	return result, nil
+}
+
+func (s *TemplateService) ShowResource(ctx context.Context, name string) (TemplateResourceView, error) {
+	active, err := s.Show(ctx, name)
+	if err == nil {
+		return TemplateResourceView{Active: &active}, nil
+	}
+	if portcheck.IsNil(s.drafts) {
+		return TemplateResourceView{}, err
+	}
+	draft, draftErr := s.drafts.DiscoverWorkspaceTemplateDraft(ctx, name)
+	if draftErr != nil {
+		return TemplateResourceView{}, err
+	}
+	view, viewErr := NewTemplateDraftView(draft)
+	if viewErr != nil {
+		return TemplateResourceView{}, contractFault("invalid_template", "Workspace Template draft is invalid", viewErr)
+	}
+	return TemplateResourceView{Draft: &view}, nil
 }
 
 func (s *TemplateService) Show(ctx context.Context, name string) (TemplateView, error) {
@@ -254,34 +216,80 @@ func (s *TemplateService) Show(ctx context.Context, name string) (TemplateView, 
 	if err != nil {
 		return TemplateView{}, contractFault("invalid_template", "Workspace Template is invalid", err)
 	}
+	if !portcheck.IsNil(s.sources) {
+		observation, observeErr := s.sources.ObserveWorkspaceTemplateSource(ctx, template)
+		if observeErr != nil {
+			return TemplateView{}, readFault(observeErr, "template_source_read_failed", "Workspace Template source could not be inspected")
+		}
+		result.Source = &observation
+	}
 	return result, nil
 }
 
-func (s *TemplateService) Create(ctx context.Context, intent operation.Intent, name string, body tobari.WorkspaceTemplateBody) (TemplateView, error) {
-	if s == nil || portcheck.IsNil(s.create) {
-		return TemplateView{}, missingPort("Workspace Template create")
+type TemplateApplyResult struct {
+	View    TemplateView
+	Changed bool
+}
+
+func (s *TemplateService) Apply(ctx context.Context, intent operation.Intent, planRef string) (TemplateApplyResult, error) {
+	if s == nil || portcheck.IsNil(s.apply) {
+		return TemplateApplyResult{}, missingPort("Workspace Template source apply")
 	}
-	if err := tobari.ValidateName(name); err != nil {
-		return TemplateView{}, invalidFault("invalid_template_name", "Workspace Template name is invalid", err, "template list")
+	if _, err := tobari.ParseWorkspaceTemplateChangePlanRef(planRef); err != nil {
+		return TemplateApplyResult{}, invalidFault("invalid_template_change_plan_ref", "Workspace Template change plan reference is invalid", err, "template list")
 	}
-	if err := body.Validate(); err != nil {
-		return TemplateView{}, invalidFault("invalid_template_body", "Workspace Template definition is invalid", err, "template create")
-	}
-	target := operation.TargetRef{Kind: tobari.WorkspaceTemplateCatalogTargetKind, ParentID: tobari.WorkspaceTemplateCatalogTargetID}
-	request := execution.Request{Intent: intent, ExpectedCommand: TaskTemplateCreate, ExpectedEffect: operation.EffectCreate, ExpectedTarget: target, ExpectedImpact: TemplateCreateImpact()}
-	var result TemplateView
+	target := operation.TargetRef{Kind: tobari.WorkspaceTemplateChangePlanReferenceKind, ID: planRef}
+	request := execution.Request{Intent: intent, ExpectedCommand: TaskTemplateApply, ExpectedEffect: operation.EffectWrite, ExpectedTarget: target, ExpectedImpact: TemplateApplyImpact()}
+	var result TemplateApplyResult
 	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		created, err := s.create.CreateWorkspaceTemplate(actionContext, name, body.Clone())
+		publication, err := s.apply.ApplyWorkspaceTemplateSourceByReference(actionContext, planRef)
 		if err != nil {
 			return templateMutationFault(err)
 		}
-		view, err := NewTemplateView(created)
-		if err != nil {
-			return contractFault("invalid_template_create_result", "created Workspace Template is invalid", err)
+		if err := publication.Template.Validate(); err != nil || publication.Template.Current.Revision != publication.Current.Revision {
+			if err == nil {
+				err = fmt.Errorf("published Template revision does not match the Apply result")
+			}
+			return contractFault("invalid_template_apply_result", "Workspace Template source publication is invalid", err)
 		}
-		want, err := tobari.NewWorkspaceTemplateRevision(created.ID, 1, body)
-		if err != nil || created.Name != name || created.Current.Generation != 1 || len(created.Retained) != 1 || created.Current.Revision != want.Revision {
-			return contractFault("invalid_template_create_result", "created Workspace Template does not match the reviewed definition", fmt.Errorf("Template create result mismatch"))
+		view, err := NewTemplateView(publication.Template)
+		if err != nil {
+			return contractFault("invalid_template_apply_result", "Workspace Template source publication is invalid", err)
+		}
+		if !portcheck.IsNil(s.sources) {
+			observation, observeErr := s.sources.ObserveWorkspaceTemplateSource(actionContext, publication.Template)
+			if observeErr != nil || observation.State != tobari.ResourceSourceInSync {
+				return contractFault("invalid_template_apply_result", "Applied Workspace Template source is not current", observeErr)
+			}
+			view.Source = &observation
+		}
+		result = TemplateApplyResult{View: view, Changed: publication.Changed}
+		return nil
+	})
+	return result, err
+}
+
+func (s *TemplateService) CreateDraft(ctx context.Context, intent operation.Intent, name string, body tobari.WorkspaceTemplateBody) (TemplateDraftView, error) {
+	if s == nil || portcheck.IsNil(s.draftCreate) {
+		return TemplateDraftView{}, missingPort("Workspace Template draft create")
+	}
+	if err := tobari.ValidateName(name); err != nil {
+		return TemplateDraftView{}, invalidFault("invalid_template_name", "Workspace Template name is invalid", err, "template list")
+	}
+	if err := body.Validate(); err != nil {
+		return TemplateDraftView{}, invalidFault("invalid_template_body", "Workspace Template definition is invalid", err, "template create")
+	}
+	target := operation.TargetRef{Kind: tobari.WorkspaceTemplateCatalogTargetKind, ParentID: tobari.WorkspaceTemplateCatalogTargetID}
+	request := execution.Request{Intent: intent, ExpectedCommand: TaskTemplateCreate, ExpectedEffect: operation.EffectCreate, ExpectedTarget: target, ExpectedImpact: TemplateCreateImpact()}
+	var result TemplateDraftView
+	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		draft, err := s.draftCreate.CreateWorkspaceTemplateDraft(actionContext, name, body.Clone())
+		if err != nil {
+			return templateMutationFault(err)
+		}
+		view, err := NewTemplateDraftView(draft)
+		if err != nil {
+			return contractFault("invalid_template_create_result", "created Workspace Template draft is invalid", err)
 		}
 		result = view
 		return nil
@@ -289,35 +297,30 @@ func (s *TemplateService) Create(ctx context.Context, intent operation.Intent, n
 	return result, err
 }
 
-func (s *TemplateService) Copy(ctx context.Context, intent operation.Intent, revisionRef, name string) (TemplateView, error) {
-	if s == nil || portcheck.IsNil(s.copy) {
-		return TemplateView{}, missingPort("Workspace Template copy")
+func (s *TemplateService) CopyDraft(ctx context.Context, intent operation.Intent, revisionRef, name string) (TemplateDraftView, error) {
+	if s == nil || portcheck.IsNil(s.draftCopy) {
+		return TemplateDraftView{}, missingPort("Workspace Template draft copy")
 	}
-	sourceID, sourceDigest, err := tobari.ParseWorkspaceTemplateRevisionRef(revisionRef)
-	if err != nil {
-		return TemplateView{}, invalidFault("invalid_template_revision_ref", "Workspace Template revision reference is invalid", err, "template show")
+	if _, _, err := tobari.ParseWorkspaceTemplateRevisionRef(revisionRef); err != nil {
+		return TemplateDraftView{}, invalidFault("invalid_template_revision_ref", "Workspace Template revision reference is invalid", err, "template show")
 	}
 	if err := tobari.ValidateName(name); err != nil {
-		return TemplateView{}, invalidFault("invalid_template_name", "Workspace Template name is invalid", err, "template list")
+		return TemplateDraftView{}, invalidFault("invalid_template_name", "Workspace Template name is invalid", err, "template list")
 	}
 	target := operation.TargetRef{Kind: tobari.WorkspaceTemplateReferenceKind, ParentID: revisionRef}
 	request := execution.Request{Intent: intent, ExpectedCommand: TaskTemplateCopy, ExpectedEffect: operation.EffectCreate, ExpectedTarget: target, ExpectedImpact: TemplateCreateImpact()}
-	var result TemplateView
-	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		publication, err := s.copy.CopyWorkspaceTemplateByRevisionReference(actionContext, revisionRef, name)
+	var result TemplateDraftView
+	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		draft, err := s.draftCopy.CopyWorkspaceTemplateDraftByRevisionReference(actionContext, revisionRef, name)
 		if err != nil {
 			return templateMutationFault(err)
 		}
-		if err := publication.Source.Validate(); err != nil || publication.Source.TemplateID != sourceID || publication.Source.Revision != sourceDigest {
-			return contractFault("invalid_template_copy_result", "Template copy source receipt is invalid", fmt.Errorf("copy source does not match the exact reference"))
-		}
-		created := publication.Created
-		view, err := NewTemplateView(created)
+		view, err := NewTemplateDraftView(draft)
 		if err != nil {
-			return contractFault("invalid_template_copy_result", "copied Workspace Template is invalid", err)
+			return contractFault("invalid_template_copy_result", "copied Workspace Template draft is invalid", err)
 		}
-		if created.ID == sourceID || created.Name != name || created.Current.Generation != 1 || len(created.Retained) != 1 || created.Current.Revision != publication.Source.Revision {
-			return contractFault("invalid_template_copy_result", "copied Workspace Template is not a fresh independent exact fork", fmt.Errorf("copy result mismatch"))
+		if draft.Name != name || draft.Source.State != tobari.ResourceSourceModified || draft.Source.ActiveRevision != nil {
+			return contractFault("invalid_template_copy_result", "copied Workspace Template draft is not unpublished desired source", fmt.Errorf("Template draft copy result mismatch"))
 		}
 		result = view
 		return nil
@@ -383,6 +386,18 @@ func templateMutationFault(err error) error {
 		return classified
 	}
 	switch {
+	case errors.Is(err, tobari.ErrResourceSourceRecoveryRequired):
+		return fault.WithClassification(fault.New(fault.KindUnavailable, "resource_source_recovery_required", "The active authority changed but its file-backed source publication requires same-target recovery", false, fault.NextAction{Command: "template show", Reason: "Inspect the active and source identities before recovering the exact mutation."}), fault.PhaseMutation, fault.ChangePartial)
+	case errors.Is(err, tobari.ErrResourceSourceMissing):
+		return fault.WithClassification(fault.New(fault.KindNotFound, "resource_source_missing", "The exact resource source file is missing", false, fault.NextAction{Command: "template show", Reason: "Inspect the canonical source path and recreate this pre-release resource."}), fault.PhasePrecondition, fault.ChangeNone)
+	case errors.Is(err, tobari.ErrResourceSourceInvalid):
+		return fault.WithClassification(fault.New(fault.KindInvalidInput, "resource_source_invalid", "The exact resource source does not satisfy its current strict schema or closed file contract", false, fault.NextAction{Command: "template show", Reason: "Inspect the canonical source and correct the typed validation diagnostic."}), fault.PhasePrecondition, fault.ChangeNone)
+	case errors.Is(err, tobari.ErrResourceSourceChanged):
+		return fault.WithClassification(fault.New(fault.KindRejected, "resource_source_changed", "The Template source changed during Apply", true, fault.NextAction{Command: "template show", Reason: "Re-read the exact source and active identities before retrying Apply."}), fault.PhasePrecondition, fault.ChangeNone)
+	case errors.Is(err, tobari.ErrResourceSourceModified):
+		return fault.WithClassification(fault.New(fault.KindRejected, "resource_source_modified", "The Template source has unapplied changes", false, fault.NextAction{Command: "template show", Reason: "Inspect and explicitly apply the exact Template source first."}), fault.PhasePrecondition, fault.ChangeNone)
+	case errors.Is(err, tobari.ErrWorkspaceTemplateChangePlanStale):
+		return fault.WithClassification(fault.New(fault.KindRejected, "template_change_plan_stale", "The reviewed Template change plan no longer matches source or active authority", false, fault.NextAction{Command: "template list", Reason: "Discover the Template again, then create and review a fresh exact change plan."}), fault.PhasePrecondition, fault.ChangeNone)
 	case errors.Is(err, tobari.ErrWorkspaceTemplateExists):
 		return fault.WithClassification(fault.New(fault.KindRejected, "template_exists", "Workspace Template already exists", false, fault.NextAction{Command: "template list", Reason: "Choose another name or inspect the existing Template."}), fault.PhasePrecondition, fault.ChangeNone)
 	case errors.Is(err, tobari.ErrWorkspaceTemplateNotFound), errors.Is(err, tobari.ErrWorkspaceTemplateRevisionNotFound):

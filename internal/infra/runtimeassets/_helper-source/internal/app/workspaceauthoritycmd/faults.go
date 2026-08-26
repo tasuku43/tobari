@@ -41,6 +41,9 @@ func readFault(err error, code, message string) error {
 	if _, ok := fault.PublicCopy(err); ok {
 		return err
 	}
+	if errors.Is(err, tobari.ErrFinalAuthorityMigrationRequired) {
+		return finalAuthorityMigrationRequiredFault(err, fault.PhaseObservation, fault.ChangeNotApplicable)
+	}
 	if isPreReleaseLegacyAuthority(err) {
 		return preReleaseLegacyFault(err, fault.PhaseObservation, fault.ChangeNotApplicable)
 	}
@@ -48,10 +51,24 @@ func readFault(err error, code, message string) error {
 }
 
 func preReleaseLegacyMutationFault(err error) (error, bool) {
+	if errors.Is(err, tobari.ErrFinalAuthorityMigrationRequired) {
+		return finalAuthorityMigrationRequiredFault(err, fault.PhasePrecondition, fault.ChangeNone), true
+	}
 	if !isPreReleaseLegacyAuthority(err) {
 		return nil, false
 	}
 	return preReleaseLegacyFault(err, fault.PhasePrecondition, fault.ChangeNone), true
+}
+
+func finalAuthorityMigrationRequiredFault(err error, phase fault.Phase, change fault.ChangeState) error {
+	return fault.WithClassification(fault.Wrap(
+		fault.KindRejected,
+		"installation_migration_required",
+		"The supported typed authority.json must be explicitly reviewed and migrated before active authority can be used.",
+		false,
+		err,
+		fault.NextAction{Command: "installation migration plan", Reason: "Create a fresh read-only stale-bound migration plan."},
+	), phase, change)
 }
 
 func finalAuthorityMutationRecoveryFault(err error) (error, bool) {

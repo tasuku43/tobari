@@ -27,44 +27,48 @@ These are protected host paths. Tobari rejects a project root that overlaps
 them. Files described as owner-only are also checked for unsafe symlinks,
 unexpected file type, ownership, or permissive modes before use.
 
-## Host-owned authority
+## Host-owned sources and active authority
 
-The final pre-release model stores one owner-only, atomically published
-authority envelope at
-`${XDG_STATE_HOME:-$HOME/.local/state}/tobari/workspace-authority/authority.json`.
-It contains schema-1 Workspace Templates, Contexts and Policy Memory,
-schema-3 Workspaces, retained Template receipts, and the optional default
-Template selection. A Template's content authority is exact Template ID plus
-semantic digest; Policy Memory authority is exact Context ID plus its semantic
-digest. Generation is correlation only.
+Editable desired sources are separated by product concept below the config
+root: `templates/<template-id>/{template.yaml,policy.yaml}`,
+`contexts/<context-id>/context.yaml`, and
+`runtimes/<runtime-id>/{runtime.yaml,source/}`. Stable IDs name directories;
+display names live in the documents. File edits never change live authority.
+Template and Context Plan/Apply validate an exact source fingerprint before
+publishing a new active revision. `cluster up` reads only the last-known-good
+active generation.
 
-The old configuration-root `contexts/`, root-index, and instance-state layouts
-are unsupported private predecessor state. A presence-only guard rejects them
-before final publication; ordinary readers never decode, adopt, migrate, or
-delete their bytes. Public `template`, `context`, and `workspace` reports are
-task-owned secret-free schema-1 projections; bare `status` is schema 3.
+Active authority is concept-separated below `state/authority/`: immutable
+typed Template, Context, Policy-Memory, and Workspace objects; complete
+content-addressed `generations/<digest>.json` manifests; a small `active.json`
+pointer; and recovery journals. A reader verifies and selects one generation,
+so cross-resource changes remain atomic without a monolithic editable registry.
 
-Managed Runtime source and retained snapshots remain in the installation
-Runtime catalog. Editing source changes no immutable Runtime revision or
-Workspace Template. `runtime build --id RUNTIME_REF` is the only build boundary.
+Managed Runtime immutable revisions and receipts live below
+`state/runtimes/<runtime-id>/`. Editing Runtime source changes no immutable
+revision or Template. `runtime build --id RUNTIME_REF` is the only build
+boundary, and adopting that revision requires a later Template edit and Apply.
 
 ## Durable runtime state
 
 | Path below the state root                   | Contract and lifetime                                                                                                                                                            |
 | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `workspace-authority/authority.json`        | Complete atomic Template/Context/Policy-Memory/Workspace authority envelope.                                                                                                     |
+| `authority/`                                | Immutable concept objects, complete generation manifests, verified `active.json`, tombstones, and recovery journals.                                                             |
+| `runtimes/<runtime-id>/`                    | Immutable Runtime revisions, build receipts, and lifecycle state; editable source remains under the config root.                                                                 |
 | Workspace home owned by the Workspace owner | Independent writable home for native login and tool configuration; it survives exit and recreation, and exact `workspace delete --id WORKSPACE_REF --confirm=delete` removes it. |
 | `state.json`                                | Shared cluster state and active aggregate receipts; never credential contents or desired authority.                                                                              |
 | `workspace-authority-policy/`               | Content-addressed complete policy projections and bounded activation receipt/journal state.                                                                                      |
 | `runtime/`                                  | Host-owned Gateway runtime directory; sockets are recreated with services and are not durable credentials.                                                                       |
 | `runtime/<asset-revision>/`                 | Materialized embedded Compose, Gateway, OPA, and runtime assets.                                                                                                                 |
 
-Workspace Template policy source consists only of canonical typed policy data.
-Tobari composes the domain files into an internal `data.json` only inside a generated immutable
+Workspace Template policy source consists only of canonical typed policy data
+in `policy.yaml`. Tobari composes it with separate Context Policy Memory into
+an internal `data.json` only inside a generated immutable
 `cluster-projections/<revision>/` directory. The fixed evaluator is built into
 Tobari and appears only inside the Docker-managed policy bundle. Wildcards, IP literals,
 non-canonical hosts, host mismatches, unknown or duplicate fields, incomplete
-allow/deny pairs, extra files, symlinks, and unsafe modes fail closed.
+source sets, extra files, symlinks, hardlinks, owner drift, and unsafe modes
+fail closed.
 
 Host-owned configuration and state are protected by the platform's normal
 owner and mode checks. On Linux and macOS, Tobari fails closed after unsafe
@@ -86,21 +90,21 @@ not to Workspace lifecycle. No Tobari delete or cluster command removes it.
 
 Docker holds runtime containers, networks, shared services, and Gateway CA
 volumes. Docker inspection is evidence about current runtime resources; it does
-not decide whether a logical Workspace exists. The validated final authority
-envelope does.
+not decide whether a logical Workspace exists. The verified active authority
+generation does.
 
 ## What remains after each operation?
 
-| Operation                                                               | What changes                                                                                   | What remains                                                                                                      |
-| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Shell `exit` or child-command completion                                | Only the attached exec session ends.                                                           | Workspace, work container, dedicated network, home, Context, Policy Memory, project files, and credentials.       |
-| `workspace delete`                                                      | Removes the exact detached Workspace authority, container, network, home, and runtime records. | Project-root files, Context, Policy Memory, Workspace Template, cluster, host-owned state, and other Workspaces.  |
-| `workspace delete --id WORKSPACE_REF --confirm=delete --force`          | Performs the same deletion while overriding only the “attached exec exists” guard.             | It does not broaden the target or delete project-root files.                                                      |
-| Container or project-network loss                                       | The next root entry reconciles the missing owned runtime resource.                             | Workspace identity, Context binding, authority envelope, home, and project files.                                 |
-| `cluster down`                                                          | Requires no logical Workspace; removes shared containers and transient shared resources.       | Workspace Templates, policies, Workspace homes, host-owned state, and Gateway CA volumes.                         |
-| `cluster down --purge`                                                  | Also removes only the shared Gateway/public CA volumes.                                        | Workspace Templates, policies, Workspace homes, and host-owned state.                                             |
-| `runtime build --id RUNTIME_REF`                                        | Snapshots, builds, validates, and appends one immutable Runtime revision.                      | Every Workspace Template binding and Workspace remains unchanged; failed and unchanged builds append no revision. |
-| `template runtime set --id TEMPLATE_REF --runtime RUNTIME_REVISION_REF` | Atomically replaces one exact Workspace Template Runtime binding.                              | Existing Workspace identity, home, and current container until the next entry reconciles it.                      |
+| Operation                                                               | What changes                                                                                             | What remains                                                                                                      |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Shell `exit` or child-command completion                                | Only the attached exec session ends.                                                                     | Workspace, work container, dedicated network, home, Context, Policy Memory, project files, and credentials.       |
+| `workspace delete`                                                      | Removes the exact detached Workspace authority, container, network, home, and runtime records.           | Project-root files, Context, Policy Memory, Workspace Template, cluster, host-owned state, and other Workspaces.  |
+| `workspace delete --id WORKSPACE_REF --confirm=delete --force`          | Performs the same deletion while overriding only the “attached exec exists” guard.                       | It does not broaden the target or delete project-root files.                                                      |
+| Container or project-network loss                                       | The next root entry reconciles the missing owned runtime resource.                                       | Workspace identity, Context binding, active authority generation, home, and project files.                        |
+| `cluster down`                                                          | Requires no logical Workspace; removes shared containers and transient shared resources.                 | Workspace Templates, policies, Workspace homes, host-owned state, and Gateway CA volumes.                         |
+| `cluster down --purge`                                                  | Also removes only the shared Gateway/public CA volumes.                                                  | Workspace Templates, policies, Workspace homes, and host-owned state.                                             |
+| `runtime build --id RUNTIME_REF`                                        | Snapshots, builds, validates, and appends one immutable Runtime revision.                                | Every Workspace Template binding and Workspace remains unchanged; failed and unchanged builds append no revision. |
+| edit `template.yaml`; `template plan`; `template apply --plan PLAN_REF` | Reviews and atomically publishes one complete Template revision, including an exact Runtime ID+revision. | Existing Workspace identity, home, and current container until the next entry reconciles it.                      |
 
 The default official runtime is a local image built from the CLI's pinned
 embedded recipe when absent. A release-derived local tag identifies the recipe
@@ -112,13 +116,13 @@ Workspace Templates retain only their exact revision binding.
 
 Tobari fails closed on ambiguous state:
 
-- An invalid authority envelope, contradictory Context/Workspace binding, or
+- An invalid active generation, contradictory Context/Workspace binding, or
   unknown mutation outcome fails closed. Entry does not infer a replacement
   record or delete reference from Docker state.
-- An interrupted project, cluster, or policy-domain source journal is
-  reconciled under its lock before selection or mutation. Policy recovery
-  accepts a staged domain generation only when its immutable aggregate
-  revision is already durable; otherwise it restores the verified original.
+- An interrupted source-directory, generation, Runtime, or installation-
+  migration journal is reconciled under its lock before selection or mutation.
+  Recovery accepts only exact pre/post fingerprints and complete verified
+  generation identities; otherwise it restores the verified original.
 - A mismatched aggregate revision or failed policy activation blocks dependent
   entry or policy operations until the exact cluster operation completes.
 - Missing host-owned lifecycle state is a recovery fault. Tobari does not

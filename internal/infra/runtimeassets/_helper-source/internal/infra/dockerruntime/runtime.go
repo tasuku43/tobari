@@ -91,48 +91,51 @@ func (runner osCommandRunner) RunWorkspacePermissionControl(ctx context.Context,
 
 // Runtime owns filesystem state and Docker process execution.
 type Runtime struct {
-	lifetimeContext                context.Context
-	configDirectory                string
-	stateDirectory                 string
-	dataDirectory                  string
-	hostHomeDirectory              string
-	runner                         commandRunner
-	images                         imageResolver
-	browser                        hostBrowserOpener
-	serviceBrowser                 serviceBrowserDispatcher
-	gitIdentity                    hostGitIdentityResolver
-	companion                      companionruntime.Launcher
-	companionEntropy               io.Reader
-	rootKeyLoader                  func(context.Context) ([]byte, error)
-	hostCLIs                       hostCLIResolver
-	credentialHost                 hostCredentialAcquirer
-	lifecycleLockAttempt           func()
-	runtimeStoreLockAttempt        func()
-	runtimeBuildCleanup            func(runtimeBuildJournal) error
-	runtimeBuildCompletionWrite    func(runtimeBuildJournal) error
-	runtimeBuildJournalRemove      func(string) error
-	runtimeBuildJournalWrite       func(runtimeBuildJournal, runtimeBuildJournal) error
-	runtimeBuildManifestWrite      func(string, any) error
-	runtimeBuildRehash             func(context.Context, string) (string, error)
-	runtimeBuildRehashBoundary     func(string, bool) error
-	runtimeBuildSnapshotSync       func(string) error
-	runtimeBuildDirectorySync      func(string) error
-	runtimeBuildRename             func(string, string) error
-	runtimeBuildFreeze             func(string) error
-	runtimeBuildSnapshotRemove     func(string) error
-	runtimeBuildRecoveryTimeout    time.Duration
-	runtimePruneJournalWrite       func(*runtimePruneJournal, runtimePruneJournal) error
-	runtimePruneReceiptWrite       func(runtimePruneReceiptStore) error
-	runtimePruneJournalRemove      func(string) error
-	runtimePruneBeforeRemove       func(tobari.RuntimePruneCandidate) error
-	runtimePruneAfterBuildCleanup  func(tobari.RuntimePruneCandidate) error
-	runtimeDeleteJournalWrite      func(*runtimeDeleteJournal, runtimeDeleteJournal) error
-	runtimeDeleteReceiptWrite      func(tobari.RuntimeDeleteResult) error
-	runtimeDeleteJournalRemove     func(string) error
-	runtimeDeleteBeforeImageRemove func(tobari.RuntimePruneCandidate) error
-	runtimeDeleteBeforeQuarantine  func(string, string) error
-	runtimeDeleteRename            func(string, string) error
-	runtimeDeleteQuarantineRemove  func(string) error
+	lifetimeContext                      context.Context
+	configDirectory                      string
+	stateDirectory                       string
+	dataDirectory                        string
+	hostHomeDirectory                    string
+	runner                               commandRunner
+	images                               imageResolver
+	browser                              hostBrowserOpener
+	serviceBrowser                       serviceBrowserDispatcher
+	gitIdentity                          hostGitIdentityResolver
+	companion                            companionruntime.Launcher
+	companionEntropy                     io.Reader
+	rootKeyLoader                        func(context.Context) ([]byte, error)
+	hostCLIs                             hostCLIResolver
+	credentialHost                       hostCredentialAcquirer
+	lifecycleLockAttempt                 func()
+	runtimeStoreLockAttempt              func()
+	runtimeBuildCleanup                  func(runtimeBuildJournal) error
+	runtimeBuildCompletionWrite          func(runtimeBuildJournal) error
+	runtimeBuildJournalRemove            func(string) error
+	runtimeBuildJournalWrite             func(runtimeBuildJournal, runtimeBuildJournal) error
+	runtimeBuildManifestWrite            func(string, any) error
+	runtimeBuildRehash                   func(context.Context, string) (string, error)
+	runtimeBuildRehashBoundary           func(string, bool) error
+	runtimeBuildSnapshotSync             func(string) error
+	runtimeBuildDirectorySync            func(string) error
+	runtimeBuildRename                   func(string, string) error
+	runtimeBuildFreeze                   func(string) error
+	runtimeBuildSnapshotRemove           func(string) error
+	runtimeBuildRecoveryTimeout          time.Duration
+	runtimePruneJournalWrite             func(*runtimePruneJournal, runtimePruneJournal) error
+	runtimePruneReceiptWrite             func(runtimePruneReceiptStore) error
+	runtimePruneJournalRemove            func(string) error
+	runtimePruneBeforeRemove             func(tobari.RuntimePruneCandidate) error
+	runtimePruneAfterBuildCleanup        func(tobari.RuntimePruneCandidate) error
+	runtimeDeleteJournalWrite            func(*runtimeDeleteJournal, runtimeDeleteJournal) error
+	runtimeDeleteReceiptWrite            func(tobari.RuntimeDeleteResult) error
+	runtimeDeleteJournalRemove           func(string) error
+	runtimeDeleteBeforeImageRemove       func(tobari.RuntimePruneCandidate) error
+	runtimeDeleteBeforeQuarantine        func(string, string) error
+	runtimeDeleteRename                  func(string, string) error
+	runtimeDeleteQuarantineRemove        func(string) error
+	runtimeCreateBoundary                func(string) error
+	runtimeCreateFileSync                func(string) error
+	runtimeInstallationMigrationBoundary func(string) error
 	// claudeContainerLogin is nil in production. Tests may replace the
 	// isolated Context-runtime acquisition without granting the generic host
 	// credential adapter authority over Claude's native state.
@@ -206,6 +209,24 @@ type Runtime struct {
 	finalRuntimeProtectionSource FinalRuntimeProtectionSource
 }
 
+// ResourceSourceRoot returns Tobari's exact XDG configuration root. It is
+// consumed only by the concept-separated source adapter at composition.
+func (r *Runtime) ResourceSourceRoot() (string, error) {
+	if r == nil || r.configDirectory == "" || !filepath.IsAbs(r.configDirectory) {
+		return "", fmt.Errorf("resource source configuration root is unavailable")
+	}
+	return r.configDirectory, nil
+}
+
+// SetInstallationMigrationBoundaryForTest installs a process-death boundary
+// used only by cross-component crash tests. It is intentionally unavailable
+// through any application or CLI port.
+func (r *Runtime) SetInstallationMigrationBoundaryForTest(boundary func(string) error) {
+	if r != nil {
+		r.runtimeInstallationMigrationBoundary = boundary
+	}
+}
+
 // New resolves XDG paths without creating them.
 func New(lifetime context.Context) (*Runtime, error) {
 	if lifetime == nil {
@@ -241,7 +262,7 @@ func (r *Runtime) FinalWorkspaceAuthorityRoot() (string, error) {
 	if r == nil || r.stateDirectory == "" || !filepath.IsAbs(r.stateDirectory) || filepath.Clean(r.stateDirectory) != r.stateDirectory {
 		return "", fmt.Errorf("runtime state directory is unavailable")
 	}
-	return filepath.Join(r.stateDirectory, "workspace-authority"), nil
+	return filepath.Join(r.stateDirectory, "authority"), nil
 }
 
 // lifetimeParent selects the process-lifetime context supplied by the command

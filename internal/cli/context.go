@@ -208,7 +208,7 @@ func runConfigBootstrapAWS(ctx context.Context, c *CLI, command CommandSpec, int
 	}
 	format, err := parseSuccessFormat(inputs.One("--format"))
 	if err != nil {
-		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help config bootstrap aws", "Correct the command arguments.")
+		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "template show", "Correct the command arguments.")
 	}
 	contextName, err := selectedConfigurationContext(ctx, inputs)
 	if err != nil {

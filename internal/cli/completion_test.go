@@ -64,8 +64,8 @@ func TestCompletionPlansCatalogCommandWords(t *testing.T) {
 		want    []string
 	}{
 		{name: "root prefix", current: 2, words: []string{"tobari", "temp"}, want: []string{"candidate:template"}},
-		{name: "root choices", current: 2, words: []string{"tobari", "c"}, want: []string{"candidate:cluster", "candidate:completion", "candidate:config", "candidate:context"}},
-		{name: "nested prefix", current: 3, words: []string{"tobari", "template", "r"}, want: []string{"candidate:runtime"}},
+		{name: "root choices", current: 2, words: []string{"tobari", "c"}, want: []string{"candidate:cluster", "candidate:completion", "candidate:context"}},
+		{name: "nested prefix", current: 3, words: []string{"tobari", "template", "a"}, want: []string{"candidate:apply"}},
 		{name: "help selector", current: 4, words: []string{"tobari", "help", "runtime", "b"}, want: []string{"candidate:build"}},
 		{name: "command flags", current: 4, words: []string{"tobari", "template", "show", "--"}, want: []string{"candidate:--name", "candidate:--format"}},
 		{name: "allowed value", current: 5, words: []string{"tobari", "template", "show", "--format", "j"}, want: []string{"candidate:json"}},
@@ -146,17 +146,18 @@ func TestCompletionRecordProjectionRejectsStructuralInjection(t *testing.T) {
 
 func TestCatalogDeclaresTypedCompletionSources(t *testing.T) {
 	tests := map[string]map[string]InputCompletion{
-		"doctor":               {"--root": InputCompletionDirectory},
-		"help":                 {"command": InputCompletionCommand},
-		"template copy":        {"--from": InputCompletionNone, "--name": InputCompletionNone},
-		"template runtime set": {"--id": InputCompletionNone, "--runtime": InputCompletionNone},
-		"context show":         {"--id": InputCompletionNone},
-		"workspace status":     {"--id": InputCompletionNone},
-		"runtime show":         {"--name": InputCompletionRuntimeName},
-		"runtime create":       {"--copy-source-from": InputCompletionRuntimeName},
-		"runtime build":        {"--id": InputCompletionNone},
-		"runtime restore":      {"--id": InputCompletionNone},
-		"runtime delete":       {"--id": InputCompletionNone},
+		"doctor":           {"--root": InputCompletionDirectory},
+		"help":             {"command": InputCompletionCommand},
+		"template copy":    {"--from": InputCompletionNone, "--name": InputCompletionNone},
+		"template plan":    {"--id": InputCompletionNone},
+		"template apply":   {"--plan": InputCompletionNone},
+		"context show":     {"--id": InputCompletionNone},
+		"workspace status": {"--id": InputCompletionNone},
+		"runtime show":     {"--name": InputCompletionRuntimeName},
+		"runtime create":   {"--copy-source-from": InputCompletionRuntimeName},
+		"runtime build":    {"--id": InputCompletionNone},
+		"runtime restore":  {"--id": InputCompletionNone},
+		"runtime delete":   {"--id": InputCompletionNone},
 	}
 	for path, expected := range tests {
 		spec, found := DefaultCatalog().Lookup(path)

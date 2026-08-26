@@ -162,7 +162,7 @@ func TestClusterAdapterRecoversPostEffectPreEnvelopeAndBlocksUnrelatedMutation(t
 	realRename := mutator.rename
 	interrupted := false
 	mutator.rename = func(source, target string) error {
-		if source == store.root+".wp11-mutation-stage" && target == store.root+"/"+authorityFileName && !interrupted {
+		if source == mutationStagePath(store.root) && target == store.root+"/"+authorityFileName && !interrupted {
 			interrupted = true
 			return fmt.Errorf("injected post-effect publication interruption")
 		}
@@ -179,10 +179,10 @@ func TestClusterAdapterRecoversPostEffectPreEnvelopeAndBlocksUnrelatedMutation(t
 	if _, active, err := mutator.readEffectDecision(); err != nil || !active {
 		t.Fatalf("durable cluster decision active=%t err=%v", active, err)
 	}
-	if _, err := os.Lstat(store.root + ".wp11-mutation-stage"); err != nil {
+	if _, err := os.Lstat(mutationStagePath(store.root)); err != nil {
 		t.Fatalf("durable cluster stage is unavailable: %v", err)
 	}
-	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "blocked", current.Templates[0].Current.Body); err == nil {
+	if _, err := mutator.seedWorkspaceTemplateForLegacyMigration(context.Background(), "blocked", current.Templates[0].Current.Body); err == nil {
 		t.Fatal("unrelated final-authority mutation entered while cluster decision was active")
 	}
 
@@ -195,7 +195,7 @@ func TestClusterAdapterRecoversPostEffectPreEnvelopeAndBlocksUnrelatedMutation(t
 	if err != nil || !present || plan.ValidateTransition(previous, current) != nil {
 		t.Fatalf("recovered final authority present=%t current=%#v err=%v", present, current, err)
 	}
-	if _, err := os.Lstat(store.root + ".wp11-mutation-stage"); !os.IsNotExist(err) {
+	if _, err := os.Lstat(mutationStagePath(store.root)); !os.IsNotExist(err) {
 		t.Fatalf("cluster stage remained after recovery: %v", err)
 	}
 }

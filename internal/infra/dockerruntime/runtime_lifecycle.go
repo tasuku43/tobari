@@ -109,7 +109,7 @@ func (r *Runtime) ReadRuntimeLifecycleSnapshot(ctx context.Context) (tobari.Runt
 		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, err
 	}
 	if err := result.Validate(); err != nil {
-		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, err
+		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, fmt.Errorf("validate Runtime lifecycle snapshot (runtimes=%d materials=%d): %w", len(result.Runtimes), len(result.Materials), err)
 	}
 	return result, observedAt, nil
 }
@@ -128,19 +128,19 @@ func (r *Runtime) readRuntimeLifecycleSnapshotLockedWithBudget(lockContext conte
 	defer cancel()
 	before, err := r.readRuntimeLifecycleLocalObserved(observationContext, budget)
 	if err != nil {
-		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, err
+		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, fmt.Errorf("read first Runtime lifecycle authority: %w", err)
 	}
 	beforeSnapshot, err := r.observeRuntimeLifecycleDocker(observationContext, before, budget)
 	if err != nil {
-		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, err
+		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, fmt.Errorf("observe first Runtime lifecycle Docker state: %w", err)
 	}
 	after, err := r.readRuntimeLifecycleLocalObserved(observationContext, budget)
 	if err != nil {
-		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, err
+		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, fmt.Errorf("read second Runtime lifecycle authority: %w", err)
 	}
 	afterSnapshot, err := r.observeRuntimeLifecycleDocker(observationContext, after, budget)
 	if err != nil {
-		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, err
+		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, fmt.Errorf("observe second Runtime lifecycle Docker state: %w", err)
 	}
 	beforeToken, err := runtimeLifecycleToken(before, beforeSnapshot)
 	if err != nil {
@@ -446,6 +446,9 @@ func readRuntimeLogicalTree(ctx context.Context, root string) ([]runtimeLogicalF
 }
 
 func (r *Runtime) readStrictRuntimeBuildJournalInventory() (*runtimeBuildJournal, error) {
+	if err := r.requireNoInstallationRuntimeMigration(); err != nil {
+		return nil, err
+	}
 	directory := r.runtimeLifecycleDirectory()
 	entries, err := os.ReadDir(directory)
 	if errors.Is(err, os.ErrNotExist) {
@@ -458,9 +461,14 @@ func (r *Runtime) readStrictRuntimeBuildJournalInventory() (*runtimeBuildJournal
 		return nil, err
 	}
 	for _, entry := range entries {
-		if entry.Type()&os.ModeSymlink != 0 || (entry.Name() != runtimeBuildJournalFile && entry.Name() != runtimeBuildSnapshotDir && entry.Name() != runtimePruneJournalFile && entry.Name() != runtimePruneReceiptsFile && entry.Name() != runtimeDeleteJournalFile && entry.Name() != runtimeDeleteReceiptsDir) {
+		if entry.Type()&os.ModeSymlink != 0 || (entry.Name() != runtimeBuildJournalFile && entry.Name() != runtimeBuildSnapshotDir && entry.Name() != runtimePruneJournalFile && entry.Name() != runtimePruneReceiptsFile && entry.Name() != runtimeDeleteJournalFile && entry.Name() != runtimeDeleteReceiptsDir && entry.Name() != runtimeCreateJournalFile) {
 			return nil, fmt.Errorf("Runtime lifecycle journal inventory contains an unknown entry")
 		}
+	}
+	if create, err := r.readRuntimeCreateJournal(); err != nil {
+		return nil, err
+	} else if create != nil {
+		return nil, fmt.Errorf("Runtime create transaction requires recovery")
 	}
 	journal, err := r.readRuntimeBuildJournalObserved()
 	if err != nil {
@@ -519,7 +527,7 @@ func (r *Runtime) readStrictRuntimeCatalogObserved(journal *runtimeBuildJournal)
 		if entry.Type()&os.ModeSymlink != 0 || !entry.IsDir() {
 			return nil, fmt.Errorf("Runtime catalog contains an unknown child")
 		}
-		manifest, err := r.readRuntimeManifest(entry.Name())
+		manifest, err := r.readRuntimeManifestByID(entry.Name())
 		if err != nil {
 			return nil, err
 		}
@@ -537,11 +545,11 @@ func (r *Runtime) readStrictRuntimeCatalogObserved(journal *runtimeBuildJournal)
 }
 
 func (r *Runtime) validateStrictRuntimeDirectory(manifest tobari.RuntimeManifest, journal *runtimeBuildJournal) error {
-	entries, err := os.ReadDir(r.runtimeDirectory(manifest.Name))
+	entries, err := os.ReadDir(r.runtimeDirectory(manifest.ID))
 	if err != nil {
 		return err
 	}
-	want := map[string]bool{"runtime.json": true, "source": true, "revisions": true}
+	want := map[string]bool{"runtime.yaml": true, "source": true}
 	for _, entry := range entries {
 		if entry.Type()&os.ModeSymlink != 0 || !want[entry.Name()] {
 			return fmt.Errorf("Runtime directory contains an unknown child")
@@ -551,7 +559,21 @@ func (r *Runtime) validateStrictRuntimeDirectory(manifest tobari.RuntimeManifest
 	if len(want) != 0 {
 		return fmt.Errorf("Runtime directory inventory is incomplete")
 	}
-	revisionEntries, err := os.ReadDir(r.runtimeRevisionsDirectory(manifest.Name))
+	stateEntries, err := os.ReadDir(r.runtimeStateDirectory(manifest.ID))
+	if err != nil {
+		return err
+	}
+	wantState := map[string]bool{"runtime.json": true, "revisions": true}
+	for _, entry := range stateEntries {
+		if entry.Type()&os.ModeSymlink != 0 || !wantState[entry.Name()] {
+			return fmt.Errorf("Runtime state contains an unknown child")
+		}
+		delete(wantState, entry.Name())
+	}
+	if len(wantState) != 0 {
+		return fmt.Errorf("Runtime state inventory is incomplete")
+	}
+	revisionEntries, err := os.ReadDir(r.runtimeRevisionsDirectory(manifest.ID))
 	if err != nil {
 		return err
 	}
@@ -569,7 +591,7 @@ func (r *Runtime) validateStrictRuntimeDirectory(manifest tobari.RuntimeManifest
 		if entry.Type()&os.ModeSymlink != 0 || !entry.IsDir() || !wantRevisions[entry.Name()] {
 			return fmt.Errorf("Runtime revision store contains an unknown child")
 		}
-		children, err := os.ReadDir(filepath.Join(r.runtimeRevisionsDirectory(manifest.Name), entry.Name()))
+		children, err := os.ReadDir(filepath.Join(r.runtimeRevisionsDirectory(manifest.ID), entry.Name()))
 		if err != nil || len(children) != 1 || children[0].Name() != "source" || !children[0].IsDir() || children[0].Type()&os.ModeSymlink != 0 {
 			return fmt.Errorf("Runtime revision snapshot inventory is incomplete")
 		}

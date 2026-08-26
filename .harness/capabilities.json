@@ -67,7 +67,12 @@
   {
     "id": "state.migration",
     "status": "deferred",
-    "reason": "The pre-release clean break does not expose predecessor migration; post-first-release compatibility requires a future release-policy decision."
+    "reason": "General predecessor migration remains deferred; the one exact supported typed final-store cutover is owned by installation.migration."
+  },
+  {
+    "id": "installation.migration",
+    "status": "public",
+    "reason": ""
   },
   {
     "id": "manifest.composition",

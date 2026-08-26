@@ -119,8 +119,9 @@ revision, and rebuilding unchanged source is a successful no-op. Docker BuildKit
 cache, and a post-build validation failure may leave an unselected local
 candidate image; neither is falsely reported as a ready Runtime revision.
 
-`template runtime set --id TEMPLATE_REF --runtime RUNTIME_REVISION_REF` is the separate explicit selection
-action. Existing Workspaces are not rewritten by selection. On their next entry,
+Editing the exact Runtime ID+revision in `template.yaml`, then consuming a fresh
+`template plan` through `template apply --plan`, is the explicit selection
+workflow. Existing Workspaces are not rewritten by Apply. On their next entry,
 Tobari compares the desired image identity and complete runtime-spec hash,
 recreates only a drifting work container, and preserves logical identity,
 project root, and Workspace home.

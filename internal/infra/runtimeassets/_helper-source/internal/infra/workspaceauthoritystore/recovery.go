@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
@@ -86,5 +87,7 @@ func (s *Store) ObserveMutationRecovery(ctx context.Context) (tobari.FinalAuthor
 // final-only boundary audit. The paths are suffixes of the final authority
 // root, never predecessor Context paths.
 func mutationRecoveryArtifactPaths(root string) (decision, stage string) {
-	return root + ".wp11-mutation-decision.json", root + ".wp11-mutation-stage"
+	return filepath.Join(root, "journal", "mutation-decision.json"), mutationStagePath(root)
 }
+
+func mutationStagePath(root string) string { return filepath.Join(root, "journal", "active.tmp") }

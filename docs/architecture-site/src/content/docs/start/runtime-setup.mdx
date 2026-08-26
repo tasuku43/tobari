@@ -68,7 +68,8 @@ unchanged build changes no Workspace Template.
 
 ```sh
 tobari runtime history --name coding
-tobari template runtime set --id TEMPLATE_REF --runtime RUNTIME_REVISION_REF
+tobari template plan --id TEMPLATE_REF
+tobari template apply --plan TEMPLATE_CHANGE_PLAN_REF
 ```
 
 Selection is explicit and the same revision can be reused by several Workspace Templates.

@@ -62,6 +62,15 @@ type templateRuntimeRevisionFixture struct {
 	err     error
 	refs    []string
 	check   func() error
+	running map[tobari.WorkspaceID]bool
+}
+
+func runningWorkspaceFixture(collection tobari.WorkspaceAuthorityCollection) map[tobari.WorkspaceID]bool {
+	result := make(map[tobari.WorkspaceID]bool, len(collection.Workspaces))
+	for _, workspace := range collection.Workspaces {
+		result[workspace.ID] = true
+	}
+	return result
 }
 
 func (r *templateRuntimeRevisionFixture) ResolveWorkspaceTemplateRuntimeRevision(_ context.Context, ref string) (tobari.RuntimeBinding, error) {
@@ -82,6 +91,14 @@ func (r *templateRuntimeRevisionFixture) ResolveWorkspaceTemplateRuntimeRevision
 		return tobari.RuntimeBinding{}, err
 	}
 	return tobari.RuntimeBinding{RuntimeID: id, Name: "managed", Revision: revision, Ordinal: 1, Image: "tobari-runtime-managed:aaaaaaaaaaaa"}, nil
+}
+
+func (r *templateRuntimeRevisionFixture) ObserveStatusWorkspace(_ context.Context, snapshot tobari.ContextAuthoritySnapshot) (tobari.StatusWorkspaceObservation, error) {
+	state := tobari.StatusWorkspaceRuntimeRunning
+	if r.running != nil && (snapshot.Workspace == nil || !r.running[snapshot.Workspace.ID]) {
+		state = tobari.StatusWorkspaceRuntimeAbsent
+	}
+	return tobari.StatusWorkspaceObservation{State: state}, nil
 }
 
 type policyActivationFixture struct {
@@ -327,6 +344,163 @@ func newMutationFixture(t *testing.T, existing *tobari.WorkspaceAuthorityCollect
 	return store, mutator, lifecycle, deletion, activation
 }
 
+func TestContextApplyRechecksSourceAtFinalPublicationFence(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	store, mutator, _, _, _ := newMutationFixture(t, &existing)
+	id := tobari.ContextID("01912345-6789-7abc-8def-0123456789f1")
+	source := tobari.ContextSource{SchemaVersion: tobari.ContextSourceSchemaVersion, ContextID: id, ProjectRoot: "/workspace/new", TemplateID: existing.Templates[0].ID}
+	firstFingerprint := strings.Repeat("a", 64)
+	plan, err := tobari.NewContextActivationPlan(existing, source, firstFingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loads := 0
+	_, changed, err := mutator.ApplyContextSourceByPlan(context.Background(), plan.PlanRef, func(context.Context) (tobari.ContextSource, string, error) {
+		loads++
+		if loads == 1 {
+			return source, firstFingerprint, nil
+		}
+		return source, strings.Repeat("b", 64), nil
+	})
+	if !errors.Is(err, tobari.ErrResourceSourceChanged) || changed || loads != 2 {
+		t.Fatalf("concurrent Context edit err=%v changed=%t loads=%d", err, changed, loads)
+	}
+	after, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present || after.Revision != existing.Revision || len(after.Contexts) != len(existing.Contexts) {
+		t.Fatalf("Context edit crossed publication fence: after=%+v present=%t err=%v", after, present, err)
+	}
+}
+
+func TestDeletedStableIDsCannotReenterTemplateOrContextApply(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	_, mutator, _, _, _ := newMutationFixture(t, &existing)
+	template := existing.Templates[0]
+	if err := mutator.purgeDeletedAuthority("templates", string(template.ID), tobari.WorkspaceTemplateDeleteResult{TemplateID: template.ID, Deleted: true}); err != nil {
+		t.Fatal(err)
+	}
+	templateSource, err := tobari.NewWorkspaceTemplateSource(template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	templateRef, _ := tobari.WorkspaceTemplateRef(template.ID)
+	if _, err := mutator.PlanWorkspaceTemplateSourceByReference(context.Background(), templateRef, func(context.Context) (tobari.WorkspaceTemplateSource, string, error) {
+		return templateSource, strings.Repeat("a", 64), nil
+	}); !errors.Is(err, tobari.ErrResourceIdentityDeleted) {
+		t.Fatalf("tombstoned Template plan = %v", err)
+	}
+
+	contextID := existing.Contexts[0].Context.ID
+	if err := mutator.purgeDeletedAuthority("contexts", string(contextID), tobari.ContextDeleteResult{ContextID: contextID, Deleted: true}); err != nil {
+		t.Fatal(err)
+	}
+	contextSource, _ := tobari.NewContextSource(existing.Contexts[0].Context)
+	contextRef, _ := tobari.ContextRef(contextID)
+	if _, err := mutator.PlanContextSourceByReference(context.Background(), contextRef, func(context.Context) (tobari.ContextSource, string, error) {
+		return contextSource, strings.Repeat("b", 64), nil
+	}); !errors.Is(err, tobari.ErrResourceIdentityDeleted) {
+		t.Fatalf("tombstoned Context plan = %v", err)
+	}
+}
+
+func TestTemplateApplySamePlanSettlesPublishedAuthorityBeforeBaseBookkeeping(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	_, mutator, _, _, _ := newMutationFixture(t, &existing)
+	template := existing.Templates[0]
+	mutator.runtimeRevision.(*templateRuntimeRevisionFixture).binding = template.Current.Body.EntryDefaults.Runtime
+	source, err := tobari.NewWorkspaceTemplateSource(template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source.Template.Name = "renamed-by-source"
+	fingerprint := strings.Repeat("c", 64)
+	templateRef, _ := tobari.WorkspaceTemplateRef(template.ID)
+	plan, err := mutator.PlanWorkspaceTemplateSourceByReference(context.Background(), templateRef, func(context.Context) (tobari.WorkspaceTemplateSource, string, error) {
+		return source, fingerprint, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := mutator.ApplyWorkspaceTemplateSourceByReference(context.Background(), plan.PlanRef, func(context.Context) (tobari.WorkspaceTemplateSource, string, error) {
+		return source, fingerprint, nil
+	})
+	if err != nil || !first.Changed || first.Template.Name != source.Template.Name {
+		t.Fatalf("first Apply=%+v err=%v", first, err)
+	}
+	second, err := mutator.ApplyWorkspaceTemplateSourceByReference(context.Background(), plan.PlanRef, func(context.Context) (tobari.WorkspaceTemplateSource, string, error) {
+		return source, fingerprint, nil
+	})
+	if err != nil || !reflect.DeepEqual(first.Template, second.Template) || first.Current.Revision != second.Current.Revision || first.Changed != second.Changed {
+		t.Fatalf("same-plan settlement=%+v err=%v", second, err)
+	}
+	if err := mutator.CompleteWorkspaceTemplateApplySettlement(plan.PlanRef); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTemplateApplyStaleWhenRunningWorkspaceSetChangesAtEqualCount(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	secondContextID := tobari.ContextID("01912345-6789-7abc-8def-0123456789b2")
+	secondWorkspaceID := tobari.WorkspaceID("01912345-6789-7abc-8def-0123456789b3")
+	secondMemory, _, err := tobari.PublishPolicyMemory(secondContextID, []tobari.PolicyMemoryRule{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondContext := tobari.WorkspaceAuthorityContextRecord{
+		Context:      tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: secondContextID, ProjectRoot: "/workspace/second", TemplateID: storeTemplateID},
+		PolicyMemory: secondMemory,
+	}
+	secondWorkspace := existing.Workspaces[0]
+	if secondWorkspace.LastSuccessfulEntry != nil {
+		entry := *secondWorkspace.LastSuccessfulEntry
+		secondWorkspace.LastSuccessfulEntry = &entry
+	}
+	secondWorkspace.ID = secondWorkspaceID
+	secondWorkspace.ContextID = secondContextID
+	secondWorkspace.ProjectRoot = secondContext.Context.ProjectRoot
+	secondWorkspace.Home = "/workspace/second-home"
+	if secondWorkspace.LastSuccessfulEntry != nil {
+		secondWorkspace.LastSuccessfulEntry.ContextID = secondContextID
+	}
+	existing, _, err = tobari.PublishWorkspaceAuthorityCollection(
+		existing.Templates,
+		append(existing.Contexts, secondContext),
+		append(existing.Workspaces, secondWorkspace),
+		existing.PendingCandidates,
+		existing.DefaultTemplateID,
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, mutator, _, _, _ := newMutationFixture(t, &existing)
+	runtime := mutator.runtimeRevision.(*templateRuntimeRevisionFixture)
+	runtime.binding = existing.Templates[0].Current.Body.EntryDefaults.Runtime
+	runtime.running = map[tobari.WorkspaceID]bool{storeWorkspaceID: true, secondWorkspaceID: false}
+	source, err := tobari.NewWorkspaceTemplateSource(existing.Templates[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	source.Template.Name = "running-set-reviewed"
+	fingerprint := strings.Repeat("d", 64)
+	templateRef, _ := tobari.WorkspaceTemplateRef(storeTemplateID)
+	plan, err := mutator.PlanWorkspaceTemplateSourceByReference(context.Background(), templateRef, func(context.Context) (tobari.WorkspaceTemplateSource, string, error) {
+		return source, fingerprint, nil
+	})
+	if err != nil || plan.RunningWorkspaceCount != 1 {
+		t.Fatalf("plan=%+v err=%v", plan, err)
+	}
+	runtime.running = map[tobari.WorkspaceID]bool{storeWorkspaceID: false, secondWorkspaceID: true}
+	if _, err := mutator.ApplyWorkspaceTemplateSourceByReference(context.Background(), plan.PlanRef, func(context.Context) (tobari.WorkspaceTemplateSource, string, error) {
+		return source, fingerprint, nil
+	}); !errors.Is(err, tobari.ErrWorkspaceTemplateChangePlanStale) {
+		t.Fatalf("equal-count running-set drift Apply = %v", err)
+	}
+	current, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present || current.Templates[0].Name != existing.Templates[0].Name {
+		t.Fatalf("stale running-set Apply published authority: present=%t name=%q err=%v", present, current.Templates[0].Name, err)
+	}
+}
+
 func TestNewMutatorRejectsUnguardedStore(t *testing.T) {
 	store, err := New(filepath.Join(t.TempDir(), "workspace-authority"))
 	if err != nil {
@@ -454,7 +628,7 @@ func TestMutatorCreatesCopiesSelectsAndDeletesTemplatesThroughOneEnvelope(t *tes
 	store, mutator, lifecycle, _, _ := newMutationFixture(t, nil)
 	body := storeCollectionFixture(t).Templates[0].Current.Body.Clone()
 
-	created, err := mutator.CreateWorkspaceTemplate(context.Background(), "restricted", body)
+	created, err := mutator.seedWorkspaceTemplateForLegacyMigration(context.Background(), "restricted", body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -467,22 +641,12 @@ func TestMutatorCreatesCopiesSelectsAndDeletesTemplatesThroughOneEnvelope(t *tes
 	}
 
 	templateRef, _ := tobari.WorkspaceTemplateRef(created.ID)
-	value := "xterm-256color"
-	change := tobari.WorkspaceTemplateChange{Kind: tobari.WorkspaceTemplateChangeShell, Shell: []tobari.ManifestShellEnvironmentSetting{{Variable: "TERM", Source: tobari.ManifestShellEnvironmentLiteral, Value: &value}}}
-	updated, err := mutator.UpdateWorkspaceTemplateByReference(context.Background(), templateRef, change)
-	if err != nil || !updated.Changed || updated.Previous.Revision != created.Current.Revision || updated.Current.Generation != 2 || len(updated.Template.Retained) != 2 {
-		t.Fatalf("updated=%#v err=%v", updated, err)
-	}
-	noChange, err := mutator.UpdateWorkspaceTemplateByReference(context.Background(), templateRef, change)
-	if err != nil || noChange.Changed || noChange.Current.Revision != updated.Current.Revision {
-		t.Fatalf("no-op update=%#v err=%v", noChange, err)
-	}
 	selected, err := mutator.SetDefaultWorkspaceTemplateByReference(context.Background(), templateRef)
 	if err != nil || !selected.Selected || selected.TemplateID != created.ID {
 		t.Fatalf("selected=%#v err=%v", selected, err)
 	}
 	selectedCollection, _, _ := store.ReadComplete(context.Background())
-	if selectedCollection.Generation != first.Generation+2 {
+	if selectedCollection.Generation != first.Generation+1 {
 		t.Fatalf("selection generation=%d", selectedCollection.Generation)
 	}
 	if _, err := mutator.SetDefaultWorkspaceTemplateByReference(context.Background(), templateRef); err != nil {
@@ -494,7 +658,7 @@ func TestMutatorCreatesCopiesSelectsAndDeletesTemplatesThroughOneEnvelope(t *tes
 	}
 
 	revisionRef, _ := tobari.WorkspaceTemplateRevisionRef(created.ID, created.Current.Revision)
-	copyPublication, err := mutator.CopyWorkspaceTemplateByRevisionReference(context.Background(), revisionRef, "copied")
+	copyPublication, err := mutator.seedWorkspaceTemplateCopyForLegacyMigration(context.Background(), revisionRef, "copied")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -519,100 +683,95 @@ func TestMutatorCreatesCopiesSelectsAndDeletesTemplatesThroughOneEnvelope(t *tes
 	if final.DefaultTemplateID == nil || *final.DefaultTemplateID != copyPublication.Created.ID {
 		t.Fatalf("deleting nondefault Template cleared default: %#v", final.DefaultTemplateID)
 	}
-	if lifecycle.attempts.Load() != 9 {
+	if lifecycle.attempts.Load() != 7 {
 		t.Fatalf("lifecycle attempts=%d", lifecycle.attempts.Load())
 	}
 }
 
-func TestWorkspaceTemplateTypedChangesSerializeWithoutRevertingUnrelatedFields(t *testing.T) {
-	store, mutator, _, _, _ := newMutationFixture(t, nil)
-	created, err := mutator.CreateWorkspaceTemplate(context.Background(), "serialized", storeCollectionFixture(t).Templates[0].Current.Body)
+func TestApplyWorkspaceTemplateSourcePublishesOneMovingHeadRevision(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	store, mutator, _, _, _ := newMutationFixture(t, &existing)
+	active := existing.Templates[0]
+	mutator.runtimeRevision = &templateRuntimeRevisionFixture{binding: active.Current.Body.EntryDefaults.Runtime}
+	source, err := tobari.NewWorkspaceTemplateSource(active)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref, _ := tobari.WorkspaceTemplateRef(created.ID)
-	shellValue := "xterm-256color"
-	name, email := "Example User", "user@example.com"
-	shell := tobari.WorkspaceTemplateChange{Kind: tobari.WorkspaceTemplateChangeShell, Shell: []tobari.ManifestShellEnvironmentSetting{{Variable: "TERM", Source: tobari.ManifestShellEnvironmentLiteral, Value: &shellValue}}}
-	git := tobari.WorkspaceTemplateChange{Kind: tobari.WorkspaceTemplateChangeGit, Git: &tobari.ManifestGitIdentitySetting{Source: tobari.ManifestGitIdentityLiteral, Name: &name, Email: &email}}
-
-	start := make(chan struct{})
-	errors := make(chan error, 2)
-	for _, change := range []tobari.WorkspaceTemplateChange{shell, git} {
-		change := change.Clone()
-		go func() {
-			<-start
-			_, err := mutator.UpdateWorkspaceTemplateByReference(context.Background(), ref, change)
-			errors <- err
-		}()
-	}
-	close(start)
-	for range 2 {
-		if err := <-errors; err != nil {
-			t.Fatal(err)
-		}
-	}
-	collection, present, err := store.ReadComplete(context.Background())
-	if err != nil || !present {
-		t.Fatalf("read serialized Template: present=%t err=%v", present, err)
-	}
-	body := collection.Templates[0].Current.Body
-	if len(body.SessionDefaults.ShellEnvironment) != 1 || body.SessionDefaults.ShellEnvironment[0].Variable != "TERM" ||
-		body.SessionDefaults.GitIdentity == nil || body.SessionDefaults.GitIdentity.Name == nil || *body.SessionDefaults.GitIdentity.Name != name {
-		t.Fatalf("unrelated serialized changes were not both retained: %#v", body.SessionDefaults)
-	}
-
-	lastValue := "screen-256color"
-	last := tobari.WorkspaceTemplateChange{Kind: tobari.WorkspaceTemplateChangeShell, Shell: []tobari.ManifestShellEnvironmentSetting{{Variable: "TERM", Source: tobari.ManifestShellEnvironmentLiteral, Value: &lastValue}}}
-	if _, err := mutator.UpdateWorkspaceTemplateByReference(context.Background(), ref, last); err != nil {
+	source.Policy.Semantic.BaselineGrants[0].Path = "/edited"
+	fingerprint := strings.Repeat("a", 64)
+	plan, err := tobari.NewWorkspaceTemplateChangePlan(existing, active.ID, source, active.Current.Body.EntryDefaults.Runtime, runningWorkspaceFixture(existing), fingerprint)
+	if err != nil {
 		t.Fatal(err)
 	}
-	collection, _, err = store.ReadComplete(context.Background())
-	if err != nil || collection.Templates[0].Current.Body.SessionDefaults.ShellEnvironment[0].Value == nil ||
-		*collection.Templates[0].Current.Body.SessionDefaults.ShellEnvironment[0].Value != lastValue {
-		t.Fatalf("same-field last successful change was not current: %#v err=%v", collection.Templates[0].Current.Body.SessionDefaults, err)
+	loads := 0
+	publication, err := mutator.ApplyWorkspaceTemplateSourceByReference(context.Background(), plan.PlanRef, func(context.Context) (tobari.WorkspaceTemplateSource, string, error) {
+		loads++
+		return source.Clone(), fingerprint, nil
+	})
+	if err != nil || !publication.Changed || publication.Current.Generation != active.Current.Generation+1 || loads != 2 {
+		t.Fatalf("Apply = %+v, loads=%d, err=%v", publication, loads, err)
+	}
+	current, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present || current.Templates[0].Current.Body.Policy.BaselineGrants[0].Path != "/edited" || current.Contexts[0].Context.TemplateID != active.ID {
+		t.Fatalf("active moving head = %+v, present=%t, err=%v", current, present, err)
 	}
 }
 
-func TestWorkspaceTemplateRuntimeChangeResolvesExactRevisionUnderLifecycleBeforeWrite(t *testing.T) {
-	store, mutator, lifecycle, _, _ := newMutationFixture(t, nil)
-	created, err := mutator.CreateWorkspaceTemplate(context.Background(), "runtime", storeCollectionFixture(t).Templates[0].Current.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ref, _ := tobari.WorkspaceTemplateRef(created.ID)
-	runtimeID := "01912345-6789-7abc-8def-0123456789b7"
-	revision := "sha256:" + strings.Repeat("b", 64)
-	revisionRef := tobari.RuntimeRevisionRef(runtimeID, revision)
-	resolver := &templateRuntimeRevisionFixture{
-		binding: tobari.RuntimeBinding{RuntimeID: runtimeID, Name: "managed", Revision: revision, Ordinal: 3, Image: "tobari-runtime-managed:bbbbbbbbbbbb"},
-		check: func() error {
-			if !lifecycle.held.Load() {
-				return errors.New("Runtime revision was resolved outside lifecycle authority")
+func TestApplyWorkspaceTemplateSourceFencesConcurrentBytesAndStaleBase(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		stale bool
+	}{
+		{name: "source changed"},
+		{name: "stale base", stale: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			existing := storeCollectionFixture(t)
+			store, mutator, _, _, _ := newMutationFixture(t, &existing)
+			active := existing.Templates[0]
+			mutator.runtimeRevision = &templateRuntimeRevisionFixture{binding: active.Current.Body.EntryDefaults.Runtime}
+			source, err := tobari.NewWorkspaceTemplateSource(active)
+			if err != nil {
+				t.Fatal(err)
 			}
-			return nil
-		},
-	}
-	mutator.runtimeRevision = resolver
-	change := tobari.WorkspaceTemplateChange{Kind: tobari.WorkspaceTemplateChangeRuntime, RuntimeRevisionRef: revisionRef}
-	publication, err := mutator.UpdateWorkspaceTemplateByReference(context.Background(), ref, change)
-	if err != nil || !publication.Changed || publication.ResolvedRuntime == nil || publication.Current.Body.EntryDefaults.Runtime.Revision != revision ||
-		len(resolver.refs) != 1 || resolver.refs[0] != revisionRef || lifecycle.held.Load() {
-		t.Fatalf("Runtime publication=%#v refs=%v held-after=%t err=%v", publication, resolver.refs, lifecycle.held.Load(), err)
-	}
-
-	before, _, err := store.ReadComplete(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	resolver.err = errors.New("Runtime revision observation unknown")
-	otherRef := tobari.RuntimeRevisionRef(runtimeID, "sha256:"+strings.Repeat("c", 64))
-	if _, err := mutator.UpdateWorkspaceTemplateByReference(context.Background(), ref, tobari.WorkspaceTemplateChange{Kind: tobari.WorkspaceTemplateChangeRuntime, RuntimeRevisionRef: otherRef}); err == nil {
-		t.Fatal("unknown Runtime revision observation reached collection publication")
-	}
-	after, _, err := store.ReadComplete(context.Background())
-	if err != nil || !reflect.DeepEqual(before, after) {
-		t.Fatalf("Runtime observation failure changed collection: err=%v", err)
+			source.Policy.Semantic.BaselineGrants[0].Path = "/edited"
+			if test.stale {
+				value := tobari.SemanticDigest("sha256:" + strings.Repeat("e", 64))
+				source.Template.BaseRevision = &value
+			}
+			fingerprint := strings.Repeat("a", 64)
+			plannedSource := source.Clone()
+			if test.stale {
+				plannedSource, err = tobari.NewWorkspaceTemplateSource(active)
+				if err != nil {
+					t.Fatal(err)
+				}
+				plannedSource.Policy.Semantic.BaselineGrants[0].Path = "/edited"
+			}
+			plan, planErr := tobari.NewWorkspaceTemplateChangePlan(existing, active.ID, plannedSource, active.Current.Body.EntryDefaults.Runtime, runningWorkspaceFixture(existing), fingerprint)
+			if planErr != nil {
+				t.Fatal(planErr)
+			}
+			loads := 0
+			_, err = mutator.ApplyWorkspaceTemplateSourceByReference(context.Background(), plan.PlanRef, func(context.Context) (tobari.WorkspaceTemplateSource, string, error) {
+				loads++
+				observed := fingerprint
+				if loads > 1 {
+					observed = strings.Repeat("b", 64)
+				}
+				return source.Clone(), observed, nil
+			})
+			if test.stale && !errors.Is(err, tobari.ErrResourceSourceModified) {
+				t.Fatalf("stale Apply error = %v", err)
+			}
+			if !test.stale && !errors.Is(err, tobari.ErrResourceSourceChanged) {
+				t.Fatalf("concurrent Apply error = %v", err)
+			}
+			current, present, readErr := store.ReadComplete(context.Background())
+			if readErr != nil || !present || current.Revision != existing.Revision {
+				t.Fatalf("failed Apply changed active authority = %+v/%t/%v", current, present, readErr)
+			}
+		})
 	}
 }
 
@@ -622,10 +781,10 @@ func TestMutatorRejectsInvalidTemplateCreationBeforePublication(t *testing.T) {
 	invalidBody := body.Clone()
 	invalidBody.Boundary.SourceAccess = "snapshot"
 	beforeAttempts := lifecycle.attempts.Load()
-	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "invalid-body", invalidBody); err == nil {
+	if _, err := mutator.seedWorkspaceTemplateForLegacyMigration(context.Background(), "invalid-body", invalidBody); err == nil {
 		t.Fatal("invalid Template body unexpectedly succeeded")
 	}
-	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "bad/name", body); err == nil {
+	if _, err := mutator.seedWorkspaceTemplateForLegacyMigration(context.Background(), "bad/name", body); err == nil {
 		t.Fatal("invalid Template name unexpectedly succeeded")
 	}
 	afterAttempts := lifecycle.attempts.Load()
@@ -645,7 +804,7 @@ func TestMutatorContextCreateDeleteAndWorkspaceRetirementPreserveOwners(t *testi
 	existing := storeCollectionFixture(t)
 	store, mutator, _, deletion, _ := newMutationFixture(t, &existing)
 	templateRef, _ := tobari.WorkspaceTemplateRef(storeTemplateID)
-	if _, err := mutator.CreateContextByTemplateReference(context.Background(), templateRef, "/workspace/example"); !errors.Is(err, tobari.ErrContextBindingExists) {
+	if _, err := mutator.seedContextForLegacyMigration(context.Background(), templateRef, "/workspace/example"); !errors.Is(err, tobari.ErrContextBindingExists) {
 		t.Fatalf("duplicate Context err=%v", err)
 	}
 
@@ -685,7 +844,7 @@ func TestContextDeleteSettlementDecisionResumesAndReplaysExactOutcome(t *testing
 	settlement.contextDeleteCalls = 0
 
 	realRename := mutator.rename
-	stage := store.root + ".wp11-mutation-stage"
+	stage := mutationStagePath(store.root)
 	authority := filepath.Join(store.root, authorityFileName)
 	mutator.rename = func(source, target string) error {
 		if source == stage && target == authority {
@@ -701,7 +860,7 @@ func TestContextDeleteSettlementDecisionResumesAndReplaysExactOutcome(t *testing
 	if err != nil || contextRecordIndex(current, storeContextID) < 0 || settlement.contextDeleteCalls != 1 {
 		t.Fatalf("interrupted Context authority=%#v settlements=%d err=%v", current, settlement.contextDeleteCalls, err)
 	}
-	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "blocked-by-context-delete", existing.Templates[0].Current.Body); err == nil {
+	if _, err := mutator.seedWorkspaceTemplateForLegacyMigration(context.Background(), "blocked-by-context-delete", existing.Templates[0].Current.Body); err == nil {
 		t.Fatal("different mutation crossed active Context deletion")
 	}
 
@@ -796,7 +955,7 @@ func TestMutatorClassifiesPostRenameSuccessAndPreRenameFailure(t *testing.T) {
 		}
 		return fmt.Errorf("injected post-rename failure")
 	}
-	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "post-rename", body); err != nil {
+	if _, err := mutator.seedWorkspaceTemplateForLegacyMigration(context.Background(), "post-rename", body); err != nil {
 		t.Fatalf("exact read-back did not classify confirmed publication: %v", err)
 	}
 	confirmed, _, _ := store.ReadComplete(context.Background())
@@ -805,26 +964,29 @@ func TestMutatorClassifiesPostRenameSuccessAndPreRenameFailure(t *testing.T) {
 	}
 
 	mutator.rename = func(string, string) error { return fmt.Errorf("injected pre-rename failure") }
-	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "pre-rename", body); err == nil {
+	if _, err := mutator.seedWorkspaceTemplateForLegacyMigration(context.Background(), "pre-rename", body); err == nil {
 		t.Fatal("pre-rename failure was reported as success")
 	}
 	after, _, _ := store.ReadComplete(context.Background())
 	if after.Generation != confirmed.Generation || after.Revision != confirmed.Revision {
 		t.Fatalf("pre-rename failure changed authority: %#v", after)
 	}
-	stageInfo, err := os.Lstat(store.root + ".wp11-mutation-stage")
+	stageInfo, err := os.Lstat(mutationStagePath(store.root))
 	if err != nil || !stageInfo.Mode().IsRegular() {
 		t.Fatalf("recoverable stage info=%#v err=%v", stageInfo, err)
 	}
 	mutator.rename = realRename
-	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "retry", body); err != nil {
+	if _, err := mutator.seedWorkspaceTemplateForLegacyMigration(context.Background(), "retry", body); err != nil {
 		t.Fatalf("next lifecycle mutation did not reconcile stage: %v", err)
 	}
 }
 
 func TestMutatorFirstPublicationStageIsRecoverableAndReadersSeeNoPartialRoot(t *testing.T) {
 	store, mutator, _, _, _ := newMutationFixture(t, nil)
-	stage := store.root + ".wp11-mutation-stage"
+	stage := mutationStagePath(store.root)
+	if err := os.MkdirAll(filepath.Dir(stage), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Mkdir(stage, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -832,10 +994,10 @@ func TestMutatorFirstPublicationStageIsRecoverableAndReadersSeeNoPartialRoot(t *
 		t.Fatal(err)
 	}
 	if _, present, err := store.ReadComplete(context.Background()); err != nil || present {
-		t.Fatalf("partial stage affected ordinary reader: present=%t err=%v", present, err)
+		t.Fatalf("owned initial publication affected ordinary authority: present=%t err=%v", present, err)
 	}
 	body := storeCollectionFixture(t).Templates[0].Current.Body.Clone()
-	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "recovered", body); err != nil {
+	if _, err := mutator.seedWorkspaceTemplateForLegacyMigration(context.Background(), "recovered", body); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(stage); !errors.Is(err, os.ErrNotExist) {
@@ -855,7 +1017,7 @@ func TestMutatorSerializesConcurrentFinalEnvelopeChanges(t *testing.T) {
 		name := name
 		go func() {
 			<-start
-			_, err := mutator.CreateWorkspaceTemplate(context.Background(), name, body)
+			_, err := mutator.seedWorkspaceTemplateForLegacyMigration(context.Background(), name, body)
 			errorsByCall <- err
 		}()
 	}
@@ -881,11 +1043,11 @@ func TestMutatorRejectsUnsafeReservedStageWithoutChangingAuthority(t *testing.T)
 	if err := os.WriteFile(foreign, []byte("foreign"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(foreign, store.root+".wp11-mutation-stage"); err != nil {
+	if err := os.Symlink(foreign, mutationStagePath(store.root)); err != nil {
 		t.Fatal(err)
 	}
 	body := existing.Templates[0].Current.Body.Clone()
-	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "blocked", body); err == nil {
+	if _, err := mutator.seedWorkspaceTemplateForLegacyMigration(context.Background(), "blocked", body); err == nil {
 		t.Fatal("unsafe stage was accepted")
 	}
 	after, _, _ := store.ReadComplete(context.Background())
@@ -898,7 +1060,7 @@ func TestWorkspaceDeleteDecisionBlocksOtherMutationAndSameRefResumesAfterEffect(
 	existing := storeCollectionFixture(t)
 	store, mutator, _, deletion, _ := newMutationFixture(t, &existing)
 	realRename := mutator.rename
-	stage := store.root + ".wp11-mutation-stage"
+	stage := mutationStagePath(store.root)
 	authority := filepath.Join(store.root, authorityFileName)
 	mutator.rename = func(source, target string) error {
 		if source == stage && target == authority {
@@ -917,7 +1079,7 @@ func TestWorkspaceDeleteDecisionBlocksOtherMutationAndSameRefResumesAfterEffect(
 		t.Fatalf("active decision present=%t err=%v", present, err)
 	}
 	body := existing.Templates[0].Current.Body.Clone()
-	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "blocked-by-delete", body); err == nil {
+	if _, err := mutator.seedWorkspaceTemplateForLegacyMigration(context.Background(), "blocked-by-delete", body); err == nil {
 		t.Fatal("different mutation crossed active delete decision")
 	}
 	current, _, _ := store.ReadComplete(context.Background())
@@ -948,7 +1110,7 @@ func TestWorkspaceDeleteDecisionBlocksOtherMutationAndSameRefResumesAfterEffect(
 	if err != nil || !replayed.Deleted || len(deletion.retired) != retirements || deletion.confirmations != 3 {
 		t.Fatalf("terminal replay=%#v retirements=%d confirmations=%d err=%v", replayed, len(deletion.retired), deletion.confirmations, err)
 	}
-	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "after-delete", body); err != nil {
+	if _, err := mutator.seedWorkspaceTemplateForLegacyMigration(context.Background(), "after-delete", body); err != nil {
 		t.Fatalf("bounded terminal receipt blocked a different later mutation: %v", err)
 	}
 	retirements = len(deletion.retired)
@@ -1023,7 +1185,7 @@ func TestPolicyDecisionUsesDurableEffectDecisionAndTerminalReplay(t *testing.T) 
 	existing := storeCollectionFixture(t)
 	store, mutator, _, _, activation := newMutationFixture(t, &existing)
 	realRename := mutator.rename
-	stage := store.root + ".wp11-mutation-stage"
+	stage := mutationStagePath(store.root)
 	authority := filepath.Join(store.root, authorityFileName)
 	mutator.rename = func(source, target string) error {
 		if source == stage && target == authority {
@@ -1039,7 +1201,7 @@ func TestPolicyDecisionUsesDurableEffectDecisionAndTerminalReplay(t *testing.T) 
 		t.Fatalf("activation calls=%d", activation.calls)
 	}
 	body := existing.Templates[0].Current.Body.Clone()
-	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "blocked-by-policy", body); err == nil {
+	if _, err := mutator.seedWorkspaceTemplateForLegacyMigration(context.Background(), "blocked-by-policy", body); err == nil {
 		t.Fatal("different mutation crossed active Policy decision")
 	}
 
@@ -1051,7 +1213,7 @@ func TestPolicyDecisionUsesDurableEffectDecisionAndTerminalReplay(t *testing.T) 
 	if err := publication.ValidateFor(candidate.ID, tobari.PolicyMemoryAllow); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "unrelated-after-policy", body); err != nil {
+	if _, err := mutator.seedWorkspaceTemplateForLegacyMigration(context.Background(), "unrelated-after-policy", body); err != nil {
 		t.Fatalf("unrelated mutation after Policy outcome: %v", err)
 	}
 	calls := activation.calls
@@ -1076,7 +1238,7 @@ func TestApplyReviewedPublishesOneSetAndReplaysAcrossUnrelatedPureMutation(t *te
 		t.Fatal("durable reviewed result lost stable item or complete evidence identity")
 	}
 	body := existing.Templates[0].Current.Body.Clone()
-	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "unrelated-after-reviewed", body); err != nil {
+	if _, err := mutator.seedWorkspaceTemplateForLegacyMigration(context.Background(), "unrelated-after-reviewed", body); err != nil {
 		t.Fatal(err)
 	}
 	calls := settlement.reviewedCalls
@@ -1150,7 +1312,7 @@ func TestApplyReviewedRejectsConfirmedCollectionDriftBeforeDecisionOrEffect(t *t
 	settlement := mutator.settlement.(*finalSettlementFixture)
 	set := reviewedSetForCandidates(t, existing, existing.PendingCandidates[0])
 	body := existing.Templates[0].Current.Body.Clone()
-	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "concurrent-template", body); err != nil {
+	if _, err := mutator.seedWorkspaceTemplateForLegacyMigration(context.Background(), "concurrent-template", body); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := mutator.ApplyReviewedPolicyMemory(context.Background(), set); !errors.Is(err, tobari.ErrPolicyReviewChanged) {
@@ -1193,7 +1355,7 @@ func TestApplyReviewedResumesOneGlobalDecisionAcrossPublicationBoundaries(t *tes
 			name: "after terminal evidence before envelope",
 			installFailure: func(mutator *Mutator) func() {
 				realRename := mutator.rename
-				stage := mutator.store.root + ".wp11-mutation-stage"
+				stage := mutationStagePath(mutator.store.root)
 				authority := filepath.Join(mutator.store.root, authorityFileName)
 				mutator.rename = func(source, target string) error {
 					if source == stage && target == authority {
@@ -1234,7 +1396,7 @@ func TestApplyReviewedResumesOneGlobalDecisionAcrossPublicationBoundaries(t *tes
 				t.Fatalf("active decision=%t err=%v", active, err)
 			}
 			body := existing.Templates[0].Current.Body.Clone()
-			if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "blocked-during-reviewed", body); err == nil {
+			if _, err := mutator.seedWorkspaceTemplateForLegacyMigration(context.Background(), "blocked-during-reviewed", body); err == nil {
 				t.Fatal("different mutation crossed active reviewed decision")
 			}
 			restore()

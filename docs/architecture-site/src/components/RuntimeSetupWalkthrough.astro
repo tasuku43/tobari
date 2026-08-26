@@ -58,8 +58,8 @@ const flow = [
     to: t("Workspace Template binding", "Workspace Template の参照"),
     title: t("Select one exact revision", "正確な一つのリビジョンを選ぶ"),
     detail: t(
-      "template runtime set explicitly pins standard or name@ordinal. Builds never roll Workspace Templates forward.",
-      "template runtime set で standard または name@ordinal を明示的に固定します。ビルドで Workspace Template は自動更新されません。",
+      "Edit template.yaml to select the exact Runtime ID+revision, then review and Apply the complete Template. Builds never roll Workspace Templates forward.",
+      "template.yaml で正確な Runtime ID とリビジョンを選び、Template 全体をレビューして Apply します。ビルドで Workspace Template は自動更新されません。",
     ),
     kind: "allowed",
   },
@@ -133,7 +133,7 @@ const steps = [
       "準備済みリビジョンを Workspace Template に固定する",
     ),
     location: t("Trusted host", "信頼するホスト"),
-    command: `tobari template runtime set --id TEMPLATE_REF --runtime RUNTIME_REVISION_REF\ntobari template show`,
+    command: `# Edit the Runtime id+revision in template.yaml\ntobari template plan --id TEMPLATE_REF\ntobari template apply --plan TEMPLATE_CHANGE_PLAN_REF\ntobari template show`,
     expected: t(
       "The selected Workspace Template reports coding@1. The same revision may be selected by another Workspace Template.",
       "選択した Workspace Template に coding@1 が表示されます。同じリビジョンを別の Workspace Template でも選べます。",

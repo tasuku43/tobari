@@ -18,8 +18,22 @@ type ContextReadPort interface {
 	ReadContextAuthorityByReference(context.Context, string) (ContextSnapshot, error)
 }
 
-type ContextCreatePort interface {
-	CreateContextByTemplateReference(context.Context, string, string) (ContextSnapshot, error)
+type ContextSourceObservationPort interface {
+	ObserveContextSource(context.Context, tobari.ContextBinding) (tobari.ResourceSourceObservation, error)
+}
+
+type ContextDraftReadPort interface {
+	ListContextDrafts(context.Context) ([]tobari.ContextDraft, error)
+}
+
+type ContextDraftCreatePort interface {
+	CreateContextDraftByTemplateReference(context.Context, string, string) (tobari.ContextDraft, error)
+}
+type ContextPlanPort interface {
+	PlanContextSourceByReference(context.Context, string) (tobari.ContextActivationPlan, error)
+}
+type ContextApplyPlanPort interface {
+	ApplyContextSourceByPlan(context.Context, string) (ContextSnapshot, bool, error)
 }
 
 type ContextEnterPort interface {
@@ -58,30 +72,50 @@ func (contextMutationPolicy) Check(_ context.Context, intent operation.Intent) e
 	case intent.Effect == operation.EffectWrite && intent.Target.Kind == tobari.ContextReferenceKind && intent.Target.ID != "" && intent.Target.ParentID == "":
 		_, err := tobari.ParseContextRef(intent.Target.ID)
 		return err
+	case intent.Effect == operation.EffectWrite && intent.Target.Kind == tobari.ContextActivationPlanReferenceKind && intent.Target.ID != "" && intent.Target.ParentID == "":
+		_, err := tobari.ParseContextActivationPlanRef(intent.Target.ID)
+		return err
 	default:
 		return fault.New(fault.KindRejected, "mutation_rejected", "Context mutation target is not owned by Tobari", false)
 	}
 }
 
 type ContextService struct {
-	read    ContextReadPort
-	create  ContextCreatePort
-	enter   ContextEnterPort
-	delete  ContextDeletePort
-	mutator *execution.Invoker
+	read        ContextReadPort
+	draftCreate ContextDraftCreatePort
+	planner     ContextPlanPort
+	applyPlan   ContextApplyPlanPort
+	enter       ContextEnterPort
+	delete      ContextDeletePort
+	sources     ContextSourceObservationPort
+	drafts      ContextDraftReadPort
+	mutator     *execution.Invoker
 }
 
 func NewContextService(port any) *ContextService {
 	service := &ContextService{mutator: execution.New(contextMutationPolicy{})}
 	service.read, _ = port.(ContextReadPort)
-	service.create, _ = port.(ContextCreatePort)
+	service.draftCreate, _ = port.(ContextDraftCreatePort)
+	service.planner, _ = port.(ContextPlanPort)
+	service.applyPlan, _ = port.(ContextApplyPlanPort)
 	service.enter, _ = port.(ContextEnterPort)
 	service.delete, _ = port.(ContextDeletePort)
+	service.sources, _ = port.(ContextSourceObservationPort)
+	service.drafts, _ = port.(ContextDraftReadPort)
 	return service
 }
 
 func ContextCreateImpact() operation.Impact {
 	return operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}
+}
+
+func ContextApplyImpact() operation.Impact {
+	return operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}
+}
+
+type ContextApplyResult struct {
+	View    ContextView
+	Changed bool
 }
 
 func ContextEnterImpact() operation.Impact {
@@ -104,7 +138,58 @@ func (s *ContextService) List(ctx context.Context) (ContextList, error) {
 	if err != nil {
 		return ContextList{}, contractFault("invalid_context_list", "Context list is invalid", err)
 	}
+	if !portcheck.IsNil(s.sources) {
+		for index := range result.Items {
+			observation, observeErr := s.sources.ObserveContextSource(ctx, result.Items[index].Snapshot.Context)
+			if observeErr != nil {
+				return ContextList{}, readFault(observeErr, "context_source_read_failed", "Context source could not be inspected")
+			}
+			result.Items[index].Source = &observation
+		}
+	}
+	if !portcheck.IsNil(s.drafts) {
+		drafts, draftErr := s.drafts.ListContextDrafts(ctx)
+		if draftErr != nil {
+			return ContextList{}, readFault(draftErr, "context_source_read_failed", "Context drafts could not be read")
+		}
+		result.Drafts = make([]ContextDraftView, len(drafts))
+		for index, draft := range drafts {
+			view, viewErr := NewContextDraftView(draft)
+			if viewErr != nil {
+				return ContextList{}, contractFault("invalid_context_list", "Context draft is invalid", viewErr)
+			}
+			result.Drafts[index] = view
+		}
+	}
 	return result, nil
+}
+
+func (s *ContextService) ShowResource(ctx context.Context, contextRef string) (ContextResourceView, error) {
+	active, err := s.Show(ctx, contextRef)
+	if err == nil {
+		return ContextResourceView{Active: &active}, nil
+	}
+	if portcheck.IsNil(s.drafts) {
+		return ContextResourceView{}, err
+	}
+	id, parseErr := tobari.ParseContextRef(contextRef)
+	if parseErr != nil {
+		return ContextResourceView{}, err
+	}
+	drafts, draftErr := s.drafts.ListContextDrafts(ctx)
+	if draftErr != nil {
+		return ContextResourceView{}, readFault(draftErr, "context_source_read_failed", "Context drafts could not be read")
+	}
+	for _, draft := range drafts {
+		if draft.Source.ContextID == id {
+			view, viewErr := NewContextDraftView(draft)
+			if viewErr != nil {
+				return ContextResourceView{}, contractFault("invalid_context", "Context draft is invalid", viewErr)
+			}
+			return ContextResourceView{Draft: &view}, nil
+		}
+	}
+	return ContextResourceView{}, err
 }
 
 func (s *ContextService) Show(ctx context.Context, contextRef string) (ContextView, error) {
@@ -132,36 +217,92 @@ func (s *ContextService) Show(ctx context.Context, contextRef string) (ContextVi
 		}
 		return ContextView{}, contractFault("invalid_context", "Context is invalid", err)
 	}
+	if !portcheck.IsNil(s.sources) {
+		observation, observeErr := s.sources.ObserveContextSource(ctx, snapshot.Context)
+		if observeErr != nil {
+			return ContextView{}, readFault(observeErr, "context_source_read_failed", "Context source could not be inspected")
+		}
+		view.Source = &observation
+	}
 	return view, nil
 }
 
-func (s *ContextService) Create(ctx context.Context, intent operation.Intent, templateRef, projectRoot string) (ContextView, error) {
-	if s == nil || portcheck.IsNil(s.create) {
-		return ContextView{}, missingPort("Context create")
+func (s *ContextService) CreateDraft(ctx context.Context, intent operation.Intent, templateRef, projectRoot string) (ContextDraftView, error) {
+	if s == nil || portcheck.IsNil(s.draftCreate) {
+		return ContextDraftView{}, missingPort("Context draft create")
 	}
-	templateID, err := tobari.ParseWorkspaceTemplateRef(templateRef)
-	if err != nil {
-		return ContextView{}, invalidFault("invalid_template_ref", "Workspace Template reference is invalid", err, "template list")
+	if _, err := tobari.ParseWorkspaceTemplateRef(templateRef); err != nil {
+		return ContextDraftView{}, invalidFault("invalid_template_ref", "Workspace Template reference is invalid", err, "template list")
 	}
 	if err := tobari.ValidateCanonicalRoot(projectRoot); err != nil {
-		return ContextView{}, invalidFault("invalid_project_root", "Project root is invalid", err, "status")
+		return ContextDraftView{}, invalidFault("invalid_project_root", "Project root is invalid", err, "status")
 	}
 	target := operation.TargetRef{Kind: tobari.ContextReferenceKind, ParentID: templateRef}
 	request := execution.Request{Intent: intent, ExpectedCommand: TaskContextCreate, ExpectedEffect: operation.EffectCreate, ExpectedTarget: target, ExpectedImpact: ContextCreateImpact()}
-	var result ContextView
-	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		snapshot, err := s.create.CreateContextByTemplateReference(actionContext, templateRef, projectRoot)
+	var result ContextDraftView
+	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		draft, err := s.draftCreate.CreateContextDraftByTemplateReference(actionContext, templateRef, projectRoot)
 		if err != nil {
 			return contextMutationFault(err)
 		}
-		view, err := NewContextView(snapshot)
+		view, err := NewContextDraftView(draft)
 		if err != nil {
-			return contractFault("invalid_context_create_result", "created Context is invalid", err)
-		}
-		if snapshot.Context.TemplateID != templateID || snapshot.Context.ProjectRoot != projectRoot || len(snapshot.PolicyMemory.Rules) != 0 || snapshot.PolicyMemory.Generation != 1 || snapshot.Workspace != nil || snapshot.ActiveTemplatePolicy != nil || snapshot.ActivePolicyMemory != nil || snapshot.ActivePolicyMemoryRef != nil {
-			return contractFault("invalid_context_create_result", "created Context contains authority outside the requested empty binding", fmt.Errorf("Context create result mismatch"))
+			return contractFault("invalid_context_create_result", "created Context draft is invalid", err)
 		}
 		result = view
+		return nil
+	})
+	return result, err
+}
+
+func (s *ContextService) Plan(ctx context.Context, contextRef string) (tobari.ContextActivationPlan, error) {
+	if s == nil || portcheck.IsNil(s.planner) {
+		return tobari.ContextActivationPlan{}, missingPort("Context activation planning")
+	}
+	if _, err := tobari.ParseContextRef(contextRef); err != nil {
+		return tobari.ContextActivationPlan{}, invalidFault("invalid_context_ref", "Context reference is invalid", err, "context list")
+	}
+	plan, err := s.planner.PlanContextSourceByReference(ctx, contextRef)
+	if err != nil {
+		return tobari.ContextActivationPlan{}, contextMutationFault(err)
+	}
+	if err := plan.Validate(); err != nil || plan.ContextRef != contextRef {
+		return tobari.ContextActivationPlan{}, contractFault("invalid_context_activation_plan", "Context activation plan is invalid", err)
+	}
+	return plan, nil
+}
+
+func (s *ContextService) Apply(ctx context.Context, intent operation.Intent, contextRef string) (ContextApplyResult, error) {
+	if s == nil || portcheck.IsNil(s.applyPlan) {
+		return ContextApplyResult{}, missingPort("Context source apply")
+	}
+	id, planErr := tobari.ParseContextActivationPlanRef(contextRef)
+	if planErr != nil {
+		return ContextApplyResult{}, invalidFault("invalid_context_activation_plan_ref", "Context activation plan reference is invalid", planErr, "context list")
+	}
+	target := operation.TargetRef{Kind: tobari.ContextActivationPlanReferenceKind, ID: contextRef}
+	request := execution.Request{Intent: intent, ExpectedCommand: TaskContextApply, ExpectedEffect: operation.EffectWrite, ExpectedTarget: target, ExpectedImpact: ContextApplyImpact()}
+	var result ContextApplyResult
+	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		snapshot, changed, applyErr := s.applyPlan.ApplyContextSourceByPlan(actionContext, contextRef)
+		if applyErr != nil {
+			return contextMutationFault(applyErr)
+		}
+		if snapshot.Context.ID != id {
+			return contractFault("invalid_context_apply_result", "Context source Apply returned another authority", fmt.Errorf("Context reference mismatch"))
+		}
+		view, viewErr := NewContextView(snapshot)
+		if viewErr != nil {
+			return contractFault("invalid_context_apply_result", "Context source Apply result is invalid", viewErr)
+		}
+		if !portcheck.IsNil(s.sources) {
+			observation, observeErr := s.sources.ObserveContextSource(actionContext, snapshot.Context)
+			if observeErr != nil || observation.State != tobari.ResourceSourceInSync {
+				return contractFault("invalid_context_apply_result", "Applied Context source is not current", observeErr)
+			}
+			view.Source = &observation
+		}
+		result = ContextApplyResult{View: view, Changed: changed}
 		return nil
 	})
 	return result, err
@@ -280,6 +421,12 @@ func contextMutationFault(err error) error {
 		return classified
 	}
 	switch {
+	case errors.Is(err, tobari.ErrResourceSourceMissing):
+		return fault.WithClassification(fault.New(fault.KindNotFound, "resource_source_missing", "The exact Context source file is missing", false, fault.NextAction{Command: "context list", Reason: "Rediscover the retained Context and canonical source path; missing source never deletes active authority."}), fault.PhasePrecondition, fault.ChangeNone)
+	case errors.Is(err, tobari.ErrResourceSourceInvalid):
+		return fault.WithClassification(fault.New(fault.KindInvalidInput, "resource_source_invalid", "The exact Context source does not satisfy its strict schema", false, fault.NextAction{Command: "context list", Reason: "Rediscover the retained Context and correct the typed source diagnostic."}), fault.PhasePrecondition, fault.ChangeNone)
+	case errors.Is(err, tobari.ErrResourceSourceModified):
+		return fault.WithClassification(fault.New(fault.KindRejected, "context_identity_immutable", "Context identity fields are immutable after creation", false, fault.NextAction{Command: "context list", Reason: "Rediscover the current binding; another Project root or Template requires a fresh Context."}), fault.PhasePrecondition, fault.ChangeNone)
 	case errors.Is(err, tobari.ErrWorkspaceTemplateNotFound):
 		return fault.WithClassification(fault.New(fault.KindNotFound, "template_not_found", "Workspace Template no longer exists", false, fault.NextAction{Command: "template list", Reason: "Discover current Template authority."}), fault.PhasePrecondition, fault.ChangeNone)
 	case errors.Is(err, tobari.ErrContextBindingExists):

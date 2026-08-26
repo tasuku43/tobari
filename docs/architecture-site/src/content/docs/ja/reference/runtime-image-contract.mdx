@@ -113,7 +113,8 @@ Dockerfile は公式 Runtime から始まり `USER tobari` へ戻ります。隣
 ビルドは Workspace Template を変えません。失敗時は履歴を追加せず、同一ソースの再ビルドは成功した
 no-op です。Docker BuildKit のキャッシュや未選択候補が残っても、準備済みリビジョンとは報告しません。
 
-選択は別操作の `template runtime set --id TEMPLATE_REF --runtime RUNTIME_REVISION_REF` です。次回 Workspace に入るとき、期待する
+選択は `template.yaml` の正確な Runtime ID+revision を編集し、`template plan` と
+`template apply --plan PLAN_REF` で Template 全体をレビューする操作です。次回 Workspace に入るとき、期待する
 イメージの識別情報と完全な runtime-spec ハッシュを比較します。差分がある作業コンテナだけを
 再作成し、論理的な識別情報、プロジェクトルート、Workspace ホームは保持します。
 

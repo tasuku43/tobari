@@ -152,27 +152,46 @@ func runtimeLifecycleFixtureRevision(t *testing.T, content string) string {
 
 func installRuntimeLifecycleRevision(t *testing.T, runtime *Runtime, id, name, imageDigest, content string) tobari.RuntimeManifest {
 	t.Helper()
+	if err := os.MkdirAll(runtime.stateDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	lockPath := filepath.Join(runtime.stateDirectory, "lifecycle.lock")
+	if _, err := os.Lstat(lockPath); errors.Is(err, os.ErrNotExist) {
+		if err := os.WriteFile(lockPath, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if runtime.finalRuntimeProtectionSource == nil {
 		bindEmptyFinalRuntimeProtection(t, runtime)
 	}
 	revision := runtimeLifecycleFixtureRevision(t, content)
 	image := managedLibraryRuntimeImage(name, id, revision)
-	root := runtime.runtimeDirectory(name)
+	root := runtime.runtimeDirectory(id)
 	if err := os.MkdirAll(filepath.Join(root, "source"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(root, "revisions", strings.TrimPrefix(revision, "sha256:"), "source"), 0o700); err != nil {
+	if err := writeRuntimeSourceMetadata(runtime.runtimeMetadataPath(id), runtimeSourceMetadata{SchemaVersion: 1, RuntimeID: id, Name: name}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(runtime.runtimeRevisionsDirectory(id), strings.TrimPrefix(revision, "sha256:"), "source"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "source", "Dockerfile"), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "revisions", strings.TrimPrefix(revision, "sha256:"), "source", "Dockerfile"), []byte(content), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(runtime.runtimeRevisionsDirectory(id), strings.TrimPrefix(revision, "sha256:"), "source", "Dockerfile"), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	manifest := tobari.RuntimeManifest{SchemaVersion: tobari.RuntimeSchemaVersion, ID: id, Name: name, Kind: tobari.RuntimeKindManaged, SourcePath: filepath.Join(root, "source"), Revisions: []tobari.RuntimeRevision{{Ordinal: 1, Revision: revision, Image: image, ImageDigest: imageDigest, CreatedAt: time.Unix(1, 0).UTC(), SnapshotPath: filepath.Join(root, "revisions", strings.TrimPrefix(revision, "sha256:"), "source")}}}
-	if err := writeAtomicJSON(filepath.Join(root, "runtime.json"), manifest); err != nil {
+	manifest := tobari.RuntimeManifest{SchemaVersion: tobari.RuntimeSchemaVersion, ID: id, Name: name, Kind: tobari.RuntimeKindManaged, SourcePath: filepath.Join(root, "source"), Revisions: []tobari.RuntimeRevision{{Ordinal: 1, Revision: revision, Image: image, ImageDigest: imageDigest, CreatedAt: time.Unix(1, 0).UTC(), SnapshotPath: filepath.Join(runtime.runtimeRevisionsDirectory(id), strings.TrimPrefix(revision, "sha256:"), "source")}}}
+	if err := writeAtomicJSON(runtime.runtimeManifestPath(id), manifest); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := runtime.readRuntimeManifestByID(id); err != nil {
+		t.Fatalf("installed split Runtime fixture is unreadable: %v", err)
+	}
+	budget := runtimeLifecycleBudget{remaining: runtimeLifecycleCallBudget}
+	if _, err := runtime.readRuntimeLifecycleLocalObserved(context.Background(), &budget); err != nil {
+		t.Fatalf("installed split Runtime local observation failed: %v", err)
 	}
 	return manifest
 }
@@ -397,7 +416,7 @@ func TestRuntimeLifecycleSnapshotRejectsPersistedNonCanonicalImageSelectorBefore
 	id := "018bcfe5-687b-7000-8000-000000000077"
 	manifest := installRuntimeLifecycleRevision(t, runtime, id, "frontend", "sha256:"+strings.Repeat("b", 64), "FROM example.invalid/runtime\n")
 	manifest.Revisions[0].Image = "example.invalid/tampered:selector"
-	if err := writeAtomicJSON(runtime.runtimeManifestPath(manifest.Name), manifest); err != nil {
+	if err := writeAtomicJSON(runtime.runtimeManifestPath(manifest.ID), manifest); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := runtime.ReadRuntimeLifecycleSnapshot(context.Background()); err == nil {
@@ -788,7 +807,7 @@ func TestRuntimeLifecycleSnapshotKeepsEveryBuildRecoveryPhaseAsBlocker(t *testin
 					t.Fatal(err)
 				}
 			}
-			final := filepath.Join(runtime.runtimeRevisionsDirectory(journal.RuntimeName), strings.TrimPrefix(revision, "sha256:"), "source")
+			final := filepath.Join(runtime.runtimeRevisionsDirectory(journal.RuntimeID), strings.TrimPrefix(revision, "sha256:"), "source")
 			if test.final {
 				if err := os.MkdirAll(final, 0o700); err != nil {
 					t.Fatal(err)
@@ -803,7 +822,7 @@ func TestRuntimeLifecycleSnapshotKeepsEveryBuildRecoveryPhaseAsBlocker(t *testin
 					t.Fatal(err)
 				}
 				manifest.Revisions = []tobari.RuntimeRevision{{Ordinal: 1, Revision: revision, Image: journal.FinalImage, ImageDigest: journal.ImageDigest, CreatedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), SnapshotPath: final}}
-				if err := writeAtomicJSON(runtime.runtimeManifestPath(manifest.Name), manifest); err != nil {
+				if err := writeAtomicJSON(runtime.runtimeManifestPath(manifest.ID), manifest); err != nil {
 					t.Fatal(err)
 				}
 			}

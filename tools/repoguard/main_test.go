@@ -39,6 +39,40 @@ func TestRepositoryPathsSkipsTrackedDeletionAndKeepsUntrackedRenameDestination(t
 	}
 }
 
+func TestCurrentAuthorityDocumentationRejectsRetiredClaimsButExcludesHistory(t *testing.T) {
+	root := t.TempDir()
+	writeRepositoryFixture(t, root, "docs/02_architecture.md", "current policy/domains/example.com/ source\n")
+	writeRepositoryFixture(t, root, "docs/decisions/0001-history.md", "historical policy/domains/example.com/ source\n")
+	paths := []string{"docs/02_architecture.md", "docs/decisions/0001-history.md"}
+	issues, err := checkCurrentAuthorityDocumentation(root, paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 1 || issues[0].Path != "docs/02_architecture.md" {
+		t.Fatalf("current authority documentation issues = %#v", issues)
+	}
+}
+
+func TestCurrentAuthorityDocumentationRejectsSchemaCopyAndGranularWriterContradictions(t *testing.T) {
+	for _, claim := range []string{
+		"All Tobari-owned schemas and component APIs are V1.\n",
+		"Template copy publishes a fresh generation-1 identity.\n",
+		"Evidence includes one atomic multi-row shell write.\n",
+	} {
+		t.Run(strings.TrimSpace(claim), func(t *testing.T) {
+			root := t.TempDir()
+			writeRepositoryFixture(t, root, "docs/00_theses.md", claim)
+			issues, err := checkCurrentAuthorityDocumentation(root, []string{"docs/00_theses.md"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(issues) != 1 {
+				t.Fatalf("current authority documentation issues = %#v", issues)
+			}
+		})
+	}
+}
+
 func TestRepositoryPathsFailsClosedWhenGitEnumerationFails(t *testing.T) {
 	root := t.TempDir()
 	writeRepositoryFixture(t, root, "README.md", "not a Git repository\n")

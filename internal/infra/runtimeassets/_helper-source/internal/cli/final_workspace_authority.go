@@ -5,27 +5,46 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 type finalTemplateProjection struct {
+	Lifecycle          string                           `json:"lifecycle"`
 	TemplateRef        string                           `json:"template_ref,omitempty"`
 	CurrentRevisionRef string                           `json:"current_revision_ref,omitempty"`
 	TemplateID         string                           `json:"workspace_template_id"`
 	Name               string                           `json:"name"`
-	Generation         uint64                           `json:"generation"`
-	Revision           string                           `json:"revision"`
-	RuntimeID          string                           `json:"runtime_id"`
-	RuntimeRevision    string                           `json:"runtime_revision"`
-	SourceAccess       string                           `json:"source_access"`
-	GraphQLEndpoints   []tobari.ManifestPolicyExactRule `json:"graphql_endpoints"`
+	Generation         uint64                           `json:"generation,omitempty"`
+	Revision           string                           `json:"revision,omitempty"`
+	RuntimeID          string                           `json:"runtime_id,omitempty"`
+	RuntimeRevision    string                           `json:"runtime_revision,omitempty"`
+	SourceAccess       string                           `json:"source_access,omitempty"`
+	GraphQLEndpoints   []tobari.ManifestPolicyExactRule `json:"graphql_endpoints,omitempty"`
 	PolicySliceDigest  string                           `json:"policy_slice_digest,omitempty"`
 	EntrySliceDigest   string                           `json:"entry_slice_digest,omitempty"`
+	SourcePath         string                           `json:"source_path,omitempty"`
+	SourceState        string                           `json:"source_state,omitempty"`
+	SourceRevision     *string                          `json:"source_revision,omitempty"`
+	ActiveRevision     string                           `json:"active_revision,omitempty"`
+}
+
+type finalTemplateDraftProjection struct {
+	Lifecycle        string                           `json:"lifecycle"`
+	TemplateRef      string                           `json:"template_ref"`
+	TemplateID       string                           `json:"workspace_template_id"`
+	Name             string                           `json:"name"`
+	SourcePath       string                           `json:"source_path"`
+	SourceState      string                           `json:"source_state"`
+	SourceRevision   *string                          `json:"source_revision"`
+	SourceAccess     string                           `json:"source_access"`
+	GraphQLEndpoints []tobari.ManifestPolicyExactRule `json:"graphql_endpoints"`
 }
 
 type finalContextProjection struct {
+	Lifecycle                        string                        `json:"lifecycle"`
 	ContextRef                       string                        `json:"context_ref,omitempty"`
 	ContextID                        string                        `json:"context_id"`
 	TemplateID                       string                        `json:"workspace_template_id"`
@@ -39,6 +58,38 @@ type finalContextProjection struct {
 	ActivePolicyMemoryRevision       *string                       `json:"active_policy_memory_revision"`
 	WorkspaceID                      string                        `json:"workspace_id,omitempty"`
 	AppliedEntry                     *tobari.WorkspaceAppliedEntry `json:"applied_entry"`
+	SourcePath                       string                        `json:"source_path,omitempty"`
+	SourceState                      string                        `json:"source_state,omitempty"`
+	SourceRevision                   *string                       `json:"source_revision,omitempty"`
+	ActiveRevision                   string                        `json:"active_revision,omitempty"`
+}
+
+type finalContextDraftProjection struct {
+	Lifecycle      string `json:"lifecycle"`
+	ContextRef     string `json:"context_ref"`
+	ContextID      string `json:"context_id"`
+	TemplateID     string `json:"workspace_template_id"`
+	ProjectRoot    string `json:"project_root"`
+	SourcePath     string `json:"source_path"`
+	SourceState    string `json:"source_state"`
+	SourceRevision string `json:"source_revision"`
+}
+
+type finalContextPlanProjection struct {
+	PlanRef              string `json:"plan_ref"`
+	ContextRef           string `json:"context_ref"`
+	SourceFingerprint    string `json:"source_fingerprint"`
+	ProjectRoot          string `json:"project_root"`
+	TemplateRef          string `json:"template_ref"`
+	TemplateRevision     string `json:"template_revision"`
+	DuplicateBinding     bool   `json:"duplicate_binding"`
+	NoOp                 bool   `json:"no_op"`
+	SourceAccess         string `json:"source_access"`
+	RuntimeID            string `json:"runtime_id"`
+	RuntimeRevision      string `json:"runtime_revision"`
+	BoundaryFingerprint  string `json:"boundary_fingerprint"`
+	PolicySliceDigest    string `json:"policy_slice_digest"`
+	NewPolicyMemoryOwner string `json:"new_policy_memory_owner"`
 }
 
 type finalWorkspaceProjection struct {
@@ -80,11 +131,37 @@ func resolveFinalProjectRoot(ctx context.Context, authority finalProjectRootAuth
 
 func projectTemplate(view interface{ Validate() error }) error { return view.Validate() }
 
-func finalTemplateFrom(viewTemplate tobari.WorkspaceTemplate, templateRef, revisionRef string, exposeRevisionRef bool) finalTemplateProjection {
-	revision := viewTemplate.Current
-	result := finalTemplateProjection{TemplateRef: templateRef, TemplateID: string(viewTemplate.ID), Name: viewTemplate.Name, Generation: revision.Generation, Revision: string(revision.Revision), RuntimeID: revision.Slices.RuntimeID, RuntimeRevision: string(revision.Slices.RuntimeRevision), SourceAccess: string(revision.Body.Boundary.SourceAccess), GraphQLEndpoints: append([]tobari.ManifestPolicyExactRule{}, revision.Body.Policy.GraphQLEndpoints...), PolicySliceDigest: string(revision.Slices.PolicySliceDigest), EntrySliceDigest: string(revision.Slices.EntrySliceDigest)}
+func finalTemplateFrom(view workspaceauthoritycmd.TemplateView, exposeRevisionRef bool) finalTemplateProjection {
+	revision := view.Template.Current
+	result := finalTemplateProjection{Lifecycle: "active", TemplateRef: view.TemplateRef, TemplateID: string(view.Template.ID), Name: view.Template.Name, Generation: revision.Generation, Revision: string(revision.Revision), RuntimeID: revision.Slices.RuntimeID, RuntimeRevision: string(revision.Slices.RuntimeRevision), SourceAccess: string(revision.Body.Boundary.SourceAccess), GraphQLEndpoints: append([]tobari.ManifestPolicyExactRule{}, revision.Body.Policy.GraphQLEndpoints...), PolicySliceDigest: string(revision.Slices.PolicySliceDigest), EntrySliceDigest: string(revision.Slices.EntrySliceDigest), ActiveRevision: string(revision.Revision)}
+	if view.Source != nil {
+		result.SourcePath = view.Source.Path
+		result.SourceState = string(view.Source.State)
+		if view.Source.SourceRevision != nil {
+			value := string(*view.Source.SourceRevision)
+			result.SourceRevision = &value
+		}
+	}
 	if exposeRevisionRef {
-		result.CurrentRevisionRef = revisionRef
+		result.CurrentRevisionRef = view.CurrentRevisionRef
+	}
+	return result
+}
+
+func finalTemplateDraftFrom(view workspaceauthoritycmd.TemplateDraftView) finalTemplateDraftProjection {
+	revision := ""
+	if view.Draft.Source.SourceRevision != nil {
+		revision = string(*view.Draft.Source.SourceRevision)
+	}
+	return finalTemplateDraftProjection{Lifecycle: "draft", TemplateRef: view.TemplateRef, TemplateID: string(view.Draft.ID), Name: view.Draft.Name, SourcePath: view.Draft.Source.Path, SourceState: string(view.Draft.Source.State), SourceRevision: &revision, SourceAccess: string(view.Draft.Body.Boundary.SourceAccess), GraphQLEndpoints: append([]tobari.ManifestPolicyExactRule{}, view.Draft.Body.Policy.GraphQLEndpoints...)}
+}
+
+func finalTemplateDraftResourceFrom(view workspaceauthoritycmd.TemplateDraftView) finalTemplateProjection {
+	value := finalTemplateDraftFrom(view)
+	result := finalTemplateProjection{Lifecycle: value.Lifecycle, TemplateRef: value.TemplateRef, TemplateID: value.TemplateID, Name: value.Name, SourcePath: value.SourcePath, SourceState: value.SourceState, SourceRevision: value.SourceRevision}
+	if view.Draft.Source.State != tobari.ResourceSourceInvalid {
+		result.SourceAccess = value.SourceAccess
+		result.GraphQLEndpoints = value.GraphQLEndpoints
 	}
 	return result
 }
@@ -111,13 +188,14 @@ func finalTemplateText(value finalTemplateProjection, includeReferences bool) []
 	return []byte(fmt.Sprintf("Template %s\nGeneration %d\nRevision %s\nSource access %s\nGraphQL endpoints %s\n", safeExternalText(value.Name), value.Generation, value.Revision, value.SourceAccess, finalTemplateGraphQLEndpointText(value.GraphQLEndpoints)))
 }
 
-func finalContextFrom(snapshot tobari.ContextAuthoritySnapshot, contextRef string) (finalContextProjection, error) {
+func finalContextFromView(view workspaceauthoritycmd.ContextView) (finalContextProjection, error) {
+	snapshot, contextRef := view.Snapshot, view.ContextRef
 	axes, err := tobari.NewContextAuthorityAxes(snapshot)
 	if err != nil {
 		return finalContextProjection{}, err
 	}
 	result := finalContextProjection{
-		ContextRef: contextRef, ContextID: string(snapshot.Context.ID), TemplateID: string(snapshot.Context.TemplateID), TemplateName: snapshot.Template.Name, ProjectRoot: snapshot.Context.ProjectRoot,
+		Lifecycle: "active", ContextRef: contextRef, ContextID: string(snapshot.Context.ID), TemplateID: string(snapshot.Context.TemplateID), TemplateName: snapshot.Template.Name, ProjectRoot: snapshot.Context.ProjectRoot,
 		DesiredTemplateGeneration: axes.DesiredTemplateGeneration, DesiredTemplateRevision: string(axes.DesiredTemplateRevision), DesiredTemplatePolicySliceDigest: string(axes.DesiredTemplatePolicySliceDigest),
 		CurrentPolicyMemoryRevision: string(axes.CurrentPolicyMemoryRevision), AppliedEntry: axes.AppliedEntry,
 	}
@@ -132,10 +210,38 @@ func finalContextFrom(snapshot tobari.ContextAuthoritySnapshot, contextRef strin
 	if snapshot.Workspace != nil {
 		result.WorkspaceID = string(snapshot.Workspace.ID)
 	}
+	if view.Source != nil {
+		result.SourcePath = view.Source.Path
+		result.SourceState = string(view.Source.State)
+		if view.Source.ActiveRevision != nil {
+			result.ActiveRevision = string(*view.Source.ActiveRevision)
+		}
+		if view.Source.SourceRevision != nil {
+			value := string(*view.Source.SourceRevision)
+			result.SourceRevision = &value
+		}
+	}
 	return result, nil
 }
 
+func finalContextFromDraft(view workspaceauthoritycmd.ContextDraftView) finalContextProjection {
+	draft := view.Draft
+	result := finalContextProjection{Lifecycle: "draft", ContextRef: view.ContextRef, ContextID: string(draft.Source.ContextID), TemplateID: string(draft.Source.TemplateID), ProjectRoot: draft.Source.ProjectRoot, SourcePath: draft.Observation.Path, SourceState: string(draft.Observation.State)}
+	if draft.Observation.SourceRevision != nil {
+		value := string(*draft.Observation.SourceRevision)
+		result.SourceRevision = &value
+	}
+	return result
+}
+
+func finalContextFrom(snapshot tobari.ContextAuthoritySnapshot, contextRef string) (finalContextProjection, error) {
+	return finalContextFromView(workspaceauthoritycmd.ContextView{Snapshot: snapshot, ContextRef: contextRef})
+}
+
 func finalContextText(value finalContextProjection) []byte {
+	if value.Lifecycle == "draft" {
+		return []byte(fmt.Sprintf("Context %s\nLifecycle draft\nProject %s\nSource %s\nSource state %s\n", value.ContextRef, safeExternalText(value.ProjectRoot), safeExternalText(value.SourcePath), value.SourceState))
+	}
 	activeTemplate := "absent"
 	if value.ActiveTemplatePolicySliceDigest != nil {
 		activeTemplate = *value.ActiveTemplatePolicySliceDigest
@@ -197,13 +303,19 @@ func runFinalTemplateList(ctx context.Context, c *CLI, command CommandSpec, _ op
 	if !ok {
 		return code
 	}
-	items := make([]finalTemplateProjection, len(result.Items))
+	items := make([]finalTemplateProjection, 0, len(result.Items)+len(result.Drafts))
 	var text strings.Builder
-	for i, item := range result.Items {
-		items[i] = finalTemplateFrom(item.Template, item.TemplateRef, item.CurrentRevisionRef, false)
-		items[i].PolicySliceDigest = ""
-		items[i].EntrySliceDigest = ""
+	for _, item := range result.Items {
+		value := finalTemplateFrom(item, false)
+		value.PolicySliceDigest = ""
+		value.EntrySliceDigest = ""
+		items = append(items, value)
 		fmt.Fprintf(&text, "%s  %s  generation %d  source %s\n", item.TemplateRef, safeExternalText(item.Template.Name), item.Template.Current.Generation, item.Template.Current.Body.Boundary.SourceAccess)
+	}
+	for _, draft := range result.Drafts {
+		value := finalTemplateDraftResourceFrom(draft)
+		items = append(items, value)
+		fmt.Fprintf(&text, "%s  %s  draft  source %s\n", draft.TemplateRef, safeExternalText(draft.Draft.Name), draft.Draft.Source.State)
 	}
 	output, err := finalAuthorityOutput(command.Path, "templates", map[string]any{"items": items}, format, []byte(text.String()))
 	if err != nil {
@@ -216,7 +328,7 @@ func runFinalTemplateShow(ctx context.Context, c *CLI, command CommandSpec, _ op
 	if c == nil || c.finalTemplates == nil {
 		return c.fail(ctx, missingRuntimeFault())
 	}
-	result, err := c.finalTemplates.Show(ctx, inputs.One("--name"))
+	result, err := c.finalTemplates.ShowResource(ctx, inputs.One("--name"))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -224,8 +336,15 @@ func runFinalTemplateShow(ctx context.Context, c *CLI, command CommandSpec, _ op
 	if !ok {
 		return code
 	}
-	value := finalTemplateFrom(result.Template, result.TemplateRef, result.CurrentRevisionRef, true)
-	text := finalTemplateText(value, true)
+	var value finalTemplateProjection
+	var text []byte
+	if result.Active != nil {
+		value = finalTemplateFrom(*result.Active, true)
+		text = finalTemplateText(value, true)
+	} else {
+		value = finalTemplateDraftResourceFrom(*result.Draft)
+		text = []byte(fmt.Sprintf("Template draft %s\nReference %s\nSource %s\n", safeExternalText(value.Name), value.TemplateRef, value.SourcePath))
+	}
 	output, err := finalAuthorityOutput(command.Path, "template", value, format, text)
 	if err != nil {
 		return c.fail(ctx, err)
@@ -246,11 +365,21 @@ func runFinalTemplateCreate(ctx context.Context, c *CLI, command CommandSpec, in
 	}
 	intent.Target = operation.TargetRef{Kind: tobari.WorkspaceTemplateCatalogTargetKind, ParentID: tobari.WorkspaceTemplateCatalogTargetID}
 	intent.Impact = command.Agent.Mutation.Impact
-	view, err := c.finalTemplates.Create(ctx, intent, inputs.One("--name"), body)
+	view, err := c.finalTemplates.CreateDraft(ctx, intent, inputs.One("--name"), body)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	return c.emitFinalTemplateMutation(ctx, command, inputs, view.Template, view.TemplateRef, true)
+	format, code, ok := finalFormat(ctx, c, command, inputs)
+	if !ok {
+		return code
+	}
+	value := finalTemplateDraftFrom(view)
+	human := []byte(fmt.Sprintf("Template draft %s\nReference %s\nSource %s\nNext %s template plan --id %s\n", safeExternalText(value.Name), value.TemplateRef, value.SourcePath, ProgramName, value.TemplateRef))
+	output, err := finalAuthorityOutput(command.Path, "template", value, format, human)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitMutationResult(ctx, command, output)
 }
 
 func runFinalTemplateCopy(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {
@@ -259,19 +388,77 @@ func runFinalTemplateCopy(ctx context.Context, c *CLI, command CommandSpec, inte
 	}
 	intent.Target = operation.TargetRef{Kind: tobari.WorkspaceTemplateReferenceKind, ParentID: inputs.One("--from")}
 	intent.Impact = command.Agent.Mutation.Impact
-	view, err := c.finalTemplates.Copy(ctx, intent, inputs.One("--from"), inputs.One("--name"))
+	view, err := c.finalTemplates.CopyDraft(ctx, intent, inputs.One("--from"), inputs.One("--name"))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	return c.emitFinalTemplateMutation(ctx, command, inputs, view.Template, "", false)
-}
-
-func (c *CLI) emitFinalTemplateMutation(ctx context.Context, command CommandSpec, inputs ParsedInputs, template tobari.WorkspaceTemplate, templateRef string, includeReferences bool) int {
 	format, code, ok := finalFormat(ctx, c, command, inputs)
 	if !ok {
 		return code
 	}
-	value := finalTemplateFrom(template, templateRef, "", false)
+	value := finalTemplateDraftFrom(view)
+	human := []byte(fmt.Sprintf("Template draft %s\nReference %s\nSource %s\nNext %s template plan --id %s\n", safeExternalText(value.Name), value.TemplateRef, value.SourcePath, ProgramName, value.TemplateRef))
+	output, err := finalAuthorityOutput(command.Path, "template", value, format, human)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitMutationResult(ctx, command, output)
+}
+
+func runFinalTemplateApply(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {
+	if c == nil || c.finalTemplates == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	ref := inputs.One("--plan")
+	intent.Target = operation.TargetRef{Kind: tobari.WorkspaceTemplateChangePlanReferenceKind, ID: ref}
+	intent.Impact = command.Agent.Mutation.Impact
+	result, err := c.finalTemplates.Apply(ctx, intent, ref)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	format, code, ok := finalFormat(ctx, c, command, inputs)
+	if !ok {
+		return code
+	}
+	value := finalTemplateFrom(result.View, true)
+	document := struct {
+		finalTemplateProjection
+		Changed bool `json:"changed"`
+	}{finalTemplateProjection: value, Changed: result.Changed}
+	output, err := finalAuthorityOutput(command.Path, "template", document, format, finalTemplateText(value, true))
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitMutationResult(ctx, command, output)
+}
+
+func runFinalTemplatePlan(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
+	if c == nil || c.finalTemplates == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	plan, err := c.finalTemplates.Plan(ctx, inputs.One("--id"))
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	format, code, ok := finalFormat(ctx, c, command, inputs)
+	if !ok {
+		return code
+	}
+	human := []byte(fmt.Sprintf("Template change plan %s\nImpact %s\nTemplate %s\nContexts %d\nRunning Workspaces %d\nApply %s template apply --plan %s\n",
+		plan.PlanRef, plan.Impact, plan.TemplateRef, plan.AffectedContextCount, plan.RunningWorkspaceCount, ProgramName, plan.PlanRef))
+	output, err := finalAuthorityOutput(command.Path, "template_change_plan", plan, format, human)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitResult(ctx, output)
+}
+
+func (c *CLI) emitFinalTemplateMutation(ctx context.Context, command CommandSpec, inputs ParsedInputs, view workspaceauthoritycmd.TemplateView, includeReferences bool) int {
+	format, code, ok := finalFormat(ctx, c, command, inputs)
+	if !ok {
+		return code
+	}
+	value := finalTemplateFrom(view, false)
 	output, err := finalAuthorityOutput(command.Path, "template", value, format, finalTemplateText(value, includeReferences))
 	if err != nil {
 		return c.fail(ctx, err)
@@ -338,14 +525,21 @@ func runFinalContextList(ctx context.Context, c *CLI, command CommandSpec, _ ope
 	if !ok {
 		return code
 	}
-	items := make([]finalContextProjection, len(result.Items))
+	items := make([]finalContextProjection, 0, len(result.Items)+len(result.Drafts))
 	var text strings.Builder
-	for i, item := range result.Items {
-		items[i], err = finalContextFrom(item.Snapshot, item.ContextRef)
+	for _, item := range result.Items {
+		value, projectionErr := finalContextFromView(item)
+		err = projectionErr
 		if err != nil {
 			return c.fail(ctx, err)
 		}
+		items = append(items, value)
 		fmt.Fprintf(&text, "%s  %s  %s\n", item.ContextRef, safeExternalText(item.Snapshot.Template.Name), safeExternalText(item.Snapshot.Context.ProjectRoot))
+	}
+	for _, draft := range result.Drafts {
+		value := finalContextFromDraft(draft)
+		items = append(items, value)
+		fmt.Fprintf(&text, "%s  draft  %s\n", draft.ContextRef, safeExternalText(draft.Draft.Observation.Path))
 	}
 	output, err := finalAuthorityOutput(command.Path, "contexts", map[string]any{"items": items}, format, []byte(text.String()))
 	if err != nil {
@@ -358,7 +552,7 @@ func runFinalContextShow(ctx context.Context, c *CLI, command CommandSpec, _ ope
 	if c == nil || c.finalContexts == nil {
 		return c.fail(ctx, missingRuntimeFault())
 	}
-	view, err := c.finalContexts.Show(ctx, inputs.One("--id"))
+	resource, err := c.finalContexts.ShowResource(ctx, inputs.One("--id"))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -366,11 +560,69 @@ func runFinalContextShow(ctx context.Context, c *CLI, command CommandSpec, _ ope
 	if !ok {
 		return code
 	}
-	value, err := finalContextFrom(view.Snapshot, view.ContextRef)
+	var value finalContextProjection
+	if resource.Active != nil {
+		value, err = finalContextFromView(*resource.Active)
+		if err != nil {
+			return c.fail(ctx, err)
+		}
+	} else if resource.Draft != nil {
+		value = finalContextFromDraft(*resource.Draft)
+	} else {
+		return c.fail(ctx, fmt.Errorf("Context resource is absent"))
+	}
+	output, err := finalAuthorityOutput(command.Path, "context", value, format, finalContextText(value))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	output, err := finalAuthorityOutput(command.Path, "context", value, format, finalContextText(value))
+	return c.emitResult(ctx, output)
+}
+
+func runFinalContextApply(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {
+	if c == nil || c.finalContexts == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	ref := inputs.One("--plan")
+	intent.Target = operation.TargetRef{Kind: tobari.ContextActivationPlanReferenceKind, ID: ref}
+	intent.Impact = command.Agent.Mutation.Impact
+	result, err := c.finalContexts.Apply(ctx, intent, ref)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	format, code, ok := finalFormat(ctx, c, command, inputs)
+	if !ok {
+		return code
+	}
+	value, err := finalContextFromView(result.View)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	document := struct {
+		finalContextProjection
+		Changed bool `json:"changed"`
+	}{finalContextProjection: value, Changed: result.Changed}
+	output, err := finalAuthorityOutput(command.Path, "context", document, format, finalContextText(value))
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitMutationResult(ctx, command, output)
+}
+
+func runFinalContextPlan(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
+	if c == nil || c.finalContexts == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	plan, err := c.finalContexts.Plan(ctx, inputs.One("--id"))
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	value := finalContextPlanProjection{PlanRef: plan.PlanRef, ContextRef: plan.ContextRef, SourceFingerprint: plan.SourceFingerprint, ProjectRoot: plan.ProjectRoot, TemplateRef: plan.TemplateRef, TemplateRevision: string(plan.TemplateRevision), DuplicateBinding: plan.DuplicateBinding, NoOp: plan.NoOp, SourceAccess: string(plan.SourceAccess), RuntimeID: plan.Runtime.RuntimeID, RuntimeRevision: plan.Runtime.Revision, BoundaryFingerprint: string(plan.BoundaryFingerprint), PolicySliceDigest: string(plan.PolicySliceDigest), NewPolicyMemoryOwner: string(plan.NewPolicyMemoryOwner)}
+	format, code, ok := finalFormat(ctx, c, command, inputs)
+	if !ok {
+		return code
+	}
+	human := []byte(fmt.Sprintf("Context activation plan %s\nContext %s\nProject %s\nTemplate %s\nApply %s context apply --plan %s\n", plan.PlanRef, plan.ContextRef, safeExternalText(plan.ProjectRoot), plan.TemplateRef, ProgramName, plan.PlanRef))
+	output, err := finalAuthorityOutput(command.Path, "context_activation_plan", value, format, human)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -388,7 +640,7 @@ func runFinalContextCreate(ctx context.Context, c *CLI, command CommandSpec, int
 	ref := inputs.One("--template")
 	intent.Target = operation.TargetRef{Kind: tobari.ContextReferenceKind, ParentID: ref}
 	intent.Impact = command.Agent.Mutation.Impact
-	view, err := c.finalContexts.Create(ctx, intent, ref, root)
+	view, err := c.finalContexts.CreateDraft(ctx, intent, ref, root)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -396,11 +648,12 @@ func runFinalContextCreate(ctx context.Context, c *CLI, command CommandSpec, int
 	if !ok {
 		return code
 	}
-	value, err := finalContextFrom(view.Snapshot, view.ContextRef)
-	if err != nil {
-		return c.fail(ctx, err)
+	revision := ""
+	if view.Draft.Observation.SourceRevision != nil {
+		revision = string(*view.Draft.Observation.SourceRevision)
 	}
-	output, err := finalAuthorityOutput(command.Path, "context", value, format, []byte(fmt.Sprintf("Context %s\nProject %s\n", view.ContextRef, safeExternalText(root))))
+	value := finalContextDraftProjection{Lifecycle: "draft", ContextRef: view.ContextRef, ContextID: string(view.Draft.Source.ContextID), TemplateID: string(view.Draft.Source.TemplateID), ProjectRoot: view.Draft.Source.ProjectRoot, SourcePath: view.Draft.Observation.Path, SourceState: string(view.Draft.Observation.State), SourceRevision: revision}
+	output, err := finalAuthorityOutput(command.Path, "context", value, format, []byte(fmt.Sprintf("Context draft %s\nProject %s\nSource %s\n", view.ContextRef, safeExternalText(root), view.Draft.Observation.Path)))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -531,110 +784,6 @@ func (c *CLI) emitFinalSimpleResult(ctx context.Context, command CommandSpec, in
 		return c.fail(ctx, err)
 	}
 	return c.emitMutationResult(ctx, command, output)
-}
-
-func runFinalConfigShell(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {
-	var value *string
-	if inputs.Provided("--value") {
-		v := inputs.One("--value")
-		value = &v
-	}
-	change := tobari.WorkspaceTemplateChange{Kind: tobari.WorkspaceTemplateChangeShell, Shell: []tobari.ManifestShellEnvironmentSetting{{Variable: inputs.One("--variable"), Source: tobari.ManifestShellEnvironmentSource(inputs.One("--source")), Value: value}}}
-	return c.runFinalTemplateChange(ctx, command, intent, inputs, change)
-}
-
-func runFinalConfigGit(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {
-	source := tobari.ManifestGitIdentitySource(inputs.One("--source"))
-	hasName, hasEmail := inputs.Provided("--name"), inputs.Provided("--email")
-	if source == tobari.ManifestGitIdentityLiteral {
-		if !hasName || !hasEmail {
-			return c.failUsage(ctx, "invalid_arguments", "literal Git identity requires both --name and --email; usage: "+command.Usage(), "help config git", "Supply the complete literal identity.")
-		}
-	} else if hasName || hasEmail {
-		return c.failUsage(ctx, "invalid_arguments", "default and inherit Git identity do not accept --name or --email; usage: "+command.Usage(), "help config git", "Remove literal identity fields or select literal.")
-	}
-	setting := tobari.ManifestGitIdentitySetting{Source: source}
-	if inputs.Provided("--name") {
-		v := inputs.One("--name")
-		setting.Name = &v
-	}
-	if inputs.Provided("--email") {
-		v := inputs.One("--email")
-		setting.Email = &v
-	}
-	return c.runFinalTemplateChange(ctx, command, intent, inputs, tobari.WorkspaceTemplateChange{Kind: tobari.WorkspaceTemplateChangeGit, Git: &setting})
-}
-
-func runFinalTemplateRuntimeSet(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {
-	return c.runFinalTemplateChange(ctx, command, intent, inputs, tobari.WorkspaceTemplateChange{Kind: tobari.WorkspaceTemplateChangeRuntime, RuntimeRevisionRef: inputs.One("--runtime")})
-}
-
-func runFinalConfigBootstrapAWS(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {
-	return c.runFinalTemplateBootstrap(ctx, command, intent, inputs, tobari.WorkspaceTemplateChangeBootstrapAWS, "--profile")
-}
-
-func runFinalConfigBootstrapEKS(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {
-	return c.runFinalTemplateBootstrap(ctx, command, intent, inputs, tobari.WorkspaceTemplateChangeBootstrapEKS, "--kube-context")
-}
-
-func (c *CLI) runFinalTemplateBootstrap(ctx context.Context, command CommandSpec, intent operation.Intent, inputs ParsedInputs, kind tobari.WorkspaceTemplateChangeKind, selectorInput string) int {
-	if c == nil || c.finalTemplates == nil {
-		return c.fail(ctx, missingRuntimeFault())
-	}
-	request := tobari.WorkspaceTemplateBootstrapRequest{Kind: kind}
-	actions := 0
-	if inputs.Provided(selectorInput) {
-		request.Action, request.Selector = tobari.WorkspaceTemplateBootstrapConfigure, inputs.One(selectorInput)
-		actions++
-	}
-	if inputs.Provided("--refresh") {
-		refresh, ok := inputs.Boolean("--refresh")
-		if !ok || !refresh {
-			return c.failUsage(ctx, "invalid_arguments", "--refresh must be true when provided", "help "+command.Path, "Choose exactly one bootstrap action.")
-		}
-		request.Action = tobari.WorkspaceTemplateBootstrapRefresh
-		actions++
-	}
-	if inputs.Provided("--remove") {
-		remove, ok := inputs.Boolean("--remove")
-		if !ok || !remove {
-			return c.failUsage(ctx, "invalid_arguments", "--remove must be true when provided", "help "+command.Path, "Choose exactly one bootstrap action.")
-		}
-		request.Action = tobari.WorkspaceTemplateBootstrapRemove
-		actions++
-	}
-	if actions != 1 {
-		return c.failUsage(ctx, "invalid_arguments", "exactly one bootstrap configure, refresh, or remove action is required", "help "+command.Path, "Choose exactly one bootstrap action.")
-	}
-	if request.Action == tobari.WorkspaceTemplateBootstrapRemove {
-		return c.runFinalTemplateChange(ctx, command, intent, inputs, tobari.WorkspaceTemplateChange{Kind: kind})
-	}
-	ref := inputs.One("--id")
-	intent.Target = operation.TargetRef{Kind: tobari.WorkspaceTemplateReferenceKind, ID: ref}
-	intent.Impact = command.Agent.Mutation.Impact
-	publication, err := c.finalTemplates.UpdateBootstrap(ctx, intent, ref, request)
-	if err != nil {
-		return c.fail(ctx, err)
-	}
-	return c.emitFinalTemplateMutation(ctx, command, inputs, publication.Template, "", false)
-}
-
-func (c *CLI) runFinalTemplateChange(ctx context.Context, command CommandSpec, intent operation.Intent, inputs ParsedInputs, change tobari.WorkspaceTemplateChange) int {
-	if c == nil || c.finalTemplates == nil {
-		return c.fail(ctx, missingRuntimeFault())
-	}
-	ref := inputs.One("--id")
-	parent := ""
-	if change.Kind == tobari.WorkspaceTemplateChangeRuntime {
-		parent = change.RuntimeRevisionRef
-	}
-	intent.Target = operation.TargetRef{Kind: tobari.WorkspaceTemplateReferenceKind, ID: ref, ParentID: parent}
-	intent.Impact = command.Agent.Mutation.Impact
-	publication, err := c.finalTemplates.UpdateConfiguration(ctx, intent, ref, change)
-	if err != nil {
-		return c.fail(ctx, err)
-	}
-	return c.emitFinalTemplateMutation(ctx, command, inputs, publication.Template, "", false)
 }
 
 func (c *CLI) reviewedStandardTemplateBody(ctx context.Context) (tobari.WorkspaceTemplateBody, error) {

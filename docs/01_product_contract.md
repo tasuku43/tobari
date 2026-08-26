@@ -274,8 +274,10 @@ is added explicitly.
   Owner data declares no executable shell, helper choice, refresh, signing,
   arbitrary route, HTTP method/path policy, or provider operation semantics.
 - **Workspace Template:** one stable host-owned desired Workspace definition
-  with a stable opaque ID and human name. Every semantic mutation publishes one
-  complete immutable revision. `WorkspaceTemplateID + semantic digest` is
+  with a stable opaque ID and human name. Its installation-owned
+  `templates/<template-id>/template.yaml` and `policy.yaml` are the editable
+  desired source; explicit Apply publishes one complete immutable revision.
+  `WorkspaceTemplateID + semantic digest` is
   authority; generation is correlation only. Its Boundary records direct
   source access, normalized canonical policy data and terminal ceilings, and
   native-readiness participation. The same revision contains one exact Runtime
@@ -283,8 +285,10 @@ is added explicitly.
   session, and creation activation boundaries. Context, Policy Memory,
   Workspace, authentication, and applied state are separate authorities.
 - **Context:** one durable immutable binding between a canonical Project root
-  and one Workspace Template. ContextID is authority; a Context owns Policy
-  Memory and has no second name, default, or mutable selector.
+  and one Workspace Template. Its installation-owned
+  `contexts/<context-id>/context.yaml` exposes that binding for editing and
+  validation, but cannot rebind it. ContextID is authority; a Context owns
+  Policy Memory and has no second name, default, or mutable selector.
 - **Policy Memory:** one Context-owned complete immutable history of remembered
   authorization decisions. It survives Workspace replacement and is not copied
   with a Template.
@@ -300,8 +304,9 @@ is added explicitly.
   compiled revision. Runtime source and snapshots are never Workspace mounts.
 - **Workspace Template Runtime binding:** one exact stable Runtime ID and semantic revision
   selected by a Workspace Template. Its human `name@ordinal` form is review syntax, while
-  the persisted ID and SHA-256 revision are authority. Only `template runtime
-  set` replaces the binding; a Context resolves its bound Template's current
+  the persisted ID and SHA-256 revision are authority. Only editing
+  `template.yaml` and successfully applying the complete Template source
+  replaces the binding; a Context resolves its bound Template's current
   revision and its Workspace adopts that entry slice on next entry without
   changing Context or Workspace identity or persistent home.
 - **agent profile:** read-only non-secret shared agent configuration referenced
@@ -352,26 +357,27 @@ The public commands are:
 | `cluster denials [--tail <lines>] [--format text|json]` | utility | read | Inspect one bounded Gateway denial window correlated to exact final Context, Template, and Workspace authority |
 | `cluster logs [--component gateway\|opa\|all] [--tail <lines>]` | utility | read | Inspect one bounded redacted window from the surface-selected final shared components |
 | `cluster down [--format text|json]` | act | write | Stop the exact final shared component closure and clear every active Context receipt while preserving Templates, Contexts, current Policy Memory, and the final envelope |
-| `policy candidates [--format text|json]` | discover | read | Return every exact pending candidate from one coherent final authority envelope |
+| `policy candidates [--format text|json]` | discover | read | Return every exact pending candidate from one coherent active authority generation |
 | `review permissions [--format text|json]` | discover | read | Inspect the coherent final pending set without rediscovering predecessor denial logs |
-| `policy rules [--format text|json]` | discover | read | Return every current Context-owned remembered decision from one coherent final authority envelope |
+| `policy rules [--format text|json]` | discover | read | Return every current Context-owned remembered decision from one coherent active authority generation |
 | `policy allow --id <policy-candidate-ref> [--format text|json]` | act | write | Remember and activate one exact Allow |
 | `policy deny --id <policy-candidate-ref> [--format text|json]` | act | write | Remember and activate one exact Deny |
 | `policy reset --id <policy-rule-ref> [--format text|json]` | act | write | Remove one exact current remembered decision and activate the resulting Policy Memory |
 | `template list [--format text|json]` | discover | read | Return the exhaustive final Workspace Template collection |
 | `template show [--name <name>] [--format text|json]` | discover | read | Return one final Template and its exact current immutable revision |
-| `template create --name <name> [--source-access read-only\|read-write] [--graphql-endpoint <https-url>] [--format text|json]` | act | create | Create one fresh Template from the reviewed standard body with immutable source access and an optional bounded exact GraphQL endpoint |
-| `template copy --from <template-revision-ref> --name <name> [--format text|json]` | act | create | Create one independent Template from one exact retained revision |
+| `template create --name <name> [--source-access read-only\|read-write] [--graphql-endpoint <https-url>] [--format text|json]` | act | create | Write one fresh unpublished Template source draft from the reviewed standard body |
+| `template copy --from <template-revision-ref> --name <name> [--format text|json]` | act | create | Write one independent unpublished Template source draft from one exact retained revision |
+| `template plan --id <template-ref> [--format text|json]` | discover | read | Bind and classify one exact desired Template change without mutation |
+| `template apply --plan <template-change-plan-ref> [--format text|json]` | act | write | Revalidate one reviewed source/authority plan and publish at most one immutable moving-head Template revision |
 | `template default set --id <template-ref> [--format text|json]` | act | write | Select the default Workspace Template |
 | `template delete --id <template-ref> --confirm=delete [--format text|json]` | act | write | Delete one unused Workspace Template |
-| `config shell --id <template-ref> --variable COLORTERM\|NO_COLOR\|PS1\|TERM --source default\|inherit\|literal [--value <value>] [--format text|json]` | act | write | Update exact Template shell defaults from the current body under the lifecycle lock |
-| `config git --id <template-ref> --source default\|inherit\|literal [--name <name> --email <email>] [--format text|json]` | act | write | Update exact Template Git defaults from the current body under the lifecycle lock |
-| `config bootstrap aws --id <template-ref> [--profile <name>] [--refresh] [--remove] [--format text|json]` | act | write | Update exact Template AWS creation defaults from the current body under the lifecycle lock |
-| `config bootstrap kubernetes eks --id <template-ref> [--kube-context <name>] [--refresh] [--remove] [--format text|json]` | act | write | Update exact Template EKS creation defaults from the current body under the lifecycle lock |
-| `template runtime set --id <template-ref> --runtime <runtime-revision-ref> [--format text|json]` | act | write | Replace exact Template Runtime binding from the current body under the lifecycle lock |
 | `context list [--format text|json]` | discover | read | Return every final Context with exact Project and Template scope |
 | `context show --id <context-ref> [--format text|json]` | discover | read | Return one exact Context with desired and independently active authority |
-| `context create --template <template-ref> [--format text|json]` | act | create | Create one empty Context from one unchanged Template reference and canonical CWD |
+| `context plan --id <context-ref> [--format text|json]` | discover | read | Bind one draft or active `context.yaml`, canonical root, current Template revision, and duplicate observation |
+| `context apply --plan <context-activation-plan-ref> [--format text|json]` | act | write | Revalidate one reviewed plan and activate an immutable Context identity with fresh empty Policy Memory |
+| `context create --template <template-ref> [--format text|json]` | act | create | Write one unpublished Context source draft for canonical CWD and one active Template |
+| `installation migration plan [--format text|json]` | discover | read | Bind one exact supported typed `authority.json` to a read-only installed-state migration plan |
+| `installation migration apply --plan <installation-migration-plan-ref> [--format text|json]` | act | write | Revalidate one migration plan, publish concept sources and one verified generation, then retire `authority.json` |
 | `context enter --id <context-ref> [--format text|json] [-- <command>...]` | act | create | Reconcile and enter one exact Context Workspace |
 | `context delete --id <context-ref> --confirm=delete [--format text|json]` | act | write | Delete one exact Context, its Policy Memory, and unresolved candidates |
 | `workspace list [--format text|json]` | discover | read | Return every final Workspace and its exact owner binding |
@@ -395,6 +401,44 @@ The public commands are:
 | `runtime prune apply --plan RUNTIME_PRUNE_PLAN_REF --confirm=prune [--format text\|json]` | act, reference bound | write | Revalidate and apply one unchanged reviewed plan, removing only exact Tobari-owned unused image tags while preserving Runtime source, immutable snapshots, revision history, Workspace Templates, Workspaces, homes, IDs, and shared image content |
 | `tobari [-- <command>...]` | act | create | Atomically initialize a fresh default Template and Context when required, then reconcile and enter their exact Workspace |
 | `status [--format text|json]` | discover | read | Return one CWD-first schema-3 home snapshot for the nearest Project root and installation-default Template, with independent desired/active/applied/observed facts, one Next, and ordered Attention |
+
+### File-backed desired configuration
+
+Template and Context list/show return canonical absolute source paths and the
+exact source state `in_sync`, `modified`, `invalid`, or `missing`, together with
+desired and active revisions. Paths are installation-owned stable-ID
+directories, not portable package names. Directory/document ID mismatch is
+invalid.
+
+File edits never alter live authority and `cluster up` never applies them.
+Template Plan validates `template.yaml` and `policy.yaml` as one closed source
+pair and binds the exact active `base_revision`, source fingerprint, Runtime,
+Context/Memory set, and impact. Apply consumes that opaque plan unchanged,
+fences concurrent drift, and atomically advances the Template moving head.
+Context Plan/Apply performs the equivalent review for first activation; another
+binding requires a new Context ID. Creation and copy write drafts only. Missing
+or invalid source preserves last-known-good active authority. Logical deletion
+remains an explicit opaque-reference mutation and is not inferred from file
+deletion.
+
+The exact current source schema tokens are `tobari.dev/template/v1`,
+`tobari.dev/context/v1`, and `tobari.dev/template-policy/v1alpha1`. The alpha
+policy schema is an installation-owned lossless bridge, not portable
+interchange. Numeric policy schemas, unknown tokens, and the reserved final
+`tobari.dev/template-policy/v1` token carrying the alpha topology are invalid.
+Adoption of final V1 requires a dedicated explicit source migration and then
+normal planned Apply; reads, upgrades, and cluster lifecycle never rewrite it.
+
+Active authority is concept-separated immutable state under
+`$XDG_STATE_HOME/tobari/authority`, selected by one verified generation manifest
+and `active.json` pointer. Ordinary commands never migrate the supported old
+typed `authority.json`; they return `installation_migration_required`. Only the
+reference-bound `installation migration plan/apply` workflow can migrate it.
+
+Runtime configuration uses stable-ID directories and exact immutable revision
+bindings. Runtime source/build updates never propagate to a Template. No
+installed source, user XDG root, or Workspace contains Rego; the fixed evaluator
+is embedded and Docker-managed.
 
 Bare `tobari review` is a pure Catalog namespace listing with exactly the
 public task leaves `permissions`, `runtimes`, and `services`; it performs no task read or
@@ -677,8 +721,7 @@ review runs through `tobari review permissions` in a separate host terminal.
   redirected and JSON invocation remain read-only. Interactive review hands
   the unchanged Runtime or Runtime-revision reference to the exact build,
   restore, or interrupted-lifecycle action only after confirmation.
-  `template runtime set --id <template-ref> --runtime
-  <runtime-revision-ref>` is the separate exact binding mutation. Runtime
+  Template adoption is a separate source edit plus `template apply`. Runtime
   preparation and Template selection never infer each other's target.
 - Successful managed Runtime list, show, history, build, and review results
   expose an opaque `runtime-revision` reference for each eligible immutable
@@ -697,8 +740,9 @@ review runs through `tobari review permissions` in a separate host terminal.
   history exists and does not imply that head execution material is locally
   available. Docker image selectors, image digests, and private snapshot paths
   are absent from list, show, history, build, and redirected/JSON review output.
-- Direct `config shell --id <template-ref>` changes one allowlisted
-  shell-presentation policy in the exact referenced Workspace Template.
+- Template shell defaults are edited in `template.yaml` and become authority
+  only through complete Template Apply. The schema admits one allowlisted
+  shell-presentation policy.
   `default` removes its override;
   `inherit` reads that exported variable from the host process launching each
   future `tobari` session; `literal` requires `--value` and preserves an
@@ -711,8 +755,8 @@ review runs through `tobari review permissions` in a separate host terminal.
   Running sessions are unchanged, and no host startup file is sourced or
   mounted. Literal values are ordinary owner-only configuration and must not
   contain secrets.
-- `config git --id <template-ref>` changes one atomic
-  `user.name`/`user.email` fallback in the exact referenced Workspace Template.
+- Template Git defaults are one atomic `user.name`/`user.email` fallback in
+  `template.yaml` and become authority only through complete Template Apply.
   `default` removes Tobari's fallback; `inherit`
   resolves only a complete pair from host-global Git configuration for each
   stable Workspace root during reconciliation; `literal` requires both
@@ -722,19 +766,21 @@ review runs through `tobari review permissions` in a separate host terminal.
   repository/worktree configuration. No Git file/path/include directive,
   credential helper, token, HTTP header, SSH command, signing setting, hook,
   alias, URL rewrite, filter, proxy, or arbitrary key is projected.
-- Both `config` commands require an exact opaque Template reference and one
-  complete valid setting group. Partial input fails before mutation. The action
-  revalidates the referenced Template under the lifecycle lock, so mutable name
-  or default-selection changes cannot retarget the write.
+- Direct shell, Git, bootstrap, and Runtime setter commands are not public
+  authority paths. Agents edit the exact source path returned by `template
+  show`, preserve one complete valid setting group, obtain an opaque change
+  plan, and pass that plan unchanged to Apply. Partial or stale source fails
+  before active publication.
 - `template create --name NAME [--source-access read-only|read-write]
-  [--graphql-endpoint <https-url>]` creates one fresh Template from the
-  reviewed standard body. Source access defaults to `read-write` and is fixed
-  in the immutable Boundary. The optional GraphQL value must be one exact
+  [--graphql-endpoint <https-url>]` creates one fresh unpublished Template
+  source draft from the reviewed standard body. Source access defaults to
+  `read-write` and is revisioned only through planned Apply. The optional GraphQL value must be one exact
   HTTPS URL with an explicit port and path; it becomes the existing bounded
   POST endpoint rule and remains subject to the Template destination and
   method ceilings. `template copy --from <template-revision-ref> --name NAME`
-  is the distinct one-time copy initializer. Copy revalidates the exact
-  retained revision and copies no Context, Policy Memory, Workspace, home,
+  is the distinct draft-copy initializer. Copy revalidates the exact retained
+  revision and writes no active authority before planned Apply. It copies no
+  Context, Policy Memory, Workspace, home,
   authentication, attachment, applied/failure/observed state, default
   selection, or lineage. Neither action reconciles Docker or the cluster.
 - Bare root owns the only recommended first-use review. Its draft has no
@@ -755,7 +801,8 @@ review runs through `tobari review permissions` in a separate host terminal.
   Tobari validates the resulting image against the same runtime contract,
   records its immutable local image digest, and appends that successful
   immutable revision without selecting it in any Workspace Template. Existing Workspace Template
-  bindings remain in force until a separate `template runtime set` succeeds.
+  bindings remain in force until the separate edited Template source is
+  successfully applied.
 - The built-in `tobari/runtime` image is the base work runtime: it preserves the
   lifecycle contract and its common-tool baseline includes Git, HTTP, JSON,
   Python, SSH, GitHub CLI, AWS CLI, Claude Code 2.1.220, and Codex 0.147.0.
@@ -826,9 +873,11 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Policy mutation result | `result` | 2 |
 | Workspace Template list | `templates` | 1 |
 | Workspace Template report | `template` | 1 |
+| Workspace Template change plan | `template_change_plan` | 1 |
 | Template, Context, or Workspace selection/deletion result | `result` | 1 |
 | Context list | `contexts` | 1 |
 | Context report | `context` | 1 |
+| Context activation plan | `context_activation_plan` | 1 |
 | Context entry result | `entry` | 1 |
 | Workspace list | `workspaces` | 1 |
 | Workspace report | `workspace` | 1 |
@@ -843,6 +892,8 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Service status | `service_status` | 1 |
 | Confirmed Service exposure | `exposure` | 1 |
 | Service browser-open request | `open` | 1 |
+| Installation migration plan | `installation_migration_plan` | 1 |
+| Installation migration result | `installation_migration` | 1 |
 <!-- public-cli-json-schemas:end -->
 
 Bare `status` is the CWD-first schema-3 home. It reports the selected
@@ -1175,9 +1226,20 @@ evidence before any mutation.
 
 Configuration is resolved from
 `${XDG_CONFIG_HOME:-$HOME/.config}/tobari` on macOS and Linux. Ordinary reads
-are non-creating. Final Template/Context/Workspace authority is one owner-only
-atomic envelope; it is not a directory of user-authored YAML and is never
-selected from Project metadata.
+are non-creating. User/agent-editable desired intent is concept-separated at
+`templates/<template-id>/{template.yaml,policy.yaml}`,
+`contexts/<context-id>/context.yaml`, and
+`runtimes/<runtime-id>/{runtime.yaml,source/}`. Stable directory IDs must match
+embedded document IDs; show output returns the canonical absolute
+`source_path`. These strict YAML documents are untrusted desired input, not
+live authority, and are never selected from Project metadata.
+
+Last-known-good active authority is selected by the owner-only
+`${XDG_STATE_HOME:-$HOME/.local/state}/tobari/authority/active.json` pointer to
+one verified content-addressed generation. Its manifest references separate
+immutable Template, Context, Policy Memory, and Workspace objects. File edits,
+missing source, binary startup, and `cluster up` never publish a generation;
+only a fresh Plan followed by reference-bound Apply may do so.
 
 One complete validated collection contains:
 
@@ -1189,22 +1251,23 @@ One complete validated collection contains:
 - Workspaces with stable `WorkspaceID`, Context binding, create-once defaults,
   last-successful AppliedEntry, and one bounded latest failure/unknown outcome.
 
-Template revision bodies contain the immutable source/network Boundary,
-baseline policy, exact Runtime revision binding, session defaults, and
-creation defaults. Context Policy Memory is separate. Native credentials stay
+Template revision bodies contain one immutable revision of the reviewed
+source/network Boundary, baseline policy, exact Runtime ID+revision binding,
+session defaults, and creation defaults. The Template moving head may advance
+only through planned complete Apply. Context Policy Memory is separate. Native credentials stay
 inside one Workspace home. Research credentials are Context-owned and remain
 outside Template desired/applied state.
 
-A genuinely fresh read returns absent authority with no synthetic persisted
-resource. Root may present one recommended draft, but only canonical Template
-create, default-selection, and Context-create mutations establish authority.
+A genuinely fresh read returns absent active authority with no synthetic
+persisted resource. Draft create writes source only; planned Template Apply,
+default selection, and planned Context Apply establish active authority.
 Malformed, unsupported, unsafe, predecessor-only, partial, or changing state
 fails closed before mutation; the final binary does not decode or adopt the
 predecessor serialization.
 
 Managed Runtime source and immutable snapshots remain installation-owned
 separate resources. Runtime build changes no Template. Template Runtime binding
-changes only through `template runtime set`; the next explicit Workspace entry
+changes only through `template apply`; the next explicit Workspace entry
 reconciles the entry slice while preserving the Workspace home.
 
 OPA receives one complete validated projection per Context: the current
@@ -1253,7 +1316,7 @@ of the failed stage, source path, recovery command, and retained Runtime
 history, and leaves every Workspace Template binding unchanged. BuildKit may retain
 engine-owned cache layers, and a post-build validation failure may retain the
 unselected candidate image; Tobari states this instead of deleting either one.
-No build promotes into a Workspace Template. `template runtime set` is the only selection
+No build promotes into a Workspace Template. `template apply` is the only selection
 mutation and revalidates one ready `standard` or `name@ordinal` revision before
 atomically replacing the Workspace Template binding. Existing Workspaces are not mutated
 by either operation; their next root entry reconciles the work container to the
@@ -1276,10 +1339,9 @@ removes only that Template's identity and revision state, preserves Projects,
 Contexts, Workspaces, Policy Memory, Runtimes, and shared resources, and never
 chooses a replacement default implicitly.
 
-`config shell` and `config git` atomically publish one complete revision of the
-exact referenced Template after typed input, intent, target, and impact
-validation. Git inheritance performs no Git read during the
-configuration mutation; the next matching root reconciliation runs at most two
+Shell and Git source fields publish only as part of one complete validated
+Template Apply. Git inheritance performs no Git read during Apply; the next
+matching root reconciliation runs at most two
 fixed, one-attempt, finite-time host Git queries, validates a complete pair,
 and atomically refreshes one private per-Workspace fallback before Docker
 mutation. Failure preserves the prior file and returns no raw Git diagnostic or
@@ -1287,11 +1349,11 @@ identity. The file's exact directory is mounted read-only as system scope and
 includes the image system config before the Workspace Template fallback, preserving
 normal Workspace-global and repository/worktree precedence.
 
-`config bootstrap aws` atomically updates a separate secret-free recipe in the
-selected Workspace Template. It reads only host `~/.aws/config`, accepts one strict IAM
-Identity Center profile/session subset, and reports only adapter, profile,
-generation, revision, and changed-field metadata. Configure and refresh affect
-future Workspace creation only; remove stops future projection. No variant
+The Template source may contain a separate typed secret-free AWS bootstrap
+recipe. Interactive initial creation may read only host `~/.aws/config` and
+accept one strict IAM Identity Center profile/session subset; later source
+edits still require complete Apply. Recipe changes affect future Workspace
+creation only; removal stops future projection. No variant
 reads or outputs AWS credentials or SSO cache values, invokes AWS, performs
 login, changes network policy, or rewrites an existing Workspace home. A new
 Workspace receives one canonical private `.aws/config` and records its applied
@@ -1307,7 +1369,7 @@ whole-file input yields no partial candidates. Final Create revalidates the
 reviewed profile/session semantic revision. A changed selected bundle returns
 to review with zero mutation; unrelated profile changes do not block.
 
-`config bootstrap kubernetes eks` composes one additional closed adapter with
+The Template source EKS recipe composes one additional closed adapter with
 that AWS recipe. It reads only fixed host `~/.kube/config`, selects one explicit
 context and its exact cluster/user references, and accepts only an inline CA,
 commercial EKS HTTPS origin, and the reviewed `aws eks get-token` contract with
@@ -1442,24 +1504,30 @@ Each final Workspace Template, Context, Workspace, Policy, and authentication
 reader accepts only its exact declared schema. Unchanged public and internal
 boundaries keep their independently owned versions; a shared numeral is not
 cross-surface compatibility. Tobari provides no retired command alias, implicit
-old-state interpretation, migration fallback, or general compatibility shim.
+old-state interpretation, automatic migration fallback, or general
+compatibility shim. The sole bounded exception is the explicit installed-state
+migration below.
 
 Before the first public release, a genuinely fresh installation is one where
 the final owner store is absent and a bounded fixed-path presence guard proves
-that no predecessor desired-definition, Workspace, Policy, Broker, principal, or private
-session authority is present. That state is exact empty final authority and may
-create its first Template and Context. A complete final store is the only
-ordinary authority source. Predecessor bytes never contribute identity,
-policy, Runtime protection, principal/session state, or credentials.
+that no predecessor desired-definition, Workspace, Policy, Broker, principal,
+or private session authority is present. That state is exact empty final
+authority and may create its first Template and Context. A complete generation
+store is the only ordinary authority source. Predecessor bytes contribute only
+through the exact explicit typed migration; no unsupported predecessor can
+contribute identity, policy, Runtime protection, principal/session state, or
+credentials.
 
-Any declared legacy presence, unsafe path, or ambiguous observation fails
-closed before final initialization or mutation and returns explicit
-reset-and-recreate guidance. The guard observes only bounded path/type/owner
-facts needed to establish presence; it does not decode, decrypt, transform,
-quarantine, rename, delete, or adopt predecessor content. Destructive reset is
-an explicit user action outside this cutover. Research use creates fresh
-Context-owned credentials only through explicit login/import; matching legacy
-IDs or bytes are never rebound.
+The exact currently supported typed final `authority.json` and its predecessor
+custom Runtime catalog/source/revision trees are migration input only. Ordinary
+reads return `installation_migration_required`; the explicit read-only plan
+binds the authority bytes, exact generation, complete Runtime catalog/source-
+tree bytes, and Template Runtime references. Reference-bound Apply revalidates
+all of them, converts custom Runtime config/state to stable-ID roots, publishes
+concept source plus a verified active generation, and retires the old roots in
+one recoverable journaled transaction. Advanced/Rego markers and any unsupported, unsafe,
+partial, or ambiguous predecessor remain rejected with reset/recreate guidance.
+No Context credential or research authority is inferred or rebound.
 
 This clean-break rule is valid only because Tobari has no public release. It is
 not precedent for changing released persistent state. Compatibility and

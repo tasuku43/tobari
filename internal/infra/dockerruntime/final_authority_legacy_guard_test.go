@@ -16,7 +16,7 @@ func TestFinalWorkspaceAuthorityRootIsConfigurationOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(root, "state", "workspace-authority")
+	want := filepath.Join(root, "state", "authority")
 	got, err := runtime.FinalWorkspaceAuthorityRoot()
 	if err != nil || got != want {
 		t.Fatalf("FinalWorkspaceAuthorityRoot() = %q, %v; want %q", got, err, want)

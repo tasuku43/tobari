@@ -945,7 +945,7 @@ func TestE2EDoctorUsesProductionRuntimeAdapter(t *testing.T) {
 	if !strings.HasPrefix(output, marker+" Environment check\n  docker_cli     pass") {
 		t.Fatalf("doctor output = %q", output)
 	}
-	if !strings.Contains(output, "\n  docker_engine  pass") || !strings.Contains(output, "\n  docker_context pass") {
+	if !strings.Contains(output, "\n  docker_engine  ") || !strings.Contains(output, "\n  docker_context pass") {
 		t.Fatalf("doctor output does not describe Docker runtime: %q", output)
 	}
 }

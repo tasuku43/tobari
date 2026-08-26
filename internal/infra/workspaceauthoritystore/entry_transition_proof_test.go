@@ -13,7 +13,7 @@ import (
 func TestFreshDefaultPairEntrySettlesInactiveAxesAndPublishesAppliedEntry(t *testing.T) {
 	store, mutator, lifecycle, _, memory := newMutationFixture(t, nil)
 	body := storeCollectionFixture(t).Templates[0].Current.Body
-	initialized, err := mutator.InitializeFinalDefaultPair(context.Background(), "/workspace/fresh-entry", body)
+	initialized, err := mutator.seedFinalDefaultPairForLegacyMigration(context.Background(), "/workspace/fresh-entry", body)
 	if err != nil {
 		t.Fatal(err)
 	}

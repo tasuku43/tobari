@@ -117,20 +117,21 @@ The host owns each stable Workspace Template and its complete immutable desired
 revisions. WorkspaceTemplateID plus semantic digest is authority; name and
 generation cannot select or widen content. Generation is correlation only, so
 no-op mutation does not increment it and A→B→A may reuse A's digest at a later
-generation. The creation-time Boundary remains immutable:
-source-access choice, normalized canonical Workspace Template policy data and
-revision, terminal destination/method ceilings, and enabled/disabled
-native-readiness choice. They remain secret-free authority metadata in
-separate owner-only state; project files, runtime images, Workspaces, and
-policy source files cannot rewrite that Boundary. Enabled readiness
+generation. Every successfully applied complete Template revision is
+immutable. Its source-access choice, normalized policy data, reviewed Boundary,
+exact Runtime revision, and readiness choice remain secret-free authority
+metadata in owner-only state. A later Boundary edit can become a new
+moving-head revision only through a fresh impact Plan and reference-bound
+Apply; project files, runtime images, Workspaces, and cluster lifecycle cannot
+rewrite or implicitly apply it. Enabled readiness
 independently selects the trusted binary's finite native-readiness overlay,
 still bounded by the terminal Workspace Template policy ceilings. A binary update can change that overlay for
 existing Workspace Templates, but runtime data cannot select or define it.
 
-The same stable Workspace Template deliberately has mutable non-Boundary desired fields behind
-separate fixed-target host mutations. Each accepted change publishes a complete
-revision. One exact Runtime binding changes only
-through `template runtime set` and affects bound Workspaces on next entry while
+The same stable Workspace Template advances every desired field, including its
+Boundary, behind one complete source-edit and Apply boundary. Each accepted
+change publishes a complete revision. One exact Runtime binding changes only through
+the same `template apply` boundary and affects bound Workspaces on next entry while
 preserving their identity and home. Shell and Git session defaults are resolved
 for later entry or child-session creation without writing the Workspace home.
 Typed bootstrap recipes affect only future Workspace creation. None of these
@@ -355,7 +356,7 @@ metadata, encrypted vaults, root keys, secret files, the host home, Docker
 sockets, and Workspace mounts are outside it. The generated image must pass the
 same compatibility inspection before history append. Editing source or a
 failed build cannot replace a Workspace Template Runtime binding. After an
-explicit Template Runtime mutation succeeds, only Contexts bound to that
+explicit planned Template Apply selecting another exact Runtime revision succeeds, only Contexts bound to that
 Template resolve it, and only their Workspaces observe it through the next
 trusted entry reconciliation.
 Docker/BuildKit build output is untrusted diagnostic text even though the
@@ -703,14 +704,15 @@ an exact entry may originate from the typed raw list or detail screen, while a
 template entry must originate from its scope-bearing detail screen; every entry
 retains its opaque ID unchanged, belongs to one Workspace Template, and passes fresh
 snapshot validation. The
-one-Workspace Template bound preserves one atomic policy-source promotion even if the host
-process is interrupted. The authoritative source is one strict
-`policy/domains/<canonical-host>/allow.json` and `deny.json` pair per exact
-host, never a Workspace Template `data.json`. Directory names and every embedded
-authority, endpoint, credential binding, and rule host must match; unknown
-fields, duplicate keys or rule IDs, non-canonical hosts, wildcards, IP
-literals, incomplete pairs, extra files, symlinks, and unsafe permissions fail
-closed. Per-domain method data is projected only into that domain's authority,
+one-Workspace Template bound preserves one atomic Policy-Memory mutation even if the host
+process is interrupted. Learned authority lives only in the immutable typed
+Policy-Memory object for the exact Context and is never an editable Template
+file. Static authority is accepted only from the complete owner-only
+`templates/<template-id>/{template.yaml,policy.yaml}` pair through reviewed
+Template Plan and Apply. Unknown fields, duplicate semantic entries,
+non-canonical hosts, wildcards, IP literals, incomplete pairs, extra files,
+symlinks, hardlinks, owner drift, unsafe permissions, and same-read byte drift
+fail closed. Per-destination method data is projected only into that authority,
 and explicit deny retains precedence. Display position cannot create authority, staging
 writes nothing, cancellation discards the set, wildcard creation is impossible,
 and redirected or machine-readable review is read-only. `--watch` is accepted
@@ -964,26 +966,84 @@ lock, writes a bounded journal before an outcome may become unknown, and emits
 confirmed mutation output before later cancellation. An unclassified outcome
 is nonretryable and points to read-only reconciliation.
 
+### File-backed desired-source boundary
+
+Template, Context, and Runtime directories below XDG configuration use stable
+resource IDs. Template directories contain exactly `template.yaml` and
+`policy.yaml`; Context directories contain exactly `context.yaml`. Source roots
+and resource directories are real owner-only directories, and documents are
+bounded owner-only single-link regular files. Symlinks, hard links, special
+files, unsafe ownership/mode, unknown siblings, replacement races, aliases,
+anchors, merge keys, duplicate/non-string keys, unsupported tags or schemas,
+unknown fields, and oversized YAML fail closed before authority publication.
+Directory and document IDs must match.
+
+Editable YAML is untrusted desired data. The active internal snapshot remains
+last-known-good when source is modified, invalid, or missing. Cluster lifecycle
+does not parse or apply it. Template Plan binds an opaque Apply reference,
+exact active `base_revision`, complete two-file byte fingerprint, exact
+immutable Runtime authority, bound Context/Memory revisions, and running-
+Workspace impact. Apply consumes that reference unchanged under the lifecycle
+lock and rechecks the fingerprint immediately before active publication. Source
+bookkeeping never overwrites an intervening edit. Context Plan/Apply similarly
+binds source bytes, canonical root, current Template revision, duplicate
+observation, and empty new Memory ownership before first activation.
+
+File deletion is not logical deletion, and reads never regenerate source.
+Logical deletion requires the existing explicit reference-bound command. Static
+Template policy and Context Policy Memory remain separate: YAML cannot author
+Memory, and dynamic Memory activation cannot rewrite Template source. No user
+XDG root or Workspace contains Rego; only the embedded evaluator can contribute
+executable policy to Docker-managed bundle material.
+
+Active authority objects and generation manifests are owner-only bounded
+regular files under the concept-separated XDG state root. Readers verify the
+active-pointer digest, manifest digest, every object path/digest/type/embedded
+identity, and the reconstructed collection revision before returning a
+generation. Publication makes objects and the complete manifest durable before
+atomically replacing the pointer. The old typed `authority.json` is never an
+ordinary read fallback: only `installation migration plan/apply` may decode the
+exact supported schema. Its opaque plan binds exact bytes; stale, Advanced/Rego,
+unsafe, or unsupported input causes zero mutation, and failed pre-acceptance
+swap verification restores the old canonical root. Before the swap, the
+content-addressed generation manifest commits the exact migration plan authority,
+including predecessor bytes, custom-Runtime source identity, and target collection
+identity; non-migration generations omit this provenance. Accepted migration
+writes an owner-only exact plan/generation/revision receipt before deleting the
+outer transaction. A same-plan retry returns confirmed success only when that
+receipt exactly equals the provenance loaded through the verified active-pointer
+and manifest-digest chain; a self-consistent replacement receipt is insufficient.
+The receipt is retained with immutable authority history rather than automatically
+collected.
+
 ### Final resource mutations
 
 - `template create --name NAME [--source-access read-only|read-write]
   [--graphql-endpoint <https-url>]` is one fixed-target create from the
-  reviewed standard body. Source access is an immutable Boundary choice;
+  reviewed standard body. It writes an unpublished source draft only; source
+  access remains within the reviewed Boundary;
   the optional endpoint is parsed as one exact HTTPS URL with an explicit
   port/path and then checked by the existing destination and method ceilings
-  before publication. It starts no Docker operation.
+  before later planned publication. It starts no Docker operation.
 - `template copy --from <template-revision-ref> --name NAME` revalidates the
-  exact retained immutable revision and creates a fresh TemplateID at
-  generation 1. It copies no Context, Policy Memory, Workspace, home,
+  exact retained immutable revision and creates a fresh unpublished source
+  TemplateID. It copies no Context, Policy Memory, Workspace, home,
   credential, attachment, applied/failure/observed state, default selection,
   or lineage.
 - `template default set --id <template-ref>` changes only installation
   selection. Template creation never writes this selector.
-- Template configuration and Runtime binding changes consume one exact
-  Template reference and publish one complete immutable revision. They cannot
-  alter the Template Boundary or mutate a running Workspace.
-- `context create --template <template-ref>` binds canonical CWD to the exact
-  Template and initializes empty Policy Memory without Docker reconciliation.
+- Template semantic configuration and Runtime binding changes occur through
+  direct source editing followed by `template plan --id <template-ref>` and
+  `template apply --plan <template-change-plan-ref>`.
+  Granular shell, Git, bootstrap, and Runtime setters are not authority paths.
+  Apply publishes one complete immutable revision and never mutates a running
+  Workspace. The sole reserved additional writer is later explicit reviewed
+  Policy Memory promotion, limited to static `policy.yaml` content with exact
+  source/active/Memory fencing and provenance.
+- `context create --template <template-ref>` writes one unpublished source
+  draft for canonical CWD and an exact active Template. Context Plan/Apply
+  activates the immutable identity and initializes empty Policy Memory without
+  Docker reconciliation.
 - `context enter --id <context-ref>` and bare root are the only Workspace
   reconciliation boundaries. Attached pending adoption returns typed
   `end_active_session` before Docker; it neither falls back nor polls.

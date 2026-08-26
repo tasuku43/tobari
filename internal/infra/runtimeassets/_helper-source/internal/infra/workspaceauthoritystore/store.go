@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	authorityFileName     = "authority.json"
+	authorityFileName     = activeFileName
 	MaxAuthorityBytes     = 64 << 20
 	maxWorkspaceTemplates = 1024
 	maxContexts           = 16 * 1024
@@ -130,61 +130,7 @@ func (s *Store) readCompleteRaw(ctx context.Context) (tobari.WorkspaceAuthorityC
 	if s == nil || s.root == "" {
 		return tobari.WorkspaceAuthorityCollection{}, false, fmt.Errorf("final Workspace authority store is unavailable")
 	}
-	if err := ctx.Err(); err != nil {
-		return tobari.WorkspaceAuthorityCollection{}, false, err
-	}
-	rootInfo, err := os.Lstat(s.root)
-	if errors.Is(err, os.ErrNotExist) {
-		return tobari.WorkspaceAuthorityCollection{}, false, nil
-	}
-	if err != nil {
-		return tobari.WorkspaceAuthorityCollection{}, false, fmt.Errorf("inspect final Workspace authority root: %w", err)
-	}
-	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() || rootInfo.Mode().Perm() != 0o700 || !ownedByCurrentUser(rootInfo) {
-		return tobari.WorkspaceAuthorityCollection{}, false, fmt.Errorf("final Workspace authority root must be a real owner-only directory")
-	}
-	entries, err := os.ReadDir(s.root)
-	if err != nil {
-		return tobari.WorkspaceAuthorityCollection{}, false, fmt.Errorf("enumerate final Workspace authority root: %w", err)
-	}
-	if len(entries) != 1 || entries[0].Name() != authorityFileName {
-		return tobari.WorkspaceAuthorityCollection{}, false, fmt.Errorf("final Workspace authority store is partial or mixed")
-	}
-
-	path := filepath.Join(s.root, authorityFileName)
-	data, err := readAuthorityFile(path)
-	if err != nil {
-		return tobari.WorkspaceAuthorityCollection{}, false, err
-	}
-	if err := rejectLegacyAdvancedAuthorityBytes(data); err != nil {
-		return tobari.WorkspaceAuthorityCollection{}, false, err
-	}
-	rootAfter, err := os.Lstat(s.root)
-	if err != nil || !os.SameFile(rootInfo, rootAfter) || rootAfter.Mode()&os.ModeSymlink != 0 ||
-		!rootAfter.IsDir() || rootAfter.Mode().Perm() != 0o700 || !ownedByCurrentUser(rootAfter) {
-		return tobari.WorkspaceAuthorityCollection{}, false, fmt.Errorf("final Workspace authority root changed during observation")
-	}
-	entriesAfter, err := os.ReadDir(s.root)
-	if err != nil || len(entriesAfter) != 1 || entriesAfter[0].Name() != authorityFileName {
-		return tobari.WorkspaceAuthorityCollection{}, false, fmt.Errorf("final Workspace authority store changed or became mixed during observation")
-	}
-	if err := ctx.Err(); err != nil {
-		return tobari.WorkspaceAuthorityCollection{}, false, err
-	}
-	var collection tobari.WorkspaceAuthorityCollection
-	if err := decodeStrictJSON(data, &collection); err != nil {
-		return tobari.WorkspaceAuthorityCollection{}, false, fmt.Errorf("decode final Workspace authority: %w", err)
-	}
-	if err := validateCollectionBounds(collection); err != nil {
-		return tobari.WorkspaceAuthorityCollection{}, false, err
-	}
-	if err := collection.Validate(); err != nil {
-		return tobari.WorkspaceAuthorityCollection{}, false, fmt.Errorf("validate final Workspace authority: %w", err)
-	}
-	if err := ctx.Err(); err != nil {
-		return tobari.WorkspaceAuthorityCollection{}, false, err
-	}
-	return collection.Clone(), true, nil
+	return s.readGenerationRaw(ctx)
 }
 
 // rejectLegacyAdvancedAuthorityBytes is intentionally a bounded marker

@@ -65,12 +65,13 @@ Docker または BuildKit がキャッシュや未選択候補を保持しても
 ## 4. Workspace Template へ明示的に選択する
 
 ```sh
-tobari template runtime set --id TEMPLATE_REF --runtime RUNTIME_REVISION_REF
+tobari template plan --id TEMPLATE_REF
+tobari template apply --plan TEMPLATE_CHANGE_PLAN_REF
 tobari template show --name review
 ```
 
 同じリビジョンを複数 Workspace Template から再利用できます。新しいビルドで自動更新はされず、
-アップグレードもロールバックも別の ordinal を明示的に選びます。
+アップグレードもロールバックも各 Template のソースを編集し、Template 全体の Apply をレビューします。
 
 ## 5. 既存 Workspace へ入り直す
 

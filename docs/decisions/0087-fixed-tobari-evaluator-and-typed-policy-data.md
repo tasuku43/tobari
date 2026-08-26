@@ -92,7 +92,8 @@ before strict decoding. It recognizes the persisted V1 final-envelope forms
 normalizing, translating, or executing their source. The result is the stable
 `ErrLegacyExecutablePolicy` failure with deterministic reset/recreate guidance;
 the read and all subsequent reconciliation remain zero-mutation. Context and
-predecessor migration reject the same legacy authority explicitly.
+the ADR 0088 installed-state migration reject the same legacy authority
+explicitly; migration never translates or executes Advanced/Rego content.
 
 This is a deliberate reconciliation with ADR 0084's clean-break rule and ADR
 0084's no-predecessor-decoder rule: the bounded detector is a rejection guard,

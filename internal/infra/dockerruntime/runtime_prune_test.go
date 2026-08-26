@@ -93,18 +93,18 @@ func runtimePruneFixture(t *testing.T, preserveContent bool) (*Runtime, *runtime
 	runner.images[digest] = lifecycleImageFixture{observation: observation}
 	snapshot, observedAt, err := runtime.ReadRuntimeLifecycleSnapshot(context.Background())
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("read split Runtime lifecycle snapshot: %v", err)
 	}
 	plan, err := tobari.PlanRuntimePrune(snapshot, observedAt)
 	if err != nil || !plan.Applicable || len(plan.Candidates) != 1 {
-		t.Fatalf("prune plan = %+v/%v", plan, err)
+		t.Fatalf("split Runtime prune plan = %+v/%v", plan, err)
 	}
 	return runtime, runner, plan, manifest
 }
 
 func TestApplyRuntimePruneIsExactIdempotentAndPreservesDurableRuntime(t *testing.T) {
 	runtime, runner, plan, manifest := runtimePruneFixture(t, false)
-	paths := []string{runtime.runtimeManifestPath(manifest.Name), manifest.SourcePath, manifest.Revisions[0].SnapshotPath}
+	paths := []string{runtime.runtimeManifestPath(manifest.ID), manifest.SourcePath, manifest.Revisions[0].SnapshotPath}
 	before := make([]os.FileInfo, len(paths))
 	for index, path := range paths {
 		info, err := os.Stat(path)

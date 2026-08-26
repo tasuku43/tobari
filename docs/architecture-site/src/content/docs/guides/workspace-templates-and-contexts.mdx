@@ -40,9 +40,10 @@ tobari template show --name default --format json
 tobari template copy --from TEMPLATE_REVISION_REF --name review
 ```
 
-Copy creates a fresh Template identity and generation 1. It copies no Context,
-Policy Memory, Workspace, home, credentials, attachment, applied state,
-default selection, or lineage.
+Copy creates a fresh unpublished Template identity and source pair with null
+`base_revision`. A later fresh Plan and Apply publish generation 1. Copy carries
+no Context, Policy Memory, Workspace, home, credentials, attachment, applied
+state, default selection, or lineage.
 
 ## Select the installation default
 
@@ -77,13 +78,11 @@ tobari context enter --id CONTEXT_REF -- codex exec ...
 ## Configure one exact Template
 
 ```sh
-tobari config shell --id TEMPLATE_REF --variable PS1 --source inherit
-tobari config git --id TEMPLATE_REF --source inherit
-tobari config bootstrap aws --id TEMPLATE_REF --profile example
-tobari template runtime set --id TEMPLATE_REF --runtime RUNTIME_REVISION_REF
+tobari template plan --id TEMPLATE_REF
+tobari template apply --plan TEMPLATE_CHANGE_PLAN_REF
 ```
 
-These actions publish a complete immutable Template revision. Runtime and
+Apply publishes a complete immutable Template revision. Runtime and
 session defaults apply only at their documented later entry/session boundary;
 bootstrap applies only to a newly created Workspace home.
 

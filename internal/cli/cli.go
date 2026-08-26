@@ -12,6 +12,7 @@ import (
 	"github.com/tasuku43/tobari/internal/app/completioncmd"
 	"github.com/tasuku43/tobari/internal/app/contextcmd"
 	"github.com/tasuku43/tobari/internal/app/doctorcmd"
+	"github.com/tasuku43/tobari/internal/app/installationmigrationcmd"
 	"github.com/tasuku43/tobari/internal/app/permissionwaitcmd"
 	"github.com/tasuku43/tobari/internal/app/runtimecmd"
 	"github.com/tasuku43/tobari/internal/app/serviceexposurecmd"
@@ -26,7 +27,9 @@ import (
 	"github.com/tasuku43/tobari/internal/infra/terminal"
 	"github.com/tasuku43/tobari/internal/infra/terminalstyle"
 	"github.com/tasuku43/tobari/internal/infra/workspaceauthoritydoctor"
+	"github.com/tasuku43/tobari/internal/infra/workspaceauthorityresources"
 	"github.com/tasuku43/tobari/internal/infra/workspaceauthoritysession"
+	"github.com/tasuku43/tobari/internal/infra/workspaceauthoritysource"
 	"github.com/tasuku43/tobari/internal/infra/workspaceauthoritystore"
 )
 
@@ -35,8 +38,7 @@ import (
 // receive one complete final-authority port. It contains no predecessor reader
 // or fallback selector.
 type finalWorkspaceAuthorityAdapter struct {
-	*workspaceauthoritystore.Store
-	*workspaceauthoritystore.Mutator
+	*workspaceauthorityresources.Adapter
 	*workspaceauthoritystore.ContextEntryAdapter
 	*workspaceauthoritystore.HostLoopbackPolicyAdapter
 }
@@ -75,13 +77,16 @@ type finalWorkspaceEntryReadiness interface {
 
 var (
 	_ workspaceauthoritycmd.TemplateReadPort                    = (*finalWorkspaceAuthorityAdapter)(nil)
-	_ workspaceauthoritycmd.TemplateCreatePort                  = (*finalWorkspaceAuthorityAdapter)(nil)
-	_ workspaceauthoritycmd.TemplateCopyPort                    = (*finalWorkspaceAuthorityAdapter)(nil)
-	_ workspaceauthoritycmd.TemplateUpdatePort                  = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.TemplateDraftCreatePort             = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.TemplateDraftCopyPort               = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.TemplatePlanPort                    = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.TemplateApplyPort                   = (*finalWorkspaceAuthorityAdapter)(nil)
 	_ workspaceauthoritycmd.TemplateDefaultPort                 = (*finalWorkspaceAuthorityAdapter)(nil)
 	_ workspaceauthoritycmd.TemplateDeletePort                  = (*finalWorkspaceAuthorityAdapter)(nil)
 	_ workspaceauthoritycmd.ContextReadPort                     = (*finalWorkspaceAuthorityAdapter)(nil)
-	_ workspaceauthoritycmd.ContextCreatePort                   = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.ContextDraftCreatePort              = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.ContextPlanPort                     = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.ContextApplyPlanPort                = (*finalWorkspaceAuthorityAdapter)(nil)
 	_ workspaceauthoritycmd.ContextEnterPort                    = (*finalWorkspaceAuthorityAdapter)(nil)
 	_ workspaceauthoritycmd.DefaultPairContextEnterPort         = (*finalWorkspaceAuthorityAdapter)(nil)
 	_ workspaceauthoritycmd.DefaultPairContextEnterProgressPort = (*finalWorkspaceAuthorityAdapter)(nil)
@@ -117,6 +122,7 @@ type CLI struct {
 	permissionWaitInitErr error
 	authorityStore        *workspaceauthoritystore.Store
 	finalTemplates        *workspaceauthoritycmd.TemplateService
+	installationMigration *installationmigrationcmd.Service
 	finalContexts         *workspaceauthoritycmd.ContextService
 	finalWorkspaces       *workspaceauthoritycmd.WorkspaceService
 	finalPolicy           *workspaceauthoritycmd.PolicyMemoryService
@@ -178,6 +184,27 @@ func New(lifetime context.Context, in io.Reader, out, errOut io.Writer) *CLI {
 		command.doctor = doctorcmd.New(systemdoctor.New(err))
 		return command
 	}
+	sourceRoot, err := runtime.ResourceSourceRoot()
+	if err != nil {
+		command.doctor = doctorcmd.New(systemdoctor.New(err))
+		return command
+	}
+	sourceStore, err := workspaceauthoritysource.New(sourceRoot)
+	if err != nil {
+		command.doctor = doctorcmd.New(systemdoctor.New(err))
+		return command
+	}
+	resources, err := workspaceauthorityresources.New(
+		authorityStore, mutator, sourceStore,
+		runtime.ObserveInstallationRuntimeMigration,
+		func(ctx context.Context, collection tobari.WorkspaceAuthorityCollection, recovery bool) (workspaceauthoritystore.InstallationMigrationSourceStage, error) {
+			return runtime.PrepareInstallationRuntimeMigration(ctx, collection, recovery)
+		},
+	)
+	if err != nil {
+		command.doctor = doctorcmd.New(systemdoctor.New(err))
+		return command
+	}
 	finalAuthDoctor, err := configureFinalContextAuth(command, lifetime, authorityStore, mutator, runtime)
 	if err != nil {
 		command.doctor = doctorcmd.New(systemdoctor.New(err))
@@ -219,7 +246,7 @@ func New(lifetime context.Context, in io.Reader, out, errOut io.Writer) *CLI {
 		return command
 	}
 	finalAuthority := &finalWorkspaceAuthorityAdapter{
-		Store: authorityStore, Mutator: mutator, ContextEntryAdapter: entry,
+		Adapter: resources, ContextEntryAdapter: entry,
 		HostLoopbackPolicyAdapter: hostLoopbackPolicy,
 	}
 	finalPolicyAuthority, err := workspaceauthoritystore.NewFinalPolicyCandidateAdapter(authorityStore, runtime, mutator, hostLoopbackPolicy)
@@ -230,6 +257,7 @@ func New(lifetime context.Context, in io.Reader, out, errOut io.Writer) *CLI {
 	finalPolicyPort := &finalPolicyAuthorityAdapter{finalWorkspaceAuthorityAdapter: finalAuthority, FinalPolicyCandidateAdapter: finalPolicyAuthority}
 	command.authorityStore = authorityStore
 	command.finalTemplates = workspaceauthoritycmd.NewTemplateService(finalAuthority)
+	command.installationMigration = installationmigrationcmd.New(resources)
 	command.finalContexts = workspaceauthoritycmd.NewContextService(finalAuthority)
 	command.finalWorkspaces = workspaceauthoritycmd.NewWorkspaceService(finalAuthority)
 	command.finalPolicy = workspaceauthoritycmd.NewPolicyMemoryService(finalPolicyPort)
@@ -238,7 +266,7 @@ func New(lifetime context.Context, in io.Reader, out, errOut io.Writer) *CLI {
 		command.doctor = doctorcmd.New(systemdoctor.New(err))
 		return command
 	}
-	command.finalDefaultPair = workspaceauthoritycmd.NewDefaultPairService(defaultPair, mutator, command.finalContexts)
+	command.finalDefaultPair = workspaceauthoritycmd.NewDefaultPairService(defaultPair, resources, command.finalContexts)
 	statusHome, err := workspaceauthoritystore.NewStatusHomeAdapter(authorityStore, runtime, runtime)
 	if err != nil {
 		command.doctor = doctorcmd.New(systemdoctor.New(err))

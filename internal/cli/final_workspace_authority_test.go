@@ -26,15 +26,16 @@ type finalTemplateCreateCapture struct {
 	body  tobari.WorkspaceTemplateBody
 }
 
-func (f *finalTemplateCreateCapture) CreateWorkspaceTemplate(_ context.Context, name string, body tobari.WorkspaceTemplateBody) (tobari.WorkspaceTemplate, error) {
+func (f *finalTemplateCreateCapture) CreateWorkspaceTemplateDraft(_ context.Context, name string, body tobari.WorkspaceTemplateBody) (tobari.WorkspaceTemplateDraft, error) {
 	f.calls++
 	f.name, f.body = name, body.Clone()
 	id := tobari.WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789b1")
 	revision, err := tobari.NewWorkspaceTemplateRevision(id, 1, body)
 	if err != nil {
-		return tobari.WorkspaceTemplate{}, err
+		return tobari.WorkspaceTemplateDraft{}, err
 	}
-	return tobari.WorkspaceTemplate{SchemaVersion: tobari.WorkspaceTemplateSchemaVersion, ID: id, Name: name, Current: revision, Retained: []tobari.WorkspaceTemplateRevision{revision.Clone()}}, nil
+	value := revision.Revision
+	return tobari.WorkspaceTemplateDraft{ID: id, Name: name, Body: body.Clone(), Source: tobari.ResourceSourceObservation{Path: "/config/tobari/templates/01912345-6789-7abc-8def-0123456789b1/template.yaml", State: tobari.ResourceSourceModified, SourceRevision: &value}}, nil
 }
 
 func finalTemplateCreateRuntime() *runtimeCatalogCLI {
@@ -109,21 +110,24 @@ func TestFinalWorkspaceAuthorityCatalogOwnsExactReferenceGraph(t *testing.T) {
 		t.Fatalf("Validate() error = %v", err)
 	}
 	for _, path := range []string{
-		"template list", "template show", "template create", "template copy", "template default set", "template delete", "template runtime set",
-		"context list", "context show", "context create", "context enter", "context delete",
-		"workspace list", "workspace status", "workspace delete", "config shell", "config git", "config bootstrap aws", "config bootstrap kubernetes eks",
+		"template list", "template show", "template create", "template copy", "template plan", "template apply", "template default set", "template delete",
+		"context list", "context show", "context apply", "context create", "context enter", "context delete",
+		"workspace list", "workspace status", "workspace delete",
 	} {
 		if _, found := catalog.Lookup(path); !found {
 			t.Fatalf("final command %q is absent", path)
 		}
 	}
-	for _, retired := range []string{"manifest list", "manifest show", "manifest create", "manifest default set", "manifest delete", "manifest runtime set", "list", "delete"} {
+	for _, retired := range []string{"manifest list", "manifest show", "manifest create", "manifest default set", "manifest delete", "manifest runtime set", "list", "delete", "config shell", "config git", "config bootstrap aws", "config bootstrap kubernetes eks", "template runtime set"} {
 		if _, found := catalog.Lookup(retired); found {
 			t.Fatalf("retired command %q remains reachable", retired)
 		}
 	}
 
 	wantProduced := map[string][]ProducedRef{
+		"context apply":    {{Kind: tobari.ContextReferenceKind, Field: "context_ref"}},
+		"template apply":   {{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}, {Kind: tobari.WorkspaceTemplateRevisionReferenceKind, Field: "current_revision_ref"}},
+		"template plan":    {{Kind: tobari.WorkspaceTemplateChangePlanReferenceKind, Field: "plan_ref"}, {Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}, {Kind: tobari.ContextReferenceKind, Field: "contexts[].context_ref"}, {Kind: tobari.WorkspaceReferenceKind, Field: "contexts[].workspace_ref"}},
 		"template create":  {{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}},
 		"template list":    {{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "items[].template_ref"}},
 		"template show":    {{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}, {Kind: tobari.WorkspaceTemplateRevisionReferenceKind, Field: "current_revision_ref"}},
@@ -139,18 +143,18 @@ func TestFinalWorkspaceAuthorityCatalogOwnsExactReferenceGraph(t *testing.T) {
 			t.Fatalf("%s ProducedRefs() = %+v, want %+v", path, got, want)
 		}
 	}
-	for _, path := range []string{"template default set", "template delete", "context show", "context enter", "context delete", "workspace status", "workspace delete", "config shell", "config git", "template runtime set"} {
+	for _, path := range []string{"template apply", "template default set", "template delete", "context show", "context apply", "context enter", "context delete", "workspace status", "workspace delete"} {
 		command, _ := catalog.Lookup(path)
 		if command.Role == RoleUtility || len(command.ConsumedRefs()) == 0 {
 			t.Fatalf("%s role/consumed refs = %q %+v", path, command.Role, command.ConsumedRefs())
 		}
 	}
-	runtimeSet, _ := catalog.Lookup("template runtime set")
-	if got, want := runtimeSet.ConsumedRefs(), []ConsumedRef{{Kind: tobari.WorkspaceTemplateReferenceKind, Argument: "--id"}, {Kind: tobari.RuntimeRevisionReferenceKind, Argument: "--runtime"}}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("template runtime set refs = %+v, want %+v", got, want)
+	apply, _ := catalog.Lookup("template apply")
+	if got, want := apply.ConsumedRefs(), []ConsumedRef{{Kind: tobari.WorkspaceTemplateChangePlanReferenceKind, Argument: "--plan"}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("template apply refs = %+v, want %+v", got, want)
 	}
-	if runtimeSet.Agent.Mutation == nil || runtimeSet.Agent.Mutation.TargetIDInput != "--id" || runtimeSet.Agent.Mutation.ParentInput != "--runtime" {
-		t.Fatalf("template runtime set mutation = %+v", runtimeSet.Agent.Mutation)
+	if apply.Agent.Mutation == nil || apply.Agent.Mutation.TargetIDInput != "--plan" || apply.Agent.Mutation.ParentInput != "" {
+		t.Fatalf("template apply mutation = %+v", apply.Agent.Mutation)
 	}
 	defaultSet, _ := catalog.Lookup("template default set")
 	if got := defaultSet.Agent.Output.Fields[1].Name; got != "selected" {
@@ -202,7 +206,7 @@ func TestFinalTemplateCreateCanPublishReadAccessAndBoundedGraphQLEndpoint(t *tes
 				t.Fatalf("custom endpoint=%+v parsed=%+v err=%v", capture.body.Policy.GraphQLEndpoints, parsed, err)
 			}
 			var document struct {
-				Template finalTemplateProjection `json:"template"`
+				Template finalTemplateDraftProjection `json:"template"`
 			}
 			if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
 				t.Fatal(err)
@@ -316,8 +320,7 @@ func TestFinalTemplateCreateCatalogDeclaresExistingBoundedDimensions(t *testing.
 func TestFinalTemplateMutationOutputsDoNotProduceDiscoveryReferences(t *testing.T) {
 	catalog := DefaultCatalog()
 	for _, path := range []string{
-		"template copy", "template default set", "template delete", "template runtime set",
-		"config shell", "config git", "config bootstrap aws", "config bootstrap kubernetes eks",
+		"template default set", "template delete",
 	} {
 		spec, found := catalog.Lookup(path)
 		if !found {
@@ -414,7 +417,7 @@ func TestFinalEmptyAuthorityListsEmitSchemaOneExplicitArrays(t *testing.T) {
 }
 
 func TestFinalAuthorityJSONOmitsAbsentLowerLifetimeAuthority(t *testing.T) {
-	contextValue := finalContextProjection{ContextRef: "ctx1_01912345-6789-7abc-8def-0123456789a2", ContextID: "01912345-6789-7abc-8def-0123456789a2", TemplateID: "01912345-6789-7abc-8def-0123456789a1", TemplateName: "standard", ProjectRoot: "/workspace/example", DesiredTemplateGeneration: 1, DesiredTemplateRevision: "sha256:" + strings.Repeat("b", 64), DesiredTemplatePolicySliceDigest: "sha256:" + strings.Repeat("c", 64), CurrentPolicyMemoryRevision: "sha256:" + strings.Repeat("a", 64)}
+	contextValue := finalContextProjection{Lifecycle: "active", ContextRef: "ctx1_01912345-6789-7abc-8def-0123456789a2", ContextID: "01912345-6789-7abc-8def-0123456789a2", TemplateID: "01912345-6789-7abc-8def-0123456789a1", TemplateName: "standard", ProjectRoot: "/workspace/example", DesiredTemplateGeneration: 1, DesiredTemplateRevision: "sha256:" + strings.Repeat("b", 64), DesiredTemplatePolicySliceDigest: "sha256:" + strings.Repeat("c", 64), CurrentPolicyMemoryRevision: "sha256:" + strings.Repeat("a", 64), SourcePath: "/tmp/tobari/contexts/01912345-6789-7abc-8def-0123456789a2/context.yaml", SourceState: string(tobari.ResourceSourceInSync), SourceRevision: stringPointer("sha256:" + strings.Repeat("d", 64)), ActiveRevision: "sha256:" + strings.Repeat("d", 64)}
 	encoded, err := finalAuthorityOutput("context show", "context", contextValue, successFormatJSON, nil)
 	if err != nil {
 		t.Fatalf("context JSON error = %v", err)
@@ -430,7 +433,8 @@ func TestFinalAuthorityJSONOmitsAbsentLowerLifetimeAuthority(t *testing.T) {
 	if _, exists := projected["workspace_id"]; exists {
 		t.Fatalf("absent Workspace was serialized: %s", encoded)
 	}
-	wantContext := `{"context":{"context_ref":"ctx1_01912345-6789-7abc-8def-0123456789a2","context_id":"01912345-6789-7abc-8def-0123456789a2","workspace_template_id":"01912345-6789-7abc-8def-0123456789a1","template_name":"standard","project_root":"/workspace/example","desired_template_generation":1,"desired_template_revision":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","desired_template_policy_slice_digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","active_template_policy_slice_digest":null,"current_policy_memory_revision":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","active_policy_memory_revision":null,"applied_entry":null},"schema_version":1}` + "\n"
+	wantContext := `{"context":{"context_ref":"ctx1_01912345-6789-7abc-8def-0123456789a2","context_id":"01912345-6789-7abc-8def-0123456789a2","workspace_template_id":"01912345-6789-7abc-8def-0123456789a1","template_name":"standard","project_root":"/workspace/example","desired_template_generation":1,"desired_template_revision":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","desired_template_policy_slice_digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","active_template_policy_slice_digest":null,"current_policy_memory_revision":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","active_policy_memory_revision":null,"applied_entry":null,"source_path":"/tmp/tobari/contexts/01912345-6789-7abc-8def-0123456789a2/context.yaml","source_state":"in_sync","source_revision":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","active_revision":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},"schema_version":1}` + "\n"
+	wantContext = strings.Replace(wantContext, `{"context":{`, `{"context":{"lifecycle":"active",`, 1)
 	if got := string(encoded); got != wantContext {
 		t.Fatalf("context JSON = %q, want %q", got, wantContext)
 	}
@@ -455,7 +459,12 @@ func TestFinalContextProjectionKeepsDesiredActiveAndAppliedAxesIndependent(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	projection, err := finalContextFrom(snapshot, contextRef)
+	sourceRevision, err := tobari.ContextSourceSemanticRevision(snapshot.Context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := tobari.ResourceSourceObservation{Path: "/tmp/tobari/contexts/01912345-6789-7abc-8def-0123456789b2/context.yaml", State: tobari.ResourceSourceInSync, SourceRevision: &sourceRevision, ActiveRevision: &sourceRevision}
+	projection, err := finalContextFromView(workspaceauthoritycmd.ContextView{Snapshot: snapshot, ContextRef: contextRef, Source: &source})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -471,9 +480,9 @@ func TestFinalContextProjectionKeepsDesiredActiveAndAppliedAxesIndependent(t *te
 		t.Fatal(err)
 	}
 	wantKeys := []string{
-		"active_policy_memory_revision", "active_template_policy_slice_digest", "applied_entry", "context_id", "context_ref",
+		"active_policy_memory_revision", "active_revision", "active_template_policy_slice_digest", "applied_entry", "context_id", "context_ref",
 		"current_policy_memory_revision", "desired_template_generation", "desired_template_policy_slice_digest", "desired_template_revision",
-		"project_root", "template_name", "workspace_id", "workspace_template_id",
+		"lifecycle", "project_root", "source_path", "source_revision", "source_state", "template_name", "workspace_id", "workspace_template_id",
 	}
 	if got := sortedJSONKeys(document.Context); !reflect.DeepEqual(got, wantKeys) {
 		t.Fatalf("context keys = %v, want %v; output=%s", got, wantKeys, encoded)
@@ -493,7 +502,12 @@ func TestFinalContextProjectionEmitsNullForInactiveAxes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	projection, err := finalContextFrom(snapshot, contextRef)
+	sourceRevision, err := tobari.ContextSourceSemanticRevision(snapshot.Context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := tobari.ResourceSourceObservation{Path: "/tmp/tobari/contexts/01912345-6789-7abc-8def-0123456789b2/context.yaml", State: tobari.ResourceSourceInSync, SourceRevision: &sourceRevision, ActiveRevision: &sourceRevision}
+	projection, err := finalContextFromView(workspaceauthoritycmd.ContextView{Snapshot: snapshot, ContextRef: contextRef, Source: &source})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -607,7 +621,7 @@ func TestFinalAuthorityHelpAndCompletionComeFromAtomicCatalog(t *testing.T) {
 		}
 	}
 
-	for _, path := range []string{"template delete", "context delete", "workspace delete", "config shell", "template runtime set"} {
+	for _, path := range []string{"template apply", "template delete", "context delete", "workspace delete"} {
 		spec, found := command.catalog.Lookup(path)
 		if !found {
 			t.Fatalf("missing %q", path)
@@ -714,13 +728,14 @@ func finalCurrentContextEntrySnapshotFixture(t *testing.T) tobari.ContextAuthori
 	return snapshot
 }
 
-func TestFinalConfigGitValidatesConditionalSourceDimensionsBeforeAdapter(t *testing.T) {
+func TestRetiredGranularTemplateWritersNeverReachAdapter(t *testing.T) {
 	const templateRef = "wtpl1_01912345-6789-7abc-8def-0123456789a1"
 	for _, args := range [][]string{
 		{"config", "git", "--id", templateRef, "--source", "literal"},
-		{"config", "git", "--id", templateRef, "--source", "literal", "--name", "Example"},
-		{"config", "git", "--id", templateRef, "--source", "inherit", "--name", "Example", "--email", "dev@example.com"},
-		{"config", "git", "--id", templateRef, "--source", "default", "--name", "Example", "--email", "dev@example.com"},
+		{"config", "shell", "--id", templateRef},
+		{"config", "bootstrap", "aws", "--id", templateRef},
+		{"config", "bootstrap", "kubernetes", "eks", "--id", templateRef},
+		{"template", "runtime", "set", "--id", templateRef},
 	} {
 		var out, errOut bytes.Buffer
 		port := &finalAuthorityDeleteCounter{}
@@ -729,19 +744,8 @@ func TestFinalConfigGitValidatesConditionalSourceDimensionsBeforeAdapter(t *test
 		if code := command.RunContext(context.Background(), args); code == ExitOK {
 			t.Fatalf("%v unexpectedly succeeded", args)
 		}
-		if port.calls != 0 || out.Len() != 0 {
+		if port.calls != 0 || out.Len() != 0 || !strings.Contains(errOut.String(), "unknown_command") {
 			t.Fatalf("%v calls=%d stdout=%q stderr=%q", args, port.calls, out.String(), errOut.String())
-		}
-	}
-
-	for _, source := range []string{"default", "inherit"} {
-		var out, errOut bytes.Buffer
-		port := &finalAuthorityDeleteCounter{}
-		command := newCLI(strings.NewReader(""), &out, &errOut, DefaultCatalog(), nil)
-		command.finalTemplates = workspaceauthoritycmd.NewTemplateService(port)
-		_ = command.RunContext(context.Background(), []string{"config", "git", "--id", templateRef, "--source", source})
-		if port.calls != 1 {
-			t.Fatalf("source %q calls=%d stderr=%q", source, port.calls, errOut.String())
 		}
 	}
 }
@@ -755,13 +759,13 @@ func containsFinalCompletion(values []string, want string) bool {
 	return false
 }
 
-func TestFinalBootstrapRequiresOneExplicitActionBeforeMutation(t *testing.T) {
+func TestFinalBootstrapCommandsAreNotCompetingTemplateAuthority(t *testing.T) {
 	for _, path := range [][]string{{"config", "bootstrap", "aws", "--id", "wtpl1_01912345-6789-7abc-8def-0123456789a1"}, {"config", "bootstrap", "kubernetes", "eks", "--id", "wtpl1_01912345-6789-7abc-8def-0123456789a1"}} {
 		var out, errOut bytes.Buffer
 		port := &finalAuthorityDeleteCounter{}
 		command := newCLI(strings.NewReader(""), &out, &errOut, DefaultCatalog(), nil)
 		command.finalTemplates = workspaceauthoritycmd.NewTemplateService(port)
-		if code := command.RunContext(context.Background(), path); code == ExitOK || !strings.Contains(errOut.String(), "invalid_arguments") {
+		if code := command.RunContext(context.Background(), path); code == ExitOK || !strings.Contains(errOut.String(), "unknown_command") {
 			t.Fatalf("%v code=%d stderr=%q", path, code, errOut.String())
 		}
 		if out.Len() != 0 || port.calls != 0 {

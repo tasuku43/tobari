@@ -340,22 +340,58 @@ Exactly one Context may exist for a pair. A Workspace has one stable WorkspaceID
 and belongs to one Context. Policy Memory belongs to the Context, not the
 Template or Workspace.
 
-The owner-only final envelope is the only ordinary authority source.
-Observation paths never create directories, locks, selectors, journals, or
-resources. Every mutation re-observes under the installation lifecycle lock
-and atomically publishes one validated complete envelope. A bounded
-predecessor-presence guard may classify only path/type/owner facts; it never
-decodes or adopts the private predecessor serialization.
+Concept-separated owner-only YAML below XDG configuration is the ordinary
+editable desired source. Immutable typed concept objects plus one complete
+generation manifest and atomic active pointer form the owner-only active
+last-known-good snapshot consumed by runtime evaluation. Observation paths
+never create directories, locks, selectors, journals, or resources. Apply and
+every other active mutation re-observe under the installation lifecycle lock
+and atomically publish one validated generation. Ordinary readers never adopt
+predecessor serialization; the exact supported typed predecessor is available
+only through the dedicated stale-bound installation migration port.
 
-Template creation is a fixed-target create. It starts from the reviewed
+```text
+$XDG_CONFIG_HOME/tobari/
+  templates/<TemplateID>/{template.yaml,policy.yaml}
+  contexts/<ContextID>/context.yaml
+  runtimes/<RuntimeID>/{runtime.yaml,source/}
+
+$XDG_STATE_HOME/tobari/
+  runtimes/<RuntimeID>/{runtime.json,revisions/}
+  authority/
+    templates/<TemplateID>/<digest>.json
+    contexts/<ContextID>/<digest>.json
+    policy-memory/<ContextID>/<digest>.json
+    workspaces/<WorkspaceID>/<digest>.json
+    generations/<digest>.json
+    active.json
+    journal/
+```
+
+Template Plan snapshots the closed two-file source, compares Template-wide
+`base_revision` with active authority, resolves one exact Runtime ID/revision,
+and binds Context/Memory/Workspace impact into one opaque reference. Apply
+consumes that reference unchanged and fences the same source bytes immediately
+before active publication. It then
+advances only source bookkeeping without clobbering intervening edits. Context
+Plan/Apply binds and activates a draft or validates its immutable
+ID/root/Template tuple and publishes no rebind.
+Reads report `in_sync`, `modified`, `invalid`, or `missing`; absent desired
+files do not delete active resources. Policy Memory and Workspaces remain
+below XDG state and are unrepresentable in these files.
+
+Template creation is a fixed-target draft create. It starts from the reviewed
 standard complete body and may bind the existing read-only/read-write source
 access choice plus one exact bounded HTTPS GraphQL endpoint at creation. The
 endpoint is stored as the existing POST policy rule and remains under the
 Boundary's destination and method ceilings. Template copy consumes one exact
-`workspace-template-revision` reference and issues a fresh identity at
-generation 1 with no lineage. Template writes consume one
-`workspace-template` reference; Runtime binding additionally consumes one
-`runtime-revision` parent. Context creation consumes one Template reference
+`workspace-template-revision` reference and issues a fresh unpublished source
+identity with no lineage. Template Apply consumes one
+`workspace-template-change-plan` reference after a human or agent has edited
+and reviewed the complete
+desired Runtime/session/creation and static-policy source pair. Granular
+Runtime, shell, Git, and bootstrap setters are not a parallel authority path.
+Context creation consumes one Template reference
 and canonical CWD. Context entry consumes one Context reference. Workspace and
 Context deletion consume their own exact references. Names remain read-only
 discovery/presentation input and cannot authorize mutation.
@@ -755,8 +791,8 @@ creation to a second orchestrator. The supported customization adapter is the
 installation-wide Runtime catalog: infrastructure snapshots one bounded
 owner-only source tree, builds only the immutable snapshot, validates the
 resulting image, and appends one successful semantic revision. A Workspace Template stores
-an exact Runtime ID and revision; only the explicit Workspace Template Runtime mutation
-changes that binding. Future import formats must attach to this Runtime boundary rather than
+an exact Runtime ID and revision; only editing and applying the complete
+Workspace Template source changes that binding. Future import formats must attach to this Runtime boundary rather than
 introduce project or Docker-tag authority.
 
 Workspace Template Workspace bootstrap is a separate create-only projection boundary.
@@ -798,8 +834,9 @@ stderr as the build runs. Upstream prose never becomes a structured fault
 field or a source of promotion-state inference; infrastructure decides state
 from completed build, compatibility, digest, and atomic manifest operations.
 
-The pre-release cutover has no predecessor decoder or state-migration slice.
-Ordinary composition injects one owner-only final Workspace authority store into
+The pre-release cutover has one deliberately narrow explicit installed-state
+migration slice and no automatic predecessor decoder. Ordinary composition
+injects one owner-only final Workspace authority store into
 Template, Context, Workspace, Policy, Runtime-protection, principal/session, and
 authentication consumers. A missing final store is exact empty authority only
 when one non-decoding fixed-path legacy-presence guard also proves that no
@@ -817,14 +854,24 @@ create them later. Each later owner validates its own exact schema; the
 presence guard does not. WP03 Runtime catalog/material/lifecycle roots are not
 legacy Workspace authority and remain available across the cut.
 
-Legacy, unsafe, partial, or changing presence returns one typed reset-and-
-recreate fault before state-directory, lock, final-envelope, Docker, OPA,
-Gateway, principal-registry, or Broker mutation. The adapter does not read
-legacy contents, publish a backup, quarantine or restore sources, or select a
-rollback reader. A complete final envelope remains the only ordinary reader
-authority, and all of its mutations retain the existing installation lifecycle
-serialization, durable task decisions, atomic whole-envelope publication, and
-exact read-back recovery.
+The exact supported typed `authority.json` returns a stable migration-required
+fault to every ordinary reader. `installation migration plan` reads it through
+a dedicated strict decoder and binds its byte digest together with the complete
+predecessor custom-Runtime catalog/source tree and every Template Runtime
+reference. Apply revalidates the opaque plan, stages concept sources and the
+stable-ID Runtime config/state split outside canonical paths, publishes
+immutable authority objects, commits the exact plan authority as optional
+migration provenance inside the content-addressed target generation manifest,
+swaps one verified active pointer, and retires the old roots through phase-aware
+journals. Ordinary generations carry no migration provenance. Before transaction
+cleanup Apply durably retains a plan/generation/revision accepted receipt in the
+active authority journal; same-plan response-loss recovery requires exact equality
+with the verified active-manifest provenance, and automatic receipt GC is
+forbidden. Failure before acceptance restores
+byte-identical predecessor config/state and authority; pending journals fence
+ordinary reads until settlement. Every other legacy, unsafe, partial,
+Advanced/Rego, or changing presence
+returns reset-and-recreate guidance before Docker/OPA/Gateway/Broker mutation.
 
 The canonical interactive-attachment and Host Loopback registries retain their
 existing final lock, epoch, lease, nonce, liveness, and cleanup mechanisms.
@@ -835,11 +882,12 @@ retired-host terminal guard remains independent of this clean-break rule.
 ## Lifecycle model
 
 The MVP owns one shared cluster `tool_local` target with stable ID
-`cluster-default` and one owner-only final Workspace-authority envelope at
-`$XDG_STATE_HOME/tobari/workspace-authority/authority.json`. The atomically
-published envelope contains Workspace Templates, Contexts, Context-owned Policy
-Memory, optional Workspaces, the installation default Template selection, and
-their independent desired/applied/active receipts. Each Workspace owns its
+`cluster-default`, concept-separated editable configuration, and one owner-only
+active Workspace-authority generation selected by
+`$XDG_STATE_HOME/tobari/authority/active.json`. The referenced manifest binds
+immutable Template, Context, Context-owned Policy Memory, and optional Workspace
+objects plus the installation default Template selection and independent
+desired/applied/active receipts. Each Workspace owns its
 separate persistent home and is permanently bound to one Context. Logical
 authority, not Docker inspection, defines whether a Context or Workspace
 exists. Docker labels include:
@@ -1363,22 +1411,23 @@ again. It never edits baseline policy, grants permission, or retries a request.
 Raw `cluster logs` remains the component-debugging interface.
 
 `policy allow` resolves one exact candidate reference against retained
-validated audit state without decoding it. Infrastructure reads the bounded,
-owner-only `policy/domains/<canonical-host>/{allow,deny}.json` tree, preserves
-every unchanged file byte-for-byte, appends one deterministic exact learned
-rule to its host's `allow.json`, tests a private complete policy copy, swaps one
-complete domain-source generation, and calls the existing OPA activation
-boundary. Deny mutations use the matching `deny.json`; an unknown exact host is
-created with both files in the staged generation.
+validated audit state without decoding it. Infrastructure appends one
+deterministic exact learned rule to the Context-owned Policy Memory object,
+publishes that immutable typed object through the same complete authority
+generation transaction, tests a private complete policy projection, and calls
+the existing OPA activation boundary. Deny and reset use the same transaction;
+they never edit Template source.
 
-Each authoritative domain source is strict schema 1. The directory name and
-every embedded authority, endpoint, credential binding, and rule host must be
-the same canonical lower-case host. Methods belong to the authority records
-composed from that domain and cannot authorize another host. Wildcards and IP
-literals are not source syntax. Workspace Templates contribute only the domain
-tree; aggregate generation loads and verifies the current fixed evaluator and
-tests from Tobari's embedded runtime assets. User-owned Template, Context, and
-configuration layouts contain no executable policy source. Gateway runtime input uses exact schema 1
+Editable static policy is the closed `templates/<template-id>/policy.yaml`
+document. The current transitional `tobari.dev/template-policy/v1alpha1`
+schema is installation-owned and lossless for the implemented typed policy;
+the reserved `tobari.dev/template-policy/v1` token is rejected until the final
+`boundary` plus `semantic.protocols/providers` compiler exists. Template Plan
+and Apply validate the complete `template.yaml`/`policy.yaml` pair and publish
+one immutable Template revision. Aggregate generation then joins that static
+revision with separate Context Policy Memory and the fixed evaluator embedded
+in Tobari. User-owned Template, Context, and configuration layouts contain no
+executable policy source. Gateway runtime input uses exact schema 1
 and rejects any other shape. The generated aggregate projection contains
 immutable `data.json` plus private Tobari-owned router/evaluator modules; those
 files are Docker-managed execution material, never Workspace Template or
@@ -1388,8 +1437,9 @@ typed data below `tobari_contexts[context_id]`; the Tobari-owned router is the o
 scheme, host, ports, and host-local methods;
 `boundary.graphql_endpoints` declares exact protocol-classification points, and `rules` keeps
 baseline denies, learned allows, and learned denies in separate collections.
-Gateway and OPA share this structure; the CLI only owns the mutation of the
-two learned collections and never rewrites the host-authored boundary.
+Gateway and OPA share this structure. The CLI mutates learned collections only
+through Policy Memory actions; reviewed Template Apply is the only current
+writer of static Template authority.
 
 Routine mutations serialize through an in-process mutex and a cross-process
 file lock. They prepare and fsync a complete sibling generation, record a

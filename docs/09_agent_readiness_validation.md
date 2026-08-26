@@ -10,7 +10,7 @@ transcripts as repository fixtures.
 |---|---|---|
 | Discover capabilities | `help --format agent`, then one namespace or exact-command selector | Root remains a compact capability index; one scoped read supplies complete typed inputs, outputs, failures, and workflow |
 | Understand the current Project | `status [--format text\|json]` from the Project root or a descendant | One read selects the nearest existing Context ProjectRoot before the installation default Template, preserves desired/active/applied/observed axes without an overall status, returns one primary Next plus ordered Attention, and needs zero external joins or reconstruction; fresh no-default state performs zero Docker and owner calls |
-| Choose and retire a Workspace Template | `template list`, `template show`, `template copy`, `template default set`, `template delete` | Human list identifies the default; copy consumes one exact immutable revision reference and publishes a fresh generation-1 ID with no lineage or lower-lifetime copy; changing the default does not retarget Contexts or Workspaces, and deletion rejects default or Context-bound Templates |
+| Choose and retire a Workspace Template | `template list`, `template show`, `template copy`, `template plan`, `template apply`, `template default set`, `template delete` | Human list identifies the default; copy consumes one exact immutable revision reference and writes a fresh unpublished source draft with null `base_revision`; a fresh Plan and Apply publish its first revision, with no lineage or lower-lifetime copy; changing the default does not retarget Contexts or Workspaces, and deletion rejects default or Context-bound Templates |
 | Prepare a reusable Runtime source | `runtime list`, then `runtime create --copy-source-from NAME --name NAME` | Scoped help identifies `standard` or one managed current editable source; creation returns a fresh Runtime ID with empty history and no lineage, performs no build or Template/Context/Workspace change, and needs zero revision decoding or source reconstruction |
 | Review, reclaim, and recover Runtime material | `review runtimes`; `runtime prune dry-run`, then `runtime prune apply --plan PLAN_REF --confirm=prune`; `runtime restore --id REVISION_REF`; `runtime delete --id RUNTIME_REF --confirm=delete` | One scoped help read plus one local discovery yields every exact opaque input; dry-run is zero-write and exhaustive, apply consumes the unchanged plan, restore reconstructs exact retained content, and whole deletion preserves Template, Context, Policy Memory, Workspace, home, Project, and credential authority while protected, unknown, shared, or standard targets fail closed |
 | Enter bounded work | `tobari` or `tobari -- COMMAND [ARG...]`; nondefault entry is `context enter --id CONTEXT_REF [-- COMMAND...]` | Empty authority receives one interactive no-authority Start/Customize/Cancel review, then root composes the canonical default Template/Context, cluster, Workspace entry, and handoff boundaries with five checkpoint-local stderr stages; direct entry preserves exact argv and child status, while every failed or interrupted boundary leaves one causal Catalog action or typed condition and no blind replay |
@@ -62,18 +62,18 @@ next task, and routine-success external-processing count. Verify every emitted
 opaque ID passes unchanged to its consumer.
 
 For Workspace Template lifecycle classification, retrieve `help template --format agent`
-once. Verify scoped help presents source access, complete method policy, policy
-mode, and native-readiness selection as creation-time Boundary inputs; presents
-`template runtime set` as the sole exact Runtime-binding replacement with
-next-entry adoption; presents shell/Git settings as later session defaults; and
-presents bootstrap as future-Workspace creation only. The journey must require
-no schema inference or source inspection. After each mutable operation, verify
-the stable Workspace Template ID and every bound Workspace identity/home remain unchanged.
+once. Verify scoped help returns the canonical stable-ID `source_path`, creates
+only an unpublished draft, and routes every Boundary, Runtime, session, Git,
+bootstrap, and static-policy change through source edit, read-only impact Plan,
+and reference-bound Apply. Verify there is no granular setter and that
+`cluster up` does not apply desired source. The journey must require no ID/path
+reconstruction or schema inference. After each Apply, verify the stable
+Workspace Template ID and every bound Workspace identity/home remain unchanged.
 Also run `template show` to obtain one exact revision reference, then create one
-Workspace Template with `template copy --from REVISION_REF --name NAME` and
-verify the new stable ID differs, the
-source remains unchanged, the reviewed Boundary/Runtime/defaults match, and
-neither typed output nor catalog reference flow claims ancestry or inheritance.
+Workspace Template draft with `template copy --from REVISION_REF --name NAME`.
+Verify its new stable ID differs, its canonical two-file source is editable,
+the reviewed Boundary/exact Runtime revision/defaults match, and neither typed
+output nor catalog reference flow claims ancestry or inheritance.
 
 For Runtime source creation, retrieve `help runtime create --format agent`
 once, use `standard` or one exact managed name returned by `runtime list`, and
@@ -578,17 +578,20 @@ When the host Codex version has advanced, also verify its official source still
 matches the compiled refresh client identity and replay one near-expiry refresh
 without recording tokens, account identifiers, or raw transcripts.
 
-## Pre-release predecessor guard
+## Installation migration guard
 
 Using synthetic fixed-path predecessor fixtures, run `tobari doctor --format
 json` and each ordinary final-authority read. Verify absent legacy plus absent
 final authority is a zero-write empty result, while any known, unknown, mixed,
 partial, corrupt, unsafe-mode, symlinked, or changing predecessor presence
-fails closed before lock, final-envelope, Docker, OPA, Gateway, principal,
-Workspace, or research Broker mutation. The recovery is reset or recreation of
-the unpublished development installation outside Tobari; no public migration,
-decoder, quarantine, rollback, or cleanup command exists. Tests must prove the
-guard never reads predecessor contents or records a real Workspace home,
+fails closed before lock, active-generation, Docker, OPA, Gateway, principal,
+Workspace, or research Broker mutation. For the one exact supported typed
+predecessor, verify `installation migration plan` is read-only and Apply binds
+the unchanged legacy bytes, Runtime tree, generated source bytes, and Template
+Runtime references. Every interrupted phase must restart into exact rollback
+or accepted cleanup. Unsupported predecessors still require external reset or
+recreation. Tests must prove ordinary commands never decode predecessor
+contents or record a real Workspace home,
 credential, Keychain fact, private path, or Runtime source.
 
 ## Publication checkpoint

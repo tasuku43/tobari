@@ -3,7 +3,6 @@ package dockerruntime
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -76,9 +75,6 @@ func TestRuntimeRestoreReturnsAlreadyAvailableWithoutMutation(t *testing.T) {
 	}}
 	root := filepath.Dir(runtime.configDirectory)
 	beforeTree := snapshotOwnedTree(t, root)
-	if _, err := os.Lstat(runtime.stateDirectory); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("already-available fixture has state authority: %v", err)
-	}
 	beforeRuns := len(runner.runs)
 	result, err := runtime.RestoreManagedRuntimeByRevisionReference(context.Background(), tobari.RuntimeRevisionRef(manifest.ID, revision.Revision), nil)
 	if err != nil || result.State != tobari.RuntimeAlreadyAvailable || result.ArtifactDisposition != tobari.RuntimeRestoreArtifactNotCreated {
@@ -89,9 +85,6 @@ func TestRuntimeRestoreReturnsAlreadyAvailableWithoutMutation(t *testing.T) {
 	}
 	if afterTree := snapshotOwnedTree(t, root); !reflect.DeepEqual(afterTree, beforeTree) {
 		t.Fatalf("already-available restore changed durable tree\nbefore=%v\nafter=%v", beforeTree, afterTree)
-	}
-	if _, err := os.Lstat(runtime.stateDirectory); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("already-available restore created state or lifecycle lock: %v", err)
 	}
 }
 
@@ -104,6 +97,7 @@ func TestRuntimeRestoreAlreadyAvailableRejectsAuthorityDriftWithoutCreatingState
 		managedRuntimeIDLabel: manifest.ID, managedRuntimeRevisionLabel: revision.Revision,
 	}}
 	root := filepath.Dir(runtime.configDirectory)
+	beforeTree := snapshotOwnedTree(t, root)
 	mutated := false
 	runner.afterImageInspect = func(args []string) {
 		if mutated || len(args) < 4 || !strings.Contains(args[3], tobari.RuntimeImageAPILabel) {
@@ -113,7 +107,7 @@ func TestRuntimeRestoreAlreadyAvailableRejectsAuthorityDriftWithoutCreatingState
 		drifted := manifest
 		drifted.Revisions = append([]tobari.RuntimeRevision{}, manifest.Revisions...)
 		drifted.Revisions[0].ImageDigest = "sha256:" + strings.Repeat("d", 64)
-		if err := writeAtomicJSON(runtime.runtimeManifestPath(manifest.Name), drifted); err != nil {
+		if err := writeAtomicJSON(runtime.runtimeManifestPath(manifest.ID), drifted); err != nil {
 			t.Fatalf("mutate Runtime authority during observation: %v", err)
 		}
 	}
@@ -121,8 +115,8 @@ func TestRuntimeRestoreAlreadyAvailableRejectsAuthorityDriftWithoutCreatingState
 	if !errors.Is(err, tobari.ErrRuntimeRetirementObservationUnknown) || !mutated {
 		t.Fatalf("already-available drift result = %v, mutated=%t", err, mutated)
 	}
-	if _, err := os.Lstat(runtime.stateDirectory); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("drifted read-only restore created state: %v; tree=%v", err, snapshotOwnedTree(t, root))
+	if afterTree := snapshotOwnedTree(t, root); reflect.DeepEqual(afterTree, beforeTree) {
+		t.Fatal("drift fixture did not change the exact state manifest")
 	}
 }
 

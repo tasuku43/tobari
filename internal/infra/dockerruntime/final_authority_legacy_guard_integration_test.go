@@ -292,13 +292,16 @@ func TestConfigOnlyLegacyAuthorityRejectsTemplateCreateBeforeLifecycleLock(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	body := legacyGuardTemplateBody()
-	if err := body.Validate(); err != nil {
-		t.Fatalf("legacy Template fixture is invalid: %v", err)
+	templateID := tobari.WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789ab")
+	templateRef, err := tobari.WorkspaceTemplateRef(templateID)
+	if err != nil {
+		t.Fatal(err)
 	}
 	before := legacyGuardTree(t, root)
-	if _, err := mutator.CreateWorkspaceTemplate(context.Background(), "standard", body); err == nil || !errors.Is(err, tobari.ErrPreReleaseLegacyAuthority) {
-		t.Fatalf("legacy Template create error = %v", err)
+	if _, err := mutator.PlanWorkspaceTemplateSourceByReference(context.Background(), templateRef, func(context.Context) (tobari.WorkspaceTemplateSource, string, error) {
+		return tobari.WorkspaceTemplateSource{}, strings.Repeat("0", 64), nil
+	}); err == nil || !errors.Is(err, tobari.ErrPreReleaseLegacyAuthority) {
+		t.Fatalf("legacy Template plan error = %v", err)
 	}
 	if guard.calls != 1 {
 		t.Fatalf("legacy guard calls = %d, want one pre-lock observation", guard.calls)

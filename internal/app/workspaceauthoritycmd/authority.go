@@ -14,6 +14,8 @@ const (
 	TaskTemplateShow         = "template show"
 	TaskTemplateCreate       = "template create"
 	TaskTemplateCopy         = "template copy"
+	TaskTemplateApply        = "template apply"
+	TaskTemplatePlan         = "template plan"
 	TaskTemplateDefaultSet   = "template default set"
 	TaskTemplateDelete       = "template delete"
 	TaskTemplateConfigShell  = "config shell"
@@ -24,6 +26,8 @@ const (
 	TaskContextList          = "context list"
 	TaskContextShow          = "context show"
 	TaskContextCreate        = "context create"
+	TaskContextApply         = "context apply"
+	TaskContextPlan          = "context plan"
 	TaskContextEnter         = "context enter"
 	TaskContextDelete        = "context delete"
 	TaskWorkspaceList        = "workspace list"
@@ -39,10 +43,43 @@ const (
 
 type ContextSnapshot = tobari.ContextAuthoritySnapshot
 
+type ContextDraftView struct {
+	ContextRef string
+	Draft      tobari.ContextDraft
+}
+
+func NewContextDraftView(draft tobari.ContextDraft) (ContextDraftView, error) {
+	if err := draft.Validate(); err != nil {
+		return ContextDraftView{}, err
+	}
+	ref, err := tobari.ContextRef(draft.Source.ContextID)
+	if err != nil {
+		return ContextDraftView{}, err
+	}
+	return ContextDraftView{ContextRef: ref, Draft: draft}, nil
+}
+
 type TemplateView struct {
 	TemplateRef        string
 	CurrentRevisionRef string
 	Template           tobari.WorkspaceTemplate
+	Source             *tobari.ResourceSourceObservation
+}
+
+type TemplateDraftView struct {
+	TemplateRef string
+	Draft       tobari.WorkspaceTemplateDraft
+}
+
+func NewTemplateDraftView(draft tobari.WorkspaceTemplateDraft) (TemplateDraftView, error) {
+	if err := draft.Validate(); err != nil {
+		return TemplateDraftView{}, err
+	}
+	ref, err := tobari.WorkspaceTemplateRef(draft.ID)
+	if err != nil {
+		return TemplateDraftView{}, err
+	}
+	return TemplateDraftView{TemplateRef: ref, Draft: draft}, nil
 }
 
 func NewTemplateView(template tobari.WorkspaceTemplate) (TemplateView, error) {
@@ -68,10 +105,23 @@ func (v TemplateView) Validate() error {
 	if v.TemplateRef != want.TemplateRef || v.CurrentRevisionRef != want.CurrentRevisionRef {
 		return fmt.Errorf("Template view references are inconsistent")
 	}
+	if v.Source != nil {
+		if err := v.Source.Validate(); err != nil || v.Source.ActiveRevision == nil || *v.Source.ActiveRevision != v.Template.Current.Revision {
+			return fmt.Errorf("Template source observation is inconsistent: %w", err)
+		}
+	}
 	return nil
 }
 
-type TemplateList struct{ Items []TemplateView }
+type TemplateList struct {
+	Items  []TemplateView
+	Drafts []TemplateDraftView
+}
+
+type TemplateResourceView struct {
+	Active *TemplateView
+	Draft  *TemplateDraftView
+}
 
 func NewTemplateList(templates []tobari.WorkspaceTemplate) (TemplateList, error) {
 	if err := tobari.ValidateWorkspaceTemplateAuthorities(templates); err != nil {
@@ -102,6 +152,7 @@ func NewTemplateList(templates []tobari.WorkspaceTemplate) (TemplateList, error)
 type ContextView struct {
 	ContextRef string
 	Snapshot   ContextSnapshot
+	Source     *tobari.ResourceSourceObservation
 }
 
 func NewContextView(snapshot ContextSnapshot) (ContextView, error) {
@@ -123,10 +174,24 @@ func (v ContextView) Validate() error {
 	if v.ContextRef != want.ContextRef {
 		return fmt.Errorf("Context view reference is inconsistent")
 	}
+	if v.Source != nil {
+		active, err := tobari.ContextSourceSemanticRevision(v.Snapshot.Context)
+		if err != nil || v.Source.Validate() != nil || v.Source.ActiveRevision == nil || *v.Source.ActiveRevision != active {
+			return fmt.Errorf("Context source observation is inconsistent")
+		}
+	}
 	return nil
 }
 
-type ContextList struct{ Items []ContextView }
+type ContextList struct {
+	Items  []ContextView
+	Drafts []ContextDraftView
+}
+
+type ContextResourceView struct {
+	Active *ContextView
+	Draft  *ContextDraftView
+}
 
 func NewContextList(snapshots []ContextSnapshot) (ContextList, error) {
 	if snapshots == nil {

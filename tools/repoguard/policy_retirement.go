@@ -115,6 +115,59 @@ var liveWorkPacketPolicyMarkers = []string{
 	"advanced allow",
 }
 
+var currentAuthorityDocumentationFiles = map[string]bool{
+	"README.md":                             true,
+	"docs/00_theses.md":                     true,
+	"docs/01_product_contract.md":           true,
+	"docs/02_architecture.md":               true,
+	"docs/03_security_model.md":             true,
+	"docs/04_harness.md":                    true,
+	"docs/09_agent_readiness_validation.md": true,
+}
+
+// checkCurrentAuthorityDocumentation keeps current product/architecture text
+// from reviving layouts and mutation paths retired by ADR 0088. Historical
+// ADRs and completed work evidence are deliberately outside this guard.
+func checkCurrentAuthorityDocumentation(root string, repositoryPaths []string) ([]issue, error) {
+	var issues []issue
+	for _, relative := range repositoryPaths {
+		current := currentAuthorityDocumentationFiles[relative] || strings.HasPrefix(relative, "docs/architecture-site/src/content/docs/")
+		if !current || !(strings.HasSuffix(relative, ".md") || strings.HasSuffix(relative, ".mdx")) {
+			continue
+		}
+		data, err := readRegularRepositoryFile(root, relative)
+		if err != nil {
+			return nil, err
+		}
+		for index, line := range strings.Split(string(data), "\n") {
+			lower := strings.ToLower(line)
+			message := ""
+			switch {
+			case strings.Contains(lower, "policy/domains/"):
+				message = "current documentation names the retired editable policy/domains source tree"
+			case strings.Contains(lower, "immutable boundary") || strings.Contains(lower, "不変 boundary"):
+				message = "current documentation claims the retired immutable Template Boundary"
+			case strings.Contains(lower, "atomic authority envelope"):
+				message = "current documentation claims the retired monolithic authority envelope"
+			case strings.Contains(lower, "workspace-authority/authority.json") && !strings.Contains(lower, "predecessor") && !strings.Contains(lower, "legacy") && !strings.Contains(lower, "migration"):
+				message = "current documentation names the retired monolithic authority path as current state"
+			case strings.Contains(lower, "`template shell") || strings.Contains(lower, "`template git") || strings.Contains(lower, "`template runtime") || strings.Contains(lower, "`template bootstrap"):
+				message = "current documentation names a retired granular Template semantic setter"
+			case strings.Contains(lower, "all tobari-owned schemas") && strings.Contains(lower, "v1"):
+				message = "current documentation collapses independently versioned source contracts into a false universal V1 claim"
+			case strings.Contains(lower, "publishes a fresh generation-1") || strings.Contains(lower, "copy creates a fresh template identity and generation 1") || strings.Contains(lower, "copyはfresh template identityとgeneration 1"):
+				message = "current documentation claims Template copy directly publishes active generation 1 instead of an unpublished source draft"
+			case strings.Contains(lower, "atomic multi-row shell write") || strings.Contains(lower, "owner-only atomic update tests") || strings.Contains(lower, "exact v1 shell-setting preservation"):
+				message = "current documentation claims retired granular Template shell/Git persistence evidence"
+			}
+			if message != "" {
+				issues = append(issues, issue{Path: relative, Line: index + 1, Message: message})
+			}
+		}
+	}
+	return issues, nil
+}
+
 func checkLiveWorkPacketPolicyRetirement(root string, repositoryPaths []string) ([]issue, error) {
 	available := make(map[string]bool, len(repositoryPaths))
 	for _, relative := range repositoryPaths {

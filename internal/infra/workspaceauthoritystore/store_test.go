@@ -212,7 +212,28 @@ func materializeCollection(t *testing.T, root string, collection tobari.Workspac
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, authorityFileName), data, 0o600); err != nil {
+	prepared, err := prepareAuthorityGeneration(collection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, directory := range authorityConceptDirectories {
+		if err := ensureAuthorityDirectory(filepath.Join(root, directory)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for relative, object := range prepared.objects {
+		if err := writeImmutableAuthorityFile(filepath.Join(root, filepath.FromSlash(relative)), object); err != nil {
+			t.Fatal(err)
+		}
+	}
+	component, err := digestFileComponent(prepared.manifestDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeImmutableAuthorityFile(filepath.Join(root, "generations", component+".json"), prepared.manifestData); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, activeFileName), prepared.pointerData, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return data
@@ -294,7 +315,7 @@ func TestStoreRejectsPersistedPreReleasePolicyEnvelopeWithoutMutation(t *testing
 			if err := os.Mkdir(root, 0o700); err != nil {
 				t.Fatal(err)
 			}
-			path := filepath.Join(root, authorityFileName)
+			path := filepath.Join(root, legacyAuthorityFileName)
 			if err := os.WriteFile(path, legacy, 0o600); err != nil {
 				t.Fatal(err)
 			}

@@ -450,14 +450,20 @@ exist only when the research surface is compiled.
   memory. Cluster reconciliation unlocks it with key bytes transferred through
   stdin. Context vaults are keyed by stable Context ID and bind their version
   and Context ID as authenticated data.
-- All Tobari-owned schemas and component APIs are V1 before first publication.
-  Readers accept exactly V1 and reject every other version; there is no legacy
-  compatibility path or implicit migration. Before the first public release,
-  incompatible development state is neither interpreted, adopted, transformed,
-  nor automatically deleted. One bounded fixed-path presence guard distinguishes
-  a genuinely fresh installation from retained legacy authority; legacy or
-  ambiguous presence fails closed with explicit reset-and-recreate guidance and
-  zero mutation. This clean-break exception expires at the first public release:
+- Every Tobari-owned schema and component API has one exact declared version
+  before first publication. Readers accept only the version declared for that
+  surface and reject every other version; the installed Template policy source
+  deliberately remains `tobari.dev/template-policy/v1alpha1` until the reserved
+  final V1 taxonomy and compiler ship through explicit source migration. There
+  is no implicit compatibility path or migration. Before the first public release,
+  incompatible development state is never automatically interpreted, adopted,
+  transformed, or deleted. One bounded fixed-path presence guard distinguishes
+  a genuinely fresh installation from retained legacy authority. The sole
+  migration input is the exact currently supported typed final
+  `authority.json`, accepted only by an explicit read-only Plan and stale-bound
+  reference-consuming Apply; Advanced/Rego, unsupported, or ambiguous presence
+  fails closed with reset-and-recreate guidance. This clean-break exception
+  expires at the first public release:
   any later persistent-state incompatibility requires an explicit release-policy
   and migration/compatibility decision based on actual user obligations. Owner
   manifests and the normalized
@@ -896,7 +902,7 @@ administration project.
 - OPA watches one revisioned complete bundle mounted read-only from an exact
   owner-labeled Docker-managed volume. Exact allow, deny, reset,
   and reviewed-set actions test a private complete policy copy, atomically
-  replace one complete Workspace Template `policy/domains/` generation, build a
+  publish one complete Context Policy-Memory revision, build a
   revision-named archive through pinned OPA,
   atomically rename it through a fixed pinned publisher, and
   report success only after the running OPA proves the expected revision is
@@ -942,9 +948,11 @@ desired definition of a Workspace. Every semantic mutation publishes one
 complete immutable desired revision. `WorkspaceTemplateID + semantic digest`
 is content authority; generation is monotonic correlation only. A semantic
 no-op does not increment generation, while A→B→A produces a later generation
-with the original A digest. The immutable Boundary covers direct source access,
-the normalized Template policy and terminal ceilings, and native-readiness
-participation. Other fields share Template ownership but activate only at their
+with the original A digest. The planned, revisioned Boundary covers direct
+source access, normalized Template policy and terminal ceilings, and native-
+readiness participation. Boundary tightening atomically supersedes conflicting
+remembered Allows with provenance; loosening grants no authority by itself.
+Other fields share Template ownership but activate only at their
 typed boundary: cluster projection at `cluster up`, entry state at explicit
 Workspace entry, session defaults for a later child session, and creation
 defaults once for a new Workspace home.
@@ -1007,8 +1015,10 @@ OPA allow.
   remove only now-unreachable positive baseline rules from the Workspace Template-owned
   snapshot; destination ceilings and exact Denies remain unchanged. The
   reviewed flow owns the `read-write`, enabled-readiness, standard Runtime, and
-  unconfigured-bootstrap defaults. Readers never rewrite old state, and a
-  different source/network Boundary requires a new Workspace Template. A binary
+  unconfigured-bootstrap defaults. Readers never rewrite old state. A
+  source/network Boundary change requires a fresh complete impact Plan and
+  Template Apply; tightening supersedes conflicting Context Memory Allows with
+  provenance while retaining Denies. A binary
   readiness update is a reviewed compatibility update rather than an envelope
   change and requires no Workspace Template recreation. The current binary readiness
   catalog is part of the aggregate content identity: observation reports an
@@ -1024,16 +1034,13 @@ OPA allow.
 - Source access describes only the direct live source bind. Read-only does not
   make the writable home or tmpfs read-only and does not provide a snapshot;
   host or same-root read-write Workspace Template changes remain observable.
-- `config shell` and `config git` own the Workspace Template's narrow non-secret host
-  session defaults. They are resolved for later Workspace entry or child
-  sessions and never rewrite the Workspace home. A complete setting group is deterministic for agents and
-  scripts; wholly omitted setting flags open a terminal-only staged editor.
-  Shell presents the complete fixed inventory and commits every distinct
-  staged row through one atomic Apply; Git presents its complete source choice
-  and uses the same stage/Apply vocabulary. Partial, redirected, and JSON
-  wizard attempts fail before mutation. `config shell` retains only `PS1`, `TERM`,
+- Template source shell and Git fields own the Workspace Template's narrow
+  non-secret host session defaults. They are resolved for later Workspace entry
+  or child sessions and never rewrite the Workspace home. Human/agent edits
+  become authority only through complete Template Apply; no granular setter or
+  staged editor bypasses the source pair. Shell retains only `PS1`, `TERM`,
   `COLORTERM`, and `NO_COLOR`; a V1 Workspace Template inherits exported `PS1` by default.
-  An absent export retains Tobari's built-in prompt. `config git`
+  An absent export retains Tobari's built-in prompt. The Git source field
   owns one atomic `user.name`/`user.email` fallback and defaults to no
   projection so personal identity is opt-in. Git inheritance reads only those
   two host-global values for the stable Workspace root. No credential,
@@ -1070,38 +1077,42 @@ OPA allow.
   last-used or destructive authority.
 - Copy vocabulary remains target-specific. `template copy --from`
   reviews and revalidates one exact immutable current Template revision, then
-  publishes a fresh generation-1 identity. `runtime create
+  writes a fresh unpublished Template source draft with null `base_revision`;
+  only its later fresh Plan and Apply may publish generation 1. `runtime create
   --copy-source-from` copies current editable Runtime source into a fresh
   Runtime ID with empty history. Neither persists lineage or lower-lifetime
   state, neither reconciles a Workspace or cluster, and `--base` has no alias.
-- A Workspace Template's typed Workspace-bootstrap snapshot is a mutable creation default,
-  not a live Workspace setting. Configure, refresh, and remove change only what
-  future Workspace creation projects once; existing Workspace homes retain
+- A Workspace Template's typed Workspace-bootstrap snapshot is a creation default,
+  not a live Workspace setting. It changes only by editing `template.yaml` and
+  applying one fresh Template change plan; existing Workspace homes retain
   their create-time bytes and revision.
-- Workspace Template creation initializes an owner-only policy store, references a
-  read-only agent profile, and records the compatible Tobari runtime image.
+- Workspace Template creation issues a stable draft ID and writes the closed
+  owner-only `template.yaml`/`policy.yaml` source pair. It creates no active
+  Template, Context, Policy Memory, Workspace, or cluster projection until a
+  fresh plan is explicitly applied. The source binds one exact Runtime ID and
+  immutable revision, never an image selector.
   Research Auth Broker vault state remains separately keyed by stable Context
   ID and is never referenced from a Template revision. Workspace Template
   creation never accepts a secret value in an argument or environment variable.
-- Workspace Template policy source is grouped by exact canonical lower-case host at
-  `policy/domains/<host>/allow.json` and `deny.json`. The allow document owns
-  that host's baseline authorities, methods, GraphQL endpoints, and credential
-  bindings; Context Policy Memory separately owns learned Allows and exact
-  Denies. Directory and embedded hosts must agree, methods never flow between
-  hosts, deny precedence remains terminal, and wildcard/IP/ambiguous host
-  syntax is unsupported. Workspace Template source has no `data.json`; a
-  generated immutable OPA projection may use that filename internally.
+- Workspace Template policy source is exactly `policy.yaml` beside
+  `template.yaml`. The current lossless transitional schema is
+  `tobari.dev/template-policy/v1alpha1`; the reserved final
+  `tobari.dev/template-policy/v1` boundary/semantic taxonomy is not claimed
+  until its compiler and explicit source migration exist. Context Policy
+  Memory separately owns dynamic Allows and Denies. User configuration and
+  Workspace files contain no `data.json` or Rego; Docker-managed projection
+  material may use internal generated data files.
 - Research auth login/import affects one explicit Context and makes that
   Context's Workspace eligibility explicit. Login does not rewrite running
   Workspaces; their next matching entry issues project-bound handles and
   recreates only a changed work container while preserving home.
-- Workspace Template source changes become active only through an explicit `cluster up` or
-  policy mutation. The host serializes source mutation across processes,
-  validates and swaps a complete domain generation under a durable recovery
-  journal, then generates and validates one atomic projection of every Workspace Template
-  for the shared OPA and Gateway. Incomplete, raced, or ambiguous source state
-  fails closed; a failed candidate preserves the complete prior known-good
-  source generation and projection.
+- Workspace Template source changes become active only through a fresh
+  read-only `template plan` followed by reference-bound `template apply`.
+  `cluster up` consumes the last-known-good active generation and never applies
+  desired YAML. The host serializes Apply, revalidates exact source bytes,
+  publishes one complete authority generation, and advances source bookkeeping
+  through a recoverable directory CAS. Incomplete, raced, or ambiguous source
+  preserves the prior active generation.
 - The fixed Tobari evaluator keeps deny/review/allow exact permission growth as
   the default. Canonical typed policy data is the only user-owned policy
   authority; the evaluator and its tests are embedded maintainer-owned bundle
@@ -1159,13 +1170,13 @@ OPA allow.
 - Envelope tests require source access and Workspace Template policy revision in every
   persisted manifest/report, prove creation-only defaults and immutable
   snapshot binding, and reject missing or old state without fallback.
-- Configuration tests validate the all-or-none direct/staged-editor state machine,
+- Configuration tests validate strict closed Template source documents,
   terminal cancellation and explicit-empty Workspace Template rejection with zero
-  mutation, binding of Apply to the Workspace Template shown across concurrent default
-  changes, one atomic multi-row shell write, fixed shell and Git inventories,
-  exact V1 persistence, bounded host Git
-  calls with an exact child-environment allowlist, lower-precedence read-only
-  projection, and exclusion of authentication and executable Git settings.
+  mutation, binding of planned Apply to exact source bytes across concurrent
+  changes, mechanical absence of granular shell/Git/Runtime/bootstrap writers,
+  bounded host Git calls with an exact child-environment allowlist,
+  lower-precedence read-only projection, and exclusion of authentication and
+  executable Git settings.
 - Infrastructure tests prove exact V1 initialization, owner-only separated
   policy and broker-vault boundaries, permanent Workspace bindings, aggregate
   read-only OPA mounts, and selected agent-profile digests.
@@ -1186,6 +1197,22 @@ OPA allow.
   the exact agent-ready grant catalog and retain method-deny zero-grant canaries,
   distinguish capability bootstrap from MCP action, exclude payload and
   acquisition authority, and prove exact Deny precedence.
+
+### Thesis consequence: editable intent is a file; live authority is an Apply result
+
+AI agents and humans author installation Template and Context intent through
+concept-separated, stable-ID files below XDG configuration. Those files are
+untrusted desired input, never live policy. Explicit validated Apply is the
+publication boundary; cluster lifecycle consumes only the last-known-good
+active snapshot. Static Template policy, immutable Context identity, dynamic
+Context Policy Memory, Runtime build source, and Workspace/activation state
+retain separate owners and lifetimes. User-owned roots contain typed data, not
+Rego or another executable evaluator.
+
+Mechanical enforcement covers strict schemas and closed file sets, source/
+active drift states, concurrent-edit fencing, opaque-reference Apply, absence
+of granular Template setters, stable-ID Runtime directories, and whole-tree
+no-Rego checks.
 
 ## Deliberate non-goals
 

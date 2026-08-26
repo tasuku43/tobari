@@ -22,7 +22,7 @@ func TestDeleteManagedRuntimeRetiresWholeAuthorityAndIsIdempotent(t *testing.T) 
 		result.Items[0].Disposition != tobari.RuntimePrunePreservedShared || result.RemovedTagCount != 1 || result.ReceiptRevision != 1 || result.ReclaimedBytes != nil {
 		t.Fatalf("delete Runtime = %+v/%v", result, err)
 	}
-	if _, err := os.Lstat(runtime.runtimeDirectory(manifest.Name)); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Lstat(runtime.runtimeDirectory(manifest.ID)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("Runtime directory remains: %v", err)
 	}
 	if len(runner.removals) != 1 || runner.removals[0] != managedLibraryRuntimeImage(manifest.Name, manifest.ID, manifest.Revisions[0].Revision) {
@@ -214,12 +214,40 @@ func assertProjectedRuntimeDelete(t *testing.T, runtime *Runtime, runtimeID stri
 }
 
 func TestDeleteManagedRuntimeQuarantineSharesConfigFilesystemAndFailsClosedOnDrift(t *testing.T) {
+	t.Run("config quarantine rename resumes before state rename", func(t *testing.T) {
+		runtime, runner, _, manifest := runtimePruneFixture(t, false)
+		calls := 0
+		interrupted := errors.New("synthetic crash between config and state quarantine")
+		runtime.runtimeDeleteRename = func(source, destination string) error {
+			calls++
+			if calls == 2 {
+				return interrupted
+			}
+			return os.Rename(source, destination)
+		}
+		if _, err := runtime.DeleteManagedRuntimeByReference(context.Background(), tobari.RuntimeRef(manifest.ID)); !errors.Is(err, interrupted) {
+			t.Fatalf("cross-root quarantine interruption = %v", err)
+		}
+		if _, err := os.Lstat(runtime.runtimeDeleteQuarantinePath(manifest.ID)); err != nil {
+			t.Fatalf("config quarantine was not durable: %v", err)
+		}
+		if _, err := os.Lstat(runtime.runtimeStateDirectory(manifest.ID)); err != nil {
+			t.Fatalf("state source was not preserved: %v", err)
+		}
+		result, err := runtime.DeleteManagedRuntimeByReference(context.Background(), tobari.RuntimeRef(manifest.ID))
+		if err != nil || result.State != tobari.RuntimeDeleted || len(runner.removals) != 1 {
+			t.Fatalf("cross-root quarantine recovery = %+v/%v removals=%v", result, err, runner.removals)
+		}
+	})
+
 	t.Run("cross-device outcome remains resumable", func(t *testing.T) {
 		runtime, runner, _, manifest := runtimePruneFixture(t, false)
 		first := true
 		runtime.runtimeDeleteRename = func(source, destination string) error {
-			if filepath.Dir(filepath.Dir(source)) != runtime.configDirectory || filepath.Dir(filepath.Dir(destination)) != runtime.configDirectory {
-				t.Fatalf("delete quarantine crossed config filesystem boundary: %s -> %s", source, destination)
+			sourceRoot := filepath.Dir(filepath.Dir(source))
+			destinationRoot := filepath.Dir(filepath.Dir(destination))
+			if sourceRoot != destinationRoot || sourceRoot != runtime.configDirectory && sourceRoot != runtime.stateDirectory {
+				t.Fatalf("delete quarantine crossed an XDG filesystem boundary: %s -> %s", source, destination)
 			}
 			if first {
 				first = false
@@ -253,7 +281,7 @@ func TestDeleteManagedRuntimeQuarantineSharesConfigFilesystemAndFailsClosedOnDri
 		if _, err := runtime.DeleteManagedRuntimeByReference(context.Background(), tobari.RuntimeRef(manifest.ID)); err == nil {
 			t.Fatal("quarantine interruption succeeded")
 		}
-		revisionFile := filepath.Join(runtime.runtimeDeleteQuarantinePath(manifest.ID), "revisions", strings.TrimPrefix(manifest.Revisions[0].Revision, "sha256:"), "source", "Dockerfile")
+		revisionFile := filepath.Join(runtime.runtimeDeleteStateQuarantinePath(manifest.ID), "revisions", strings.TrimPrefix(manifest.Revisions[0].Revision, "sha256:"), "source", "Dockerfile")
 		if err := os.WriteFile(revisionFile, []byte("FROM example.invalid/drift\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}

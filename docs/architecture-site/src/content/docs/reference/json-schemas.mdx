@@ -71,14 +71,15 @@ Exact fields, optionality, collection coverage, and output formats are
 generated on the [CLI reference](/reference/cli/). Do not infer a field from
 another envelope merely because the two objects share a name.
 
-### Final authority contract boundary
+### Active authority contract boundary
 
-The persisted owner envelope and public task projections remain distinct:
+Persisted immutable authority objects and public task projections remain distinct:
 
 ```text
-Persisted final authority
-  workspace-authority/authority.json
-  complete atomic collection schema 1
+Persisted active authority
+  authority/{templates,contexts,policy-memory,workspaces}/<id>/<revision>.json
+  authority/generations/<digest>.json + authority/active.json
+  complete atomic generation schema 1
 
 CLI presentation
   {"schema_version": 1, "template": ...}
@@ -86,14 +87,13 @@ CLI presentation
 ```
 
 Public Template, Context, Workspace, and entry results are task-owned
-projections, not the complete bytes stored in the atomic final-authority
-envelope.
+projections, not the complete bytes selected by the active generation.
 
 ## Persisted host contracts
 
 | State                                       | Current contract  |
 | ------------------------------------------- | ----------------- |
-| Atomic final-authority collection           | Schema 1          |
+| Active authority generation                 | Schema 1          |
 | Managed Runtime library and lifecycle state | Schema 1          |
 | Workspace-owned agent state                 | Tool-owned format |
 | Base Runtime metadata                       | Schema 1          |

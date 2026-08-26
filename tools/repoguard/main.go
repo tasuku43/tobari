@@ -126,6 +126,11 @@ func inspect(root, scope string) ([]issue, error) {
 		return nil, err
 	}
 	issues = append(issues, policyRetirementIssues...)
+	currentAuthorityIssues, err := checkCurrentAuthorityDocumentation(root, paths)
+	if err != nil {
+		return nil, err
+	}
+	issues = append(issues, currentAuthorityIssues...)
 	workIssues, err := checkWorkPackets(root, paths)
 	if err != nil {
 		return nil, err

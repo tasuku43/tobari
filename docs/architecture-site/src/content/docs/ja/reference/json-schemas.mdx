@@ -69,14 +69,15 @@ Tobari は多くの JSON 契約で、明示的な `schema_version` フィール�
 [CLI リファレンス](../cli/)で生成します。オブジェクトの名前が同じでも、別のエンベロープの
 フィールドを推測してはいけません。
 
-### final authority の契約境界
+### active authority の契約境界
 
-永続化する owner envelope と公開する task projection は別の契約です。
+永続化する immutable authority object と公開する task projection は別の契約です。
 
 ```text
-Persisted final authority
-  workspace-authority/authority.json
-  complete atomic collection schema 1
+Persisted active authority
+  authority/{templates,contexts,policy-memory,workspaces}/<id>/<revision>.json
+  authority/generations/<digest>.json + authority/active.json
+  complete atomic generation schema 1
 
 CLI presentation
   {"schema_version": 1, "template": ...}
@@ -84,13 +85,13 @@ CLI presentation
 ```
 
 公開する Template、Context、Workspace、entry の結果は task-owned projection であり、
-atomic final-authority envelope に保存する完全なバイト列ではありません。
+active generation が選択する完全なバイト列ではありません。
 
 ## ホストに永続化する契約
 
 | 状態                                     | 現在の契約       |
 | ---------------------------------------- | ---------------- |
-| atomic final-authority collection        | スキーマ 1       |
+| active authority generation              | スキーマ 1       |
 | managed Runtime library／lifecycle state | スキーマ 1       |
 | agent CLI の Workspace home              | ツール固有の形式 |
 | ベース Runtime メタデータ                | スキーマ 1       |

@@ -638,7 +638,7 @@ func TestContextEntryDecisionArtifactsRemainOwnerOnly(t *testing.T) {
 	runtime.reconcileErr = errors.New("stop after decision")
 	contextRef, _ := tobari.ContextRef(storeContextID)
 	_, _ = adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard)
-	for _, path := range []string{mutator.effectDecisionPath(), mutator.store.root + ".wp11-mutation-stage"} {
+	for _, path := range []string{mutator.effectDecisionPath(), mutationStagePath(mutator.store.root)} {
 		info, err := os.Lstat(path)
 		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
 			t.Fatalf("artifact %s mode=%v err=%v", filepath.Base(path), info.Mode(), err)

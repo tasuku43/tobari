@@ -30,18 +30,19 @@ func runtimeCommandSpecs() []CommandSpec {
 		finalTemplateShowSpec(),
 		finalTemplateCreateSpec(),
 		finalTemplateCopySpec(),
+		finalTemplatePlanSpec(),
+		finalTemplateApplySpec(),
 		finalTemplateDefaultSetSpec(),
 		finalTemplateDeleteSpec(),
-		finalConfigShellSpec(),
-		finalConfigGitSpec(),
-		finalConfigBootstrapAWSSpec(),
-		finalConfigBootstrapEKSSpec(),
-		finalTemplateRuntimeSetSpec(),
 		finalContextListSpec(),
 		finalContextShowSpec(),
+		finalContextPlanSpec(),
+		finalContextApplySpec(),
 		finalContextCreateSpec(),
 		finalContextEnterSpec(),
 		finalContextDeleteSpec(),
+		installationMigrationPlanSpec(),
+		installationMigrationApplySpec(),
 		finalWorkspaceListSpec(),
 		finalWorkspaceStatusSpec(),
 		finalWorkspaceDeleteSpec(),
@@ -59,201 +60,6 @@ func runtimeCommandSpecs() []CommandSpec {
 		finalDefaultPairStatusSpec(),
 	)
 	return append(specs, authCommandSpecs()...)
-}
-
-func configBootstrapAWSSpec() CommandSpec {
-	minimum := int64(1)
-	return CommandSpec{
-		Path: "config bootstrap aws", Summary: "Configure, refresh, or remove the AWS snapshot applied once to future Workspace homes",
-		Args:   "[--profile <name>] [--refresh] [--remove] [--manifest <name>] [--format text|json]",
-		Effect: operation.EffectWrite, Role: RoleAct,
-		Agent: AgentContract{
-			CapabilityID: "manifest.workspace-bootstrap",
-			Outcome:      "Normalize one host AWS IAM Identity Center profile into a secret-free Workspace Manifest snapshot for future Workspaces, refresh its semantic revision, or remove the future recipe without rewriting existing Workspace homes",
-			Inputs: []CommandInput{
-				{Name: "--profile", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Exact host AWS shared-config profile to normalize now; conflicts with refresh and remove.", AllowedValues: []string{}, ConflictsWith: []string{"--refresh", "--remove"}},
-				{Name: "--refresh", Source: InputSourceFlag, Required: false, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Re-read the profile named by the selected Workspace Manifest snapshot; conflicts with profile and remove.", AllowedValues: []string{}, ConflictsWith: []string{"--profile", "--remove"}},
-				{Name: "--remove", Source: InputSourceFlag, Required: false, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Remove the recipe for future Workspaces; existing Workspace homes retain their create-time bytes.", AllowedValues: []string{}, ConflictsWith: []string{"--profile", "--refresh"}},
-				executionContextInput(), formatInput(),
-			},
-			Output: contextReportOutput(),
-			Prerequisites: []string{
-				"The selected Workspace Manifest exists and the fixed host ~/.aws/config path is a bounded regular non-symlink file not writable by group or other users.",
-				"The selected profile uses one sso_session section and only the reviewed secret-free IAM Identity Center fields; credentials and ~/.aws/sso/cache are never read.",
-				"When action flags are omitted, stdin and stderr are interactive terminals and both success and error formats are text.",
-			},
-			FixedTarget: fixedContextBootstrapTarget(),
-			Errors: mutationCommandErrors("config bootstrap aws", "manifest show",
-				declaredCommandError(fault.KindInvalidInput, "configuration_wizard_unavailable", false, "help config bootstrap aws", "Supply one action flag or run the wizard on interactive text streams."),
-				declaredCommandError(fault.KindInternal, "configuration_wizard_failed", false, "help config bootstrap aws", "Retry with one direct action flag or repair the interactive terminal streams."),
-				declaredCommandError(fault.KindInvalidInput, "invalid_manifest_name", false, "manifest list", "Choose a valid Workspace Manifest name."),
-				declaredCommandError(fault.KindInvalidInput, "invalid_aws_bootstrap_change", false, "help config bootstrap aws", "Choose exactly one configure, refresh, or remove action."),
-				declaredCommandError(fault.KindNotFound, "manifest_not_found", false, "manifest list", "Choose an existing Workspace Manifest."),
-				declaredCommandError(fault.KindNotFound, "bootstrap_not_configured", false, "help config bootstrap aws", "Configure a profile before refreshing."),
-				declaredCommandError(fault.KindRejected, "config_bootstrap_failed", false, "manifest show", "Inspect the current recipe and strict host AWS profile."),
-				declaredCommandError(fault.KindRejected, "bootstrap_source_changed", true, "config bootstrap aws", "Review a fresh semantic diff before applying."),
-				declaredCommandError(fault.KindRejected, "bootstrap_dependency", false, "config bootstrap kubernetes eks", "Remove the dependent EKS adapter first with --remove."),
-				declaredCommandError(fault.KindRejected, "aws_bootstrap_source_rejected", false, "help config bootstrap aws", "Use a strict IAM Identity Center profile without credentials, helpers, or unsupported directives."),
-				declaredCommandError(fault.KindContract, "invalid_bootstrap_preview", false, "manifest show", "Inspect the Workspace Manifest recipe before retrying."),
-				declaredCommandError(fault.KindContract, "invalid_manifest_report", false, "manifest show", "Reconcile the confirmed Workspace Manifest bootstrap change."),
-				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
-			),
-			Mutation: &MutationContract{TargetKind: tobari.ManifestBootstrapTargetKind, TargetInputs: []string{}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo}},
-		},
-		handler: runConfigBootstrapAWS,
-	}
-}
-
-func configBootstrapEKSSpec() CommandSpec {
-	minimum := int64(1)
-	return CommandSpec{
-		Path: "config bootstrap kubernetes eks", Summary: "Configure, refresh, or remove one reviewed EKS target for future Workspace homes",
-		Args:   "[--kube-context <name>] [--refresh] [--remove] [--manifest <name>] [--format text|json]",
-		Effect: operation.EffectWrite, Role: RoleAct,
-		Agent: AgentContract{
-			CapabilityID: "manifest.workspace-bootstrap",
-			Outcome:      "Compose one host AWS CLI-generated EKS context with the Workspace Manifest AWS profile, refresh it, or remove only the EKS target without rewriting existing Workspace homes",
-			Inputs: []CommandInput{
-				{Name: "--kube-context", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Exact context name in fixed host ~/.kube/config; conflicts with refresh and remove.", AllowedValues: []string{}, ConflictsWith: []string{"--refresh", "--remove"}},
-				{Name: "--refresh", Source: InputSourceFlag, Required: false, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Re-read the currently selected host kube context; conflicts with context selection and remove.", AllowedValues: []string{}, ConflictsWith: []string{"--kube-context", "--remove"}},
-				{Name: "--remove", Source: InputSourceFlag, Required: false, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Remove only the EKS adapter for future Workspaces; preserve AWS and existing Workspace homes.", AllowedValues: []string{}, ConflictsWith: []string{"--kube-context", "--refresh"}},
-				executionContextInput(), formatInput(),
-			},
-			Output: contextReportOutput(),
-			Prerequisites: []string{
-				"The selected Workspace Manifest already has an AWS IAM Identity Center bootstrap profile.",
-				"Fixed host ~/.kube/config is a bounded safe regular file and the selected context resolves to an inline-CA commercial EKS endpoint with the reviewed aws eks get-token exec contract and matching AWS_PROFILE.",
-				"No host credential, token cache, arbitrary exec, alternate kubeconfig path, or network authority is imported.",
-			},
-			FixedTarget: fixedContextBootstrapTarget(),
-			Errors: mutationCommandErrors("config bootstrap kubernetes eks", "manifest show",
-				declaredCommandError(fault.KindInvalidInput, "configuration_wizard_unavailable", false, "help config bootstrap kubernetes eks", "Supply one action flag or use interactive text streams."),
-				declaredCommandError(fault.KindInvalidInput, "invalid_manifest_name", false, "manifest list", "Choose a valid Workspace Manifest name."),
-				declaredCommandError(fault.KindInvalidInput, "invalid_eks_bootstrap_change", false, "help config bootstrap kubernetes eks", "Choose exactly one configure, refresh, or remove action."),
-				declaredCommandError(fault.KindNotFound, "manifest_not_found", false, "manifest list", "Choose an existing Workspace Manifest."),
-				declaredCommandError(fault.KindNotFound, "bootstrap_not_configured", false, "help config bootstrap kubernetes eks", "Configure AWS first, or select EKS before refresh/remove."),
-				declaredCommandError(fault.KindRejected, "eks_bootstrap_source_rejected", false, "help config bootstrap kubernetes eks", "Use a strict AWS CLI-generated EKS context bound to the Workspace Manifest AWS profile."),
-				declaredCommandError(fault.KindRejected, "config_bootstrap_failed", false, "manifest show", "Inspect the current recipe and selected kube context."),
-				declaredCommandError(fault.KindRejected, "bootstrap_source_changed", true, "config bootstrap kubernetes eks", "Review a fresh semantic diff before applying."),
-				declaredCommandError(fault.KindContract, "invalid_bootstrap_preview", false, "manifest show", "Inspect the Workspace Manifest recipe before retrying."),
-				declaredCommandError(fault.KindContract, "invalid_manifest_report", false, "manifest show", "Reconcile the confirmed Workspace Manifest bootstrap change."),
-				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
-			),
-			Mutation: &MutationContract{TargetKind: tobari.ManifestBootstrapTargetKind, TargetInputs: []string{}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo}},
-		},
-		handler: runConfigBootstrapEKS,
-	}
-}
-
-func configShellSpec() CommandSpec {
-	return CommandSpec{
-		Path: "config shell", Summary: "Configure Workspace Manifest shell session defaults directly or with one staged terminal Apply",
-		Args:   "[--variable COLORTERM|NO_COLOR|PS1|TERM] [--source default|inherit|literal] [--value <value>] [--manifest <name>] [--format text|json]",
-		Effect: operation.EffectWrite, Role: RoleAct,
-		Agent: AgentContract{
-			CapabilityID: "manifest.composition",
-			Outcome:      "Configure one allowlisted shell session default through complete flags, or stage several rows and apply them atomically; later child sessions resolve it without rewriting Workspace home",
-			Inputs: []CommandInput{
-				{
-					Name: "--variable", Source: InputSourceFlag, Required: false,
-					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description:   "Allowlisted shell environment variable configured for future interactive sessions.",
-					AllowedValues: tobari.ManifestShellEnvironmentVariables(),
-					Requires:      []string{"--source"},
-				},
-				{
-					Name: "--source", Source: InputSourceFlag, Required: false,
-					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description:   "default removes the override; inherit reads an exported host value at entry; literal uses --value. Omit all setting flags to use the staged terminal editor.",
-					AllowedValues: []string{"default", "inherit", "literal"},
-					Requires:      []string{"--variable"},
-				},
-				{
-					Name: "--value", Source: InputSourceFlag, Required: false,
-					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description:   "Exact Workspace Manifest-owned value of at most 4096 UTF-8 bytes; required only for literal and may be explicitly empty.",
-					AllowedValues: []string{}, Requires: []string{"--variable", "--source"},
-				},
-				executionContextInput(),
-				formatInput(),
-			},
-			Output:        contextReportOutput(),
-			Prerequisites: []string{"The selected Workspace Manifest exists on the trusted host; inherited values must be exported by the process that starts Tobari.", "When setting flags are omitted, stdin and stderr are interactive terminals and both success and error formats are text."},
-			FixedTarget:   fixedContextShellTarget(),
-			Errors: mutationCommandErrors("config shell", "manifest show",
-				declaredCommandError(fault.KindInvalidInput, "configuration_wizard_unavailable", false, "help config shell", "Supply every setting flag or run the wizard with text success/error output on interactive stdin and stderr."),
-				declaredCommandError(fault.KindInternal, "configuration_wizard_failed", false, "help config shell", "Retry with complete setting flags or repair the interactive terminal streams."),
-				declaredCommandError(fault.KindInvalidInput, "invalid_shell_environment", false, "help config shell", "Choose an allowlisted variable and a valid source/value combination."),
-				declaredCommandError(fault.KindInvalidInput, "invalid_manifest_name", false, "manifest list", "Choose a valid Workspace Manifest name."),
-				declaredCommandError(fault.KindNotFound, "manifest_not_found", false, "manifest list", "Choose an existing Workspace Manifest."),
-				declaredCommandError(fault.KindInternal, "manifest_read_failed", false, "doctor", "Inspect the host Workspace Manifest stores before retrying the wizard."),
-				declaredCommandError(fault.KindRejected, "config_shell_failed", false, "manifest show", "Inspect the Workspace Manifest shell environment before retrying."),
-				declaredCommandError(fault.KindContract, "invalid_manifest_report", false, "manifest show", "Reconcile the confirmed Workspace Manifest shell setting."),
-				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
-			),
-			Mutation: &MutationContract{
-				TargetKind: tobari.ManifestShellTargetKind, TargetInputs: []string{},
-				Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo},
-			},
-		},
-		handler: runConfigShell,
-	}
-}
-
-func configGitSpec() CommandSpec {
-	return CommandSpec{
-		Path: "config git", Summary: "Configure one Workspace Manifest Git session fallback directly or from one staged terminal screen",
-		Args:   "[--source default|inherit|literal] [--name <name>] [--email <email>] [--manifest <name>] [--format text|json]",
-		Effect: operation.EffectWrite, Role: RoleAct,
-		Agent: AgentContract{
-			CapabilityID: "manifest.composition",
-			Outcome:      "Choose no Git session fallback, inherited host user.name and user.email, or one fixed Workspace Manifest-owned identity; later Workspace entry resolves it without rewriting Workspace home",
-			Inputs: []CommandInput{
-				{
-					Name: "--source", Source: InputSourceFlag, Required: false,
-					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description:   "default removes the Workspace Manifest fallback; inherit projects host user.name and user.email at Workspace entry; literal uses --name and --email. Omit all setting flags to use the staged terminal editor.",
-					AllowedValues: []string{"default", "inherit", "literal"},
-				},
-				{
-					Name: "--name", Source: InputSourceFlag, Required: false,
-					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description:   "Exact non-empty Workspace Manifest-owned Git user.name of at most 4096 safe UTF-8 bytes; required with --email only for literal.",
-					AllowedValues: []string{}, Requires: []string{"--source", "--email"},
-				},
-				{
-					Name: "--email", Source: InputSourceFlag, Required: false,
-					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description:   "Exact non-empty Workspace Manifest-owned Git user.email of at most 4096 safe UTF-8 bytes; required with --name only for literal.",
-					AllowedValues: []string{}, Requires: []string{"--source", "--name"},
-				},
-				executionContextInput(),
-				formatInput(),
-			},
-			Output: contextReportOutput(),
-			Prerequisites: []string{
-				"The selected Workspace Manifest exists on the trusted host; inherited identity is resolved from only host global Git configuration at Workspace entry.",
-				"When setting flags are omitted, stdin and stderr are interactive terminals and both success and error formats are text.",
-			},
-			FixedTarget: fixedContextGitIdentityTarget(),
-			Errors: mutationCommandErrors("config git", "manifest show",
-				declaredCommandError(fault.KindInvalidInput, "configuration_wizard_unavailable", false, "help config git", "Supply every setting flag or run the wizard with text success/error output on interactive stdin and stderr."),
-				declaredCommandError(fault.KindInternal, "configuration_wizard_failed", false, "help config git", "Retry with complete setting flags or repair the interactive terminal streams."),
-				declaredCommandError(fault.KindInvalidInput, "invalid_git_identity", false, "help config git", "Choose default, inherit, or a literal source with both name and email."),
-				declaredCommandError(fault.KindInvalidInput, "invalid_manifest_name", false, "manifest list", "Choose a valid Workspace Manifest name."),
-				declaredCommandError(fault.KindNotFound, "manifest_not_found", false, "manifest list", "Choose an existing Workspace Manifest."),
-				declaredCommandError(fault.KindInternal, "manifest_read_failed", false, "doctor", "Inspect the host Workspace Manifest stores before retrying the wizard."),
-				declaredCommandError(fault.KindRejected, "config_git_failed", false, "manifest show", "Inspect the Workspace Manifest Git identity before retrying."),
-				declaredCommandError(fault.KindContract, "invalid_manifest_report", false, "manifest show", "Reconcile the confirmed Workspace Manifest Git identity setting."),
-				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
-			),
-			Mutation: &MutationContract{
-				TargetKind: tobari.ManifestGitIdentityTargetKind, TargetInputs: []string{},
-				Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo},
-			},
-		},
-		handler: runConfigGit,
-	}
 }
 
 func contextListSpec() CommandSpec {

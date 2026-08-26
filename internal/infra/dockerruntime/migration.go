@@ -616,7 +616,11 @@ func (r *Runtime) prepareLegacyMigrationRuntime(ctx context.Context, contextName
 		if _, err := r.createRuntimeLifecycleLocked(ctx, name, tobari.RuntimeCopySource(tobari.StandardRuntimeName)); err != nil {
 			return tobari.RuntimeBinding{}, fmt.Errorf("%w: create managed Runtime: %v", tobari.ErrMigrationRuntimeFailed, err)
 		}
-		if err := writeAtomicBytes(filepath.Join(r.runtimeSourceDirectory(name), "Dockerfile"), dockerfile); err != nil {
+		created, readErr := r.readRuntimeManifest(name)
+		if readErr != nil {
+			return tobari.RuntimeBinding{}, fmt.Errorf("%w: inspect created managed Runtime: %v", tobari.ErrMigrationRuntimeFailed, readErr)
+		}
+		if err := writeAtomicBytes(filepath.Join(created.SourcePath, "Dockerfile"), dockerfile); err != nil {
 			return tobari.RuntimeBinding{}, fmt.Errorf("%w: initialize managed Runtime source: %v", tobari.ErrMigrationRuntimeFailed, err)
 		}
 	} else if err != nil {

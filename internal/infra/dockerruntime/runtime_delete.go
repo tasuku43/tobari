@@ -101,6 +101,14 @@ func (r *Runtime) runtimeDeleteQuarantinePath(runtimeID string) string {
 	return filepath.Join(r.runtimeDeleteQuarantineDirectory(), runtimeID)
 }
 
+func (r *Runtime) runtimeDeleteStateQuarantineDirectory() string {
+	return filepath.Join(r.stateDirectory, runtimeDeleteQuarantineDir)
+}
+
+func (r *Runtime) runtimeDeleteStateQuarantinePath(runtimeID string) string {
+	return filepath.Join(r.runtimeDeleteStateQuarantineDirectory(), runtimeID)
+}
+
 func (r *Runtime) readRuntimeDeleteJournalObserved() (*runtimeDeleteJournal, error) {
 	if err := r.validateRuntimeDeleteReceiptDirectory(); err != nil {
 		return nil, err
@@ -144,11 +152,11 @@ func (r *Runtime) validateRuntimeDeleteReceiptDirectory() error {
 }
 
 func (r *Runtime) validateRuntimeDeleteTargetPaths(target tobari.RuntimeDeleteTarget) error {
-	if target.Runtime.SourcePath != r.runtimeSourceDirectory(target.Runtime.Name) {
+	if target.Runtime.SourcePath != r.runtimeSourceDirectory(target.Runtime.ID) {
 		return fmt.Errorf("Runtime delete source path is not canonical")
 	}
 	for _, revision := range target.Runtime.Revisions {
-		want := filepath.Join(r.runtimeRevisionsDirectory(target.Runtime.Name), strings.TrimPrefix(revision.Revision, "sha256:"), "source")
+		want := filepath.Join(r.runtimeRevisionsDirectory(target.Runtime.ID), strings.TrimPrefix(revision.Revision, "sha256:"), "source")
 		if revision.SnapshotPath != want || revision.Image != managedLibraryRuntimeImage(target.Runtime.Name, target.Runtime.ID, revision.Revision) {
 			return fmt.Errorf("Runtime delete revision authority is not canonical")
 		}
@@ -682,23 +690,14 @@ func (r *Runtime) validateRuntimeDeleteResumeSnapshotAll(snapshot tobari.Runtime
 }
 
 func (r *Runtime) quarantineRuntimeDeleteTarget(ctx context.Context, journal runtimeDeleteJournal) error {
-	source := r.runtimeDirectory(journal.Target.Runtime.Name)
+	source := r.runtimeDirectory(journal.Target.Runtime.ID)
+	stateSource := r.runtimeStateDirectory(journal.Target.Runtime.ID)
 	destination := r.runtimeDeleteQuarantinePath(journal.Target.Runtime.ID)
-	sourceInfo, sourceErr := os.Lstat(source)
-	destinationInfo, destinationErr := os.Lstat(destination)
-	if errors.Is(sourceErr, os.ErrNotExist) && destinationErr == nil {
-		if !destinationInfo.IsDir() || destinationInfo.Mode()&os.ModeSymlink != 0 || destinationInfo.Mode().Perm()&0o077 != 0 {
-			return fmt.Errorf("Runtime delete quarantine is unsafe")
-		}
-		return r.validateRuntimeDeleteQuarantinedTarget(ctx, journal)
-	}
-	if sourceErr != nil {
-		return sourceErr
-	}
-	if !sourceInfo.IsDir() || sourceInfo.Mode()&os.ModeSymlink != 0 || sourceInfo.Mode().Perm()&0o077 != 0 || !errors.Is(destinationErr, os.ErrNotExist) {
-		return fmt.Errorf("Runtime delete quarantine precondition changed")
-	}
+	stateDestination := r.runtimeDeleteStateQuarantinePath(journal.Target.Runtime.ID)
 	if err := r.ensurePrivateDirectory(r.runtimeDeleteQuarantineDirectory()); err != nil {
+		return err
+	}
+	if err := r.ensurePrivateDirectory(r.runtimeDeleteStateQuarantineDirectory()); err != nil {
 		return err
 	}
 	if r.runtimeDeleteBeforeQuarantine != nil {
@@ -706,17 +705,8 @@ func (r *Runtime) quarantineRuntimeDeleteTarget(ctx context.Context, journal run
 			return err
 		}
 	}
-	rename := os.Rename
-	if r.runtimeDeleteRename != nil {
-		rename = r.runtimeDeleteRename
-	}
-	if err := rename(source, destination); err != nil {
-		if sourceNow, sourceObserveErr := os.Lstat(source); !errors.Is(sourceObserveErr, os.ErrNotExist) || sourceNow != nil {
-			return errors.Join(err, sourceObserveErr)
-		}
-		if destinationNow, destinationObserveErr := os.Lstat(destination); destinationObserveErr != nil || !destinationNow.IsDir() || destinationNow.Mode()&os.ModeSymlink != 0 {
-			return errors.Join(err, destinationObserveErr)
-		}
+	if err := r.moveRuntimeDeleteMember(source, destination); err != nil {
+		return err
 	}
 	if err := syncDirectoryIfPresent(r.runtimesDirectory()); err != nil {
 		return err
@@ -724,7 +714,56 @@ func (r *Runtime) quarantineRuntimeDeleteTarget(ctx context.Context, journal run
 	if err := syncDirectoryIfPresent(r.runtimeDeleteQuarantineDirectory()); err != nil {
 		return err
 	}
+	// Config and state can be on different filesystems. Once the config member
+	// is durably quarantined, the delete journal is the recovery authority. Do
+	// not attempt a best-effort cross-root rollback: a crash during that rollback
+	// could lose both the original and the quarantine. A retry completes the
+	// independently idempotent state move below.
+	if err := r.moveRuntimeDeleteMember(stateSource, stateDestination); err != nil {
+		return err
+	}
+	if err := syncDirectoryIfPresent(r.runtimeStatesDirectory()); err != nil {
+		return err
+	}
+	if err := syncDirectoryIfPresent(r.runtimeDeleteStateQuarantineDirectory()); err != nil {
+		return err
+	}
 	return r.validateRuntimeDeleteQuarantinedTarget(ctx, journal)
+}
+
+func (r *Runtime) moveRuntimeDeleteMember(source, destination string) error {
+	sourceInfo, sourceErr := os.Lstat(source)
+	destinationInfo, destinationErr := os.Lstat(destination)
+	switch {
+	case sourceErr == nil && errors.Is(destinationErr, os.ErrNotExist):
+		if !sourceInfo.IsDir() || sourceInfo.Mode()&os.ModeSymlink != 0 || sourceInfo.Mode().Perm()&0o077 != 0 {
+			return fmt.Errorf("Runtime delete source is unsafe")
+		}
+		rename := os.Rename
+		if r.runtimeDeleteRename != nil {
+			rename = r.runtimeDeleteRename
+		}
+		if err := rename(source, destination); err != nil {
+			// A rename wrapper may report an uncertain result. Observe both sides
+			// and accept only the exact completed outcome.
+			if sourceNow, sourceObserveErr := os.Lstat(source); !errors.Is(sourceObserveErr, os.ErrNotExist) || sourceNow != nil {
+				return errors.Join(err, sourceObserveErr)
+			}
+			if destinationNow, destinationObserveErr := os.Lstat(destination); destinationObserveErr != nil || !destinationNow.IsDir() || destinationNow.Mode()&os.ModeSymlink != 0 || destinationNow.Mode().Perm()&0o077 != 0 {
+				return errors.Join(err, destinationObserveErr)
+			}
+		}
+		return nil
+	case errors.Is(sourceErr, os.ErrNotExist) && destinationErr == nil:
+		if !destinationInfo.IsDir() || destinationInfo.Mode()&os.ModeSymlink != 0 || destinationInfo.Mode().Perm()&0o077 != 0 {
+			return fmt.Errorf("Runtime delete quarantine is unsafe")
+		}
+		return nil
+	case sourceErr == nil && destinationErr == nil:
+		return fmt.Errorf("Runtime delete source and quarantine both exist")
+	default:
+		return errors.Join(sourceErr, destinationErr)
+	}
 }
 
 func (r *Runtime) validateRuntimeDeleteQuarantinedTarget(ctx context.Context, journal runtimeDeleteJournal) error {
@@ -736,7 +775,7 @@ func (r *Runtime) validateRuntimeDeleteQuarantinedTarget(ctx context.Context, jo
 	if err != nil {
 		return err
 	}
-	want := map[string]bool{"runtime.json": true, "source": true, "revisions": true}
+	want := map[string]bool{"runtime.yaml": true, "source": true}
 	for _, entry := range entries {
 		if entry.Type()&os.ModeSymlink != 0 || !want[entry.Name()] {
 			return fmt.Errorf("Runtime delete quarantine contains an unknown child")
@@ -746,7 +785,16 @@ func (r *Runtime) validateRuntimeDeleteQuarantinedTarget(ctx context.Context, jo
 	if len(want) != 0 {
 		return fmt.Errorf("Runtime delete quarantine inventory is incomplete")
 	}
-	manifestPath := filepath.Join(root, "runtime.json")
+	metadata, err := readRuntimeSourceMetadata(filepath.Join(root, "runtime.yaml"))
+	if err != nil || metadata.RuntimeID != journal.Target.Runtime.ID || metadata.Name != journal.Target.Runtime.Name {
+		return fmt.Errorf("Runtime delete quarantine metadata changed: %w", err)
+	}
+	stateRoot := r.runtimeDeleteStateQuarantinePath(journal.Target.Runtime.ID)
+	stateEntries, err := os.ReadDir(stateRoot)
+	if err != nil || len(stateEntries) != 2 {
+		return fmt.Errorf("Runtime delete quarantine state is incomplete: %w", err)
+	}
+	manifestPath := filepath.Join(stateRoot, "runtime.json")
 	info, err := os.Lstat(manifestPath)
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
 		return fmt.Errorf("Runtime delete quarantine manifest is unsafe: %w", err)
@@ -768,7 +816,7 @@ func (r *Runtime) validateRuntimeDeleteQuarantinedTarget(ctx context.Context, jo
 	if err != nil || sourceBytes != journal.Target.Storage.SourceLogicalBytes {
 		return fmt.Errorf("Runtime delete quarantine source authority changed: %w", err)
 	}
-	revisionsRoot := filepath.Join(root, "revisions")
+	revisionsRoot := filepath.Join(stateRoot, "revisions")
 	if err := requirePrivateDirectory(revisionsRoot); err != nil {
 		return err
 	}
@@ -808,7 +856,11 @@ func (r *Runtime) validateRuntimeDeleteQuarantinedTarget(ctx context.Context, jo
 func (r *Runtime) removeRuntimeDeleteQuarantine(ctx context.Context, journal runtimeDeleteJournal) (resultErr error) {
 	path := r.runtimeDeleteQuarantinePath(journal.Target.Runtime.ID)
 	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
-		return nil
+		statePath := r.runtimeDeleteStateQuarantinePath(journal.Target.Runtime.ID)
+		if _, stateErr := os.Lstat(statePath); errors.Is(stateErr, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("Runtime delete quarantine is partially removed")
 	} else if err != nil {
 		return err
 	}
@@ -864,7 +916,14 @@ func (r *Runtime) removeRuntimeDeleteQuarantine(ctx context.Context, journal run
 		}
 		return err
 	}
-	return syncDirectoryIfPresent(r.runtimeDeleteQuarantineDirectory())
+	statePath := r.runtimeDeleteStateQuarantinePath(journal.Target.Runtime.ID)
+	if err := os.RemoveAll(statePath); err != nil {
+		return err
+	}
+	if err := syncDirectoryIfPresent(r.runtimeDeleteQuarantineDirectory()); err != nil {
+		return err
+	}
+	return syncDirectoryIfPresent(r.runtimeDeleteStateQuarantineDirectory())
 }
 
 func cloneRuntimeDeleteJournal(journal runtimeDeleteJournal) runtimeDeleteJournal {

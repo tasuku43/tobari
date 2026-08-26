@@ -254,7 +254,7 @@ func TestFinalContextAuthIsolatedByFreshContextIdentityAndNeverAdoptsPredecessor
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshotB, err := mutator.CreateContextByTemplateReference(context.Background(), templateRef, "/workspace/other-project")
+	snapshotB, err := mutator.seedContextForLegacyMigration(context.Background(), templateRef, "/workspace/other-project")
 	if err != nil {
 		t.Fatal(err)
 	}

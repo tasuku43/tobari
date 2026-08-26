@@ -93,6 +93,163 @@ func TestWorkspaceAuthorityCollectionRequiresPendingCandidatesToBeUnconsumed(t *
 	}
 }
 
+func TestPolicyMemoryBoundaryTighteningSupersedesOnlyOutsideAllows(t *testing.T) {
+	context := ContextBinding{
+		SchemaVersion: ContextBindingSchemaVersion,
+		ID:            testContextAuthorityID,
+		ProjectRoot:   "/workspace/example",
+		TemplateID:    testTemplateAuthorityID,
+	}
+	allowOutside, err := NewPolicyMemoryRule(context.ID, PolicyMemoryAllow, policyMemoryBodyFixture("/items/1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowInsideBody := policyMemoryBodyFixture("/items/2")
+	allowInsideBody.Method = "POST"
+	allowInside, err := NewPolicyMemoryRule(context.ID, PolicyMemoryAllow, allowInsideBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	denyBody := policyMemoryBodyFixture("/items/3")
+	deny, err := NewPolicyMemoryRule(context.ID, PolicyMemoryDeny, denyBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memory, changed, err := PublishPolicyMemory(context.ID, []PolicyMemoryRule{allowOutside, allowInside, deny}, nil)
+	if err != nil || !changed {
+		t.Fatalf("publish memory: changed=%t err=%v", changed, err)
+	}
+	receipt := PolicyMemoryActivationReceipt{ContextID: context.ID, Revision: memory.Revision}
+	record := WorkspaceAuthorityContextRecord{
+		Context: context, PolicyMemory: memory,
+		ActivePolicyMemory: collectionPolicyMemoryPtr(memory), ActivePolicyMemoryRef: &receipt,
+	}
+
+	tightenedBody := templateBodyFixture("items")
+	tightenedBody.Boundary.MethodPolicy.Overrides[0].Decision = ManifestMethodDeny
+	tightenedBody.Policy.BaselineGrants[0].Method = "POST"
+	tightened, err := NewWorkspaceTemplateRevision(context.TemplateID, 2, tightenedBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settled, removed, err := SupersedePolicyMemoryAllowsOutsideBoundary(record, tightened)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 1 || settled.PolicyMemory.Generation != memory.Generation+1 {
+		t.Fatalf("removed=%d generation=%d", removed, settled.PolicyMemory.Generation)
+	}
+	if settled.ActivePolicyMemory != nil || settled.ActivePolicyMemoryRef != nil {
+		t.Fatal("tightening retained stale active Policy Memory receipts")
+	}
+	if len(settled.PolicyMemory.Rules) != 2 {
+		t.Fatalf("remaining rules=%d", len(settled.PolicyMemory.Rules))
+	}
+	remaining := map[string]PolicyMemoryDecision{}
+	for _, rule := range settled.PolicyMemory.Rules {
+		remaining[rule.ID] = rule.Decision
+	}
+	if remaining[allowInside.ID] != PolicyMemoryAllow || remaining[deny.ID] != PolicyMemoryDeny {
+		t.Fatalf("unexpected remaining rules: %#v", remaining)
+	}
+	if _, exists := remaining[allowOutside.ID]; exists {
+		t.Fatal("outside Allow survived tightening")
+	}
+	if len(settled.SupersededAllows) != 1 {
+		t.Fatalf("supersession history=%d", len(settled.SupersededAllows))
+	}
+	history := settled.SupersededAllows[0]
+	if history.Rule.ID != allowOutside.ID || history.SourceMemoryRevision != memory.Revision ||
+		history.TemplateID != tightened.TemplateID || history.TemplateRevision != tightened.Revision {
+		t.Fatalf("supersession provenance=%#v", history)
+	}
+	if err := history.Validate(); err != nil {
+		t.Fatalf("supersession provenance invalid: %v", err)
+	}
+	if len(record.PolicyMemory.Rules) != 3 || record.ActivePolicyMemory == nil || record.ActivePolicyMemoryRef == nil {
+		t.Fatal("supersession mutated its input record")
+	}
+}
+
+func TestPolicyMemoryBoundaryNoOpPreservesRevisionAndActiveReceipts(t *testing.T) {
+	context := ContextBinding{
+		SchemaVersion: ContextBindingSchemaVersion,
+		ID:            testContextAuthorityID,
+		ProjectRoot:   "/workspace/example",
+		TemplateID:    testTemplateAuthorityID,
+	}
+	allow, err := NewPolicyMemoryRule(context.ID, PolicyMemoryAllow, policyMemoryBodyFixture("/items/1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	memory, _, err := PublishPolicyMemory(context.ID, []PolicyMemoryRule{allow}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := PolicyMemoryActivationReceipt{ContextID: context.ID, Revision: memory.Revision}
+	record := WorkspaceAuthorityContextRecord{
+		Context: context, PolicyMemory: memory,
+		ActivePolicyMemory: collectionPolicyMemoryPtr(memory), ActivePolicyMemoryRef: &receipt,
+	}
+	template, err := NewWorkspaceTemplateRevision(context.TemplateID, 1, templateBodyFixture("items"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	settled, removed, err := SupersedePolicyMemoryAllowsOutsideBoundary(record, template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 0 || settled.PolicyMemory.Revision != memory.Revision || settled.PolicyMemory.Generation != memory.Generation {
+		t.Fatalf("unexpected no-op settlement: removed=%d memory=%#v", removed, settled.PolicyMemory)
+	}
+	if settled.ActivePolicyMemory == nil || settled.ActivePolicyMemoryRef == nil || settled.ActivePolicyMemoryRef.Revision != memory.Revision {
+		t.Fatal("no-op supersession changed active Policy Memory receipts")
+	}
+	if len(settled.SupersededAllows) != 0 {
+		t.Fatal("no-op supersession created provenance")
+	}
+}
+
+func TestBoundaryTighteningSupersedesPendingCandidatesWithoutGrantingAuthority(t *testing.T) {
+	base := workspaceAuthorityCollectionFixture(t)
+	tightenedBody := base.Templates[0].Current.Body.Clone()
+	for index := range tightenedBody.Boundary.MethodPolicy.Overrides {
+		if tightenedBody.Boundary.MethodPolicy.Overrides[index].Method == "GET" {
+			tightenedBody.Boundary.MethodPolicy.Overrides[index].Decision = ManifestMethodDeny
+		}
+	}
+	tightenedBody.Policy.BaselineGrants[0].Method = "POST"
+	tightened, err := NewWorkspaceTemplateRevision(base.Templates[0].ID, 2, tightenedBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, pending, removed, err := SupersedePolicyCandidatesOutsideBoundary(base.Contexts, base.PendingCandidates, tightened)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 1 || len(pending) != 0 || len(records[0].SupersededCandidates) != 1 {
+		t.Fatalf("removed=%d pending=%d history=%d", removed, len(pending), len(records[0].SupersededCandidates))
+	}
+	history := records[0].SupersededCandidates[0]
+	if history.Candidate.ID != base.PendingCandidates[0].ID || history.TemplateRevision != tightened.Revision || history.TemplateID != tightened.TemplateID {
+		t.Fatalf("supersession provenance=%#v", history)
+	}
+	if records[0].PolicyMemory.Revision != base.Contexts[0].PolicyMemory.Revision || len(records[0].PolicyMemory.Rules) != 0 {
+		t.Fatal("pending candidate supersession mutated or widened Policy Memory")
+	}
+	if len(base.PendingCandidates) != 1 || len(base.Contexts[0].SupersededCandidates) != 0 {
+		t.Fatal("candidate supersession mutated its inputs")
+	}
+	template := base.Templates[0].Clone()
+	template.Current = tightened
+	template.Retained = append(template.Retained, tightened)
+	settled, changed, err := PublishWorkspaceAuthorityCollection([]WorkspaceTemplate{template}, records, base.Workspaces, pending, base.DefaultTemplateID, &base)
+	if err != nil || !changed || len(settled.PendingCandidates) != 0 {
+		t.Fatalf("publish tightened collection: changed=%t pending=%d err=%v", changed, len(settled.PendingCandidates), err)
+	}
+}
+
 func ptrTemplateID(id WorkspaceTemplateID) *WorkspaceTemplateID {
 	value := id
 	return &value

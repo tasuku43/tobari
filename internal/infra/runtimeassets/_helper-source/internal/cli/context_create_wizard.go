@@ -1219,7 +1219,7 @@ func (w *terminalContextCreateWizard) editContextCreateBootstrapLine(ctx context
 	}
 	information := []string{"Credentials and SSO caches are never read."}
 	if discovery.Reason != "" {
-		information = append(information, "Reason: "+safeExternalText(discovery.Reason), "Next: tobari help config bootstrap aws")
+		information = append(information, "Reason: "+safeExternalText(discovery.Reason), "Next: tobari template show")
 	}
 	options := []configurationWizardOption{{label: "Continue without AWS bootstrap", description: "Keep future Workspace homes unconfigured.", value: "none"}}
 	available := []*tobari.ManifestBootstrapSnapshot{nil}
@@ -1498,7 +1498,7 @@ func (w *terminalContextCreateWizard) editContextCreateBootstrapRaw(ctx context.
 	}
 	information := []string{"Credentials and SSO caches are never read."}
 	if discovery.Reason != "" {
-		information = append(information, "Reason: "+safeExternalText(discovery.Reason), "Next: tobari help config bootstrap aws")
+		information = append(information, "Reason: "+safeExternalText(discovery.Reason), "Next: tobari template show")
 	}
 	options := []configurationWizardOption{{label: "Continue without AWS bootstrap", description: "Keep future Workspace homes unconfigured."}}
 	available := []*tobari.ManifestBootstrapSnapshot{nil}

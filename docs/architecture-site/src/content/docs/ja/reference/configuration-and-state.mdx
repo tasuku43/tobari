@@ -17,21 +17,22 @@ Shared data    ${XDG_DATA_HOME:-$HOME/.local/share}/tobari
 
 これらのホストパスは所有者専用として検査され、危険なシンボリックリンク、想定外のファイル種別、所有者、緩すぎるアクセス権は拒否されます。これらと重なるプロジェクトルートは選べません。
 
-設定、状態、共有データのルートは別の寿命を持ちます。最終 authority は state root の一つの owner-only envelope にあり、Runtime 定義と共有 profile は別の owner/lifetime を持ちます。あるルートの欠落を、別のルートの値から推測して補いません。
+設定、状態、共有データのルートは別の寿命を持ちます。編集可能な desired source と、最後に正常に Apply された active authority も別の寿命を持ちます。あるルートの欠落を、別のルートの値から推測して補いません。
 
 ## ホストが管理する authority
 
-最終 pre-release model は `${XDG_STATE_HOME:-$HOME/.local/state}/tobari/workspace-authority/authority.json` に一つの owner-only envelope を atomic publish します。schema-1 Workspace Template、Context、Policy Memory、schema-3 Workspace、保持済み Template receipt、optional default Template selection を含みます。Template の content authority は exact Template ID と semantic digest、Policy Memory は exact Context ID と semantic digest です。generation は相関情報にすぎません。
+config root では概念ごとに `templates/<template-id>/{template.yaml,policy.yaml}`、`contexts/<context-id>/context.yaml`、`runtimes/<runtime-id>/{runtime.yaml,source/}` を所有します。directory 名は stable ID、display name は document 内です。file edit だけでは authority は変わらず、Template/Context の Plan と Apply が exact fingerprint を再検証して revision を発行します。`cluster up` は source を Apply せず、最後に正常だった active generation だけを読みます。
 
-旧 configuration root の `contexts/`、root index、instance state は非対応の private predecessor state です。presence-only guard が最終 publication より前に拒否し、通常 reader はその byte を decode、adopt、migrate、delete しません。公開 `template`、`context`、`workspace` report は schema 1 の task-owned secret-free projection、bare `status` は schema 3 です。
+active authority は state root の `authority/` 以下に、Template、Context、Policy Memory、Workspace の immutable typed object、完全な `generations/<digest>.json` manifest、小さな `active.json` pointer、recovery journal として概念分離して保持します。reader は一つの完全な generation を検証して選択します。
 
-管理対象 Runtime の可変ソースと成功済み不変 snapshot は別 owner です。source edit だけでは revision にならず、`runtime build --id RUNTIME_REF` だけが build boundary です。
+管理対象 Runtime の成功済み不変 revision と receipt は `state/runtimes/<runtime-id>/` にあります。source edit だけでは revision にならず、`runtime build --id RUNTIME_REF` だけが build boundary です。新 revision の採用には Template の edit と Apply が必要です。
 
 ## 永続するランタイム状態
 
 | state root 内のパス                       | 契約と寿命                                                                                                                        |
 | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `workspace-authority/authority.json`      | 完全な Template/Context/Policy-Memory/Workspace authority envelope                                                                |
+| `authority/`                              | concept ごとの immutable object、完全な generation manifest、検証済み `active.json`、tombstone、recovery journal                  |
+| `runtimes/<runtime-id>/`                  | immutable Runtime revision、build receipt、lifecycle state                                                                        |
 | Workspace owner が管理する Workspace home | native login と tool configuration。exit/recreation 後も残り、exact `workspace delete --id WORKSPACE_REF --confirm=delete` で削除 |
 | `state.json`                              | shared cluster state と active aggregate receipt。credential value や desired authority は含まない                                |
 | `workspace-authority-policy/`             | 内容アドレス方式の complete policy projection と bounded activation receipt/journal                                               |
@@ -40,7 +41,7 @@ Shared data    ${XDG_DATA_HOME:-$HOME/.local/share}/tobari
 
 agent CLI の login 形式は Workspace home に残り、Tobari の共有サービスや公開 JSON の権限にはなりません。Tobari はホストのログイン情報を継承しません。
 
-Workspace Template policy の正本は canonical typed policy data だけです。内部 `data.json` は、検証済みの完全な `cluster-projections/<revision>/` 内でのみ生成されます。固定 evaluator は Tobari に組み込まれ、Docker 管理の policy bundle 内だけに現れます。ワイルドカード、IP literal、正規化されていない host、directory と embedded host の不一致、未知または重複する field、不完全な allow/deny pair、余分な file、symlink、安全でない mode は拒否されます。
+Workspace Template policy の正本は `policy.yaml` の canonical typed data だけです。Context Policy Memory は別の immutable state object です。内部 `data.json` は、検証済みの完全な `cluster-projections/<revision>/` 内でのみ生成されます。固定 evaluator は Tobari に組み込まれ、Docker 管理の policy bundle 内だけに現れます。未知または重複する field、不完全な source set、余分な file、symlink、hardlink、owner drift、安全でない mode は拒否されます。
 
 ホスト所有の設定と状態は、サポート対象プラットフォームの owner/mode 検査で保護します。Linux と macOS では所有者、symlink、schema が安全でないとき fail closed です。同じホスト利用者が侵害された後の保護までは主張しません。共有の読み取り専用 agent profile は `${XDG_DATA_HOME:-$HOME/.local/share}/tobari/profiles` 以下にあります。
 
@@ -50,7 +51,7 @@ Gateway の runtime socket は Gateway container 内だけにあります。固�
 
 選択した実プロジェクトルートは、不変 Workspace Template の `source_access` に従って mount されます。CLI で省略した場合は `read-write` です。このディレクトリは利用者のデータであり、Workspace ライフサイクルの所有物ではありません。Tobari の `workspace delete` と `cluster` コマンドは削除しません。
 
-Docker は作業コンテナ、専用ネットワーク、共有サービス、Gateway CA volume を保持します。Docker inspect は現在の runtime resource を示す evidence ですが、論理 Workspace が存在するかは決めません。その authority は検証済みの最終 authority envelope にあります。コンテナが消えても有効な論理 state から再作成できますが、Docker resource が残っていることだけを理由に論理 Workspace を発明または採用しません。
+Docker は作業コンテナ、専用ネットワーク、共有サービス、Gateway CA volume を保持します。Docker inspect は現在の runtime resource を示す evidence ですが、論理 Workspace が存在するかは決めません。その authority は検証済みの active generation にあります。コンテナが消えても有効な論理 state から再作成できますが、Docker resource が残っていることだけを理由に論理 Workspace を発明または採用しません。
 
 ## 各操作の後に残るもの
 
@@ -63,7 +64,7 @@ Docker は作業コンテナ、専用ネットワーク、共有サービス、G
 | `cluster down`                                                          | 共有 container と一時 network                                         | Workspace Template、policy、Workspace home、host-owned lifecycle state、CA                   |
 | `cluster down --purge`                                                  | 共有 runtime、CA、active policy bundle                                | Workspace Template、policy、Workspace home、host-owned lifecycle state                       |
 | `runtime build --id REF`                                                | source snapshot、検証済み immutable revision                          | Workspace Template と Workspace の identity                                                  |
-| `template runtime set --id TEMPLATE_REF --runtime RUNTIME_REVISION_REF` | exact TemplateのRuntime binding                                       | 既存Workspaceのhomeとcontainer（次回entryまで）                                              |
+| `template.yaml` 編集、`template plan`、`template apply --plan PLAN_REF` | exact Runtime ID+revision を含む Template 全体のレビュー済み revision | 既存Workspaceのhomeとcontainer（次回entryまで）                                              |
 
 標準 Runtime は、CLI に埋め込まれた固定 recipe から、必要な場合にローカルで構築します。release 由来の tag は recipe revision を示す表示・選択 evidence であり、不変 digest authority ではありません。管理対象 Runtime の成功した build は、検査した local image digest を installation-wide history に記録しますが、Workspace Template が保持するのは exact semantic revision binding だけです。
 
@@ -75,7 +76,7 @@ Docker は作業コンテナ、専用ネットワーク、共有サービス、G
 
 `doctor` は読み取り専用で、修復、移行、削除、ログイン変更を自動実行しません。ホスト状態の所有者・mode・schema が不正なら、代替 authority を作らず停止します。
 
-authority envelope が不正、Context/Workspace binding が矛盾、または mutation outcome が unknown なら fail closed します。entry は Docker state から replacement record や delete reference を推測しません。中断された cluster、Workspace runtime、policy projection journal は、それぞれの owner 境界で分類します。policy recovery は immutable aggregate revision が durable な場合だけ staged generation を受理し、それ以外は検証済み original を復元します。
+active generation が不正、Context/Workspace binding が矛盾、または mutation outcome が unknown なら fail closed します。entry は Docker state から replacement record や delete reference を推測しません。中断された source directory、generation、Runtime、installation migration journal は、それぞれの owner 境界で分類します。recovery は exact pre/post fingerprint と完全な generation identity が検証できる場合だけ候補を受理し、それ以外は検証済み original を復元します。
 
 aggregate revision が一致しない場合や policy activation が失敗した場合、exact cluster operation が完了するまで依存する entry/policy operation を止めます。host-owned lifecycle state の欠落も recovery fault であり、新しい authority を静かに発明しません。owner label、runtime spec、記録済み identity が一致しない Docker resource は、削除または adoption の対象になりません。
 
