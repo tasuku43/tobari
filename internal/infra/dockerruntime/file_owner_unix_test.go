@@ -4,6 +4,7 @@ package dockerruntime
 
 import (
 	"os"
+	"path/filepath"
 	"syscall"
 	"testing"
 )
@@ -20,5 +21,31 @@ func TestUnixFileOwnerAdapterPreservesExactUIDAndRefusedClassification(t *testin
 	}
 	if !isConnectionRefused(syscall.ECONNREFUSED) {
 		t.Fatal("Unix connection-refused error was not recognized")
+	}
+}
+
+func TestUnixFileOwnerAdapterRejectsHardLinks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "metadata")
+	if err := os.WriteFile(path, []byte("metadata\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isOwnerOnlySingleLink(info) {
+		t.Fatal("owner-only single-link file was rejected")
+	}
+
+	linkedPath := filepath.Join(filepath.Dir(path), "linked-metadata")
+	if err := os.Link(path, linkedPath); err != nil {
+		t.Fatal(err)
+	}
+	linkedInfo, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isOwnerOnlySingleLink(linkedInfo) {
+		t.Fatal("hard-linked metadata was accepted")
 	}
 }

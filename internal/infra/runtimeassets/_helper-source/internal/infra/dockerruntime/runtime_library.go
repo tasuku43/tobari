@@ -15,7 +15,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
@@ -89,8 +88,7 @@ func readRuntimeSourceMetadata(path string) (runtimeSourceMetadata, error) {
 	if err != nil {
 		return runtimeSourceMetadata{}, err
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 || info.Size() <= 0 || info.Size() > maxRuntimeMetadataSize || !ok || stat.Nlink != 1 || int64(stat.Uid) != int64(os.Geteuid()) {
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 || info.Size() <= 0 || info.Size() > maxRuntimeMetadataSize || !isOwnerOnlySingleLink(info) {
 		return runtimeSourceMetadata{}, fmt.Errorf("Runtime metadata must be a bounded regular owner-only file")
 	}
 	file, err := os.Open(path) // #nosec G304 -- exact ID-owned Runtime metadata path, fenced against replacement below.

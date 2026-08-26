@@ -11,6 +11,10 @@ func fileOwnerUID(os.FileInfo) (int, bool) {
 	return 0, false
 }
 
+func isOwnerOnlySingleLink(os.FileInfo) bool {
+	return false
+}
+
 func isConnectionRefused(error) bool {
 	return false
 }
