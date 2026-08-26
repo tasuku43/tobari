@@ -6,13 +6,15 @@ import (
 	"testing"
 )
 
+const testRuntimeImage = "tobari-runtime:test"
+
 func validContextManifest() WorkspaceManifest {
 	return WorkspaceManifest{
 		SchemaVersion:  WorkspaceManifestSchemaVersion,
 		ID:             "018bcfe5-687b-7000-8000-000000000000",
 		Name:           "project-tools",
 		AgentProfile:   DefaultProfile,
-		Image:          OfficialRuntimeBase,
+		Image:          BuiltinImageSelector,
 		PolicyMode:     ManifestPolicyModeAdvanced,
 		SourceAccess:   ManifestSourceAccessReadWrite,
 		PolicyRevision: DefaultContextPolicyRevision(),
@@ -80,7 +82,7 @@ func TestContextCreateBaseIsCompleteValidatedAndDeepCloned(t *testing.T) {
 		SourceAccess: ManifestSourceAccessReadOnly, NativeReadiness: ManifestNativeReadinessDisabled,
 		MethodPolicy:     ManifestMethodPolicy{Default: ManifestMethodDeny, Overrides: []ManifestMethodOverride{{Method: "GET", Decision: ManifestMethodAllow}}},
 		RuntimeSelection: StandardRuntimeName + "@1",
-		RuntimeBinding:   RuntimeBinding{RuntimeID: StandardRuntimeID, Name: StandardRuntimeName, Revision: "sha256:" + strings.Repeat("0", 64), Ordinal: 1, Image: OfficialRuntimeBase},
+		RuntimeBinding:   RuntimeBinding{RuntimeID: StandardRuntimeID, Name: StandardRuntimeName, Revision: "sha256:" + strings.Repeat("0", 64), Ordinal: 1, Image: testRuntimeImage},
 		ShellEnvironment: DefaultContextShellEnvironmentReport(), GitIdentity: DefaultContextGitIdentityReport(),
 	}
 	base.ShellEnvironment[2] = ManifestShellEnvironmentSetting{Variable: "PS1", Source: ManifestShellEnvironmentLiteral, Value: &literal}
@@ -129,6 +131,29 @@ func TestContextManifestValidatesRuntimeImageAndMode(t *testing.T) {
 				t.Fatalf("invalid Workspace Manifest manifest was accepted: %+v", candidate)
 			}
 		})
+	}
+}
+
+func TestWorkspaceManifestBindingAllowsBuiltinButRejectsContradictoryPortableImage(t *testing.T) {
+	manifest := validContextManifest()
+	manifest.RuntimeBinding = &RuntimeBinding{
+		RuntimeID: StandardRuntimeID, Name: StandardRuntimeName,
+		Revision: "sha256:" + strings.Repeat("a", 64), Ordinal: 1, Image: testRuntimeImage,
+	}
+	if err := manifest.Validate(); err != nil {
+		t.Fatalf("builtin selector with resolved binding was rejected: %v", err)
+	}
+
+	matching := manifest
+	matching.Image = testRuntimeImage
+	if err := matching.Validate(); err != nil {
+		t.Fatalf("matching portable selector with resolved binding was rejected: %v", err)
+	}
+
+	mismatch := manifest
+	mismatch.Image = "example.com/custom:a"
+	if err := mismatch.Validate(); err == nil {
+		t.Fatal("contradictory portable selector and Runtime binding were accepted")
 	}
 }
 
@@ -282,7 +307,7 @@ func TestContextRuntimeRecipeValidatesFixedRecipeAndDigests(t *testing.T) {
 	recipe := ManifestRuntimeRecipe{
 		Kind:          ManifestRuntimeKindDockerfile,
 		File:          ManifestRuntimeRecipeFile,
-		BaseReference: OfficialRuntimeBase,
+		BaseReference: testRuntimeImage,
 		SourceDigest:  "sha256:" + strings.Repeat("a", 64),
 		LastBuild: &ManifestRuntimeBuild{
 			Image:        "tobari-context-project-tools:abcdef123456",
@@ -292,6 +317,17 @@ func TestContextRuntimeRecipeValidatesFixedRecipeAndDigests(t *testing.T) {
 	}
 	if err := recipe.Validate(); err != nil {
 		t.Fatalf("valid runtime recipe rejected: %v", err)
+	}
+	officialReport := ManifestRuntimeReport{
+		Kind: ManifestRuntimeKindOfficial, Status: ManifestRuntimeStatusOfficial,
+		BaseReference: testRuntimeImage,
+	}
+	if err := officialReport.Validate(); err != nil {
+		t.Fatalf("valid official runtime report rejected: %v", err)
+	}
+	officialReport.BaseReference = BuiltinImageSelector
+	if err := officialReport.Validate(); err == nil {
+		t.Fatal("official runtime report accepted the unresolved builtin selector")
 	}
 
 	for name, mutate := range map[string]func(*ManifestRuntimeRecipe){
@@ -314,14 +350,14 @@ func TestContextReportAcceptsRuntimeTasksAndStatuses(t *testing.T) {
 	report := ManifestRuntimeReport{
 		Kind: ManifestRuntimeKindDockerfile, Status: ManifestRuntimeStatusPendingBuild,
 		Dockerfile:    filepath.Join(string(filepath.Separator), "config", "contexts", "default", "runtime", "Dockerfile"),
-		BaseReference: OfficialRuntimeBase,
+		BaseReference: testRuntimeImage,
 		SourceDigest:  "sha256:" + strings.Repeat("a", 64),
 	}
 	if err := report.Validate(); err != nil {
 		t.Fatalf("valid runtime report rejected: %v", err)
 	}
 	manifest := validContextManifest()
-	manifest.Runtime = &ManifestRuntimeRecipe{Kind: ManifestRuntimeKindDockerfile, File: ManifestRuntimeRecipeFile, BaseReference: OfficialRuntimeBase}
+	manifest.Runtime = &ManifestRuntimeRecipe{Kind: ManifestRuntimeKindDockerfile, File: ManifestRuntimeRecipeFile, BaseReference: testRuntimeImage}
 	contextReport := ManifestReport{
 		Task: TaskRuntimeBuild, ManifestState: ManifestObservationPersisted, ID: manifest.ID, Name: manifest.Name, Default: true,
 		Desired:      testManifestDesiredRevision(),
@@ -339,6 +375,50 @@ func TestContextReportAcceptsRuntimeTasksAndStatuses(t *testing.T) {
 	}
 	if err := contextReport.Validate(); err != nil {
 		t.Fatalf("valid runtime Workspace Manifest report rejected: %v", err)
+	}
+}
+
+func TestContextReportKeepsStableSelectorSeparateFromResolvedRuntimeMaterial(t *testing.T) {
+	manifest := validContextManifest()
+	resolved := ManifestRuntimeReport{
+		Kind: ManifestRuntimeKindOfficial, Status: ManifestRuntimeStatusOfficial,
+		Image: testRuntimeImage, RuntimeID: StandardRuntimeID, Name: StandardRuntimeName,
+		Revision: "sha256:" + strings.Repeat("a", 64), Ordinal: 1,
+	}
+	report := ManifestReport{
+		Task: TaskManifestShow, ManifestState: ManifestObservationPersisted, ID: manifest.ID, Name: manifest.Name,
+		Default: true, Desired: testManifestDesiredRevision(), AgentProfile: manifest.AgentProfile,
+		Image: BuiltinImageSelector, PolicyMode: manifest.PolicyMode, SourceAccess: manifest.SourceAccess,
+		PolicyRevision: manifest.PolicyRevision, MethodPolicy: ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}},
+		ShellEnvironment: mustCompleteContextShellEnvironment(t, nil), GitIdentity: DefaultContextGitIdentityReport(),
+		Stores:  ManifestStorePaths{PolicyDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", "default", "policy")},
+		Runtime: resolved, Cluster: ManifestClusterStatusNotApplicable,
+		Authentication: ManifestAuthentication{Mode: ManifestAuthenticationModeNative, Providers: []ManifestAuthProvider{}},
+	}
+	if err := report.Validate(); err != nil {
+		t.Fatalf("selector/material-separated report rejected: %v", err)
+	}
+}
+
+func TestManifestReportRejectsContradictoryPortableBindingImage(t *testing.T) {
+	manifest := validContextManifest()
+	report := ManifestReport{
+		Task: TaskManifestShow, ManifestState: ManifestObservationPersisted, ID: manifest.ID, Name: manifest.Name,
+		Default: true, Desired: testManifestDesiredRevision(), AgentProfile: manifest.AgentProfile,
+		Image: "example.com/custom:a", PolicyMode: manifest.PolicyMode, SourceAccess: manifest.SourceAccess,
+		PolicyRevision: manifest.PolicyRevision, MethodPolicy: ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}},
+		ShellEnvironment: mustCompleteContextShellEnvironment(t, nil), GitIdentity: DefaultContextGitIdentityReport(),
+		Stores: ManifestStorePaths{PolicyDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", "default", "policy")},
+		Runtime: ManifestRuntimeReport{
+			Kind: ManifestRuntimeKindOfficial, Status: ManifestRuntimeStatusOfficial,
+			Image: testRuntimeImage, RuntimeID: StandardRuntimeID, Name: StandardRuntimeName,
+			Revision: "sha256:" + strings.Repeat("a", 64), Ordinal: 1,
+		},
+		Cluster:        ManifestClusterStatusNotApplicable,
+		Authentication: ManifestAuthentication{Mode: ManifestAuthenticationModeNative, Providers: []ManifestAuthProvider{}},
+	}
+	if err := report.Validate(); err == nil {
+		t.Fatal("Manifest report accepted a portable selector that contradicts its Runtime binding")
 	}
 }
 
@@ -398,8 +478,8 @@ func TestContextClusterStatusValidatesKnownOutcomes(t *testing.T) {
 
 func TestContextListRequiresOneMatchingActiveItem(t *testing.T) {
 	items := []ManifestSummary{
-		{ID: "018bcfe5-687b-7000-8000-000000000000", Name: "default", ManifestState: ManifestObservationPersisted, Default: true, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ManifestPolicyModeGuided, SourceAccess: ManifestSourceAccessReadWrite, PolicyRevision: DefaultContextPolicyRevision(), MethodPolicy: ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}}, RuntimeStatus: ManifestRuntimeStatusOfficial, RuntimeSelection: StandardRuntimeName + "@1"},
-		{ID: "018bcfe5-687b-7000-8000-000000000001", Name: "project-tools", ManifestState: ManifestObservationPersisted, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ManifestPolicyModeAdvanced, SourceAccess: ManifestSourceAccessReadOnly, PolicyRevision: DefaultContextPolicyRevision(), MethodPolicy: ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}}, RuntimeStatus: ManifestRuntimeStatusOfficial, RuntimeSelection: StandardRuntimeName + "@1"},
+		{ID: "018bcfe5-687b-7000-8000-000000000000", Name: "default", ManifestState: ManifestObservationPersisted, Default: true, AgentProfile: DefaultProfile, Image: BuiltinImageSelector, PolicyMode: ManifestPolicyModeGuided, SourceAccess: ManifestSourceAccessReadWrite, PolicyRevision: DefaultContextPolicyRevision(), MethodPolicy: ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}}, RuntimeStatus: ManifestRuntimeStatusOfficial, RuntimeSelection: StandardRuntimeName + "@1"},
+		{ID: "018bcfe5-687b-7000-8000-000000000001", Name: "project-tools", ManifestState: ManifestObservationPersisted, AgentProfile: DefaultProfile, Image: BuiltinImageSelector, PolicyMode: ManifestPolicyModeAdvanced, SourceAccess: ManifestSourceAccessReadOnly, PolicyRevision: DefaultContextPolicyRevision(), MethodPolicy: ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}}, RuntimeStatus: ManifestRuntimeStatusOfficial, RuntimeSelection: StandardRuntimeName + "@1"},
 	}
 	for index := range items {
 		items[index].Desired = testManifestDesiredRevision()
@@ -433,10 +513,10 @@ func TestWorkspaceManifestPublicationBindsCanonicalBodyAndGeneration(t *testing.
 	manifest := WorkspaceManifest{
 		SchemaVersion: WorkspaceManifestSchemaVersion,
 		ID:            "018bcfe5-687b-7000-8000-000000000000", Name: "default",
-		AgentProfile: DefaultProfile, Image: OfficialRuntimeBase,
+		AgentProfile: DefaultProfile, Image: BuiltinImageSelector,
 		PolicyMode: ManifestPolicyModeGuided, SourceAccess: ManifestSourceAccessReadWrite,
 		PolicyRevision:   DefaultContextPolicyRevision(),
-		RuntimeBinding:   &RuntimeBinding{RuntimeID: StandardRuntimeID, Name: StandardRuntimeName, Revision: "sha256:" + strings.Repeat("a", 64), Ordinal: 1, Image: OfficialRuntimeBase},
+		RuntimeBinding:   &RuntimeBinding{RuntimeID: StandardRuntimeID, Name: StandardRuntimeName, Revision: "sha256:" + strings.Repeat("a", 64), Ordinal: 1, Image: testRuntimeImage},
 		ShellEnvironment: InitialContextShellEnvironment(),
 	}
 	published, err := PublishWorkspaceManifest(manifest, nil)
@@ -485,7 +565,7 @@ func TestManifestListAllowsAnAbsentDefaultWithoutAuthority(t *testing.T) {
 	result.Items = []ManifestSummary{{
 		ID: "018bcfe5-687b-7000-8000-000000000000", Name: DefaultManifestName,
 		ManifestState: ManifestObservationPersisted, Default: true, AgentProfile: DefaultProfile,
-		Image: OfficialRuntimeBase, PolicyMode: ManifestPolicyModeGuided,
+		Image: BuiltinImageSelector, PolicyMode: ManifestPolicyModeGuided,
 	}}
 	if err := result.Validate(); err == nil {
 		t.Fatal("synthetic Workspace Manifest list accepted a configured item")
@@ -499,7 +579,7 @@ func TestContextListRequiresTopLevelStateToMatchActiveItem(t *testing.T) {
 		Items: []ManifestSummary{{
 			ID: "018bcfe5-687b-7000-8000-000000000000", Name: DefaultManifestName,
 			ManifestState: ManifestObservationPersisted, Default: true, AgentProfile: DefaultProfile,
-			Image: OfficialRuntimeBase, PolicyMode: ManifestPolicyModeGuided, SourceAccess: ManifestSourceAccessReadWrite,
+			Image: BuiltinImageSelector, PolicyMode: ManifestPolicyModeGuided, SourceAccess: ManifestSourceAccessReadWrite,
 		}},
 	}
 	if err := result.Validate(); err == nil {
@@ -512,11 +592,11 @@ func TestAbsentManifestReportCannotClaimAuthorityOrStores(t *testing.T) {
 	report := ManifestReport{
 		Task: TaskManifestShow, ManifestState: ManifestObservationAbsent,
 		Name: DefaultManifestName, Default: true, AgentProfile: DefaultProfile,
-		Image: OfficialRuntimeBase, PolicyMode: ManifestPolicyModeGuided, SourceAccess: ManifestSourceAccessReadWrite,
+		Image: BuiltinImageSelector, PolicyMode: ManifestPolicyModeGuided, SourceAccess: ManifestSourceAccessReadWrite,
 		MethodPolicy:     ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}},
 		ShellEnvironment: DefaultContextShellEnvironmentReport(),
 		GitIdentity:      DefaultContextGitIdentityReport(),
-		Runtime:          ManifestRuntimeReport{Kind: ManifestRuntimeKindOfficial, Status: ManifestRuntimeStatusOfficial, BaseReference: OfficialRuntimeBase},
+		Runtime:          ManifestRuntimeReport{Kind: ManifestRuntimeKindOfficial, Status: ManifestRuntimeStatusOfficial, BaseReference: testRuntimeImage},
 		Cluster:          ManifestClusterStatusNotApplicable,
 		Authentication:   ManifestAuthentication{BrokerState: ManifestAuthBrokerUnavailable, Providers: []ManifestAuthProvider{}},
 	}

@@ -66,10 +66,41 @@ func newContextSwitchRuntime(t *testing.T, runner *contextSwitchRunner) *Runtime
 	if err := runtime.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CreateContext(context.Background(), "project-tools", tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadWrite); err != nil {
+	if _, err := runtime.CreateContext(context.Background(), "project-tools", tobari.BuiltinImageSelector, tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	return runtime
+}
+
+func TestDefaultContextPersistsSelectorSeparatelyFromResolvedRuntimeBinding(t *testing.T) {
+	root := t.TempDir()
+	runtime, err := newRuntimeWithData(
+		filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), &contextSwitchRunner{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.images = testImageResolver{runtimeImage: "tobari-runtime:source-test"}
+	if err := runtime.ensureContextStore(); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := runtime.readContextManifest(tobari.DefaultManifestName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Image != tobari.BuiltinImageSelector {
+		t.Fatalf("default Workspace Manifest image = %q, want stable selector %q", manifest.Image, tobari.BuiltinImageSelector)
+	}
+	if manifest.RuntimeBinding == nil || manifest.RuntimeBinding.Image != "tobari-runtime:source-test" {
+		t.Fatalf("default Runtime binding = %+v, want resolved material", manifest.RuntimeBinding)
+	}
+	shown, err := runtime.ShowContext(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shown.Image != tobari.BuiltinImageSelector || shown.Runtime.Image != "tobari-runtime:source-test" {
+		t.Fatalf("default report selector/material = %q/%q", shown.Image, shown.Runtime.Image)
+	}
 }
 
 func TestFreshObservationsCreateNoTobariOwnedFilesOrDockerCalls(t *testing.T) {
@@ -89,6 +120,10 @@ func TestFreshObservationsCreateNoTobariOwnedFilesOrDockerCalls(t *testing.T) {
 	if result, err := runtime.ShowContext(context.Background(), ""); err != nil ||
 		result.ManifestState != tobari.ManifestObservationAbsent || result.ID != "" {
 		t.Fatalf("ShowContext() = %+v, %v", result, err)
+	}
+	if result, err := runtime.ShowContext(context.Background(), ""); err != nil ||
+		result.Image != tobari.BuiltinImageSelector || result.Runtime.BaseReference == tobari.BuiltinImageSelector {
+		t.Fatalf("synthetic default selector/material = %+v, %v", result, err)
 	}
 	if result, err := runtime.AuthStatus(context.Background(), ""); err != nil ||
 		result.ManifestState != tobari.ManifestObservationAbsent || result.WorkspaceManifestID != "" {
@@ -216,7 +251,7 @@ func TestFreshExplicitDefaultCreateSucceedsOnceAndPreservesManifestOnDuplicate(t
 
 	created, err := runtime.CreateContext(
 		context.Background(), tobari.DefaultManifestName,
-		tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadOnly,
+		tobari.BuiltinImageSelector, tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadOnly,
 	)
 	if err != nil {
 		t.Fatalf("first CreateContext(default) error = %v", err)
@@ -260,7 +295,7 @@ func TestFreshExplicitDefaultCreateSucceedsOnceAndPreservesManifestOnDuplicate(t
 	treeBefore := snapshotOwnedTree(t, root)
 	if _, err := runtime.CreateContext(
 		context.Background(), tobari.DefaultManifestName,
-		tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite,
+		tobari.BuiltinImageSelector, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite,
 	); !errors.Is(err, tobari.ErrContextExists) {
 		t.Fatalf("second CreateContext(default) error = %v, want ErrContextExists", err)
 	}
@@ -395,7 +430,7 @@ func TestStoredContextMissingSourceAccessFailsClosed(t *testing.T) {
 		"workspace_manifest_id": "018bcfe5-687b-7000-8000-000000000099",
 		"name":                  tobari.DefaultManifestName,
 		"agent_profile":         tobari.DefaultProfile,
-		"image":                 tobari.OfficialRuntimeBase,
+		"image":                 tobari.BuiltinImageSelector,
 		"policy_mode":           tobari.ManifestPolicyModeGuided,
 	}
 	encoded, err := json.Marshal(manifest)
@@ -425,7 +460,7 @@ func TestListContextsRejectsExtraSymbolicLinkWithoutWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := runtime.CreateContext(
-		context.Background(), "fixture", tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite,
+		context.Background(), "fixture", tobari.BuiltinImageSelector, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite,
 	); err != nil {
 		t.Fatalf("initialize valid default Context fixture: %v", err)
 	}

@@ -128,12 +128,12 @@ func fixtureManifestStore(t *testing.T) (string, tobari.WorkspaceManifest) {
 	}
 	binding := tobari.RuntimeBinding{
 		RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName,
-		Revision: "sha256:" + strings.Repeat("a", 64), Ordinal: 1, Image: tobari.OfficialRuntimeBase,
+		Revision: "sha256:" + strings.Repeat("a", 64), Ordinal: 1, Image: "tobari-runtime:test",
 	}
 	manifest, err := tobari.PublishWorkspaceManifest(tobari.WorkspaceManifest{
 		SchemaVersion: tobari.WorkspaceManifestSchemaVersion,
 		ID:            "018bcfe5-687b-7000-8000-000000000000", Name: "default",
-		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
+		AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector,
 		PolicyMode: tobari.ManifestPolicyModeGuided, SourceAccess: tobari.ManifestSourceAccessReadWrite,
 		PolicyRevision: policyRevision, RuntimeBinding: &binding,
 		ShellEnvironment: tobari.InitialContextShellEnvironment(),

@@ -48,8 +48,10 @@ push path. Auth Broker remains validation-only and local to `task build:dev`.
 
 `task build` is a contributor feedback path, not a release artifact. It
 builds or reuses local Tobari-managed component images whose tags contain the
-exact embedded source hash, builds `tobari-runtime:dev`, and compiles
-`bin/tobari` with the release surface and development resolver.
+exact embedded source hash, prepares the source-addressed standard Runtime
+image `tobari-runtime:base-<source-id>`, and compiles `bin/tobari` with the
+release surface and development resolver. The `<source-id>` is the exact
+checked embedded Runtime build-input identity, not a Git commit or OCI digest.
 `task build:dev` produces `bin/tobari-research` with the research surface and
 the same development resolver. The release surface excludes AWS
 authentication and the Operator Console; the research surface adds both
@@ -57,8 +59,10 @@ without a runtime activation flag. Paired catalog tests derive the integrated
 release set and prove that research adds exactly `auth login`, `auth import`,
 `auth status`, `auth logout`, and `serve`. To run the integration script against
 the research binary, set
-`TOBARI_INTEGRATION_BINARY=$PWD/bin/tobari-research` and
-`TOBARI_INTEGRATION_CUSTOM_BASE=tobari-runtime:dev`.
+`TOBARI_INTEGRATION_BINARY=$PWD/bin/tobari-research`; the default custom base
+is the canonical name printed by `go run ./tools/runtimeassetid
+standard-runtime-image`. `TOBARI_INTEGRATION_CUSTOM_BASE` may override that
+default only with an already-existing compatible custom image.
 Both paths generate a fresh synthetic TLS authority and build a run-local
 Gateway trust wrapper. The explicit-binary path wraps the already verified
 source-selected research development Gateway; the self-build path wraps
@@ -68,11 +72,13 @@ identity. Normal exit, failure, and interruption restore that exact identity,
 or remove only the run-owned tag when no predecessor existed. Tag drift fails
 closed rather than overwriting concurrent contributor state. Executable checks
 prove the fresh authority is both byte-embedded and trusted by the wrapper.
-The integration script owns its dev-resolver prerequisites: when
-`tobari-runtime:dev` is absent, it builds the canonical base locally and
-removes only that integration-owned tag during cleanup. An explicitly selected
-compatible integration base remains usable. It
-never overwrites or deletes a contributor's pre-existing dev tag.
+The integration script owns only the canonical standard Runtime prerequisite:
+when that source-addressed image is absent, it builds the canonical base
+locally. An explicitly selected custom base must already exist and is never
+rebuilt under an arbitrary name. The canonical image is a reusable cache and
+is not deleted by the scenario. `check-integration-scope.sh` mechanically
+guards both the canonical equality condition and the explicit-custom-image
+failure path.
 
 Both repository build tasks embed only `git rev-parse --verify HEAD` as the
 source commit while retaining the fixed `dev` version; `-buildvcs=false` and

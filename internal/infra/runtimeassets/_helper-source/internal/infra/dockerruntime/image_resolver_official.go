@@ -28,8 +28,8 @@ func newImageResolver() imageResolver {
 	return officialImageResolver{}
 }
 
-func (officialImageResolver) DefaultRuntimeImage() string {
-	return localBaseRuntimeImage
+func (officialImageResolver) DefaultRuntimeImage() (string, error) {
+	return runtimeassets.StandardRuntimeImage()
 }
 
 func (officialImageResolver) ShouldPullRuntimeImage(string) bool {
@@ -37,7 +37,8 @@ func (officialImageResolver) ShouldPullRuntimeImage(string) bool {
 }
 
 func (officialImageResolver) ShouldBuildRuntimeImage(image string) bool {
-	return image == localBaseRuntimeImage
+	selected, err := runtimeassets.StandardRuntimeImage()
+	return err == nil && image == selected
 }
 
 func (officialImageResolver) GatewayImage(context.Context, *Runtime) (sharedImageSelection, error) {

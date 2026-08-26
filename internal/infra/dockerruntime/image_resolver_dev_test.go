@@ -14,8 +14,15 @@ import (
 func TestLocalDevImageResolverSelectsAllLocalImagesWithoutPulling(t *testing.T) {
 	t.Parallel()
 	resolver := localDevImageResolver{}
-	if got := resolver.DefaultRuntimeImage(); got != localDevRuntimeImage || resolver.ShouldPullRuntimeImage(got) {
+	got, err := resolver.DefaultRuntimeImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if expected, expectedErr := runtimeassets.StandardRuntimeImage(); expectedErr != nil || got != expected || resolver.ShouldPullRuntimeImage(got) {
 		t.Fatalf("runtime selection = %q pull=%t", got, resolver.ShouldPullRuntimeImage(got))
+	}
+	if resolver.ShouldBuildRuntimeImage(got) {
+		t.Fatalf("development resolver unexpectedly owns standard Runtime build: %q", got)
 	}
 	gatewayVersion, err := runtimeassets.ComponentVersion("gateway")
 	if err != nil {

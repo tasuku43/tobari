@@ -54,6 +54,45 @@ func TestComponentVersionsUseFullContentDigest(t *testing.T) {
 	}
 }
 
+func TestStandardRuntimeImageUsesComponentSourceIdentity(t *testing.T) {
+	t.Parallel()
+	sourceID, err := ComponentVersion("tobari")
+	if err != nil {
+		t.Fatal(err)
+	}
+	image, err := StandardRuntimeImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "tobari-runtime:base-" + sourceID; image != want {
+		t.Fatalf("standard Runtime image = %q, want %q", image, want)
+	}
+}
+
+func TestStandardRuntimeImageRejectsInvalidSourceIdentity(t *testing.T) {
+	t.Parallel()
+	for _, sourceID := range []string{"", strings.Repeat("0", 63), strings.Repeat("0", 64)[:63] + "g"} {
+		if _, err := standardRuntimeImageForSourceID(sourceID); err == nil {
+			t.Errorf("standard Runtime image accepted invalid source identity %q", sourceID)
+		}
+	}
+}
+
+func TestStandardRuntimeImageDoesNotAliasDistinctSourceIdentities(t *testing.T) {
+	t.Parallel()
+	first, err := standardRuntimeImageForSourceID(strings.Repeat("0", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := standardRuntimeImageForSourceID(strings.Repeat("0", 63) + "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatalf("distinct source identities aliased to %q", first)
+	}
+}
+
 func TestComponentSnapshotsExcludeNonImageInputs(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{

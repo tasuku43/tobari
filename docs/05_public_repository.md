@@ -146,6 +146,12 @@ Tobari publishes no OCI images. Validation workflows remain cache-only and
 have no package-write, registry-login, or push path. Routine CLI startup builds
 or reuses source-derived local Gateway and runtime images, then checks their
 component API, role, non-root user, entrypoint, and architecture before use.
+The stable `builtin` selector resolves standard Runtime material to
+`tobari-runtime:base-<source-id>` from the exact checked embedded source
+identity; development and embedded channels may share that name when their
+inputs are equal, while each channel owns only preparation and recovery. No
+unversioned `tobari-runtime:base` or mutable `tobari-runtime:dev` authority is
+active.
 All Tobari-owned component APIs are V1; source and release metadata record no
 generated image digest authority.
 

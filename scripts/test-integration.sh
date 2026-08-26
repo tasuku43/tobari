@@ -7,7 +7,8 @@ source test/integration/runtime_image_cleanup.sh
 source test/integration/permission_resume.sh
 binary=${TOBARI_INTEGRATION_BINARY:-}
 binary_digest=
-custom_base_image=${TOBARI_INTEGRATION_CUSTOM_BASE:-tobari-runtime:dev}
+standard_runtime_image=$(go run ./tools/runtimeassetid standard-runtime-image)
+custom_base_image=${TOBARI_INTEGRATION_CUSTOM_BASE:-$standard_runtime_image}
 host_loopback_only=${TOBARI_INTEGRATION_HOST_LOOPBACK_ONLY:-false}
 mock_name=tobari-mock-upstream
 auth_mock_name=tobari-auth-mock-upstream
@@ -42,7 +43,6 @@ runtime_image_id=
 runtime_id=
 runtime_source_digest=
 official_runtime_image=
-created_dev_runtime_tag=false
 owns_shared_fixture=false
 current_phase=
 phase_started=$SECONDS
@@ -818,9 +818,6 @@ cleanup() {
     if [[ -n ${official_runtime_image:-} ]]; then
       docker image rm -f "$official_runtime_image" >/dev/null 2>&1 || true
     fi
-    if [[ $created_dev_runtime_tag == true ]]; then
-      docker image rm tobari-runtime:dev >/dev/null 2>&1 || true
-    fi
   fi
   if [[ -n $test_keychain_service ]]; then
     /usr/bin/security delete-generic-password \
@@ -1030,7 +1027,7 @@ work_root=$test_root/user/workspace
 other_root=$test_root/user/other-workspace
 mkdir -p "$work_root" "$other_root"
 printf 'host-home-canary\n' >"$test_root/user/host-home-canary"
-if [[ $host_loopback_only != true && $custom_base_image == tobari-runtime:dev ]] && ! docker image inspect "$custom_base_image" >/dev/null 2>&1; then
+if [[ $host_loopback_only != true && $custom_base_image == "$standard_runtime_image" ]] && ! docker image inspect "$custom_base_image" >/dev/null 2>&1; then
   base_image=$(go run ./tools/runtimecheck --print-base-image)
   go_builder_image=$(awk -F= '$1 == "GO_BUILDER_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
   exposure_helper_source=$(go run ./tools/runtimeassetid exposure-helper)
@@ -1043,14 +1040,12 @@ if [[ $host_loopback_only != true && $custom_base_image == tobari-runtime:dev ]]
     --build-arg "TOBARI_GID=$(id -g)" \
     --build-context helper-source=internal/infra/runtimeassets/_helper-source \
     runtimes/base >/dev/null
-  created_dev_runtime_tag=true
+fi
+if [[ $host_loopback_only != true && $custom_base_image != "$standard_runtime_image" ]] && ! docker image inspect "$custom_base_image" >/dev/null 2>&1; then
+  fail "TOBARI_INTEGRATION_CUSTOM_BASE must name an existing compatible custom image; only the canonical standard image may be built by this scenario"
 fi
 if [[ $host_loopback_only != true ]]; then
   assert_base_bash_contract "$custom_base_image"
-  if ! docker image inspect tobari-runtime:dev >/dev/null 2>&1; then
-    docker tag "$custom_base_image" tobari-runtime:dev
-    created_dev_runtime_tag=true
-  fi
 fi
 begin_phase templates-and-cluster
 if [[ $host_loopback_only != true ]]; then
@@ -1066,7 +1061,7 @@ destination, base, source_path = map(Path, sys.argv[1:])
 source = source_path.read_text(encoding="utf-8")
 lines = []
 for line in source.splitlines():
-    if line.startswith("ARG TOBARI_RUNTIME_BASE="):
+    if line == "ARG TOBARI_RUNTIME_BASE" or line.startswith("ARG TOBARI_RUNTIME_BASE="):
         lines.append(f"FROM {base}")
     elif line != "FROM ${TOBARI_RUNTIME_BASE}":
         lines.append(line)

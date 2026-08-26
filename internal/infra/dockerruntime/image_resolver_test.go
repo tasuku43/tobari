@@ -1,10 +1,11 @@
 package dockerruntime
 
-import "context"
+import (
+	"context"
 
-import "github.com/tasuku43/tobari/internal/domain/buildidentity"
-
-import "github.com/tasuku43/tobari/internal/domain/capabilitysurface"
+	"github.com/tasuku43/tobari/internal/domain/buildidentity"
+	"github.com/tasuku43/tobari/internal/domain/capabilitysurface"
+)
 
 type testImageResolver struct {
 	runtimeImage string
@@ -32,8 +33,8 @@ func (r testImageResolver) BuildIdentity(version, commit string) (buildidentity.
 	return identity, nil
 }
 
-func (r testImageResolver) DefaultRuntimeImage() string {
-	return r.runtimeImage
+func (r testImageResolver) DefaultRuntimeImage() (string, error) {
+	return r.runtimeImage, nil
 }
 
 func (r testImageResolver) ShouldPullRuntimeImage(string) bool {

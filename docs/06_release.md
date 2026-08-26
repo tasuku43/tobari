@@ -86,8 +86,11 @@ Dockerfile, addon, entrypoint, and tests are checked against the embedded
 `internal/infra/runtimeassets/assets/gateway` snapshot. The released CLI builds
 the pinned snapshot on the user's Docker host under a source-derived local tag
 when it is absent, then applies the ordinary compatibility preflight.
-Contributor source development uses its own source-hash tag built by
-`task build`.
+The standard Runtime uses `tobari-runtime:base-<source-id>` from the exact
+checked embedded Runtime source identity. Contributor development and the
+released CLI may reuse that name when the identity is equal; Gateway retains
+its own source-hash tag and the resolver channel remains preparation/recovery
+metadata.
 
 The research Auth Broker image definition is maintained under `authbroker/`.
 Its package, Dockerfile, entrypoints, bridge/protocol, tests, and provider-CLI
@@ -153,8 +156,9 @@ runtime contract without publishing. The combined OCI/runtime metadata uses
 pending` for both agents; it must not imply that either bundled agent is
 MIT-licensed. Tobari permanently omits public base publication and instead
 ships its pinned recipes and integrity checks inside the CLI. Gateway source
-records contain no release-output digest. Contributor development builds
-`tobari-runtime:dev`; there are no per-agent image commands or registry parents.
+records contain no release-output digest. Contributor development builds the
+source-addressed standard Runtime tag; there are no per-agent image commands or
+registry parents, and no unversioned standard Runtime alias.
 
 Standard native Anthropic login is executed and stored by Claude Code inside
 the Workspace; Tobari ships no Anthropic acquisition or refresh adapter. The

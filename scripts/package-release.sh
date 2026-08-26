@@ -63,14 +63,12 @@ case "$goarch" in
   arm64) target_environment+=(GOARM64=v8.0) ;;
 esac
 gateway_source_api=$(sed -n 's/.*io\.tobari\.gateway-api="\([1-9][0-9]*\)".*/\1/p' gateway/Dockerfile)
-base_source=$(go run ./tools/runtimeassetid tobari)
-local_base_image="tobari-runtime:base-${base_source}"
 if [[ ! $gateway_source_api =~ ^[1-9][0-9]*$ ]]; then
 	echo "canonical Gateway source does not declare a valid API" >&2
 	exit 1
 fi
 env "${target_environment[@]}" go build -buildvcs=false -trimpath \
-  -ldflags "-s -w -X main.version=${version} -X main.commit=${revision} -X ${module}/internal/infra/dockerruntime.localBaseRuntimeImage=${local_base_image}" \
+  -ldflags "-s -w -X main.version=${version} -X main.commit=${revision}" \
   -o "$work_dir/$executable" "./cmd/$binary"
 
 module_metadata=$(go version -m "$work_dir/$executable")

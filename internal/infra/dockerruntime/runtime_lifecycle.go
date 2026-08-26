@@ -499,7 +499,11 @@ func (r *Runtime) readStrictRuntimeBuildJournalInventory() (*runtimeBuildJournal
 }
 
 func (r *Runtime) readStrictRuntimeCatalogObserved(journal *runtimeBuildJournal) ([]tobari.RuntimeManifest, error) {
-	result := []tobari.RuntimeManifest{r.standardRuntimeManifest()}
+	standard, err := r.standardRuntimeManifest()
+	if err != nil {
+		return nil, err
+	}
+	result := []tobari.RuntimeManifest{standard}
 	entries, err := os.ReadDir(r.runtimesDirectory())
 	if errors.Is(err, os.ErrNotExist) {
 		return result, nil

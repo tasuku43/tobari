@@ -465,7 +465,10 @@ func (r *Runtime) resolveFinalWorkspaceRuntimeMaterial(ctx context.Context, expe
 	if !reflect.DeepEqual(binding, expected) {
 		return tobari.RuntimeBinding{}, "", "", fmt.Errorf("Runtime binding changed or is not canonical")
 	}
-	image := r.resolveBuiltinImageSelector(binding.Image)
+	image, err := r.resolveBuiltinImageSelector(binding.Image)
+	if err != nil {
+		return tobari.RuntimeBinding{}, "", "", err
+	}
 	if err := r.validateCompatibleImage(ctx, image); err != nil {
 		return tobari.RuntimeBinding{}, "", "", err
 	}
@@ -672,7 +675,7 @@ func (r *Runtime) ReconcileWorkspaceEntry(ctx context.Context, plan tobari.Works
 		if err := r.ensureFinalWorkspaceRuntimeRoot(); err != nil {
 			return err
 		}
-		if err := r.ensureFinalWorkspaceHelpers(ctx, image); err != nil {
+		if err := r.ensureFinalWorkspaceHelpers(ctx); err != nil {
 			return err
 		}
 		if err := r.prepareFinalWorkspaceFiles(plan, spec, gitConfig); err != nil {
@@ -814,7 +817,7 @@ func (r *Runtime) confirmFinalWorkspaceRuntimeAssets(spec finalWorkspaceRuntimeS
 	return nil
 }
 
-func (r *Runtime) ensureFinalWorkspaceHelpers(ctx context.Context, _ string) error {
+func (r *Runtime) ensureFinalWorkspaceHelpers(ctx context.Context) error {
 	version, err := runtimeassets.Version()
 	if err != nil {
 		return err
@@ -831,7 +834,11 @@ func (r *Runtime) ensureFinalWorkspaceHelpers(ctx context.Context, _ string) err
 	// custom image is not required to carry the helper identity labels. The
 	// canonical base image is prepared by cluster readiness and is the only image
 	// that may supply the host-side helper artifacts.
-	if err := r.materializeWorkspaceHelpers(ctx, r.defaultRuntimeImage()); err != nil {
+	image, err := r.defaultRuntimeImage()
+	if err != nil {
+		return fmt.Errorf("resolve final Workspace helper image: %w", err)
+	}
+	if err := r.materializeWorkspaceHelpers(ctx, image); err != nil {
 		return fmt.Errorf("materialize final Workspace helpers: %w", err)
 	}
 	return r.confirmFinalWorkspaceHelperAssets(runtimeDirectory)

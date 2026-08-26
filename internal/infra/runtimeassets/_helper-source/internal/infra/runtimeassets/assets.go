@@ -44,6 +44,29 @@ func ComponentVersion(component string) (string, error) {
 	return versionForPrefixesInNames(names, prefixes...)
 }
 
+// StandardRuntimeImage returns the exact local image name for the embedded
+// standard Runtime source. The image name is derived from the checked source
+// identity, not from a resolver channel or repository state.
+func StandardRuntimeImage() (string, error) {
+	sourceID, err := ComponentVersion("tobari")
+	if err != nil {
+		return "", fmt.Errorf("derive standard Runtime source identity: %w", err)
+	}
+	return standardRuntimeImageForSourceID(sourceID)
+}
+
+func standardRuntimeImageForSourceID(sourceID string) (string, error) {
+	if len(sourceID) != sha256.Size*2 {
+		return "", fmt.Errorf("standard Runtime source identity must be a %d-character SHA-256 digest", sha256.Size*2)
+	}
+	for _, character := range sourceID {
+		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')) {
+			return "", fmt.Errorf("standard Runtime source identity contains a non-hex character")
+		}
+	}
+	return "tobari-runtime:base-" + sourceID, nil
+}
+
 // ExposureHelperSourceVersion identifies the exact Linux helper source closure
 // embedded in the host binary and supplied to the pinned Docker builder.
 func ExposureHelperSourceVersion() (string, error) {

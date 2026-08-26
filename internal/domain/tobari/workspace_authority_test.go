@@ -33,7 +33,7 @@ func templateBodyFixture(policyPath string) WorkspaceTemplateBody {
 			BaselineDenies: []ManifestPolicyExactRule{}, GraphQLEndpoints: []ManifestPolicyExactRule{}, MCPEndpoints: []ManifestPolicyExactRule{},
 		},
 		EntryDefaults: WorkspaceTemplateEntryDefaults{Runtime: RuntimeBinding{
-			RuntimeID: StandardRuntimeID, Name: StandardRuntimeName, Revision: string(authorityDigest("f")), Ordinal: 1, Image: OfficialRuntimeBase,
+			RuntimeID: StandardRuntimeID, Name: StandardRuntimeName, Revision: string(authorityDigest("f")), Ordinal: 1, Image: testRuntimeImage,
 		}},
 		SessionDefaults:  WorkspaceTemplateSessionDefaults{ShellEnvironment: []ManifestShellEnvironmentSetting{}},
 		CreationDefaults: WorkspaceTemplateCreationDefaults{},

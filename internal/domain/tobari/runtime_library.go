@@ -104,6 +104,9 @@ func (r RuntimeRevision) Validate(kind RuntimeKind) error {
 	if err := ValidateImageSelector(r.Image); err != nil {
 		return fmt.Errorf("Runtime revision image: %w", err)
 	}
+	if r.Image == BuiltinImageSelector {
+		return fmt.Errorf("Runtime revision image must be resolved execution material")
+	}
 	if kind == RuntimeKindManaged {
 		if err := ValidateDigest(r.ImageDigest); err != nil {
 			return fmt.Errorf("Runtime image digest: %w", err)
@@ -259,6 +262,9 @@ func (b RuntimeBinding) Validate() error {
 	}
 	if err := ValidateImageSelector(b.Image); err != nil {
 		return fmt.Errorf("Runtime binding image: %w", err)
+	}
+	if b.Image == BuiltinImageSelector {
+		return fmt.Errorf("Runtime binding image must be resolved execution material")
 	}
 	if b.RuntimeID == StandardRuntimeID && b.Name != StandardRuntimeName {
 		return fmt.Errorf("standard Runtime binding name is invalid")

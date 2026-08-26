@@ -75,9 +75,12 @@ func TestFinalWorkspaceHelpersUseCanonicalBaseForCustomRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defaultImage := runtime.defaultRuntimeImage()
+	defaultImage, err := runtime.defaultRuntimeImage()
+	if err != nil {
+		t.Fatal(err)
+	}
 	runner.metadataByImage[defaultImage] = validMetadata
-	if err := runtime.ensureFinalWorkspaceHelpers(context.Background(), customImage); err != nil {
+	if err := runtime.ensureFinalWorkspaceHelpers(context.Background()); err != nil {
 		t.Fatalf("custom Workspace image prevented canonical helper materialization: %v", err)
 	}
 	for _, args := range runner.outputs {
@@ -259,7 +262,7 @@ func TestWorkspaceServiceHelperRejectsNonRegularExistingTargetBeforeReplacement(
 
 func TestLiveWorkspaceServiceHelperExtractionAndCustomRuntimeMount(t *testing.T) {
 	if os.Getenv("TOBARI_LIVE_DOCKER_HELPER") != "1" {
-		t.Skip("set TOBARI_LIVE_DOCKER_HELPER=1 after building tobari-runtime:dev")
+		t.Skip("set TOBARI_LIVE_DOCKER_HELPER=1 after building the source-addressed standard Runtime")
 	}
 	base := t.TempDir()
 	runtime, err := newRuntimeWithData(filepath.Join(base, "config"), filepath.Join(base, "state"), filepath.Join(base, "data"), osCommandRunner{})
@@ -267,7 +270,11 @@ func TestLiveWorkspaceServiceHelperExtractionAndCustomRuntimeMount(t *testing.T)
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if err := runtime.materializeWorkspaceHelpers(ctx, "tobari-runtime:dev"); err != nil {
+	standardImage, err := runtimeassets.StandardRuntimeImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.materializeWorkspaceHelpers(ctx, standardImage); err != nil {
 		t.Fatal(err)
 	}
 	version, err := runtimeassets.Version()
@@ -304,7 +311,7 @@ func TestLiveWorkspaceServiceHelperExtractionAndCustomRuntimeMount(t *testing.T)
 	defer func() {
 		_ = runtime.runner.Run(context.Background(), []string{"image", "rm", "--force", image}, os.Environ(), nil, io.Discard, io.Discard)
 	}()
-	dockerfile := strings.NewReader("FROM tobari-runtime:dev\nLABEL io.tobari.integration=workspace-service-helper\n")
+	dockerfile := strings.NewReader("FROM " + standardImage + "\nLABEL io.tobari.integration=workspace-service-helper\n")
 	if err := runtime.runner.Run(ctx, []string{"build", "--tag", image, "--file", "-", base}, os.Environ(), dockerfile, io.Discard, io.Discard); err != nil {
 		t.Fatal(err)
 	}

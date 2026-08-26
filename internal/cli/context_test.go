@@ -168,7 +168,7 @@ func (f *runtimeCatalogCLI) ReadRuntimeLifecycleSnapshot(context.Context) (tobar
 		Revisions: []tobari.RuntimeRevision{{
 			Ordinal:   1,
 			Revision:  "sha256:" + strings.Repeat("f", 64),
-			Image:     tobari.OfficialRuntimeBase,
+			Image:     "tobari-runtime:test",
 			CreatedAt: time.Unix(1, 0).UTC(),
 		}},
 	}

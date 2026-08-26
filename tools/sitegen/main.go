@@ -547,11 +547,11 @@ func generateVersions(root, sourceRef string, catalog catalogDocument) (componen
 	if err != nil {
 		return componentVersionDocument{}, err
 	}
-	defaultSelector, err := requiredMatch(contextSource, `OfficialRuntimeBase\s*=\s*"([^"]+)"`, "default runtime selector")
+	tobariSource, err := committedFile(root, sourceRef, "internal/domain/tobari/tobari.go")
 	if err != nil {
 		return componentVersionDocument{}, err
 	}
-	tobariSource, err := committedFile(root, sourceRef, "internal/domain/tobari/tobari.go")
+	defaultSelector, err := requiredMatch(tobariSource, `BuiltinImageSelector\s*=\s*"([^"]+)"`, "default runtime selector")
 	if err != nil {
 		return componentVersionDocument{}, err
 	}
@@ -632,7 +632,7 @@ func generateVersions(root, sourceRef string, catalog catalogDocument) (componen
 			gatewayVersion = "unpublished V1 snapshot"
 		}
 	}
-	localBuild := defaultSelector == "tobari-runtime:base"
+	localBuild := defaultSelector == "builtin"
 	return componentVersionDocument{
 		GeneratedFrom: "committed repository authorities and executable CLI help at " + sourceRef,
 		Components: []componentVersion{

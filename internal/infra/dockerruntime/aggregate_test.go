@@ -492,7 +492,7 @@ func TestInvalidContextPolicyDoesNotReplaceKnownGoodAggregate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CreateContext(context.Background(), "broken", tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadWrite); err != nil {
+	if _, err := runtime.CreateContext(context.Background(), "broken", tobari.BuiltinImageSelector, tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	_, paths, err := runtime.resolveContext("broken")
@@ -589,7 +589,7 @@ func TestAggregateReceiptMismatchRetestsAndRejectsInvalidContextPolicy(t *testin
 		t.Fatal(err)
 	}
 	if _, err := runtime.CreateContext(
-		context.Background(), "advanced", tobari.OfficialRuntimeBase,
+		context.Background(), "advanced", tobari.BuiltinImageSelector,
 		tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadWrite,
 	); err != nil {
 		t.Fatal(err)

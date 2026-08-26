@@ -152,7 +152,10 @@ func (r *Runtime) validateFinalRuntimeMaterials(ctx context.Context, snapshot to
 			}
 			continue
 		}
-		image := r.resolveBuiltinImageSelector(observedBinding.Image)
+		image, err := r.resolveBuiltinImageSelector(observedBinding.Image)
+		if err != nil {
+			return nil, err
+		}
 		if _, err := r.inspectFinalStandardRuntimeImage(ctx, image); err != nil {
 			return nil, fmt.Errorf("final Template standard Runtime material is incompatible or unavailable: %w", err)
 		}

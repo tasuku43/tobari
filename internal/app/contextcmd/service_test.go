@@ -168,7 +168,7 @@ func (f *contextRuntimeFake) BuildRuntimeWithProgress(
 		progress(tobari.RuntimeBuildProgress{
 			Stage: tobari.RuntimeBuildStageBuild, Status: tobari.RuntimeBuildProgressStarted,
 			WorkspaceManifestName: "default", Dockerfile: "/config/contexts/default/runtime/Dockerfile",
-			PreviousImage: tobari.OfficialRuntimeBase, CandidateImage: "tobari-context-default:0123456789ab",
+			PreviousImage: "tobari-runtime:test", CandidateImage: "tobari-context-default:0123456789ab",
 			Selection: tobari.RuntimeBuildSelectionUnchanged,
 		})
 	}
@@ -183,7 +183,7 @@ func contextReport(task, name string) tobari.ManifestReport {
 	return tobari.ManifestReport{
 		Task: task, ManifestState: tobari.ManifestObservationPersisted, ID: "018bcfe5-687b-7000-8000-000000000099", Name: name, Default: task == tobari.TaskManifestDefaultSet,
 		Desired:      testWorkspaceManifestRevision("f"),
-		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
+		AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector,
 		PolicyMode:       tobari.ManifestPolicyModeGuided,
 		SourceAccess:     tobari.ManifestSourceAccessReadWrite,
 		PolicyRevision:   tobari.DefaultContextPolicyRevision(),
@@ -193,7 +193,7 @@ func contextReport(task, name string) tobari.ManifestReport {
 		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
 		Runtime: tobari.ManifestRuntimeReport{
 			Kind: tobari.ManifestRuntimeKindOfficial, Status: tobari.ManifestRuntimeStatusOfficial,
-			Image: tobari.OfficialRuntimeBase, RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName,
+			Image: "tobari-runtime:test", RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName,
 			Revision: "sha256:" + strings.Repeat("0", 64), Ordinal: 1,
 		},
 		Cluster:        tobari.ManifestClusterStatusNotApplicable,
@@ -649,14 +649,14 @@ func TestCreateValidatesIntentAndPassesRuntimeImageToPort(t *testing.T) {
 		Impact: contextImpact(),
 	}
 	result, err := service.Create(
-		context.Background(), intent, "project-tools", tobari.OfficialRuntimeBase,
+		context.Background(), intent, "project-tools", tobari.BuiltinImageSelector,
 		tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadWrite,
 	)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 	if result.Name != "project-tools" || fake.createCalls != 1 || fake.lastName != "project-tools" ||
-		fake.lastImage != tobari.OfficialRuntimeBase || fake.lastMode != tobari.ManifestPolicyModeAdvanced ||
+		fake.lastImage != tobari.BuiltinImageSelector || fake.lastMode != tobari.ManifestPolicyModeAdvanced ||
 		fake.lastSourceAccess != tobari.ManifestSourceAccessReadWrite {
 		t.Fatalf("result/call = %+v, calls=%d name=%q image=%q mode=%q", result, fake.createCalls, fake.lastName, fake.lastImage, fake.lastMode)
 	}
@@ -692,7 +692,7 @@ func TestCreateRejectsInvalidSourceAccessBeforePortCall(t *testing.T) {
 		Impact: contextImpact(),
 	}
 	_, err := service.Create(
-		context.Background(), intent, "project-tools", tobari.OfficialRuntimeBase,
+		context.Background(), intent, "project-tools", tobari.BuiltinImageSelector,
 		tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccess("snapshot"),
 	)
 	public, ok := fault.PublicCopy(err)
@@ -712,7 +712,7 @@ func TestCreateDuplicateRecoversThroughContextList(t *testing.T) {
 		Impact: contextImpact(),
 	}
 	_, err := New(fake).Create(
-		context.Background(), intent, "review", tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeGuided,
+		context.Background(), intent, "review", tobari.BuiltinImageSelector, tobari.ManifestPolicyModeGuided,
 		tobari.ManifestSourceAccessReadWrite,
 	)
 	public, ok := fault.PublicCopy(err)
@@ -740,7 +740,7 @@ func TestCreateWithCompositionPreservesTypedMethodSelection(t *testing.T) {
 		Impact: contextImpact(),
 	}
 	result, err := New(fake).CreateWithComposition(
-		context.Background(), intent, "coding", tobari.OfficialRuntimeBase,
+		context.Background(), intent, "coding", tobari.BuiltinImageSelector,
 		tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite,
 		tobari.ManifestCreateComposition{
 			NativeReadiness: tobari.ManifestNativeReadinessEnabled,
@@ -764,7 +764,7 @@ func TestCreationBaseAndCreatePreserveReviewedStandaloneComposition(t *testing.T
 		SourceAccess: tobari.ManifestSourceAccessReadOnly, NativeReadiness: tobari.ManifestNativeReadinessDisabled,
 		MethodPolicy:     tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodDeny, Overrides: []tobari.ManifestMethodOverride{{Method: "GET", Decision: tobari.ManifestMethodAllow}}},
 		RuntimeSelection: "standard@1", ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
-		RuntimeBinding: tobari.RuntimeBinding{RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Revision: "sha256:" + strings.Repeat("0", 64), Ordinal: 1, Image: tobari.OfficialRuntimeBase},
+		RuntimeBinding: tobari.RuntimeBinding{RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Revision: "sha256:" + strings.Repeat("0", 64), Ordinal: 1, Image: "tobari-runtime:test"},
 		GitIdentity:    tobari.DefaultContextGitIdentityReport(),
 	}
 	report := contextReport(tobari.TaskManifestCreate, "standalone")
@@ -806,7 +806,7 @@ func TestCreateMapsChangedBaseToRetryableReviewFault(t *testing.T) {
 		Desired:      testWorkspaceManifestRevision("a"),
 		SourceAccess: tobari.ManifestSourceAccessReadWrite, NativeReadiness: tobari.ManifestNativeReadinessEnabled,
 		MethodPolicy:     tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview, Overrides: []tobari.ManifestMethodOverride{}},
-		RuntimeSelection: "standard@1", RuntimeBinding: tobari.RuntimeBinding{RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Revision: "sha256:" + strings.Repeat("0", 64), Ordinal: 1, Image: tobari.OfficialRuntimeBase}, ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(), GitIdentity: tobari.DefaultContextGitIdentityReport(),
+		RuntimeSelection: "standard@1", RuntimeBinding: tobari.RuntimeBinding{RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Revision: "sha256:" + strings.Repeat("0", 64), Ordinal: 1, Image: "tobari-runtime:test"}, ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(), GitIdentity: tobari.DefaultContextGitIdentityReport(),
 	}
 	fake := &contextRuntimeFake{createErr: tobari.ErrManifestCopySourceChanged}
 	intent := operation.Intent{Command: "manifest create", Effect: operation.EffectCreate, Target: operation.TargetRef{Kind: tobari.ManifestCatalogTargetKind, ParentID: tobari.ManifestCatalogTargetID}, Impact: contextImpact()}
@@ -831,7 +831,7 @@ func TestCreateFirstWithCompositionRevalidatesKnownEmptyInsideLifecycle(t *testi
 		Impact: contextImpact(),
 	}
 	_, err := New(fake).CreateFirstWithComposition(
-		context.Background(), intent, tobari.DefaultManifestName, tobari.OfficialRuntimeBase,
+		context.Background(), intent, tobari.DefaultManifestName, tobari.BuiltinImageSelector,
 		tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite,
 		tobari.ManifestCreateComposition{NativeReadiness: tobari.ManifestNativeReadinessEnabled, RuntimeSelection: "standard@1"},
 	)
@@ -846,7 +846,7 @@ func TestCreateFirstWithCompositionRejectsConcurrentCollectionChange(t *testing.
 		DefaultManifestID: "018bcfe5-687b-7000-8000-000000000099", DefaultManifest: "other",
 		Items: []tobari.ManifestSummary{{
 			ID: "018bcfe5-687b-7000-8000-000000000099", Name: "other", ManifestState: tobari.ManifestObservationPersisted,
-			Default: true, AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
+			Default: true, AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector,
 			Desired:    testWorkspaceManifestRevision("e"),
 			PolicyMode: tobari.ManifestPolicyModeGuided, SourceAccess: tobari.ManifestSourceAccessReadWrite,
 			PolicyRevision: tobari.DefaultContextPolicyRevision(), NativeReadiness: tobari.ManifestNativeReadinessEnabled,
@@ -862,7 +862,7 @@ func TestCreateFirstWithCompositionRejectsConcurrentCollectionChange(t *testing.
 		Impact: contextImpact(),
 	}
 	_, err := New(fake).CreateFirstWithComposition(
-		context.Background(), intent, tobari.DefaultManifestName, tobari.OfficialRuntimeBase,
+		context.Background(), intent, tobari.DefaultManifestName, tobari.BuiltinImageSelector,
 		tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite,
 		tobari.ManifestCreateComposition{NativeReadiness: tobari.ManifestNativeReadinessEnabled, RuntimeSelection: "standard@1"},
 	)
@@ -991,7 +991,7 @@ func TestRuntimeBuildMapsMissingRecipeBeforePromotion(t *testing.T) {
 func TestContextRuntimeSetPinsExplicitReadyRevision(t *testing.T) {
 	result := contextReport(tobari.TaskManifestRuntimeSet, "coding")
 	result.Runtime = tobari.ManifestRuntimeReport{Kind: tobari.ManifestRuntimeKindManaged, Status: tobari.ManifestRuntimeStatusReady, Image: "tobari-runtime-frontend:aaaaaaaaaaaa", RuntimeID: "018bcfe5-687b-7000-8000-000000000077", Name: "frontend", Revision: "sha256:" + strings.Repeat("a", 64), Ordinal: 4}
-	result.Image = result.Runtime.Image
+	result.Image = tobari.BuiltinImageSelector
 	fake := &contextRuntimeFake{setRuntimeResult: result}
 	service := New(fake)
 	intent := operation.Intent{Command: "manifest runtime set", Effect: operation.EffectWrite, Target: operation.TargetRef{Kind: tobari.ManifestRuntimeBindingTargetKind, ID: tobari.ManifestRuntimeBindingTargetID}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}

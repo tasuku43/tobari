@@ -10,13 +10,15 @@ import (
 
 func main() {
 	if len(os.Args) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: runtimeassetid <tobari|gateway|authbroker|exposure-helper>")
+		fmt.Fprintln(os.Stderr, "usage: runtimeassetid <tobari|gateway|authbroker|exposure-helper|standard-runtime-image>")
 		os.Exit(2)
 	}
 	var version string
 	var err error
 	if os.Args[1] == "exposure-helper" {
 		version, err = runtimeassets.ExposureHelperSourceVersion()
+	} else if os.Args[1] == "standard-runtime-image" {
+		version, err = runtimeassets.StandardRuntimeImage()
 	} else {
 		version, err = runtimeassets.ComponentVersion(os.Args[1])
 	}

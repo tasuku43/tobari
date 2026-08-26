@@ -2498,7 +2498,8 @@ func TestContextRuntimeSetPinsExactReadyRevision(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := built.Runtime.Revisions[0]
-	if selected.Task != tobari.TaskManifestRuntimeSet || selected.Runtime.RuntimeID != built.Runtime.ID || selected.Runtime.Revision != want.Revision || selected.Image != want.Image {
+	if selected.Task != tobari.TaskManifestRuntimeSet || selected.Runtime.RuntimeID != built.Runtime.ID || selected.Runtime.Revision != want.Revision ||
+		selected.Image != tobari.BuiltinImageSelector || selected.Runtime.Image != want.Image {
 		t.Fatalf("selected = %+v", selected)
 	}
 

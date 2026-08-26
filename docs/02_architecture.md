@@ -522,7 +522,9 @@ and invokes Docker through the runtime port. Standard Compose owns only Gateway,
 OPA, shared networks, and CA volumes. Cluster startup ensures the verified
 Gateway and agent-ready runtime images from embedded pinned recipes under
 source-derived local tags, building each only when absent. The release resolver
-is `embedded`; the development resolver selects its own source-hash local tags.
+is `embedded` and the development resolver is `development`; both select the
+same standard Runtime tag for equal exact embedded source identity. The channel
+owns preparation and recovery, not a second image-name authority.
 The runtime adapter
 creates or reconciles each Workspace from its bound Workspace Template image and connects Gateway to
 its dedicated network. After it has reconciled the Workspace guard, it records
@@ -534,8 +536,8 @@ each Workspace, whose entrypoint builds an ephemeral CA bundle.
 
 The same resolver owns a pure build-identity projection used by `version` and
 cluster preflight. Both implementations fix APIs to canonical source and derive
-image tags from embedded source bytes; release packaging injects no image
-authority.
+the standard Runtime image name from the exact checked embedded source identity;
+release packaging injects no image authority.
 Neither implementation can consult CWD, project metadata, environment, or a
 moving registry tag. Cluster preflight compares this projection before state
 loading, asset materialization, journals, policy tests, or Docker calls.
@@ -719,14 +721,18 @@ The combined base declares `NOASSERTION` and is permanently local-build-only.
 builds the multi-architecture source with cache-only output; it has no registry
 permission, login, or push step. The released CLI materializes the same recipe
 and builds it on the user's Docker host when its source-derived tag is absent.
-Contributor development resolves `builtin` to its local combined base.
+Contributor development resolves `builtin` to the same source-addressed local
+combined base selected by the embedded resolver when the checked source inputs
+are equal.
 
 The root resolver obtains the desired image from the stored Workspace Template identity's
 strict manifest on each runtime reconciliation. A new Workspace Template selects
 `builtin`. The resolved selector, rather than the source of the
 default, is persisted on the Workspace only as the last successful
 runtime-container image. Project metadata is not consulted for runtime
-selection.
+selection. A binding-backed manifest may keep `builtin` as its stable selector;
+an explicit portable selector must equal the binding's resolved material, or
+domain validation rejects the contradiction before presentation.
 
 Project runtime path mapping is owned by the Docker adapter. The selected root
 is mounted exactly once with the bound Workspace Template's immutable source access. If

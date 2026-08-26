@@ -263,12 +263,12 @@ func TestGenerateVersionsDerivesCommittedAuthorities(t *testing.T) {
 		}
 	}
 
-	contextSource := committedForTest(t, root, "internal/domain/tobari/context.go")
-	wantSelector := captureForTest(t, contextSource, `OfficialRuntimeBase\s*=\s*"([^"]+)"`)
+	tobariSource := committedForTest(t, root, "internal/domain/tobari/tobari.go")
+	wantSelector := captureForTest(t, tobariSource, `BuiltinImageSelector\s*=\s*"([^"]+)"`)
 	if document.Runtime.DefaultSelector != wantSelector {
 		t.Errorf("default runtime selector = %q, want HEAD value %q", document.Runtime.DefaultSelector, wantSelector)
 	}
-	wantLocalBuild := wantSelector == "tobari-runtime:base"
+	wantLocalBuild := wantSelector == "builtin"
 	if document.Runtime.LocalBuild != wantLocalBuild {
 		t.Errorf("default runtime selector = %+v, want local_build=%t", document.Runtime, wantLocalBuild)
 	}
@@ -277,12 +277,12 @@ func TestGenerateVersionsDerivesCommittedAuthorities(t *testing.T) {
 		t.Errorf("default runtime selector = %+v, want moving_selector=%t", document.Runtime, wantMoving)
 	}
 
-	tobariSource := committedForTest(t, root, "internal/domain/tobari/tobari.go")
 	wantRuntimeAPI := captureForTest(t, tobariSource, `RuntimeImageAPI\s*=\s*"([^"]+)"`)
 	if document.Runtime.RuntimeAPI != wantRuntimeAPI {
 		t.Errorf("runtime API = %q, want HEAD value %q", document.Runtime.RuntimeAPI, wantRuntimeAPI)
 	}
 
+	contextSource := committedForTest(t, root, "internal/domain/tobari/context.go")
 	wantContextSchema := captureIntForTest(
 		t, contextSource, `ManifestSchemaVersion\s*=\s*([0-9]+)`,
 	)

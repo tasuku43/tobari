@@ -107,7 +107,7 @@ func TestPrepareGatewayImageUsesInjectedLocalResolver(t *testing.T) {
 	runtime := &Runtime{
 		runner: runner,
 		images: testImageResolver{
-			runtimeImage: "tobari-runtime:dev",
+			runtimeImage: "tobari-runtime:test",
 			gateway:      sharedImageSelection{Image: "tobari-gateway:dev", RequireDigest: false},
 		},
 	}

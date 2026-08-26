@@ -35,7 +35,7 @@ func TestInstallationMigrationPreservesAuthorityAndPromotesLegacyRuntime(t *test
 	if err := runtime.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CreateContext(context.Background(), "plain", tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadOnly); err != nil {
+	if _, err := runtime.CreateContext(context.Background(), "plain", tobari.BuiltinImageSelector, tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadOnly); err != nil {
 		t.Fatal(err)
 	}
 	plainManifest, err := runtime.readContextManifest("plain")
@@ -445,13 +445,13 @@ func installLegacyMigrationContext(t *testing.T, runtime *Runtime, name string, 
 		ShellEnvironment: current.ShellEnvironment, GitIdentity: current.GitIdentity, Bootstrap: current.Bootstrap,
 	}
 	if customRuntime {
-		dockerfile := []byte("FROM tobari-runtime:dev\nRUN true\n")
+		dockerfile := []byte("FROM " + legacyStandardRuntimeImage + "\nRUN true\n")
 		sourceDigest := sha256.Sum256(dockerfile)
 		digest := "sha256:" + hexDigest(sourceDigest[:])
 		legacy.Image = "tobari-context-default:fixture"
 		legacy.Runtime = &tobari.ManifestRuntimeRecipe{
 			Kind: tobari.ManifestRuntimeKindDockerfile, File: tobari.ManifestRuntimeRecipeFile,
-			BaseReference: "tobari-runtime:dev", SourceDigest: digest,
+			BaseReference: legacyStandardRuntimeImage, SourceDigest: digest,
 			LastBuild: &tobari.ManifestRuntimeBuild{Image: legacy.Image, ImageDigest: "sha256:" + strings.Repeat("d", 64), SourceDigest: digest},
 		}
 		if err := writeAtomicBytes(filepath.Join(runtime.contextDirectory(name), tobari.ManifestRuntimeRecipeFile), dockerfile); err != nil {

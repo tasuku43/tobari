@@ -650,7 +650,7 @@ func TestClusterUpWithProgressReportsEachRuntimeStageInOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime.images = testImageResolver{
-		runtimeImage: "tobari-runtime:dev",
+		runtimeImage: "tobari-runtime:test",
 		gateway:      sharedImageSelection{Image: "tobari-gateway:dev"},
 		authBroker:   sharedImageSelection{Image: "tobari-auth-broker:dev"},
 	}
@@ -752,7 +752,7 @@ func TestClusterUpResumesAfterInterruptedComposeStartup(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime.images = testImageResolver{
-		runtimeImage: "tobari-runtime:dev",
+		runtimeImage: "tobari-runtime:test",
 		gateway:      sharedImageSelection{Image: "tobari-gateway:dev"},
 		authBroker:   sharedImageSelection{Image: "tobari-auth-broker:dev"},
 	}
@@ -2238,7 +2238,7 @@ func configuredClusterUpRuntime(t *testing.T, root string, runner commandRunner)
 		t.Fatal(err)
 	}
 	runtime.images = testImageResolver{
-		runtimeImage: "tobari-runtime:dev",
+		runtimeImage: "tobari-runtime:test",
 		gateway:      sharedImageSelection{Image: "tobari-gateway:dev"},
 		authBroker:   sharedImageSelection{Image: "tobari-auth-broker:dev"},
 	}
@@ -2996,13 +2996,13 @@ func TestResolveImageSelectorUsesInjectedResolverForBuiltin(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
-	runtime.images = testImageResolver{runtimeImage: "tobari-runtime:dev"}
+	runtime.images = testImageResolver{runtimeImage: "tobari-runtime:test"}
 	got, err := runtime.ResolveImageSelector(context.Background(), tobari.BuiltinImageSelector)
-	if err != nil || got != "tobari-runtime:dev" {
+	if err != nil || got != "tobari-runtime:test" {
 		t.Fatalf("builtin selector resolved %q, %v", got, err)
 	}
 	got, err = runtime.ResolveImageSelector(context.Background(), "")
-	if err != nil || got != "tobari-runtime:dev" {
+	if err != nil || got != "tobari-runtime:test" {
 		t.Fatalf("missing config resolved %q, %v", got, err)
 	}
 }
@@ -3091,7 +3091,11 @@ func TestPrepareActiveContextImageReusesAndValidatesLocalOfficialRuntime(t *test
 	root := t.TempDir()
 	runner := &recordingRunner{outputData: compatibleImageInspection()}
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
-	if runtime.defaultRuntimeImage() != localBaseRuntimeImage {
+	selected, err := runtime.defaultRuntimeImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !runtime.imageResolver().ShouldBuildRuntimeImage(selected) {
 		t.Skip("local official base build is not selected by the development resolver")
 	}
 	initializeTestWorkspaceManifest(t, runtime)
@@ -3111,7 +3115,11 @@ func TestPrepareActiveContextImageBuildsMissingLocalOfficialRuntime(t *testing.T
 	root := t.TempDir()
 	runner := &localBaseBuildRunner{}
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
-	if runtime.defaultRuntimeImage() != localBaseRuntimeImage {
+	selected, err := runtime.defaultRuntimeImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !runtime.imageResolver().ShouldBuildRuntimeImage(selected) {
 		t.Skip("local official base build is not selected by the development resolver")
 	}
 	if err := runtime.ensureContextStore(); err != nil {
@@ -3123,7 +3131,7 @@ func TestPrepareActiveContextImageBuildsMissingLocalOfficialRuntime(t *testing.T
 	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0].args[:4], []string{"buildx", "build", "--progress=plain", "--load"}) {
 		t.Fatalf("runtime image build calls = %v", runner.runs)
 	}
-	if !containsArgs(runner.runs[0].args, "--tag") || !containsArgs(runner.runs[0].args, localBaseRuntimeImage) ||
+	if !containsArgs(runner.runs[0].args, "--tag") || !containsArgs(runner.runs[0].args, selected) ||
 		!containsArgs(runner.runs[0].args, "--build-arg") || !strings.Contains(strings.Join(runner.runs[0].args, "\n"), "TOBARI_UID=") {
 		t.Fatalf("runtime image build argv = %v", runner.runs[0].args)
 	}
@@ -3137,7 +3145,7 @@ func TestPrepareActiveContextImageDoesNotPullInjectedLocalRuntime(t *testing.T) 
 	root := t.TempDir()
 	runner := &recordingRunner{outputData: compatibleImageInspection()}
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
-	runtime.images = testImageResolver{runtimeImage: "tobari-runtime:dev"}
+	runtime.images = testImageResolver{runtimeImage: "tobari-runtime:test"}
 	initializeTestWorkspaceManifest(t, runtime)
 	if err := runtime.prepareActiveContextImage(context.Background()); err != nil {
 		t.Fatal(err)
@@ -3145,7 +3153,7 @@ func TestPrepareActiveContextImageDoesNotPullInjectedLocalRuntime(t *testing.T) 
 	if len(runner.runs) != 0 {
 		t.Fatalf("local runtime image was pulled: %v", runner.runs)
 	}
-	if len(runner.outputs) != 1 || runner.outputs[0].args[len(runner.outputs[0].args)-1] != "tobari-runtime:dev" {
+	if len(runner.outputs) != 1 || runner.outputs[0].args[len(runner.outputs[0].args)-1] != "tobari-runtime:test" {
 		t.Fatalf("runtime image inspect calls = %v", runner.outputs)
 	}
 }

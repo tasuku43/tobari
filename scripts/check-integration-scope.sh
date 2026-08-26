@@ -146,6 +146,14 @@ for claim in \
     exit 1
   fi
 done
+for claim in \
+  'line == "ARG TOBARI_RUNTIME_BASE"' \
+  'line != "FROM ${TOBARI_RUNTIME_BASE}"'; do
+  if ! grep -F "$claim" "$scenario" >/dev/null; then
+    echo "integration scope: custom Runtime fixture does not require explicit resolved base material: $claim" >&2
+    exit 1
+  fi
+done
 for retired in '--manifest' 'manifest create' 'workspace_manifest' 'default_manifest' 'integrationfixture manifest-policy' 'run_tobari_at "$work_root" delete'; do
   if grep -F -- "$retired" "$scenario" >&2; then
     echo "integration scope: retired predecessor harness token remains active: $retired" >&2

@@ -79,7 +79,7 @@
     }
   ],
   "runtime": {
-    "default_selector": "tobari-runtime:base",
+    "default_selector": "builtin",
     "runtime_api": "1",
     "lifetime_command": "sleep infinity",
     "metadata_version": "0.2.1",

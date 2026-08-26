@@ -17,7 +17,7 @@ tasks:
       - ./scripts/build-dev-images.sh --research
       - mkdir -p bin
       - go build -tags='tobari_dev tobari_research' -buildvcs=false -trimpath -o bin/tobari-research -ldflags "-X main.commit=$(git rev-parse --verify HEAD)" ./cmd/tobari
-      - 'printf "Built %s using the research surface, content-addressed local component images, and tobari-runtime:dev\nRun it directly, or install it with: install -m 0755 bin/tobari-research ~/.local/bin/tobari-research\n" bin/tobari-research'
+      - 'printf "Built %s using the research surface and source-addressed local component images\nRun it directly, or install it with: install -m 0755 bin/tobari-research ~/.local/bin/tobari-research\n" bin/tobari-research'
 
   contracts:check:
     desc: Validate the command catalog, capability ledger, and external schema fixtures.

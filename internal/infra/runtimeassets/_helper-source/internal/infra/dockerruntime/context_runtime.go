@@ -78,6 +78,10 @@ func (r *Runtime) contextRuntimeSourceDigest(name string) (string, error) {
 }
 
 func (r *Runtime) contextRuntimeUsesRefreshableBase(name string) (bool, error) {
+	defaultImage, err := r.defaultRuntimeImage()
+	if err != nil {
+		return false, err
+	}
 	data, err := os.ReadFile(r.contextRuntimeDockerfile(name)) // #nosec G304 -- path is the fixed child of a validated Context.
 	if err != nil {
 		return false, fmt.Errorf("read runtime Dockerfile for base refresh: %w", err)
@@ -94,7 +98,7 @@ func (r *Runtime) contextRuntimeUsesRefreshableBase(name string) (bool, error) {
 			if strings.HasPrefix(field, "--") {
 				continue
 			}
-			return field == r.defaultRuntimeImage() && r.imageResolver().ShouldPullRuntimeImage(field), nil
+			return field == defaultImage && r.imageResolver().ShouldPullRuntimeImage(field), nil
 		}
 	}
 	return false, nil
@@ -117,10 +121,14 @@ func (r *Runtime) contextRuntimeReport(manifest tobari.WorkspaceManifest) (tobar
 		}, nil
 	}
 	if manifest.Runtime == nil {
+		image, err := r.defaultRuntimeImage()
+		if err != nil {
+			return tobari.ManifestRuntimeReport{}, err
+		}
 		return tobari.ManifestRuntimeReport{
 			Kind:          tobari.ManifestRuntimeKindOfficial,
 			Status:        tobari.ManifestRuntimeStatusOfficial,
-			BaseReference: r.defaultRuntimeImage(),
+			BaseReference: image,
 		}, nil
 	}
 	recipe := *manifest.Runtime
@@ -147,9 +155,10 @@ func (r *Runtime) contextRuntimeReport(manifest tobari.WorkspaceManifest) (tobar
 		return report, nil
 	}
 	report.ImageDigest = recipe.LastBuild.ImageDigest
-	if recipe.LastBuild.SourceDigest != sourceDigest || manifest.Image != recipe.LastBuild.Image {
+	if recipe.LastBuild.SourceDigest != sourceDigest {
 		return report, nil
 	}
+	report.Image = recipe.LastBuild.Image
 	report.Status = tobari.ManifestRuntimeStatusReady
 	return report, nil
 }
@@ -346,8 +355,12 @@ func (r *Runtime) InitRuntime(ctx context.Context) (tobari.ManifestReport, error
 	if err := ctx.Err(); err != nil {
 		return tobari.ManifestReport{}, err
 	}
+	defaultImage, err := r.defaultRuntimeImage()
+	if err != nil {
+		return tobari.ManifestReport{}, err
+	}
 	var result tobari.ManifestReport
-	err := r.withClusterLock(func() error {
+	err = r.withClusterLock(func() error {
 		manifest, _, err := r.activeContext()
 		if err != nil {
 			return err
@@ -372,13 +385,13 @@ func (r *Runtime) InitRuntime(ctx context.Context) (tobari.ManifestReport, error
 		manifest.Runtime = &tobari.ManifestRuntimeRecipe{
 			Kind:          tobari.ManifestRuntimeKindDockerfile,
 			File:          tobari.ManifestRuntimeRecipeFile,
-			BaseReference: r.defaultRuntimeImage(),
+			BaseReference: defaultImage,
 		}
 		manifest, err = r.publishWorkspaceManifestUpdate(previous, manifest)
 		if err != nil {
 			return fmt.Errorf("write runtime recipe metadata: %w", err)
 		}
-		if err := initializeBytes(path, []byte(runtimeRecipeTemplate(r.defaultRuntimeImage())), contextRuntimeFileMode); err != nil {
+		if err := initializeBytes(path, []byte(runtimeRecipeTemplate(defaultImage)), contextRuntimeFileMode); err != nil {
 			_ = writeAtomicJSON(r.contextManifestPath(previous.Name), previous)
 			return fmt.Errorf("write runtime Dockerfile: %w", err)
 		}
@@ -432,10 +445,14 @@ func (r *Runtime) BuildRuntimeWithProgress(
 			return err
 		}
 		image := managedRuntimeImage(manifest.Name, sourceDigest)
+		previousImage, err := r.resolveContextImageFor(ctx, manifest)
+		if err != nil {
+			return err
+		}
 		buildProgress := tobari.RuntimeBuildProgress{
 			WorkspaceManifestName: manifest.Name,
 			Dockerfile:            r.contextRuntimeDockerfile(manifest.Name),
-			PreviousImage:         manifest.Image,
+			PreviousImage:         previousImage,
 			CandidateImage:        image,
 			Selection:             tobari.RuntimeBuildSelectionUnchanged,
 		}
@@ -480,7 +497,6 @@ func (r *Runtime) BuildRuntimeWithProgress(
 		}
 		previous := manifest
 		manifest.SchemaVersion = tobari.WorkspaceManifestSchemaVersion
-		manifest.Image = image
 		recipe.SourceDigest = sourceDigest
 		recipe.LastBuild = &tobari.ManifestRuntimeBuild{
 			Image: image, ImageDigest: imageDigest, SourceDigest: sourceDigest,

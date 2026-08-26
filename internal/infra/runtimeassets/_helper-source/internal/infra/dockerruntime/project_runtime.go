@@ -161,7 +161,10 @@ func (r *Runtime) ValidateProjectRuntimeForContext(ctx context.Context, state to
 	if err != nil {
 		return err
 	}
-	image = r.resolveBuiltinImageSelector(image)
+	image, err = r.resolveBuiltinImageSelector(image)
+	if err != nil {
+		return err
+	}
 	return r.validateCompatibleImage(ctx, image)
 }
 
@@ -245,7 +248,10 @@ func (r *Runtime) EnsureProjectRuntime(
 		if err != nil {
 			return err
 		}
-		image = r.resolveBuiltinImageSelector(image)
+		image, err = r.resolveBuiltinImageSelector(image)
+		if err != nil {
+			return err
+		}
 		phase = "runtime_resolution"
 		if err := r.validateCompatibleImage(ctx, image); err != nil {
 			return err

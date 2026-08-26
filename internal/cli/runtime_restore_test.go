@@ -263,7 +263,7 @@ func TestRuntimeRestoreRejectsInvalidReferenceAndSemanticResultBeforeSuccess(t *
 func TestRuntimeStandardOmitsRestoreReferenceWhileManagedHistoryRemainsExact(t *testing.T) {
 	standard := tobari.RuntimeManifest{
 		SchemaVersion: tobari.RuntimeSchemaVersion, ID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Kind: tobari.RuntimeKindBuiltin,
-		Revisions: []tobari.RuntimeRevision{{Ordinal: 1, Revision: "sha256:" + strings.Repeat("f", 64), Image: tobari.OfficialRuntimeBase, CreatedAt: time.Unix(1, 0).UTC()}},
+		Revisions: []tobari.RuntimeRevision{{Ordinal: 1, Revision: "sha256:" + strings.Repeat("f", 64), Image: "tobari-runtime:test", CreatedAt: time.Unix(1, 0).UTC()}},
 	}
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	command := newCLI(strings.NewReader(""), stdout, stderr, DefaultCatalog(), nil)

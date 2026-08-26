@@ -162,7 +162,6 @@ func (r *Runtime) ensureContextStoreUnlocked() error {
 	if err := r.ensurePrivateDirectory(r.contextsDirectory()); err != nil {
 		return fmt.Errorf("prepare Context directory: %w", err)
 	}
-	image := r.defaultRuntimeImage()
 	standardBinding, err := r.resolveRuntimeBinding(tobari.StandardRuntimeName)
 	if err != nil {
 		return err
@@ -174,7 +173,7 @@ func (r *Runtime) ensureContextStoreUnlocked() error {
 		SchemaVersion:    tobari.WorkspaceManifestSchemaVersion,
 		Name:             tobari.DefaultManifestName,
 		AgentProfile:     tobari.DefaultProfile,
-		Image:            image,
+		Image:            tobari.BuiltinImageSelector,
 		PolicyMode:       tobari.ManifestPolicyModeGuided,
 		SourceAccess:     tobari.ManifestSourceAccessReadWrite,
 		PolicyRevision:   tobari.DefaultContextPolicyRevision(),
@@ -602,7 +601,7 @@ func (r *Runtime) observeContext(name string) (observedContext, error) {
 			state: tobari.ManifestObservationAbsent,
 			manifest: tobari.WorkspaceManifest{
 				SchemaVersion: tobari.WorkspaceManifestSchemaVersion, Name: tobari.DefaultManifestName,
-				AgentProfile: tobari.DefaultProfile, Image: r.defaultRuntimeImage(), PolicyMode: tobari.ManifestPolicyModeGuided,
+				AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ManifestPolicyModeGuided,
 				SourceAccess:     tobari.ManifestSourceAccessReadWrite,
 				ShellEnvironment: tobari.InitialContextShellEnvironment(),
 			},
@@ -1099,7 +1098,7 @@ func (r *Runtime) CreateContextWithComposition(
 	}
 	manifest := tobari.WorkspaceManifest{
 		SchemaVersion: tobari.WorkspaceManifestSchemaVersion, Name: name,
-		AgentProfile: tobari.DefaultProfile, Image: runtimeBinding.Image, PolicyMode: mode,
+		AgentProfile: tobari.DefaultProfile, Image: image, PolicyMode: mode,
 		SourceAccess:     sourceAccess,
 		PolicyRevision:   policyRevision,
 		NativeReadiness:  composition.NativeReadiness,

@@ -16,7 +16,7 @@ type sharedImageSelection struct {
 
 type imageResolver interface {
 	BuildIdentity(string, string) (buildidentity.Identity, error)
-	DefaultRuntimeImage() string
+	DefaultRuntimeImage() (string, error)
 	ShouldPullRuntimeImage(string) bool
 	ShouldBuildRuntimeImage(string) bool
 	GatewayImage(context.Context, *Runtime) (sharedImageSelection, error)
@@ -99,6 +99,6 @@ func (r *Runtime) imageResolver() imageResolver {
 	return newImageResolver()
 }
 
-func (r *Runtime) defaultRuntimeImage() string {
+func (r *Runtime) defaultRuntimeImage() (string, error) {
 	return r.imageResolver().DefaultRuntimeImage()
 }

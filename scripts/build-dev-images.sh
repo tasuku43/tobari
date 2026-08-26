@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-runtime_tag=tobari-runtime:dev
+runtime_tag=$(go run ./tools/runtimeassetid standard-runtime-image)
 research=false
 if [[ ${1:-} == --research ]]; then
   research=true
@@ -18,6 +18,7 @@ debian_image=$(awk -F= '$1 == "DEBIAN_IMAGE" { print $2 }' internal/infra/runtim
 go_builder_image=$(awk -F= '$1 == "GO_BUILDER_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
 exposure_helper_source=$(go run ./tools/runtimeassetid exposure-helper)
 test -n "$base_image"
+test -n "$runtime_tag"
 test -n "$mitmproxy_image"
 test -n "$debian_image"
 

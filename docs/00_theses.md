@@ -791,7 +791,10 @@ test, lint, policy test, or integration scenario.
 - Tobari publishes no OCI images. Released and development CLIs derive local
   Gateway and agent-ready image identities from their embedded pinned source,
   build missing images on the user's Docker host, and validate them before
-  mutation. Auth Broker remains local to research builds.
+  mutation. The standard Runtime uses `tobari-runtime:base-<source-id>` in
+  both resolver channels: equal exact checked source identity selects equal
+  local material, while the channel still owns preparation and recovery.
+  Auth Broker remains local to research builds.
 - `task check` is the implementation completion gate; security and public
   changes also run their named profiles.
 - Docker integration is a separate explicit profile because it requires a
@@ -801,9 +804,10 @@ test, lint, policy test, or integration scenario.
 
 - `tools/archlint`, catalog contract tests, Go unit tests, Gateway tests, OPA
   tests, and Docker integration tests cover distinct boundaries.
-- Embedded-release and development build fixtures prove that source-derived
-  local identities cannot cross resolver channels, and cluster preflight
-  rejects an API mismatch before state or Docker mutation.
+- Embedded-release and development build fixtures prove that equal standard
+  Runtime source identities select the same local name across resolver
+  channels, unequal identities cannot alias, and cluster preflight rejects an
+  API mismatch before state or Docker mutation.
 - `.harness/capabilities.json` classifies every supported and excluded outcome.
 - CI delegates to repository scripts rather than duplicating commands.
 

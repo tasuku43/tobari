@@ -140,7 +140,7 @@ func (r *Runtime) ResolveImageSelector(ctx context.Context, explicit string) (st
 		return "", err
 	}
 	if explicit != "" {
-		return r.resolveBuiltinImageSelector(explicit), nil
+		return r.resolveBuiltinImageSelector(explicit)
 	}
 	if _, err := os.Lstat(r.activeContextPath()); err == nil {
 		name, activeErr := r.readDefaultManifestName()
@@ -151,15 +151,18 @@ func (r *Runtime) ResolveImageSelector(ctx context.Context, explicit string) (st
 		if manifestErr != nil {
 			return "", manifestErr
 		}
-		return r.resolveBuiltinImageSelector(manifest.Image), nil
+		return r.resolveContextImageFor(ctx, manifest)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", fmt.Errorf("inspect active Context: %w", err)
 	}
-	return r.defaultRuntimeImage(), nil
+	return r.defaultRuntimeImage()
 }
 
 func (r *Runtime) prepareContextImages(ctx context.Context) error {
-	baseImage := r.defaultRuntimeImage()
+	baseImage, err := r.defaultRuntimeImage()
+	if err != nil {
+		return err
+	}
 	if r.imageResolver().ShouldPullRuntimeImage(baseImage) {
 		if err := r.pullOfficialRuntimeImage(ctx, baseImage); err != nil {
 			return err
@@ -185,7 +188,10 @@ func (r *Runtime) prepareContextImages(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		image := r.resolveBuiltinImageSelector(manifest.Image)
+		image, err := r.resolveContextImageFor(ctx, manifest)
+		if err != nil {
+			return err
+		}
 		if r.imageResolver().ShouldPullRuntimeImage(image) {
 			if err := r.pullOfficialRuntimeImage(ctx, image); err != nil {
 				return err
@@ -210,7 +216,10 @@ func (r *Runtime) prepareActiveContextImage(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	image := r.resolveBuiltinImageSelector(manifest.Image)
+	image, err := r.resolveContextImageFor(ctx, manifest)
+	if err != nil {
+		return err
+	}
 	if r.imageResolver().ShouldPullRuntimeImage(image) {
 		if err := r.pullOfficialRuntimeImage(ctx, image); err != nil {
 			return err
@@ -288,11 +297,11 @@ func (r *Runtime) pullOfficialRuntimeImage(ctx context.Context, image string) er
 	return nil
 }
 
-func (r *Runtime) resolveBuiltinImageSelector(image string) string {
+func (r *Runtime) resolveBuiltinImageSelector(image string) (string, error) {
 	if image == tobari.BuiltinImageSelector {
 		return r.defaultRuntimeImage()
 	}
-	return image
+	return image, nil
 }
 
 func (r *Runtime) validateCompatibleImage(ctx context.Context, image string) error {

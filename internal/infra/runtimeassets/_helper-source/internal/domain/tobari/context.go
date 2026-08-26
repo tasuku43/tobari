@@ -70,7 +70,6 @@ const (
 	ManifestRuntimeBindingTargetKind = "workspace-manifest-runtime-binding"
 	ManifestRuntimeBindingTargetID   = "workspace-manifest-runtime-binding"
 	ManifestRuntimeRecipeFile        = "runtime/Dockerfile"
-	OfficialRuntimeBase              = "tobari-runtime:base"
 	ManifestShellTargetKind          = "workspace-manifest-shell-environment"
 	ManifestShellTargetID            = "workspace-manifest-shell-environment"
 	MaxContextShellValueBytes        = 4096
@@ -822,6 +821,9 @@ func (r ManifestRuntimeReport) Validate() error {
 		if err := ValidateImageSelector(r.BaseReference); err != nil {
 			return err
 		}
+		if r.Kind == ManifestRuntimeKindOfficial && r.BaseReference == BuiltinImageSelector {
+			return fmt.Errorf("official runtime base reference must be resolved execution material")
+		}
 	}
 	if r.Image != "" {
 		if err := ValidateImageSelector(r.Image); err != nil {
@@ -1107,8 +1109,8 @@ func (m WorkspaceManifest) Validate() error {
 		if err := m.RuntimeBinding.Validate(); err != nil {
 			return err
 		}
-		if m.Image != m.RuntimeBinding.Image {
-			return fmt.Errorf("Workspace Manifest image does not match its Runtime binding")
+		if m.Image != BuiltinImageSelector && m.Image != m.RuntimeBinding.Image {
+			return fmt.Errorf("Workspace Manifest image contradicts its Runtime binding")
 		}
 	}
 	if err := validateContextShellEnvironment(m.ShellEnvironment, false); err != nil {
@@ -1504,8 +1506,8 @@ func (r ManifestReport) Validate() error {
 	if err := r.Runtime.Validate(); err != nil {
 		return err
 	}
-	if r.Runtime.RuntimeID != "" && r.Runtime.Image != r.Image {
-		return fmt.Errorf("Workspace Manifest report image does not match its Runtime binding")
+	if r.Runtime.RuntimeID != "" && r.Image != BuiltinImageSelector && r.Runtime.Image != r.Image {
+		return fmt.Errorf("Workspace Manifest report image contradicts its Runtime binding")
 	}
 	if err := validateContextShellEnvironment(r.ShellEnvironment, true); err != nil {
 		return err

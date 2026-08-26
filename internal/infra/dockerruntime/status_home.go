@@ -24,7 +24,10 @@ func (r *Runtime) ObserveStatusRuntime(ctx context.Context, binding tobari.Runti
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	manifest := r.standardRuntimeManifest()
+	manifest, err := r.standardRuntimeManifest()
+	if err != nil {
+		return result, err
+	}
 	if binding.RuntimeID != tobari.StandardRuntimeID {
 		var err error
 		manifest, err = r.resolveManagedRuntimeReferenceUnlocked(tobari.RuntimeRef(binding.RuntimeID))

@@ -35,8 +35,11 @@ func TestInitRuntimeCreatesActiveContextRecipeWithoutChangingImage(t *testing.T)
 	if err != nil {
 		t.Fatalf("InitRuntime() error = %v", err)
 	}
-	defaultImage := runtime.defaultRuntimeImage()
-	if result.Task != tobari.TaskRuntimeInit || result.Image != defaultImage ||
+	defaultImage, err := runtime.defaultRuntimeImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Task != tobari.TaskRuntimeInit || result.Image != tobari.BuiltinImageSelector ||
 		result.Runtime.Status != tobari.ManifestRuntimeStatusPendingBuild {
 		t.Fatalf("InitRuntime() result = %+v", result)
 	}
@@ -75,7 +78,7 @@ func TestBuildRuntimeValidatesAndPromotesManagedImage(t *testing.T) {
 		t.Fatalf("BuildRuntime() error = %v", err)
 	}
 	if result.Task != tobari.TaskRuntimeBuild || result.Runtime.Status != tobari.ManifestRuntimeStatusReady ||
-		result.Image == tobari.BuiltinImageSelector || result.Runtime.ImageDigest == "" {
+		result.Image != tobari.BuiltinImageSelector || result.Runtime.Image == tobari.BuiltinImageSelector || result.Runtime.ImageDigest == "" {
 		t.Fatalf("BuildRuntime() result = %+v", result)
 	}
 	if len(runner.runs) != 1 || len(runner.runs[0].args) < 3 ||
@@ -92,7 +95,11 @@ func TestBuildRuntimeValidatesAndPromotesManagedImage(t *testing.T) {
 	}
 
 	dockerfile := filepath.Join(root, "config", "contexts", "default", "runtime", "Dockerfile")
-	if err := os.WriteFile(dockerfile, []byte(runtimeRecipeTemplate(runtime.defaultRuntimeImage())+"\n# changed\n"), 0o600); err != nil {
+	defaultImage, err := runtime.defaultRuntimeImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dockerfile, []byte(runtimeRecipeTemplate(defaultImage)+"\n# changed\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	shown, err := runtime.ShowContext(context.Background(), "")
@@ -115,7 +122,7 @@ func TestRuntimeBuildChangesOnlyCurrentContextAuthority(t *testing.T) {
 	if err := runtimeStore.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtimeStore.CreateContext(context.Background(), "restricted", tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite); err != nil {
+	if _, err := runtimeStore.CreateContext(context.Background(), "restricted", tobari.BuiltinImageSelector, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	restrictedBefore, err := runtimeStore.ShowContext(context.Background(), "restricted")
@@ -146,7 +153,7 @@ func TestInitRuntimeUsesInjectedResolverBase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime.images = testImageResolver{runtimeImage: "tobari-runtime:dev"}
+	runtime.images = testImageResolver{runtimeImage: "tobari-runtime:test"}
 	if err := runtime.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
@@ -154,14 +161,14 @@ func TestInitRuntimeUsesInjectedResolverBase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitRuntime() error = %v", err)
 	}
-	if result.Image != "tobari-runtime:dev" || result.Runtime.BaseReference != "tobari-runtime:dev" {
+	if result.Image != tobari.BuiltinImageSelector || result.Runtime.BaseReference != "tobari-runtime:test" {
 		t.Fatalf("InitRuntime() result = %+v", result)
 	}
 	data, err := os.ReadFile(filepath.Join(root, "config", "contexts", "default", "runtime", "Dockerfile"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "FROM tobari-runtime:dev") {
+	if !strings.Contains(string(data), "FROM tobari-runtime:test") {
 		t.Fatalf("runtime template = %q", data)
 	}
 }
@@ -184,7 +191,11 @@ func TestBuildRuntimeDoesNotPullExplicitCustomBase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data = []byte(strings.Replace(string(data), "FROM "+runtime.defaultRuntimeImage(), "FROM example.com/tobari/custom-base:dev", 1))
+	defaultImage, err := runtime.defaultRuntimeImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = []byte(strings.Replace(string(data), "FROM "+defaultImage, "FROM example.com/tobari/custom-base:dev", 1))
 	if err := os.WriteFile(dockerfile, data, 0o600); err != nil {
 		t.Fatal(err)
 	}

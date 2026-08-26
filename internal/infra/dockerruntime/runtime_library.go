@@ -57,8 +57,11 @@ func (r *Runtime) runtimeManifestPath(name string) string {
 	return filepath.Join(r.runtimeDirectory(name), "runtime.json")
 }
 
-func (r *Runtime) standardRuntimeManifest() tobari.RuntimeManifest {
-	image := r.defaultRuntimeImage()
+func (r *Runtime) standardRuntimeManifest() (tobari.RuntimeManifest, error) {
+	image, err := r.defaultRuntimeImage()
+	if err != nil {
+		return tobari.RuntimeManifest{}, err
+	}
 	digest := sha256.Sum256([]byte("tobari-standard-runtime\x00" + image))
 	return tobari.RuntimeManifest{
 		SchemaVersion: tobari.RuntimeSchemaVersion,
@@ -67,7 +70,7 @@ func (r *Runtime) standardRuntimeManifest() tobari.RuntimeManifest {
 			Ordinal: 1, Revision: "sha256:" + hex.EncodeToString(digest[:]), Image: image,
 			CreatedAt: time.Unix(0, 0).UTC(),
 		}},
-	}
+	}, nil
 }
 
 func (r *Runtime) resolveRuntimeBinding(selection string) (tobari.RuntimeBinding, error) {
@@ -109,7 +112,6 @@ func (r *Runtime) SetContextRuntime(ctx context.Context, contextName, selection 
 		manifest.Runtime = nil
 		copy := binding
 		manifest.RuntimeBinding = &copy
-		manifest.Image = binding.Image
 		manifest, err = r.publishWorkspaceManifestUpdate(previous, manifest)
 		if err != nil {
 			return fmt.Errorf("write Context Runtime binding: %w", err)
@@ -172,7 +174,7 @@ func (r *Runtime) withRuntimeStoreLock(ctx context.Context, action func() error)
 
 func (r *Runtime) readRuntimeManifest(name string) (tobari.RuntimeManifest, error) {
 	if name == tobari.StandardRuntimeName {
-		return r.standardRuntimeManifest(), nil
+		return r.standardRuntimeManifest()
 	}
 	if err := tobari.ValidateName(name); err != nil {
 		return tobari.RuntimeManifest{}, err
@@ -229,7 +231,11 @@ func (r *Runtime) ListRuntimes(ctx context.Context) (tobari.RuntimeListResult, e
 	if err := ctx.Err(); err != nil {
 		return tobari.RuntimeListResult{}, err
 	}
-	items := []tobari.RuntimeSummary{tobari.RuntimeSummaryFrom(r.standardRuntimeManifest())}
+	standard, err := r.standardRuntimeManifest()
+	if err != nil {
+		return tobari.RuntimeListResult{}, err
+	}
+	items := []tobari.RuntimeSummary{tobari.RuntimeSummaryFrom(standard)}
 	entries, err := os.ReadDir(r.runtimesDirectory())
 	if errors.Is(err, os.ErrNotExist) {
 		result := tobari.RuntimeListResult{Task: tobari.TaskRuntimeList, Items: items}
@@ -267,7 +273,7 @@ func (r *Runtime) ResolveRuntimeReference(ctx context.Context, reference string)
 		return tobari.RuntimeManifest{}, err
 	}
 	if reference == tobari.StandardRuntimeID {
-		return r.standardRuntimeManifest(), nil
+		return r.standardRuntimeManifest()
 	}
 	// Compare the requested ID only after each current manifest is read. Never
 	// carry a mutable name from an earlier catalog snapshot into a second read.
@@ -365,7 +371,11 @@ func (r *Runtime) createRuntimeLifecycleLocked(ctx context.Context, name string,
 			if err := os.Mkdir(stagedSource, 0o700); err != nil {
 				return err
 			}
-			if err := initializeBytes(filepath.Join(stagedSource, "Dockerfile"), []byte(fmt.Sprintf(managedRuntimeTemplate, r.defaultRuntimeImage())), runtimeSourceFileMode); err != nil {
+			defaultImage, err := r.defaultRuntimeImage()
+			if err != nil {
+				return err
+			}
+			if err := initializeBytes(filepath.Join(stagedSource, "Dockerfile"), []byte(fmt.Sprintf(managedRuntimeTemplate, defaultImage)), runtimeSourceFileMode); err != nil {
 				return err
 			}
 		} else {
@@ -1395,7 +1405,11 @@ func (r *Runtime) buildManagedRuntimeLifecycleLocked(ctx context.Context, name, 
 			return r.rollbackRuntimeBuildBeforeDocker(ctx, runtimeSourceInvalid("Runtime source requires a regular file named \"Dockerfile\" at its root."), journal)
 		}
 		image := journal.StagingImage
-		pullBase, err := runtimeSourceUsesRefreshableBase(dockerfile, r.defaultRuntimeImage(), r.imageResolver().ShouldPullRuntimeImage(r.defaultRuntimeImage()))
+		defaultImage, err := r.defaultRuntimeImage()
+		if err != nil {
+			return r.rollbackRuntimeBuildBeforeDocker(ctx, err, journal)
+		}
+		pullBase, err := runtimeSourceUsesRefreshableBase(dockerfile, defaultImage, r.imageResolver().ShouldPullRuntimeImage(defaultImage))
 		if err != nil {
 			return r.rollbackRuntimeBuildBeforeDocker(ctx, err, journal)
 		}

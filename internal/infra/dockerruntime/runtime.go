@@ -30,7 +30,6 @@ const (
 	opaContainer             = "tobari-opa"
 	policyBundleVolume       = "tobari-policy-bundle"
 	authBrokerContainer      = "tobari-auth-broker"
-	localBaseRuntimeImage    = "tobari-runtime:base"
 	policyTestFailureMessage = "OPA policy tests failed; check Rego syntax and ensure the XDG policy directory is accessible to the Docker Engine VM"
 )
 

@@ -68,18 +68,22 @@ The repository's canonical base runtime metadata is schema 1 and declares:
 - the exact entrypoint and `tobari` user; and
 - supported targets `linux/amd64` and `linux/arm64`.
 
-The source-build default is:
+The stable selector is `builtin`. Resolved standard Runtime material is:
 
 ```text
-tobari-runtime:base
+tobari-runtime:base-<source-id>
 ```
 
-The release build replaces that name with a deterministic tag derived from the
-embedded base assets. Neither form names a registry source. If the selected
-official base is absent, Tobari materializes the CLI's pinned Dockerfile and
-assets, builds the image locally, and performs the same compatibility
-inspection used for custom images. Tobari never pulls or publishes the
-agent-ready base through GHCR.
+`<source-id>` is the exact lowercase SHA-256 identity of the checked embedded
+standard Runtime build inputs. Development and embedded resolvers select the
+same name when those inputs are equal; development `task build` prepares it
+eagerly, while embedded startup builds it only when absent. The resolver
+channel owns preparation and recovery, not image-name authority. The
+unversioned `tobari-runtime:base` and mutable `tobari-runtime:dev` names are
+not active standard Runtime authorities. If the selected official base is
+absent, Tobari materializes the CLI's pinned Dockerfile and assets, builds the
+image locally, and performs the same compatibility inspection used for custom
+images. Tobari never pulls or publishes the agent-ready base through GHCR.
 
 The tag identifies which pinned local build should exist; it is not an OCI
 digest. Docker's inspected local image digest remains the immutable identity of

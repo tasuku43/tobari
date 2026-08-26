@@ -176,6 +176,7 @@ run_fast() {
   python3 scripts/test-pty-evidence.py
   ./scripts/test-integration-preflight-cleanup.sh
   ./scripts/check-integration-scope.sh
+  ./scripts/check-runtime-image-identity.sh
   ./scripts/test-site-workflow-ownership.sh
   ./scripts/check-runtime-base.sh
   ./scripts/check-gateway-source.sh
@@ -188,6 +189,7 @@ run_fast() {
 }
 
 run_security() {
+  ./scripts/check-runtime-image-identity.sh
   go mod verify
   go run ./tools/repoguard --scope security
   go run github.com/securego/gosec/v2/cmd/gosec@v2.27.1 \
@@ -197,12 +199,14 @@ run_security() {
 }
 
 run_release() {
+	./scripts/check-runtime-image-identity.sh
 	require_embedded_gateway_release_contract
 	./scripts/lint-release.sh
   go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
 }
 
 run_public() {
+  ./scripts/check-runtime-image-identity.sh
   go run ./tools/repoguard --scope public
   go run ./tools/contractlint
 	require_embedded_gateway_release_contract

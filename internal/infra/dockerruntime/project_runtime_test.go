@@ -361,7 +361,7 @@ func TestProjectShellExecEnvironmentUsesOnlyDeclaredSourcesAndQuotesPrompt(t *te
 	manifest := tobari.WorkspaceManifest{
 		SchemaVersion: tobari.WorkspaceManifestSchemaVersion,
 		ID:            "018bcfe5-687b-7000-8000-000000000000", Name: "default",
-		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
+		AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector,
 		PolicyMode: tobari.ManifestPolicyModeGuided, SourceAccess: tobari.ManifestSourceAccessReadWrite,
 		PolicyRevision: tobari.DefaultContextPolicyRevision(),
 		ShellEnvironment: []tobari.ManifestShellEnvironmentSetting{
@@ -405,7 +405,7 @@ func TestProjectShellExecEnvironmentFallsBackWhenInheritedPS1IsAbsent(t *testing
 	manifest := tobari.WorkspaceManifest{
 		SchemaVersion: tobari.WorkspaceManifestSchemaVersion,
 		ID:            "018bcfe5-687b-7000-8000-000000000000", Name: "default",
-		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
+		AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector,
 		PolicyMode:       tobari.ManifestPolicyModeGuided,
 		SourceAccess:     tobari.ManifestSourceAccessReadWrite,
 		PolicyRevision:   tobari.DefaultContextPolicyRevision(),
@@ -424,7 +424,7 @@ func TestProjectShellExecEnvironmentRejectsOversizedInheritedValue(t *testing.T)
 	manifest := tobari.WorkspaceManifest{
 		SchemaVersion: tobari.WorkspaceManifestSchemaVersion,
 		ID:            "018bcfe5-687b-7000-8000-000000000000", Name: "default",
-		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
+		AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector,
 		PolicyMode: tobari.ManifestPolicyModeGuided, SourceAccess: tobari.ManifestSourceAccessReadWrite,
 		PolicyRevision: tobari.DefaultContextPolicyRevision(),
 		ShellEnvironment: []tobari.ManifestShellEnvironmentSetting{
@@ -1103,7 +1103,10 @@ func TestEnsureProjectRuntimeCancellationBeforeDriftPreservesPrincipal(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	image = runtime.resolveBuiltinImageSelector(image)
+	image, err = runtime.resolveBuiltinImageSelector(image)
+	if err != nil {
+		t.Fatal(err)
+	}
 	profile, err := runtime.ensureSharedProfile(manifest.AgentProfile)
 	if err != nil {
 		t.Fatal(err)

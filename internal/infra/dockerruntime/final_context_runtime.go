@@ -57,7 +57,10 @@ func (r *Runtime) observeFinalContextLoginRuntimeImage(ctx context.Context, bind
 		return finalContextLoginRuntimeObservation{}, fmt.Errorf("Runtime lifecycle recovery must complete before credential acquisition")
 	}
 
-	manifest := r.standardRuntimeManifest()
+	manifest, err := r.standardRuntimeManifest()
+	if err != nil {
+		return finalContextLoginRuntimeObservation{}, err
+	}
 	if binding.RuntimeID != tobari.StandardRuntimeID {
 		manifest, err = r.resolveManagedRuntimeReferenceUnlocked(tobari.RuntimeRef(binding.RuntimeID))
 		if err != nil {

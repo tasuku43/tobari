@@ -332,10 +332,10 @@ func (f *projectRuntimeFake) ObserveContext(_ context.Context, name string) (tob
 func testWorkspaceManifest(name string) (tobari.WorkspaceManifest, error) {
 	manifest := tobari.WorkspaceManifest{
 		SchemaVersion: tobari.WorkspaceManifestSchemaVersion, ID: "018bcfe5-687b-7000-8000-000000000099",
-		Name: name, AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
+		Name: name, AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector,
 		PolicyMode: tobari.ManifestPolicyModeGuided, SourceAccess: tobari.ManifestSourceAccessReadWrite,
 		PolicyRevision: tobari.DefaultContextPolicyRevision(),
-		RuntimeBinding: &tobari.RuntimeBinding{RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Revision: "sha256:" + strings.Repeat("0", 64), Ordinal: 1, Image: tobari.OfficialRuntimeBase},
+		RuntimeBinding: &tobari.RuntimeBinding{RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Revision: "sha256:" + strings.Repeat("0", 64), Ordinal: 1, Image: "tobari-runtime:test"},
 	}
 	return tobari.PublishWorkspaceManifest(manifest, nil)
 }

@@ -12,6 +12,12 @@ func TestRuntimeManifestRequiresContiguousUniqueImmutableRevisions(t *testing.T)
 	if err := manifest.Validate(); err != nil {
 		t.Fatal(err)
 	}
+	invalidBuiltin := manifest
+	invalidBuiltin.Revisions = append([]RuntimeRevision(nil), manifest.Revisions...)
+	invalidBuiltin.Revisions[0].Image = BuiltinImageSelector
+	if err := invalidBuiltin.Validate(); err == nil {
+		t.Fatal("Runtime manifest accepted a builtin selector as resolved revision material")
+	}
 
 	invalid := manifest
 	invalid.Revisions = append([]RuntimeRevision(nil), manifest.Revisions...)
@@ -58,6 +64,10 @@ func TestRuntimeBindingRequiresStableIDAndSemanticRevision(t *testing.T) {
 	binding := RuntimeBinding{RuntimeID: "018bcfe5-687b-7000-8000-000000000077", Name: "frontend", Revision: "sha256:" + strings.Repeat("a", 64), Ordinal: 4, Image: "tobari-runtime-frontend:aaaaaaaaaaaa"}
 	if err := binding.Validate(); err != nil {
 		t.Fatal(err)
+	}
+	binding.Image = BuiltinImageSelector
+	if err := binding.Validate(); err == nil {
+		t.Fatal("Runtime binding accepted the unresolved builtin selector")
 	}
 	binding.Revision = "frontend@4"
 	if err := binding.Validate(); err == nil {

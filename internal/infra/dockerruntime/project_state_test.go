@@ -69,7 +69,7 @@ func TestSameCanonicalRootCanOwnIndependentTobariInDifferentContexts(t *testing.
 	if err := runtime.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CreateContext(context.Background(), "restricted", tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite); err != nil {
+	if _, err := runtime.CreateContext(context.Background(), "restricted", tobari.BuiltinImageSelector, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	defaultProject, created, err := runtime.ResolveOrCreateProjectInContext(context.Background(), root, "default")
@@ -101,7 +101,7 @@ func TestBoundContextManifestSelectsSameRootWorkspaceWithoutNameRediscovery(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CreateContext(context.Background(), "toolbox", tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadOnly); err != nil {
+	if _, err := runtime.CreateContext(context.Background(), "toolbox", tobari.BuiltinImageSelector, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadOnly); err != nil {
 		t.Fatal(err)
 	}
 	toolboxManifest, err := runtime.ResolveContext(context.Background(), "toolbox")
@@ -269,7 +269,11 @@ func TestResolveOrCreateProjectIgnoresProjectLocalDevContainerImage(t *testing.T
 	if err != nil {
 		t.Fatalf("ResolveOrCreateProject() error = %v", err)
 	}
-	if !created || instance.Image != runtime.defaultRuntimeImage() {
+	defaultImage, err := runtime.defaultRuntimeImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created || instance.Image != defaultImage {
 		t.Fatalf("instance = %+v, created=%t", instance, created)
 	}
 }

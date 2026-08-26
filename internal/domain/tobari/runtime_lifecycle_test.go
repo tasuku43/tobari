@@ -23,7 +23,7 @@ func lifecycleStandard() RuntimeManifest {
 		Revisions: []RuntimeRevision{{
 			Ordinal:   1,
 			Revision:  "sha256:" + strings.Repeat("f", 64),
-			Image:     OfficialRuntimeBase,
+			Image:     testRuntimeImage,
 			CreatedAt: time.Unix(1, 0).UTC(),
 		}},
 	}

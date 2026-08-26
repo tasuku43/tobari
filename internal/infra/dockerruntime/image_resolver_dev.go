@@ -5,16 +5,10 @@ package dockerruntime
 import (
 	"context"
 	"fmt"
-)
 
-import "github.com/tasuku43/tobari/internal/domain/buildidentity"
-
-import "github.com/tasuku43/tobari/internal/domain/capabilitysurface"
-
-import "github.com/tasuku43/tobari/internal/infra/runtimeassets"
-
-const (
-	localDevRuntimeImage = "tobari-runtime:dev"
+	"github.com/tasuku43/tobari/internal/domain/buildidentity"
+	"github.com/tasuku43/tobari/internal/domain/capabilitysurface"
+	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
 
 type localDevImageResolver struct{}
@@ -43,8 +37,8 @@ func newImageResolver() imageResolver {
 	return localDevImageResolver{}
 }
 
-func (localDevImageResolver) DefaultRuntimeImage() string {
-	return localDevRuntimeImage
+func (localDevImageResolver) DefaultRuntimeImage() (string, error) {
+	return runtimeassets.StandardRuntimeImage()
 }
 
 func (localDevImageResolver) ShouldPullRuntimeImage(string) bool {

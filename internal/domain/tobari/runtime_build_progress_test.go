@@ -6,7 +6,7 @@ func TestRuntimeBuildProgressValidatesTaskMetadata(t *testing.T) {
 	valid := RuntimeBuildProgress{
 		Stage: RuntimeBuildStageBuild, Status: RuntimeBuildProgressStarted,
 		WorkspaceManifestName: "default", Dockerfile: "/config/contexts/default/runtime/Dockerfile",
-		PreviousImage: OfficialRuntimeBase, CandidateImage: "tobari-context-default:0123456789ab",
+		PreviousImage: testRuntimeImage, CandidateImage: "tobari-context-default:0123456789ab",
 		Selection: RuntimeBuildSelectionUnchanged,
 	}
 	if err := valid.Validate(); err != nil {
@@ -23,6 +23,7 @@ func TestRuntimeBuildProgressValidatesTaskMetadata(t *testing.T) {
 		{name: "context", mutate: func(value *RuntimeBuildProgress) { value.WorkspaceManifestName = "../outside" }},
 		{name: "Dockerfile", mutate: func(value *RuntimeBuildProgress) { value.Dockerfile = "relative/Dockerfile" }},
 		{name: "previous image", mutate: func(value *RuntimeBuildProgress) { value.PreviousImage = "--pull" }},
+		{name: "unresolved previous image", mutate: func(value *RuntimeBuildProgress) { value.PreviousImage = BuiltinImageSelector }},
 		{name: "candidate image", mutate: func(value *RuntimeBuildProgress) { value.CandidateImage = BuiltinImageSelector }},
 		{name: "premature promotion", mutate: func(value *RuntimeBuildProgress) { value.Selection = RuntimeBuildSelectionPromoted }},
 	}

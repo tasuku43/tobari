@@ -344,11 +344,13 @@ registry credential, or unreviewed digest. Repository-only recovery text is
 gated by the compiled development resolver metadata rather than CWD inspection.
 
 Managed Runtime source is a trusted-host build input. A release resolver
-ensures its pinned agent-ready base from embedded source under a source-derived
-local tag; contributor development uses the local combined base. `runtime
-build` may obtain that declared base only because the user explicitly requested
-a host build. Docker receives one immutable Runtime revision snapshot as its
-complete build context; Workspace Template policy, provider manifests, credential
+ensures its pinned agent-ready base from embedded source under the
+`tobari-runtime:base-<source-id>` tag derived from the exact checked source
+identity; contributor development selects the same tag when its checked inputs
+are equal. The resolver channel owns preparation and recovery rather than image
+provenance. `runtime build` may obtain that declared base only because the user
+explicitly requested a host build. Docker receives one immutable Runtime
+revision snapshot as its complete build context; Workspace Template policy, provider manifests, credential
 metadata, encrypted vaults, root keys, secret files, the host home, Docker
 sockets, and Workspace mounts are outside it. The generated image must pass the
 same compatibility inspection before history append. Editing source or a
@@ -423,7 +425,9 @@ Routine startup builds or reuses the reviewed embedded Gateway source under a
 content-derived local tag and rejects missing labels, a root default user, the
 wrong entrypoint, or a Docker Engine platform mismatch before cluster
 resources are created. Contributor source testing uses `task build` and a
-development resolver with its own embedded-source-hash local image tags. The
+development resolver that selects the same source-addressed standard Runtime
+tag as the embedded resolver when the exact checked source identity is equal.
+Gateway and other component images retain their own embedded-source-hash local tags. The
 image does not bake in a host UID/GID. The private CA named volume is
 mounted only into Gateway and its initialization directory is writable by that
 service; the public CA named volume is written by Gateway and mounted

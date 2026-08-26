@@ -552,11 +552,18 @@ review runs through `tobari review permissions` in a separate host terminal.
   root lock, session exclusion, warning gate, or filesystem integrity isolation
   for this user-selected sharing.
 - The configured image accepts `builtin` or a portable OCI image reference.
-  In a release build, `builtin` resolves to a source-derived local image. When
-  absent, `cluster up` builds it from the CLI's embedded pinned recipe before
-  compatibility validation. Contributor builds resolve to the local
-  development base. The combined agent-ready base is permanently local-only
-  and is not a release registry artifact.
+  `builtin` resolves to `tobari-runtime:base-<source-id>`, where `<source-id>`
+  is the exact lowercase SHA-256 identity of the checked embedded standard
+  Runtime build inputs. A development and embedded resolver select the same
+  name when those inputs are equal; development `task build` prepares it
+  eagerly, while embedded `cluster up` builds it only when absent. The resolver
+  channel is preparation/recovery identity, not a second image-name authority.
+  The combined agent-ready base is permanently local-only and is not a release
+  registry artifact. The unversioned `tobari-runtime:base` and mutable `:dev`
+  names are not active standard Runtime authorities.
+  When a Context has a Runtime binding, `builtin` may resolve to that binding's
+  exact material; an explicit portable image selector must match the binding
+  material, and contradictions fail before presentation or execution.
   A custom image must already exist locally and preserve runtime API `1`, the
   `tobari` image user, the `io.tobari.runtime-lifetime-command` capability, and
   the Tobari entrypoint. That capability is currently `sleep infinity`, which
@@ -570,7 +577,9 @@ review runs through `tobari review permissions` in a separate host terminal.
   API/role labels, non-root default user,
   entrypoint, and Docker Engine platform before running policy tests or
   creating shared networks and containers. Released and contributor binaries
-  use distinct content-addressed local tags derived from their embedded source.
+  may reuse the same standard Runtime tag when their exact embedded source
+  identity is equal; other component channels retain their own source-derived
+  identities.
   Tobari publishes no Gateway, runtime, or Auth Broker OCI image, and moving
   registry tags never become runtime authority.
 - Standard authentication is owned by each agent CLI in the Workspace and the

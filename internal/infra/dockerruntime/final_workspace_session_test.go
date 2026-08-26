@@ -113,7 +113,7 @@ func finalSessionBindingFixtureWithTemplateID(t *testing.T, templateID tobari.Wo
 			GraphQLEndpoints: []tobari.ManifestPolicyExactRule{}, MCPEndpoints: []tobari.ManifestPolicyExactRule{},
 		},
 		EntryDefaults: tobari.WorkspaceTemplateEntryDefaults{Runtime: tobari.RuntimeBinding{
-			RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Revision: string(finalSessionDigest("f")), Ordinal: 1, Image: tobari.OfficialRuntimeBase,
+			RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Revision: string(finalSessionDigest("f")), Ordinal: 1, Image: "tobari-runtime:test",
 		}},
 		SessionDefaults:  tobari.WorkspaceTemplateSessionDefaults{ShellEnvironment: []tobari.ManifestShellEnvironmentSetting{}},
 		CreationDefaults: tobari.WorkspaceTemplateCreationDefaults{},

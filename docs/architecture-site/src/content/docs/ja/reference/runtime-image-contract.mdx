@@ -67,17 +67,20 @@ Workspace は停止も削除もされません。
 - 完全一致のエントリーポイントと `tobari` ユーザー
 - サポート対象 `linux/amd64` と `linux/arm64`
 
-ソースビルドのデフォルトは次です。
+安定した selector は `builtin` です。解決済みの標準 Runtime material は次です。
 
 ```text
-tobari-runtime:base
+tobari-runtime:base-<source-id>
 ```
 
-リリースビルドでは、この名前を埋め込みベースアセットから導出した決定的なタグへ
-置き換えます。どちらもレジストリの取得元ではありません。選択した公式ベースがない場合、
-Tobari は CLI に固定して埋め込んだ Dockerfile とアセットを展開し、ローカルでビルドして、
-カスタムイメージと同じ互換性検査を行います。agent-ready base を GHCR から取得したり、
-GHCR へ公開したりしません。
+`<source-id>` は、チェック済みの標準 Runtime build input を正確に表す小文字の SHA-256
+identity です。development と embedded の resolver は、入力が同一なら同じ名前を選びます。
+development の `task build` は先に準備し、embedded の起動は存在しない場合だけビルドします。
+resolver channel は準備と復旧を担い、image-name authority ではありません。未 version の
+`tobari-runtime:base` と可変な `tobari-runtime:dev` は、標準 Runtime の active authority
+ではありません。選択した公式ベースがない場合、Tobari は CLI に固定して埋め込んだ
+Dockerfile とアセットを展開し、ローカルでビルドして、カスタムイメージと同じ互換性検査を
+行います。agent-ready base を GHCR から取得したり、GHCR へ公開したりしません。
 
 タグは、固定したどのローカルビルドが存在すべきかを識別しますが、OCI ダイジェストでは
 ありません。実際にビルドしたバイト列の不変な識別情報には、Docker で検査したローカル

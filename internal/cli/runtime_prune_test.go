@@ -61,7 +61,7 @@ func runtimePruneAvailableSnapshot() (tobari.RuntimeLifecycleSnapshot, time.Time
 		SchemaVersion: tobari.RuntimeSchemaVersion, ID: tobari.StandardRuntimeID,
 		Name: tobari.StandardRuntimeName, Kind: tobari.RuntimeKindBuiltin,
 		Revisions: []tobari.RuntimeRevision{{
-			Ordinal: 1, Revision: "sha256:" + strings.Repeat("f", 64), Image: tobari.OfficialRuntimeBase,
+			Ordinal: 1, Revision: "sha256:" + strings.Repeat("f", 64), Image: "tobari-runtime:test",
 			CreatedAt: time.Unix(1, 0).UTC(),
 		}},
 	}

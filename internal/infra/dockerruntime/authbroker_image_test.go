@@ -92,7 +92,7 @@ func TestPrepareAuthBrokerImageUsesInjectedLocalResolver(t *testing.T) {
 	runtime := &Runtime{
 		runner: runner,
 		images: testImageResolver{
-			runtimeImage: "tobari-runtime:dev",
+			runtimeImage: "tobari-runtime:test",
 			authBroker:   sharedImageSelection{Image: "tobari-auth-broker:dev", RequireDigest: false},
 		},
 	}
@@ -138,7 +138,7 @@ func TestClusterStartupRejectsAuthBrokerBootstrapMarkerBeforeDockerMutation(t *t
 		t.Fatal(err)
 	}
 	runtime.images = testImageResolver{
-		runtimeImage: "tobari-runtime:dev",
+		runtimeImage: "tobari-runtime:test",
 		authBroker: sharedImageSelection{
 			Image: "unpublished", RequireDigest: true,
 		},

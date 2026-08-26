@@ -83,6 +83,9 @@ func (p RuntimeBuildProgress) Validate() error {
 	if err := ValidateImageSelector(p.PreviousImage); err != nil {
 		return fmt.Errorf("runtime build previous image: %w", err)
 	}
+	if p.PreviousImage == BuiltinImageSelector {
+		return fmt.Errorf("runtime build previous image must be resolved execution material")
+	}
 	if err := ValidateImageSelector(p.CandidateImage); err != nil || p.CandidateImage == BuiltinImageSelector {
 		return fmt.Errorf("runtime build candidate image is invalid")
 	}

@@ -336,7 +336,7 @@ func legacyGuardTemplateBody() tobari.WorkspaceTemplateBody {
 		},
 		EntryDefaults: tobari.WorkspaceTemplateEntryDefaults{Runtime: tobari.RuntimeBinding{
 			RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName,
-			Revision: "sha256:" + strings.Repeat("f", 64), Ordinal: 1, Image: tobari.OfficialRuntimeBase,
+			Revision: "sha256:" + strings.Repeat("f", 64), Ordinal: 1, Image: "tobari-runtime:test",
 		}},
 		SessionDefaults:  tobari.WorkspaceTemplateSessionDefaults{ShellEnvironment: []tobari.ManifestShellEnvironmentSetting{}},
 		CreationDefaults: tobari.WorkspaceTemplateCreationDefaults{},

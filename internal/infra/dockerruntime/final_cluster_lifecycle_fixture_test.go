@@ -240,9 +240,13 @@ func TestStatusHomeProductionAdaptersStayWithinFrozenDockerCallBudget(t *testing
 	principal := *plan.Contexts[0].Principal
 	runner.base.workspaces[principal.WorkspaceID] = &principal
 	resolver := runtime.images.(testImageResolver)
-	resolver.runtimeImage = tobari.OfficialRuntimeBase
+	resolver.runtimeImage = "tobari-runtime:test"
 	runtime.images = resolver
-	binding, err := runtime.standardRuntimeManifest().Binding(1)
+	standard, err := runtime.standardRuntimeManifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := standard.Binding(1)
 	if err != nil {
 		t.Fatal(err)
 	}

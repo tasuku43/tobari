@@ -21,7 +21,11 @@ func TestObserveStatusRuntimeUsesOneExactReadWithoutCreatingLifecycleState(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := runtime.standardRuntimeManifest().Binding(1)
+	standard, err := runtime.standardRuntimeManifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := standard.Binding(1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +58,11 @@ func TestObserveStatusRuntimeDoesNotAcquireOrRequireMutationLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := runtime.standardRuntimeManifest().Binding(1)
+	standard, err := runtime.standardRuntimeManifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := standard.Binding(1)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -518,7 +518,13 @@ func (r *Runtime) resolveContextImageFor(ctx context.Context, manifest tobari.Wo
 	if err := manifest.Validate(); err != nil {
 		return "", err
 	}
-	return r.resolveBuiltinImageSelector(manifest.Image), nil
+	if manifest.RuntimeBinding != nil {
+		return manifest.RuntimeBinding.Image, nil
+	}
+	if manifest.Runtime != nil && manifest.Runtime.LastBuild != nil {
+		return manifest.Runtime.LastBuild.Image, nil
+	}
+	return r.resolveBuiltinImageSelector(manifest.Image)
 }
 
 // ListProjects returns every valid logical Tobari record ordered by root.

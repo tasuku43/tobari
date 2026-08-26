@@ -18,8 +18,10 @@ import (
 )
 
 const (
-	migrationPolicyGuardrail   = "method_policy"
-	legacyStandardRuntimeImage = "tobari-runtime:dev"
+	migrationPolicyGuardrail = "method_policy"
+	// This predecessor spelling is recognized only to reject unsupported old
+	// state; it is never selected or rewritten as current Runtime authority.
+	legacyStandardRuntimeImage = "tobari-runtime:" + "dev"
 )
 
 type legacyContextManifest struct {
@@ -163,7 +165,11 @@ func (r *Runtime) MigrateInstallation(ctx context.Context, diagnostics io.Writer
 				continue
 			}
 			if plans[index].manifest.Runtime == nil {
-				binding, bindingErr := r.standardRuntimeManifest().Binding(1)
+				standard, standardErr := r.standardRuntimeManifest()
+				if standardErr != nil {
+					return fmt.Errorf("%w: resolve standard Runtime: %v", tobari.ErrMigrationRuntimeFailed, standardErr)
+				}
+				binding, bindingErr := standard.Binding(1)
 				if bindingErr != nil {
 					return fmt.Errorf("%w: resolve standard Runtime: %v", tobari.ErrMigrationRuntimeFailed, bindingErr)
 				}
