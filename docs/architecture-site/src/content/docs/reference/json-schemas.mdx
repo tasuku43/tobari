@@ -9,7 +9,7 @@ audit line are separate contracts even when they
 describe related objects.
 
 Each schema belongs to one specific surface. Schema numbers are local to that
-surface: the current public CLI includes V1, V2, and V3 envelopes, while
+surface: the current public CLI includes V1 through V4 envelopes, while
 structured errors are V2. The owning parser, Catalog entry, or protocol
 implementation is the source of truth for each surface below.
 
@@ -30,40 +30,44 @@ owning domain or infrastructure reader defines exact validation.
 
 {/* public-cli-json-schemas:start */}
 
-| Surface                                                     | Envelope               | Current schema |
-| ----------------------------------------------------------- | ---------------------- | -------------: |
-| Structured error                                            | `error`                |              2 |
-| Agent help (`view: index` and input-selected `view: scope`) | `commands`             |              1 |
-| Version                                                     | `build_identity`       |              1 |
-| Doctor report                                               | `report`               |              1 |
-| Final Template list                                         | `templates`            |              1 |
-| Final Template report and mutation result                   | `template`             |              1 |
-| Final Context list                                          | `contexts`             |              1 |
-| Final Context report and creation result                    | `context`              |              1 |
-| Final Context entry result                                  | `entry`                |              1 |
-| Final Workspace list                                        | `workspaces`           |              1 |
-| Final Workspace report                                      | `workspace`            |              1 |
-| Final authority mutation result                             | `result`               |              1 |
-| Root default-pair status                                    | `status`               |              3 |
-| Cluster-up result                                           | `cluster_up`           |              2 |
-| Cluster status                                              | `cluster`              |              2 |
-| Cluster denials                                             | `denials`              |              3 |
-| Cluster-down result                                         | `cluster_down`         |              2 |
-| Policy candidates                                           | `policy_candidates`    |              2 |
-| Policy review                                               | `policy_review`        |              2 |
-| Policy rules                                                | `policy_rules`         |              2 |
-| Policy mutation result                                      | `result`               |              2 |
-| Runtime list                                                | `runtimes`             |              1 |
-| Runtime report (`runtime show/create/history/build`)        | `runtime`              |              1 |
-| Runtime restore result                                      | `runtime_restore`      |              1 |
-| Runtime delete result                                       | `runtime_delete`       |              1 |
-| Runtime prune plan                                          | `runtime_prune_plan`   |              2 |
-| Runtime prune result                                        | `runtime_prune_result` |              2 |
-| Permission wait result                                      | `result`               |              1 |
-| Service review                                              | `service_review`       |              1 |
-| Service status                                              | `service_status`       |              1 |
-| Confirmed Service exposure                                  | `exposure`             |              1 |
-| Service browser-open request                                | `open`                 |              1 |
+| Surface                                                     | Envelope                      | Current schema |
+| ----------------------------------------------------------- | ----------------------------- | -------------: |
+| Structured error                                            | `error`                       |              2 |
+| Agent help (`view: index` and input-selected `view: scope`) | `commands`                    |              1 |
+| Version                                                     | `build_identity`              |              1 |
+| Doctor report                                               | `report`                      |              1 |
+| Final Template list                                         | `templates`                   |              1 |
+| Final Template report and mutation result                   | `template`                    |              1 |
+| Final Context list                                          | `contexts`                    |              1 |
+| Final Context report and creation result                    | `context`                     |              1 |
+| Final Context entry result                                  | `entry`                       |              1 |
+| Final Workspace list                                        | `workspaces`                  |              1 |
+| Final Workspace report                                      | `workspace`                   |              1 |
+| Final authority mutation result                             | `result`                      |              1 |
+| Root default-pair status                                    | `status`                      |              3 |
+| Template change plan                                        | `template_change_plan`        |              1 |
+| Context activation plan                                     | `context_activation_plan`     |              1 |
+| Installation migration plan                                 | `installation_migration_plan` |              1 |
+| Installation migration result                               | `installation_migration`      |              1 |
+| Cluster-up result                                           | `cluster_up`                  |              3 |
+| Cluster status                                              | `cluster`                     |              3 |
+| Cluster denials                                             | `denials`                     |              4 |
+| Cluster-down result                                         | `cluster_down`                |              2 |
+| Policy candidates                                           | `policy_candidates`           |              2 |
+| Policy review                                               | `policy_review`               |              2 |
+| Policy rules                                                | `policy_rules`                |              2 |
+| Policy mutation result                                      | `result`                      |              2 |
+| Runtime list                                                | `runtimes`                    |              1 |
+| Runtime report (`runtime show/create/history/build`)        | `runtime`                     |              1 |
+| Runtime restore result                                      | `runtime_restore`             |              1 |
+| Runtime delete result                                       | `runtime_delete`              |              1 |
+| Runtime prune plan                                          | `runtime_prune_plan`          |              2 |
+| Runtime prune result                                        | `runtime_prune_result`        |              2 |
+| Permission wait result                                      | `result`                      |              1 |
+| Service review                                              | `service_review`              |              1 |
+| Service status                                              | `service_status`              |              1 |
+| Confirmed Service exposure                                  | `exposure`                    |              1 |
+| Service browser-open request                                | `open`                        |              1 |
 
 {/* public-cli-json-schemas:end */}
 
@@ -103,10 +107,9 @@ the owning contract. Strictness is surface-specific: do not assume that every
 JSON reader accepts or rejects an unknown field in the same way. Final
 authority and critical Runtime state use explicit fail-closed validation.
 
-This pre-release clean break has no predecessor compatibility reader and no
-implicit or public migration. A bounded presence-only guard classifies legacy
-authority without decoding or adopting it, then fails read-only with
-reset-and-recreate guidance.
+Predecessor authority is never adopted implicitly. Ordinary reads classify it
+without activation and fail closed with guidance to the explicit, plan-bound
+`installation migration plan` and `installation migration apply` workflow.
 
 ## Gateway, OPA, audit, and authentication contracts
 

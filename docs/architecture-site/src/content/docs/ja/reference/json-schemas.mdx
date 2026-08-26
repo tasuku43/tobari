@@ -8,7 +8,7 @@ description: 公開 JSON エンベロープ、永続文書、内部プロトコ�
 記述していても別の契約です。agent CLI のログイン形式は Tobari の公開契約ではありません。
 
 各スキーマは一つの公開面に属します。スキーマ番号はその公開面にだけ属し、現在の公開 CLI
-には V1、V2、V3 のエンベロープがあります。構造化エラーは V2 です。それぞれの公開面では、
+には V1 から V4 のエンベロープがあります。構造化エラーは V2 です。それぞれの公開面では、
 担当するパーサー、Catalog の項目、プロトコルの実装が正本です。
 
 ## 「スキーマ」が必ずしも JSON Schema を意味しない
@@ -28,40 +28,44 @@ Tobari は多くの JSON 契約で、明示的な `schema_version` フィール�
 
 {/* public-cli-json-schemas:start */}
 
-| 対象                                                               | エンベロープ           | 現在のスキーマ |
-| ------------------------------------------------------------------ | ---------------------- | -------------: |
-| 構造化エラー                                                       | `error`                |              2 |
-| エージェント向けヘルプ（`view: index` と入力で選ぶ `view: scope`） | `commands`             |              1 |
-| バージョン                                                         | `build_identity`       |              1 |
-| doctor レポート                                                    | `report`               |              1 |
-| final Template 一覧                                                | `templates`            |              1 |
-| final Template レポート／変更結果                                  | `template`             |              1 |
-| final Context 一覧                                                 | `contexts`             |              1 |
-| final Context レポート／作成結果                                   | `context`              |              1 |
-| final Context enter 結果                                           | `entry`                |              1 |
-| final Workspace 一覧                                               | `workspaces`           |              1 |
-| final Workspace レポート                                           | `workspace`            |              1 |
-| final authority 変更結果                                           | `result`               |              1 |
-| root の default pair 状態                                          | `status`               |              3 |
-| cluster up 結果                                                    | `cluster_up`           |              2 |
-| クラスター状態                                                     | `cluster`              |              2 |
-| クラスターの拒否                                                   | `denials`              |              3 |
-| cluster down 結果                                                  | `cluster_down`         |              2 |
-| ポリシー候補                                                       | `policy_candidates`    |              2 |
-| ポリシーレビュー                                                   | `policy_review`        |              2 |
-| ポリシー規則                                                       | `policy_rules`         |              2 |
-| ポリシー変更結果                                                   | `result`               |              2 |
-| Runtime 一覧                                                       | `runtimes`             |              1 |
-| Runtime レポート（`runtime show/create/history/build` の結果）     | `runtime`              |              1 |
-| Runtime restore result                                             | `runtime_restore`      |              1 |
-| Runtime delete result                                              | `runtime_delete`       |              1 |
-| Runtime prune plan                                                 | `runtime_prune_plan`   |              2 |
-| Runtime prune result                                               | `runtime_prune_result` |              2 |
-| Permission wait の結果                                             | `result`               |              1 |
-| Service review                                                     | `service_review`       |              1 |
-| Service status                                                     | `service_status`       |              1 |
-| 確定した Service exposure                                          | `exposure`             |              1 |
-| Service のブラウザー起動要求                                       | `open`                 |              1 |
+| 対象                                                               | エンベロープ                  | 現在のスキーマ |
+| ------------------------------------------------------------------ | ----------------------------- | -------------: |
+| 構造化エラー                                                       | `error`                       |              2 |
+| エージェント向けヘルプ（`view: index` と入力で選ぶ `view: scope`） | `commands`                    |              1 |
+| バージョン                                                         | `build_identity`              |              1 |
+| doctor レポート                                                    | `report`                      |              1 |
+| final Template 一覧                                                | `templates`                   |              1 |
+| final Template レポート／変更結果                                  | `template`                    |              1 |
+| final Context 一覧                                                 | `contexts`                    |              1 |
+| final Context レポート／作成結果                                   | `context`                     |              1 |
+| final Context enter 結果                                           | `entry`                       |              1 |
+| final Workspace 一覧                                               | `workspaces`                  |              1 |
+| final Workspace レポート                                           | `workspace`                   |              1 |
+| final authority 変更結果                                           | `result`                      |              1 |
+| root の default pair 状態                                          | `status`                      |              3 |
+| Template 変更計画                                                  | `template_change_plan`        |              1 |
+| Context 有効化計画                                                 | `context_activation_plan`     |              1 |
+| installation migration 計画                                        | `installation_migration_plan` |              1 |
+| installation migration 結果                                        | `installation_migration`      |              1 |
+| cluster up 結果                                                    | `cluster_up`                  |              3 |
+| クラスター状態                                                     | `cluster`                     |              3 |
+| クラスターの拒否                                                   | `denials`                     |              4 |
+| cluster down 結果                                                  | `cluster_down`                |              2 |
+| ポリシー候補                                                       | `policy_candidates`           |              2 |
+| ポリシーレビュー                                                   | `policy_review`               |              2 |
+| ポリシー規則                                                       | `policy_rules`                |              2 |
+| ポリシー変更結果                                                   | `result`                      |              2 |
+| Runtime 一覧                                                       | `runtimes`                    |              1 |
+| Runtime レポート（`runtime show/create/history/build` の結果）     | `runtime`                     |              1 |
+| Runtime restore result                                             | `runtime_restore`             |              1 |
+| Runtime delete result                                              | `runtime_delete`              |              1 |
+| Runtime prune plan                                                 | `runtime_prune_plan`          |              2 |
+| Runtime prune result                                               | `runtime_prune_result`        |              2 |
+| Permission wait の結果                                             | `result`                      |              1 |
+| Service review                                                     | `service_review`              |              1 |
+| Service status                                                     | `service_status`              |              1 |
+| 確定した Service exposure                                          | `exposure`                    |              1 |
+| Service のブラウザー起動要求                                       | `open`                        |              1 |
 
 {/* public-cli-json-schemas:end */}
 
@@ -101,9 +105,9 @@ active generation が選択する完全なバイト列ではありません。
 を同じように扱うとは限りません。final authority と重要な Runtime 状態では、明示的な
 fail-closed 検証を使います。
 
-この初回公開前の clean break には、旧形式の互換 reader、暗黙または公開の migration は
-ありません。bounded presence-only guard は旧 authority を decode／adopt せずに存在だけを
-分類し、read-only で失敗して reset／recreate を案内します。
+旧 authority を暗黙には採用しません。通常の読み取りは有効化せずに旧形式を分類し、
+明示的かつ plan-bound な `installation migration plan` と
+`installation migration apply` の手順を案内して fail closed します。
 
 ## Gateway、OPA、監査の契約
 
