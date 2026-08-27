@@ -20,12 +20,13 @@ pinned Gateway and agent-ready base locally from embedded source recipes.
 - The selected source bind is exactly `read-only` or `read-write`; Workspace
   home and tmpfs remain writable.
 - Learned permission is exact Context, Workspace, scheme, host, port, method, and
-  raw path. A declared GraphQL endpoint adds operation type and root field.
-  Signed AWS Query/JSON RPC adds only wire protocol, SigV4 service, and exact
+  raw path. Closed semantic modules add only their bounded request coordinates:
+  GraphQL/MCP, AWS, Kubernetes, Git Smart HTTP, or OCI Distribution. Signed AWS
+  Query/JSON RPC adds wire protocol, SigV4 service, exact version/namespace, and
   operation; Tobari does not need an AWS service catalog or infer IAM/read-write
   semantics.
-- A Workspace Template method policy gives every HTTP method one `allow`, `exact_review`,
-  or `deny` decision beneath an independent immutable destination ceiling.
+- A Workspace Template V1 Method Boundary lists terminal denied HTTP methods
+  beneath an independent public-HTTPS destination ceiling.
   Terminal destination and method Deny decisions precede baseline data,
   learned policy, and the fixed Tobari evaluator over canonical typed data.
 - On the release surface, each tool creates and owns its authentication state

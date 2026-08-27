@@ -6,7 +6,7 @@ import (
 	"sort"
 )
 
-const WorkspaceAuthorityPolicyReadSchemaVersion = 2
+const WorkspaceAuthorityPolicyReadSchemaVersion = 3
 
 // PolicyCandidateAuthorityView is one actionable pending candidate joined to
 // its final Context, Template, and observing Workspace references. Raw final

@@ -28,6 +28,8 @@ func TestAdapterExposesNoDirectTemplateOrUnplannedContextWriter(t *testing.T) {
 		"CopyWorkspaceTemplateDraftByRevisionReference",
 		"PlanWorkspaceTemplateSourceByReference",
 		"ApplyWorkspaceTemplateSourceByReference",
+		"PlanWorkspaceTemplatePolicyMigrationByReference",
+		"ApplyWorkspaceTemplatePolicyMigrationByReference",
 		"CreateContextDraftByTemplateReference",
 		"PlanContextSourceByReference",
 		"ApplyContextSourceByPlan",

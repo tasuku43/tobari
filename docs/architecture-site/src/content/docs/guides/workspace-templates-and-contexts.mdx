@@ -86,6 +86,22 @@ Apply publishes a complete immutable Template revision. Runtime and
 session defaults apply only at their documented later entry/session boundary;
 bootstrap applies only to a newly created Workspace home.
 
+Edit `templates/<template-id>/policy.yaml` using the final
+`tobari.dev/template-policy/v1` schema. Static policy is organized by closed
+protocol modules (HTTP, GraphQL, MCP, Git, OCI) and provider modules (AWS,
+Kubernetes); each module projects only bounded request facts and never imports
+a provider permission catalog.
+
+If an installation still has the predecessor alpha source, migrate desired
+source without activation, then review the ordinary Template change:
+
+```sh
+tobari template migration plan --id TEMPLATE_REF
+tobari template migration apply --plan TEMPLATE_POLICY_MIGRATION_PLAN_REF
+tobari template plan --id TEMPLATE_REF
+tobari template apply --plan TEMPLATE_CHANGE_PLAN_REF
+```
+
 ## Observe and delete
 
 Bare status is the zero-mutation CWD home:

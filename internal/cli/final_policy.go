@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
@@ -15,13 +16,54 @@ import (
 
 func finalPolicyOutput(path, envelope string, value any, format successFormat, text []byte) ([]byte, error) {
 	if format == successFormatJSON {
-		encoded, err := marshalCommandJSON(path, map[string]any{"schema_version": tobari.WorkspaceAuthorityPolicyReadSchemaVersion, envelope: value})
+		projected, err := finalPolicyJSONProjection(value)
+		if err != nil {
+			return nil, err
+		}
+		encoded, err := marshalCommandJSON(path, map[string]any{"schema_version": tobari.WorkspaceAuthorityPolicyReadSchemaVersion, envelope: projected})
 		if err != nil {
 			return nil, err
 		}
 		return append(encoded, '\n'), nil
 	}
 	return text, nil
+}
+
+func finalPolicyJSONProjection(value any) (any, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	var projected any
+	if err := json.Unmarshal(encoded, &projected); err != nil {
+		return nil, err
+	}
+	var complete func(any)
+	complete = func(node any) {
+		switch typed := node.(type) {
+		case []any:
+			for _, item := range typed {
+				complete(item)
+			}
+		case map[string]any:
+			for _, item := range typed {
+				complete(item)
+			}
+			protocol, _ := typed["protocol"].(string)
+			if protocol == tobari.PolicyProtocolKubernetes && typed["kubernetes_kind"] == tobari.KubernetesRequestResource {
+				if _, present := typed["kubernetes_group"]; !present {
+					typed["kubernetes_group"] = ""
+				}
+			}
+			if protocol == tobari.PolicyProtocolOCI && typed["oci_action"] == "list" && typed["oci_object"] == "catalog" {
+				if _, present := typed["oci_repository"]; !present {
+					typed["oci_repository"] = ""
+				}
+			}
+		}
+	}
+	complete(projected)
+	return projected, nil
 }
 
 func runFinalPolicyCandidates(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
@@ -153,7 +195,7 @@ func writeFinalPolicyReviewFrame(out io.Writer, snapshot tobari.PolicyMemoryRevi
 		if value, found := staged[item.ID]; found {
 			decision = " [" + string(value) + "]"
 		}
-		fmt.Fprintf(&text, "%s %d  %s  %s  %s:%d%s%s\n", marker, index+1, item.Match, safeExternalText(item.Template), safeExternalText(item.Rule.Host), item.Rule.Port, safeExternalText(item.Rule.Path), decision)
+		fmt.Fprintf(&text, "%s %d  %s  %s  %s%s\n", marker, index+1, item.Match, safeExternalText(item.Template), finalPolicyEffectSummary(item.Rule.PolicyProtocolIdentity, item.Rule.Method, item.Rule.Host, item.Rule.Port, item.Rule.Path), decision)
 	}
 	text.WriteString("Commands: number select · a allow · d deny · r refresh · p apply · q cancel\n")
 	_, err := io.WriteString(out, text.String())
@@ -183,7 +225,7 @@ func emitFinalPolicyCandidatesWithFormat(ctx context.Context, c *CLI, command Co
 		text.WriteString("No final Policy Memory candidates.\n")
 	} else {
 		for _, item := range result.Items {
-			fmt.Fprintf(&text, "%s  %s  %s  %s:%d%s\n", item.ID, safeExternalText(item.TemplateName), safeExternalText(item.ProjectRoot), safeExternalText(item.Effect.Host), item.Effect.Port, safeExternalText(item.Effect.Path))
+			fmt.Fprintf(&text, "%s  %s  %s  %s\n", item.ID, safeExternalText(item.TemplateName), safeExternalText(item.ProjectRoot), finalPolicyEffectSummary(item.Effect.PolicyProtocolIdentity, item.Effect.Method, item.Effect.Host, item.Effect.Port, item.Effect.Path))
 		}
 	}
 	output, err := finalPolicyOutput(command.Path, envelope, result.Items, format, []byte(text.String()))
@@ -210,7 +252,7 @@ func runFinalPolicyRules(ctx context.Context, c *CLI, command CommandSpec, _ ope
 		text.WriteString("No final Policy Memory rules.\n")
 	} else {
 		for _, item := range result.Items {
-			fmt.Fprintf(&text, "%s  %s  %s  %s  %s:%d%s\n", item.ID, item.Decision, safeExternalText(item.TemplateName), safeExternalText(item.ProjectRoot), safeExternalText(item.Body.Host), item.Body.Port, safeExternalText(item.Body.Path))
+			fmt.Fprintf(&text, "%s  %s  %s  %s  %s\n", item.ID, item.Decision, safeExternalText(item.TemplateName), safeExternalText(item.ProjectRoot), finalPolicyEffectSummary(item.Body.PolicyProtocolIdentity, item.Body.Method, item.Body.Host, item.Body.Port, item.Body.Path))
 		}
 	}
 	output, err := finalPolicyOutput(command.Path, "policy_rules", result.Items, format, []byte(text.String()))
@@ -218,6 +260,33 @@ func runFinalPolicyRules(ctx context.Context, c *CLI, command CommandSpec, _ ope
 		return c.fail(ctx, err)
 	}
 	return c.emitResult(ctx, output)
+}
+
+func finalPolicyEffectSummary(identity tobari.PolicyProtocolIdentity, method, host string, port int, path string) string {
+	result := fmt.Sprintf("%s %s://%s:%d%s", safeExternalText(method), safeExternalText(identity.Scheme), safeExternalText(host), port, safeExternalText(path))
+	if coordinate := policyGraphQLCoordinate(identity); coordinate != "" {
+		return result + " · GraphQL " + coordinate
+	}
+	if identity.EffectiveProtocol() == tobari.PolicyProtocolMCP {
+		coordinate := safeExternalText(identity.MCPMethod)
+		if identity.MCPToolName != "" {
+			coordinate += " " + safeExternalText(identity.MCPToolName)
+		}
+		return result + " · MCP " + coordinate
+	}
+	if coordinate := policyAWSCoordinate(identity); coordinate != "" {
+		return result + " · AWS " + coordinate
+	}
+	if coordinate := policyKubernetesCoordinate(identity); coordinate != "" {
+		return result + " · Kubernetes " + coordinate + " dry-run=" + safeExternalText(identity.KubernetesDryRun)
+	}
+	if identity.EffectiveProtocol() == tobari.PolicyProtocolGit {
+		return result + " · Git " + safeExternalText(identity.GitService+" "+identity.GitRepository)
+	}
+	if identity.EffectiveProtocol() == tobari.PolicyProtocolOCI {
+		return result + " · OCI " + safeExternalText(identity.OCIAction+" "+identity.OCIRepository+" "+identity.OCIObject)
+	}
+	return result
 }
 
 type finalPolicyDirectResult struct {

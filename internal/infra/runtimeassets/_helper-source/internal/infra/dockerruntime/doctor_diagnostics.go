@@ -55,7 +55,7 @@ func (r *Runtime) checkGatewayConfigAt(path string) (string, doctor.CheckStatus)
 			KubernetesEndpoints []tobari.GraphQLEndpoint `json:"kubernetes_endpoints"`
 		} `json:"contexts"`
 	}
-	if err := decodeStrictJSON(data, &document); err != nil || document.Version != "v1" || document.Contexts == nil {
+	if err := decodeStrictJSON(data, &document); err != nil || document.Version != "v2" || document.Contexts == nil {
 		return "gateway.json does not match Gateway projection schema V1", doctor.CheckStatusFail
 	}
 	for contextID, projected := range document.Contexts {

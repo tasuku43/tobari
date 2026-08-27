@@ -62,13 +62,21 @@ boundary, and adopting that revision requires a later Template edit and Apply.
 | `runtime/<asset-revision>/`                 | Materialized embedded Compose, Gateway, OPA, and runtime assets.                                                                                                                 |
 
 Workspace Template policy source consists only of canonical typed policy data
-in `policy.yaml`. Tobari composes it with separate Context Policy Memory into
+in `policy.yaml`. The current schema is
+`tobari.dev/template-policy/v1`: `boundary.methods.deny` is the terminal
+Method Boundary, while the closed `semantic.protocols` and
+`semantic.providers` trees hold static module rules. Tobari composes it with separate Context Policy Memory into
 an internal `data.json` only inside a generated immutable
 `cluster-projections/<revision>/` directory. The fixed evaluator is built into
 Tobari and appears only inside the Docker-managed policy bundle. Wildcards, IP literals,
 non-canonical hosts, host mismatches, unknown or duplicate fields, incomplete
 source sets, extra files, symlinks, hardlinks, owner drift, and unsafe modes
 fail closed.
+
+The predecessor `v1alpha1` shape is not an ordinary readable source. Its only
+decoder belongs to `template migration plan/apply`, which atomically replaces
+desired source without changing active authority. A normal Template Plan/Apply
+is required afterward.
 
 Host-owned configuration and state are protected by the platform's normal
 owner and mode checks. On Linux and macOS, Tobari fails closed after unsafe

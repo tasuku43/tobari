@@ -34,6 +34,14 @@ type TemplatePlanPort interface {
 	PlanWorkspaceTemplateSourceByReference(context.Context, string) (tobari.WorkspaceTemplateChangePlan, error)
 }
 
+type TemplatePolicyMigrationPlanPort interface {
+	PlanWorkspaceTemplatePolicyMigrationByReference(context.Context, string) (tobari.WorkspaceTemplatePolicyMigrationPlan, error)
+}
+
+type TemplatePolicyMigrationApplyPort interface {
+	ApplyWorkspaceTemplatePolicyMigrationByReference(context.Context, string) (tobari.WorkspaceTemplatePolicyMigrationResult, error)
+}
+
 type TemplateDraftCreatePort interface {
 	CreateWorkspaceTemplateDraft(context.Context, string, tobari.WorkspaceTemplateBody) (tobari.WorkspaceTemplateDraft, error)
 }
@@ -71,22 +79,27 @@ func (templateMutationPolicy) Check(_ context.Context, intent operation.Intent) 
 	case intent.Effect == operation.EffectWrite && intent.Target.Kind == tobari.WorkspaceTemplateChangePlanReferenceKind && intent.Target.ID != "" && intent.Target.ParentID == "":
 		_, err := tobari.ParseWorkspaceTemplateChangePlanRef(intent.Target.ID)
 		return err
+	case intent.Effect == operation.EffectWrite && intent.Target.Kind == tobari.WorkspaceTemplatePolicyMigrationPlanReferenceKind && intent.Target.ID != "" && intent.Target.ParentID == "":
+		_, err := tobari.ParseWorkspaceTemplatePolicyMigrationPlanRef(intent.Target.ID)
+		return err
 	default:
 		return fault.New(fault.KindRejected, "mutation_rejected", "Workspace Template mutation target is not owned by Tobari", false)
 	}
 }
 
 type TemplateService struct {
-	read        TemplateReadPort
-	draftCreate TemplateDraftCreatePort
-	draftCopy   TemplateDraftCopyPort
-	defaultSet  TemplateDefaultPort
-	delete      TemplateDeletePort
-	apply       TemplateApplyPort
-	planner     TemplatePlanPort
-	sources     TemplateSourceObservationPort
-	drafts      TemplateDraftReadPort
-	mutator     *execution.Invoker
+	read             TemplateReadPort
+	draftCreate      TemplateDraftCreatePort
+	draftCopy        TemplateDraftCopyPort
+	defaultSet       TemplateDefaultPort
+	delete           TemplateDeletePort
+	apply            TemplateApplyPort
+	planner          TemplatePlanPort
+	migrationPlanner TemplatePolicyMigrationPlanPort
+	migrationApply   TemplatePolicyMigrationApplyPort
+	sources          TemplateSourceObservationPort
+	drafts           TemplateDraftReadPort
+	mutator          *execution.Invoker
 }
 
 func NewTemplateService(port any) *TemplateService {
@@ -98,6 +111,8 @@ func NewTemplateService(port any) *TemplateService {
 	service.delete, _ = port.(TemplateDeletePort)
 	service.apply, _ = port.(TemplateApplyPort)
 	service.planner, _ = port.(TemplatePlanPort)
+	service.migrationPlanner, _ = port.(TemplatePolicyMigrationPlanPort)
+	service.migrationApply, _ = port.(TemplatePolicyMigrationApplyPort)
 	service.sources, _ = port.(TemplateSourceObservationPort)
 	service.drafts, _ = port.(TemplateDraftReadPort)
 	return service
@@ -105,6 +120,51 @@ func NewTemplateService(port any) *TemplateService {
 
 func TemplateApplyImpact() operation.Impact {
 	return operation.Impact{Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}
+}
+
+func TemplatePolicyMigrationImpact() operation.Impact {
+	return operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo}
+}
+
+func (s *TemplateService) PlanPolicyMigration(ctx context.Context, templateRef string) (tobari.WorkspaceTemplatePolicyMigrationPlan, error) {
+	if s == nil || portcheck.IsNil(s.migrationPlanner) {
+		return tobari.WorkspaceTemplatePolicyMigrationPlan{}, missingPort("Workspace Template policy source migration planning")
+	}
+	if _, err := tobari.ParseWorkspaceTemplateRef(templateRef); err != nil {
+		return tobari.WorkspaceTemplatePolicyMigrationPlan{}, invalidFault("invalid_template_ref", "Workspace Template reference is invalid", err, "template list")
+	}
+	plan, err := s.migrationPlanner.PlanWorkspaceTemplatePolicyMigrationByReference(ctx, templateRef)
+	if err != nil {
+		return tobari.WorkspaceTemplatePolicyMigrationPlan{}, templatePlanFault(err)
+	}
+	if err := plan.Validate(); err != nil || plan.TemplateRef != templateRef {
+		return tobari.WorkspaceTemplatePolicyMigrationPlan{}, contractFault("invalid_template_policy_migration_plan", "Workspace Template policy migration plan is invalid", err)
+	}
+	return plan, nil
+}
+
+func (s *TemplateService) ApplyPolicyMigration(ctx context.Context, intent operation.Intent, planRef string) (tobari.WorkspaceTemplatePolicyMigrationResult, error) {
+	if s == nil || portcheck.IsNil(s.migrationApply) {
+		return tobari.WorkspaceTemplatePolicyMigrationResult{}, missingPort("Workspace Template policy source migration apply")
+	}
+	if _, err := tobari.ParseWorkspaceTemplatePolicyMigrationPlanRef(planRef); err != nil {
+		return tobari.WorkspaceTemplatePolicyMigrationResult{}, invalidFault("invalid_template_policy_migration_plan_ref", "Workspace Template policy migration plan reference is invalid", err, "template list")
+	}
+	target := operation.TargetRef{Kind: tobari.WorkspaceTemplatePolicyMigrationPlanReferenceKind, ID: planRef}
+	request := execution.Request{Intent: intent, ExpectedCommand: TaskTemplateMigrationApply, ExpectedEffect: operation.EffectWrite, ExpectedTarget: target, ExpectedImpact: TemplatePolicyMigrationImpact()}
+	var result tobari.WorkspaceTemplatePolicyMigrationResult
+	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		applied, err := s.migrationApply.ApplyWorkspaceTemplatePolicyMigrationByReference(actionContext, planRef)
+		if err != nil {
+			return templateMutationFault(err)
+		}
+		if err := applied.Validate(); err != nil {
+			return contractFault("invalid_template_policy_migration_result", "Workspace Template policy migration result is invalid", err)
+		}
+		result = applied
+		return nil
+	})
+	return result, err
 }
 
 func (s *TemplateService) Plan(ctx context.Context, templateRef string) (tobari.WorkspaceTemplateChangePlan, error) {
@@ -413,6 +473,8 @@ func templateFault(err error, fallback func(error) error) error {
 		return fault.WithClassification(fault.New(fault.KindRejected, "resource_source_modified", "The Template source has unapplied changes", false, fault.NextAction{Command: "template show", Reason: "Inspect and explicitly apply the exact Template source first."}), fault.PhasePrecondition, fault.ChangeNone)
 	case errors.Is(err, tobari.ErrWorkspaceTemplateChangePlanStale):
 		return fault.WithClassification(fault.New(fault.KindRejected, "template_change_plan_stale", "The reviewed Template change plan no longer matches source or active authority", false, fault.NextAction{Command: "template list", Reason: "Discover the Template again, then create and review a fresh exact change plan."}), fault.PhasePrecondition, fault.ChangeNone)
+	case errors.Is(err, tobari.ErrWorkspaceTemplatePolicyMigrationStale):
+		return fault.WithClassification(fault.New(fault.KindRejected, "template_policy_migration_plan_stale", "The reviewed Template policy migration no longer matches source or active authority", false, fault.NextAction{Command: "template list", Reason: "Rediscover the active Template before creating a fresh exact non-activating source migration plan."}), fault.PhasePrecondition, fault.ChangeNone)
 	case errors.Is(err, tobari.ErrWorkspaceTemplateExists):
 		return fault.WithClassification(fault.New(fault.KindRejected, "template_exists", "Workspace Template already exists", false, fault.NextAction{Command: "template list", Reason: "Choose another name or inspect the existing Template."}), fault.PhasePrecondition, fault.ChangeNone)
 	case errors.Is(err, tobari.ErrWorkspaceTemplateNotFound), errors.Is(err, tobari.ErrWorkspaceTemplateRevisionNotFound):

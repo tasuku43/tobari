@@ -81,6 +81,8 @@ var (
 	_ workspaceauthoritycmd.TemplateDraftCopyPort               = (*finalWorkspaceAuthorityAdapter)(nil)
 	_ workspaceauthoritycmd.TemplatePlanPort                    = (*finalWorkspaceAuthorityAdapter)(nil)
 	_ workspaceauthoritycmd.TemplateApplyPort                   = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.TemplatePolicyMigrationPlanPort     = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.TemplatePolicyMigrationApplyPort    = (*finalWorkspaceAuthorityAdapter)(nil)
 	_ workspaceauthoritycmd.TemplateDefaultPort                 = (*finalWorkspaceAuthorityAdapter)(nil)
 	_ workspaceauthoritycmd.TemplateDeletePort                  = (*finalWorkspaceAuthorityAdapter)(nil)
 	_ workspaceauthoritycmd.ContextReadPort                     = (*finalWorkspaceAuthorityAdapter)(nil)

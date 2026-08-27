@@ -1,9 +1,31 @@
 {
   "tobari": {
-    "schema_version": 1,
+    "schema_version": 2,
     "boundary": {
       "graphql_endpoints": [],
-      "mcp_endpoints": []
+      "mcp_endpoints": [],
+      "kubernetes_endpoints": []
+    },
+    "policy": {
+      "destination_mode": "public_https",
+      "authorities": [],
+      "method_default": "allow",
+      "method_overrides": [],
+      "semantic": {
+        "protocols": {
+          "http": {
+            "generic": {},
+            "graphql": {},
+            "mcp": {},
+            "git": {},
+            "oci": {}
+          }
+        },
+        "providers": {
+          "aws": {},
+          "kubernetes": {}
+        }
+      }
     },
     "rules": {
       "learned_allows": [],

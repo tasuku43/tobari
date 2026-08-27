@@ -20,7 +20,7 @@ import (
 	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
 
-const aggregateSchemaVersion = 1
+const aggregateSchemaVersion = 2
 
 var (
 	regoPackagePattern     = regexp.MustCompile(`(?m)^package[ \t]+tobari\.http[ \t]*$`)
@@ -287,8 +287,22 @@ func aggregateGraphQLEndpoints(
 }
 
 func aggregateMCPEndpoints(contextPolicyEndpoints []tobari.ManifestPolicyExactRule) ([]tobari.MCPEndpoint, error) {
-	result := make([]tobari.MCPEndpoint, 0, len(contextPolicyEndpoints))
+	return aggregateFinalMCPEndpoints(nil, contextPolicyEndpoints)
+}
+
+func aggregateFinalMCPEndpoints(policyEndpoints []tobari.MCPEndpoint, contextPolicyEndpoints []tobari.ManifestPolicyExactRule) ([]tobari.MCPEndpoint, error) {
+	result := make([]tobari.MCPEndpoint, 0, len(policyEndpoints)+len(contextPolicyEndpoints))
 	seen := map[tobari.MCPEndpoint]struct{}{}
+	for _, value := range policyEndpoints {
+		if err := value.Validate(); err != nil {
+			return nil, err
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
 	for _, endpoint := range contextPolicyEndpoints {
 		if endpoint.Method != "POST" {
 			return nil, fmt.Errorf("Context policy MCP endpoint method must be POST")
@@ -321,8 +335,8 @@ func canonicalEvaluatorModule() ([]byte, error) {
 		return nil, fmt.Errorf("Tobari evaluator crosses the reserved routing namespace")
 	}
 	schemaMatches := regoInputSchemaPattern.FindAllSubmatch(canonical, -1)
-	if len(schemaMatches) != 1 || string(schemaMatches[0][1]) != "1" {
-		return nil, fmt.Errorf("Tobari evaluator must target source input schema 1")
+	if len(schemaMatches) != 1 || string(schemaMatches[0][1]) != "2" {
+		return nil, fmt.Errorf("Tobari evaluator must target source input schema 2")
 	}
 	return canonical, nil
 }
@@ -379,15 +393,15 @@ func aggregateRouter() ([]byte, error) {
 	builder.WriteString("context_policy_graphql_granted if { is_array(input.request.graphql.root_fields); count(input.request.graphql.root_fields) > 0; every root_field in input.request.graphql.root_fields { context_policy_graphql_root_granted(root_field) } }\n")
 	builder.WriteString("context_policy_mcp_granted if { some rule in data.tobari_contexts[input.principal.context_id].policy.mcp_baseline_grants; rule.scheme == input.request.authority.scheme; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw; rule.mcp_method == input.request.mcp.method; object.get(rule, \"mcp_tool_name\", \"\") == object.get(input.request.mcp, \"tool_name\", \"\") }\n")
 	builder.WriteString("context_policy_granted if { context_policy_exact_granted }\ncontext_policy_granted if { context_policy_template_granted }\ncontext_policy_granted if { context_policy_graphql_granted }\ncontext_policy_granted if { context_policy_mcp_granted }\n\n")
-	builder.WriteString("decision := {\"allow\": false, \"reason\": \"denied by attachment policy\", \"status_code\": 403, \"learnable\": false} if { input.schema_version == 1; input.principal.cluster == \"default\"; data.tobari_contexts[input.principal.context_id]; host_loopback_request; host_loopback_identity_valid; attachment_denied }\n\n")
-	builder.WriteString("decision := {\"allow\": true, \"reason\": \"allowed by attachment policy\", \"status_code\": 403, \"learnable\": false} if { input.schema_version == 1; input.principal.cluster == \"default\"; data.tobari_contexts[input.principal.context_id]; host_loopback_request; host_loopback_identity_valid; not attachment_denied; attachment_allowed }\n\n")
-	builder.WriteString("decision := {\"allow\": false, \"reason\": \"Host Loopback requires attachment policy review\", \"status_code\": 403, \"learnable\": true} if { input.schema_version == 1; input.principal.cluster == \"default\"; data.tobari_contexts[input.principal.context_id]; host_loopback_request; host_loopback_identity_valid; not attachment_denied; not attachment_allowed }\n\n")
+	builder.WriteString("decision := {\"allow\": false, \"reason\": \"denied by attachment policy\", \"status_code\": 403, \"learnable\": false} if { input.schema_version == 2; input.principal.cluster == \"default\"; data.tobari_contexts[input.principal.context_id]; host_loopback_request; host_loopback_identity_valid; attachment_denied }\n\n")
+	builder.WriteString("decision := {\"allow\": true, \"reason\": \"allowed by attachment policy\", \"status_code\": 403, \"learnable\": false} if { input.schema_version == 2; input.principal.cluster == \"default\"; data.tobari_contexts[input.principal.context_id]; host_loopback_request; host_loopback_identity_valid; not attachment_denied; attachment_allowed }\n\n")
+	builder.WriteString("decision := {\"allow\": false, \"reason\": \"Host Loopback requires attachment policy review\", \"status_code\": 403, \"learnable\": true} if { input.schema_version == 2; input.principal.cluster == \"default\"; data.tobari_contexts[input.principal.context_id]; host_loopback_request; host_loopback_identity_valid; not attachment_denied; not attachment_allowed }\n\n")
 	builder.WriteString("decision := {\"allow\": false, \"reason\": \"denied by Context policy ceiling\", \"status_code\": 403, \"learnable\": false} if {\n")
-	builder.WriteString("  input.schema_version == 1\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  terminal_policy\n}\n\n")
-	builder.WriteString("decision := {\"allow\": false, \"reason\": \"denied by exact policy\", \"status_code\": 403, \"learnable\": false} if {\n  input.schema_version == 1\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  not terminal_policy\n  exact_denied\n}\n\n")
-	builder.WriteString("decision := {\"allow\": true, \"reason\": \"allowed by Context policy\", \"status_code\": 403, \"learnable\": false} if {\n  input.schema_version == 1\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  not terminal_policy\n  not exact_denied\n  context_policy_granted\n}\n\n")
+	builder.WriteString("  input.schema_version == 2\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  terminal_policy\n}\n\n")
+	builder.WriteString("decision := {\"allow\": false, \"reason\": \"denied by exact policy\", \"status_code\": 403, \"learnable\": false} if {\n  input.schema_version == 2\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  not terminal_policy\n  exact_denied\n}\n\n")
+	builder.WriteString("decision := {\"allow\": true, \"reason\": \"allowed by Context policy\", \"status_code\": 403, \"learnable\": false} if {\n  input.schema_version == 2\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  not terminal_policy\n  not exact_denied\n  context_policy_granted\n}\n\n")
 	builder.WriteString("decision := result if {\n")
-	builder.WriteString("  input.schema_version == 1\n")
+	builder.WriteString("  input.schema_version == 2\n")
 	builder.WriteString("  input.principal.cluster == \"default\"\n")
 	builder.WriteString("  data.tobari_contexts[input.principal.context_id]\n")
 	builder.WriteString("  not host_loopback_request\n")
@@ -396,12 +410,12 @@ func aggregateRouter() ([]byte, error) {
 	builder.WriteString("  object.get(input.request, \"graphql\", null) != null\n")
 	builder.WriteString("  result := data.tobari.system.guided.decision\n")
 	builder.WriteString("}\n\n")
-	builder.WriteString("decision := result if {\n  input.schema_version == 1\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  not terminal_policy\n  not exact_denied\n  not context_policy_granted\n  object.get(input.request, \"kubernetes\", null) != null\n  result := data.tobari.system.guided.decision\n}\n\n")
-	builder.WriteString("decision := result if {\n  input.schema_version == 1\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  not terminal_policy\n  not exact_denied\n  not context_policy_granted\n  object.get(input.request, \"git\", null) != null\n  result := data.tobari.system.guided.decision\n}\n\n")
-	builder.WriteString("decision := result if {\n  input.schema_version == 1\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  not terminal_policy\n  not exact_denied\n  not context_policy_granted\n  object.get(input.request, \"oci\", null) != null\n  result := data.tobari.system.guided.decision\n}\n\n")
-	builder.WriteString("decision := result if {\n  input.schema_version == 1\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  not terminal_policy\n  not exact_denied\n  not context_policy_granted\n  object.get(input.request, \"aws\", null) != null\n  result := data.tobari.system.guided.decision\n}\n\n")
+	builder.WriteString("decision := result if {\n  input.schema_version == 2\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  not terminal_policy\n  not exact_denied\n  not context_policy_granted\n  object.get(input.request, \"kubernetes\", null) != null\n  result := data.tobari.system.guided.decision\n}\n\n")
+	builder.WriteString("decision := result if {\n  input.schema_version == 2\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  not terminal_policy\n  not exact_denied\n  not context_policy_granted\n  object.get(input.request, \"git\", null) != null\n  result := data.tobari.system.guided.decision\n}\n\n")
+	builder.WriteString("decision := result if {\n  input.schema_version == 2\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  not terminal_policy\n  not exact_denied\n  not context_policy_granted\n  object.get(input.request, \"oci\", null) != null\n  result := data.tobari.system.guided.decision\n}\n\n")
+	builder.WriteString("decision := result if {\n  input.schema_version == 2\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  not terminal_policy\n  not exact_denied\n  not context_policy_granted\n  object.get(input.request, \"aws\", null) != null\n  result := data.tobari.system.guided.decision\n}\n\n")
 	builder.WriteString("decision := result if {\n")
-	builder.WriteString("  input.schema_version == 1\n")
+	builder.WriteString("  input.schema_version == 2\n")
 	builder.WriteString("  input.principal.cluster == \"default\"\n")
 	builder.WriteString("  data.tobari_contexts[input.principal.context_id]\n")
 	builder.WriteString("  not host_loopback_request\n")
@@ -414,7 +428,7 @@ func aggregateRouter() ([]byte, error) {
 	builder.WriteString("  object.get(input.request, \"oci\", null) == null\n")
 	builder.WriteString("  result := data.tobari.system.guided.decision\n}\n\n")
 	builder.WriteString(`router_authority_valid if {
-  input.schema_version == 1
+  input.schema_version == 2
   input.principal.cluster == "default"
   data.tobari_contexts[input.principal.context_id]
 }
@@ -644,7 +658,7 @@ func buildAggregateGatewayDocument(items []aggregateContext) map[string]any {
 		item = item.resolvedIdentity()
 		contexts[item.contextID] = rewriteGatewayProjection(item)
 	}
-	return map[string]any{"version": "v1", "contexts": contexts}
+	return map[string]any{"version": "v2", "contexts": contexts}
 }
 
 func rewriteGatewayProjection(item aggregateContext) map[string]any {
@@ -1581,7 +1595,7 @@ func verifyAggregateGatewayProjectionData(
 	gatewayBytes []byte, contexts map[string]json.RawMessage,
 ) error {
 	var gateway aggregateGatewayProjectionDocument
-	if err := decodeAggregateJSON(gatewayBytes, &gateway); err != nil || gateway.Version != "v1" || gateway.Contexts == nil {
+	if err := decodeAggregateJSON(gatewayBytes, &gateway); err != nil || gateway.Version != "v2" || gateway.Contexts == nil {
 		return fmt.Errorf("aggregate Gateway projection is invalid")
 	}
 	if len(gateway.Contexts) != len(contexts) {

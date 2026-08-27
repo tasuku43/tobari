@@ -22,15 +22,16 @@ func TestADR0084WholeCatalogReferenceGraphIsExact(t *testing.T) {
 	}
 
 	governedKinds := map[string]struct{}{
-		tobari.WorkspaceTemplateReferenceKind:           {},
-		tobari.WorkspaceTemplateRevisionReferenceKind:   {},
-		tobari.WorkspaceTemplateChangePlanReferenceKind: {},
-		tobari.ContextActivationPlanReferenceKind:       {},
-		tobari.InstallationMigrationPlanReferenceKind:   {},
-		tobari.ContextReferenceKind:                     {},
-		tobari.WorkspaceReferenceKind:                   {},
-		tobari.PolicyCandidateKind:                      {},
-		tobari.PolicyRuleKind:                           {},
+		tobari.WorkspaceTemplateReferenceKind:                    {},
+		tobari.WorkspaceTemplateRevisionReferenceKind:            {},
+		tobari.WorkspaceTemplateChangePlanReferenceKind:          {},
+		tobari.WorkspaceTemplatePolicyMigrationPlanReferenceKind: {},
+		tobari.ContextActivationPlanReferenceKind:                {},
+		tobari.InstallationMigrationPlanReferenceKind:            {},
+		tobari.ContextReferenceKind:                              {},
+		tobari.WorkspaceReferenceKind:                            {},
+		tobari.PolicyCandidateKind:                               {},
+		tobari.PolicyRuleKind:                                    {},
 	}
 	var gotProduced, gotConsumed []finalCatalogReferenceEdge
 	for _, command := range catalog.registeredCommands() {
@@ -58,6 +59,9 @@ func TestADR0084WholeCatalogReferenceGraphIsExact(t *testing.T) {
 	wantProduced := []finalCatalogReferenceEdge{
 		{Program: ProgramName, Command: "installation migration apply", Kind: tobari.InstallationMigrationPlanReferenceKind, Endpoint: "plan_ref"},
 		{Program: ProgramName, Command: "installation migration plan", Kind: tobari.InstallationMigrationPlanReferenceKind, Endpoint: "plan_ref"},
+		{Program: ProgramName, Command: "template migration apply", Kind: tobari.WorkspaceTemplateReferenceKind, Endpoint: "template_ref"},
+		{Program: ProgramName, Command: "template migration plan", Kind: tobari.WorkspaceTemplatePolicyMigrationPlanReferenceKind, Endpoint: "plan_ref"},
+		{Program: ProgramName, Command: "template migration plan", Kind: tobari.WorkspaceTemplateReferenceKind, Endpoint: "template_ref"},
 		{Program: ProgramName, Command: "template plan", Kind: tobari.WorkspaceTemplateChangePlanReferenceKind, Endpoint: "plan_ref"},
 		{Program: ProgramName, Command: "template plan", Kind: tobari.WorkspaceTemplateReferenceKind, Endpoint: "template_ref"},
 		{Program: ProgramName, Command: "template plan", Kind: tobari.ContextReferenceKind, Endpoint: "contexts[].context_ref"},
@@ -92,6 +96,8 @@ func TestADR0084WholeCatalogReferenceGraphIsExact(t *testing.T) {
 
 	wantConsumed := []finalCatalogReferenceEdge{
 		{Program: ProgramName, Command: "installation migration apply", Kind: tobari.InstallationMigrationPlanReferenceKind, Endpoint: "--plan"},
+		{Program: ProgramName, Command: "template migration apply", Kind: tobari.WorkspaceTemplatePolicyMigrationPlanReferenceKind, Endpoint: "--plan"},
+		{Program: ProgramName, Command: "template migration plan", Kind: tobari.WorkspaceTemplateReferenceKind, Endpoint: "--id"},
 		{Program: ProgramName, Command: "template plan", Kind: tobari.WorkspaceTemplateReferenceKind, Endpoint: "--id"},
 		{Program: ProgramName, Command: "template apply", Kind: tobari.WorkspaceTemplateChangePlanReferenceKind, Endpoint: "--plan"},
 		{Program: ProgramName, Command: "context plan", Kind: tobari.ContextReferenceKind, Endpoint: "--id"},
@@ -135,6 +141,8 @@ func TestADR0084WholeCatalogReferenceGraphIsExact(t *testing.T) {
 		{Program: ProgramName, Command: "template copy", Kind: tobari.WorkspaceTemplateReferenceKind, Endpoint: "template_ref"},
 		{Program: ProgramName, Command: "template create", Kind: tobari.WorkspaceTemplateReferenceKind, Endpoint: "template_ref"},
 		{Program: ProgramName, Command: "template list", Kind: tobari.WorkspaceTemplateReferenceKind, Endpoint: "items[].template_ref"},
+		{Program: ProgramName, Command: "template migration apply", Kind: tobari.WorkspaceTemplateReferenceKind, Endpoint: "template_ref"},
+		{Program: ProgramName, Command: "template migration plan", Kind: tobari.WorkspaceTemplateReferenceKind, Endpoint: "template_ref"},
 		{Program: ProgramName, Command: "template plan", Kind: tobari.WorkspaceTemplateReferenceKind, Endpoint: "template_ref"},
 		{Program: ProgramName, Command: "template show", Kind: tobari.WorkspaceTemplateReferenceKind, Endpoint: "template_ref"},
 	}

@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-const FinalClusterDenialSchemaVersion = 4
+const FinalClusterDenialSchemaVersion = 5
 
 var (
 	ErrFinalClusterNotRunning         = errors.New("final cluster is not running with exact active authority")

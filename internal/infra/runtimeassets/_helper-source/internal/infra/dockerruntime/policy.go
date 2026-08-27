@@ -31,7 +31,7 @@ type gatewayAuditRecord struct {
 	Timestamp     string `json:"timestamp"`
 	RequestID     string `json:"request_id"`
 	Cluster       string `json:"cluster"`
-	// Gateway audit schema v1 predates the public Workspace Manifest model.
+	// Gateway audit schema v2 retains the pre-Workspace compatibility tokens.
 	// Decode its exact compatibility tokens here, then project current domain
 	// names in PolicyDenial and every public result.
 	ProjectID             *string `json:"project_id"`
@@ -155,7 +155,7 @@ func parseGatewayDenials(data []byte) tobari.DenialRead {
 			result.UnparsedLines++
 			continue
 		}
-		if record.SchemaVersion != 1 || record.Cluster != ownerValue || record.Decision != "deny" || record.DurationMS < 0 {
+		if record.SchemaVersion != 2 || record.Cluster != ownerValue || record.Decision != "deny" || record.DurationMS < 0 {
 			result.UnparsedLines++
 			continue
 		}

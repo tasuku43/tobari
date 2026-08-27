@@ -138,6 +138,9 @@ func (s *Store) ReadTemplateSnapshot(ctx context.Context, id tobari.WorkspaceTem
 	if err := decodeStrictYAML(templateData, &source.Template); err != nil {
 		return tobari.WorkspaceTemplateSource{}, "", true, errors.Join(tobari.ErrResourceSourceInvalid, fmt.Errorf("decode Template source: %w", err))
 	}
+	if err := validateFinalPolicySourceTopology(policyData); err != nil {
+		return tobari.WorkspaceTemplateSource{}, "", true, errors.Join(tobari.ErrResourceSourceInvalid, fmt.Errorf("decode Template policy source: %w", err))
+	}
 	if err := decodeStrictYAML(policyData, &source.Policy); err != nil {
 		return tobari.WorkspaceTemplateSource{}, "", true, errors.Join(tobari.ErrResourceSourceInvalid, fmt.Errorf("decode Template policy source: %w", err))
 	}
@@ -156,6 +159,243 @@ func (s *Store) ReadTemplateSnapshot(ctx context.Context, id tobari.WorkspaceTem
 		return tobari.WorkspaceTemplateSource{}, "", true, fmt.Errorf("Template source pair changed during observation")
 	}
 	return source, sourceFingerprint(templateData, policyData), true, nil
+}
+
+func validateFinalPolicySourceTopology(data []byte) error {
+	var root map[string]any
+	if err := decodeStrictYAML(data, &root); err != nil {
+		return err
+	}
+	requireMap := func(parent map[string]any, key string) (map[string]any, error) {
+		value, present := parent[key]
+		if !present || value == nil {
+			return nil, fmt.Errorf("%s must be explicit", key)
+		}
+		mapping, ok := value.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("%s must be a mapping", key)
+		}
+		return mapping, nil
+	}
+	boundary, err := requireMap(root, "boundary")
+	if err != nil {
+		return err
+	}
+	methods, err := requireMap(boundary, "methods")
+	if err != nil {
+		return err
+	}
+	if deny, present := methods["deny"]; !present || deny == nil {
+		return fmt.Errorf("boundary.methods.deny must be explicit")
+	} else if _, ok := deny.([]any); !ok {
+		return fmt.Errorf("boundary.methods.deny must be a sequence")
+	}
+	semantic, err := requireMap(root, "semantic")
+	if err != nil {
+		return err
+	}
+	protocols, err := requireMap(semantic, "protocols")
+	if err != nil {
+		return err
+	}
+	http, err := requireMap(protocols, "http")
+	if err != nil {
+		return err
+	}
+	providers, err := requireMap(semantic, "providers")
+	if err != nil {
+		return err
+	}
+	validateModule := func(parent map[string]any, name string, endpoints bool) error {
+		value, present := parent[name]
+		if !present {
+			return nil
+		}
+		module, ok := value.(map[string]any)
+		if !ok || module == nil {
+			return fmt.Errorf("semantic module %s must be a mapping", name)
+		}
+		if endpoints {
+			if value, present := module["endpoints"]; !present || value == nil {
+				return fmt.Errorf("semantic module %s endpoints must be explicit", name)
+			} else if _, ok := value.([]any); !ok {
+				return fmt.Errorf("semantic module %s endpoints must be a sequence", name)
+			}
+		}
+		for _, effect := range []string{"allow", "deny"} {
+			set, err := requireMap(module, effect)
+			if err != nil {
+				return fmt.Errorf("semantic module %s: %w", name, err)
+			}
+			if rules, present := set["rules"]; !present || rules == nil {
+				return fmt.Errorf("semantic module %s %s.rules must be explicit", name, effect)
+			} else if _, ok := rules.([]any); !ok {
+				return fmt.Errorf("semantic module %s %s.rules must be a sequence", name, effect)
+			}
+		}
+		return nil
+	}
+	for _, module := range []struct {
+		name      string
+		endpoints bool
+	}{{"generic", false}, {"graphql", true}, {"mcp", true}, {"git", false}, {"oci", false}} {
+		if err := validateModule(http, module.name, module.endpoints); err != nil {
+			return err
+		}
+	}
+	for _, name := range []string{"aws", "kubernetes"} {
+		if err := validateModule(providers, name, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ReadTemplatePolicyMigrationSnapshot is the sole alpha decoder. It is used
+// only by the explicit non-activating migration Plan/Apply path; ordinary
+// source reads remain V1-only.
+func (s *Store) ReadTemplatePolicyMigrationSnapshot(ctx context.Context, id tobari.WorkspaceTemplateID, resolved tobari.RuntimeBinding) (tobari.WorkspaceTemplateAlphaSource, tobari.WorkspaceTemplateSource, string, string, bool, error) {
+	templateData, policyData, present, err := s.readTemplatePairBytes(ctx, id)
+	if err != nil || !present {
+		return tobari.WorkspaceTemplateAlphaSource{}, tobari.WorkspaceTemplateSource{}, "", "", present, err
+	}
+	var alpha tobari.WorkspaceTemplateAlphaSource
+	if err := decodeStrictYAML(templateData, &alpha.Template); err != nil {
+		return tobari.WorkspaceTemplateAlphaSource{}, tobari.WorkspaceTemplateSource{}, "", "", true, errors.Join(tobari.ErrResourceSourceInvalid, fmt.Errorf("decode Template source: %w", err))
+	}
+	if err := decodeStrictYAML(policyData, &alpha.Policy); err != nil {
+		return tobari.WorkspaceTemplateAlphaSource{}, tobari.WorkspaceTemplateSource{}, "", "", true, errors.Join(tobari.ErrResourceSourceInvalid, fmt.Errorf("decode alpha Template policy source: %w", err))
+	}
+	if err := alpha.Validate(); err != nil || alpha.Template.TemplateID != id {
+		return tobari.WorkspaceTemplateAlphaSource{}, tobari.WorkspaceTemplateSource{}, "", "", true, errors.Join(tobari.ErrResourceSourceInvalid, fmt.Errorf("validate alpha Template source: %w", err))
+	}
+	migrated, err := alpha.MigrateToV1(resolved)
+	if err != nil {
+		return tobari.WorkspaceTemplateAlphaSource{}, tobari.WorkspaceTemplateSource{}, "", "", true, errors.Join(tobari.ErrResourceSourceInvalid, err)
+	}
+	targetPolicy, err := encodeCanonicalYAML(migrated.Policy)
+	if err != nil {
+		return tobari.WorkspaceTemplateAlphaSource{}, tobari.WorkspaceTemplateSource{}, "", "", true, err
+	}
+	return alpha, migrated, sourceFingerprint(templateData, policyData), sourceFingerprint(templateData, targetPolicy), true, nil
+}
+
+func (s *Store) readTemplatePairBytes(ctx context.Context, id tobari.WorkspaceTemplateID) ([]byte, []byte, bool, error) {
+	path, err := s.TemplatePath(id)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	templateData, present, err := s.read(ctx, path, templateFileName, templateFileName, policyFileName)
+	if err != nil || !present {
+		return nil, nil, present, err
+	}
+	policyData, policyPresent, err := s.read(ctx, filepath.Join(filepath.Dir(path), policyFileName), policyFileName, templateFileName, policyFileName)
+	if err != nil || !policyPresent {
+		return nil, nil, policyPresent, err
+	}
+	return templateData, policyData, true, nil
+}
+
+// ApplyTemplatePolicyMigration replaces only the desired source directory.
+// Active authority is never read or written here. The caller binds the exact
+// active revision through the content-addressed plan.
+func (s *Store) ApplyTemplatePolicyMigration(ctx context.Context, plan tobari.WorkspaceTemplatePolicyMigrationPlan, resolved tobari.RuntimeBinding) (string, bool, error) {
+	if err := plan.Validate(); err != nil {
+		return "", false, err
+	}
+	id, _ := tobari.ParseWorkspaceTemplatePolicyMigrationPlanRef(plan.PlanRef)
+	path, err := s.TemplatePath(id)
+	if err != nil {
+		return "", false, err
+	}
+	dir := filepath.Dir(path)
+	parent := filepath.Dir(dir)
+	stage := filepath.Join(parent, ".template-policy-migration-"+string(id)+"-new")
+	snapshot := filepath.Join(parent, ".template-policy-migration-"+string(id)+"-snapshot")
+	discard := filepath.Join(parent, ".template-policy-migration-"+string(id)+"-old")
+	journalPath := filepath.Join(parent, ".template-policy-migration-"+string(id)+"-repair.json")
+	if journal, present, readErr := s.readTemplateBaseRepairJournal(journalPath); readErr != nil {
+		return "", false, readErr
+	} else if present {
+		if journal.Expected != plan.SourceFingerprint || journal.PostFingerprint != plan.TargetFingerprint || journal.Revision != string(plan.ActiveRevision) {
+			return "", false, tobari.ErrResourceSourceRecoveryRequired
+		}
+		fingerprint, settleErr := s.settleTemplateBaseRepair(dir, stage, snapshot, discard, journalPath, journal)
+		return fingerprint, settleErr == nil, settleErr
+	}
+	current, currentPresent, err := optionalTemplateDirectoryFingerprint(dir)
+	if err != nil || !currentPresent {
+		return "", false, errors.Join(tobari.ErrResourceSourceMissing, err)
+	}
+	if current == plan.TargetFingerprint {
+		return current, false, nil
+	}
+	if current != plan.SourceFingerprint {
+		return "", false, tobari.ErrWorkspaceTemplatePolicyMigrationStale
+	}
+	for _, reserved := range []string{stage, snapshot, discard} {
+		if _, statErr := os.Lstat(reserved); statErr == nil {
+			if removeErr := s.removeAll(reserved); removeErr != nil {
+				return "", false, errors.Join(tobari.ErrResourceSourceRecoveryRequired, removeErr)
+			}
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return "", false, statErr
+		}
+	}
+	if err := s.sync(parent); err != nil {
+		return "", false, errors.Join(tobari.ErrResourceSourceRecoveryRequired, err)
+	}
+	templateData, policyData, present, err := s.readTemplatePairBytes(ctx, id)
+	if err != nil || !present || sourceFingerprint(templateData, policyData) != plan.SourceFingerprint {
+		return "", false, errors.Join(tobari.ErrWorkspaceTemplatePolicyMigrationStale, err)
+	}
+	var alpha tobari.WorkspaceTemplateAlphaSource
+	if decodeStrictYAML(templateData, &alpha.Template) != nil || decodeStrictYAML(policyData, &alpha.Policy) != nil || alpha.Validate() != nil {
+		return "", false, tobari.ErrResourceSourceInvalid
+	}
+	migrated, err := alpha.MigrateToV1(resolved)
+	if err != nil {
+		return "", false, errors.Join(tobari.ErrResourceSourceInvalid, err)
+	}
+	targetPolicy, err := encodeCanonicalYAML(migrated.Policy)
+	if err != nil || sourceFingerprint(templateData, targetPolicy) != plan.TargetFingerprint {
+		return "", false, errors.Join(tobari.ErrWorkspaceTemplatePolicyMigrationStale, err)
+	}
+	for target, files := range map[string]map[string][]byte{
+		stage:    {templateFileName: templateData, policyFileName: targetPolicy},
+		snapshot: {templateFileName: templateData, policyFileName: policyData},
+	} {
+		if err := os.Mkdir(target, 0o700); err != nil {
+			return "", false, err
+		}
+		for _, name := range []string{templateFileName, policyFileName} {
+			if err := writeDurableSourceFile(filepath.Join(target, name), files[name]); err != nil {
+				return "", false, err
+			}
+		}
+		if err := syncDirectory(target); err != nil {
+			return "", false, err
+		}
+	}
+	if err := s.sync(parent); err != nil {
+		return "", false, err
+	}
+	if observed, err := templateDirectoryFingerprint(dir); err != nil || observed != plan.SourceFingerprint {
+		return "", false, errors.Join(tobari.ErrWorkspaceTemplatePolicyMigrationStale, err)
+	}
+	journal := templateBaseRepairJournal{
+		SchemaVersion:   templateBaseRepairSchema,
+		Phase:           "prepared",
+		Expected:        plan.SourceFingerprint,
+		OldFingerprint:  plan.SourceFingerprint,
+		PostFingerprint: plan.TargetFingerprint,
+		Revision:        string(plan.ActiveRevision),
+	}
+	if err := s.writeTemplateBaseRepairJournal(journalPath, journal); err != nil {
+		return "", false, errors.Join(tobari.ErrResourceSourceRecoveryRequired, err)
+	}
+	fingerprint, err := s.settleTemplateBaseRepair(dir, stage, snapshot, discard, journalPath, journal)
+	return fingerprint, err == nil, err
 }
 
 func (s *Store) ReadContext(ctx context.Context, id tobari.ContextID) (tobari.ContextSource, bool, error) {

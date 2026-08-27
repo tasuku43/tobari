@@ -5,29 +5,28 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 )
 
 var (
-	ErrResourceSourceMissing            = errors.New("resource source is missing")
-	ErrResourceSourceInvalid            = errors.New("resource source is invalid")
-	ErrResourceSourceModified           = errors.New("resource source has unapplied changes")
-	ErrResourceSourceChanged            = errors.New("resource source changed during apply")
-	ErrResourceSourceRecoveryRequired   = errors.New("resource source publication requires recovery")
-	ErrWorkspaceTemplateChangePlanStale = errors.New("Workspace Template change plan is stale")
-	ErrDirectTemplateMutationRetired    = errors.New("direct Template mutation is retired; edit source and use Plan/Apply")
-	ErrDirectContextMutationRetired     = errors.New("direct Context mutation is retired; create source and use Plan/Apply")
-	ErrResourceIdentityDeleted          = errors.New("resource identity was deleted and cannot be reused")
+	ErrResourceSourceMissing                 = errors.New("resource source is missing")
+	ErrResourceSourceInvalid                 = errors.New("resource source is invalid")
+	ErrResourceSourceModified                = errors.New("resource source has unapplied changes")
+	ErrResourceSourceChanged                 = errors.New("resource source changed during apply")
+	ErrResourceSourceRecoveryRequired        = errors.New("resource source publication requires recovery")
+	ErrWorkspaceTemplateChangePlanStale      = errors.New("Workspace Template change plan is stale")
+	ErrWorkspaceTemplatePolicyMigrationStale = errors.New("Workspace Template policy migration plan is stale")
+	ErrDirectTemplateMutationRetired         = errors.New("direct Template mutation is retired; edit source and use Plan/Apply")
+	ErrDirectContextMutationRetired          = errors.New("direct Context mutation is retired; create source and use Plan/Apply")
+	ErrResourceIdentityDeleted               = errors.New("resource identity was deleted and cannot be reused")
 )
 
 const (
-	WorkspaceTemplateSourceSchemaVersion = "tobari.dev/template/v1"
-	ContextSourceSchemaVersion           = "tobari.dev/context/v1"
-	// WorkspaceTemplatePolicySchemaVersion is an installation-owned,
-	// lossless bridge for the current policy body. The final
-	// tobari.dev/template-policy/v1 token is reserved for the deferred closed
-	// boundary/semantic.protocols/providers source compiler.
-	WorkspaceTemplatePolicySchemaVersion = "tobari.dev/template-policy/v1alpha1"
+	WorkspaceTemplateSourceSchemaVersion      = "tobari.dev/template/v1"
+	ContextSourceSchemaVersion                = "tobari.dev/context/v1"
+	WorkspaceTemplatePolicySchemaVersion      = "tobari.dev/template-policy/v1"
+	WorkspaceTemplatePolicyAlphaSchemaVersion = "tobari.dev/template-policy/v1alpha1"
 )
 
 // WorkspaceTemplateSource is the complete two-document user-editable
@@ -114,26 +113,192 @@ type WorkspaceTemplatePolicySourceDocument struct {
 	SchemaVersion string                                `json:"schema"`
 	TemplateID    WorkspaceTemplateID                   `json:"workspace_template_id"`
 	Boundary      WorkspaceTemplatePolicyBoundarySource `json:"boundary"`
-	Semantic      WorkspaceTemplatePolicyBody           `json:"semantic"`
+	Semantic      WorkspaceTemplatePolicySemanticSource `json:"semantic"`
 }
 
-// WorkspaceTemplatePolicyBoundarySource is the policy-owned portion of the
-// current domain Boundary. Direct Project source access belongs to
-// template.yaml and is deliberately unrepresentable here.
 type WorkspaceTemplatePolicyBoundarySource struct {
+	Methods WorkspaceTemplateMethodBoundarySource `json:"methods"`
+}
+
+type WorkspaceTemplateMethodBoundarySource struct {
+	Deny []string `json:"deny"`
+}
+
+type WorkspaceTemplatePolicySemanticSource struct {
+	AgentProfile    string                             `json:"agent_profile"`
+	NativeReadiness ManifestNativeReadiness            `json:"native_readiness"`
+	Protocols       WorkspaceTemplateSemanticProtocols `json:"protocols"`
+	Providers       WorkspaceTemplateSemanticProviders `json:"providers"`
+}
+
+// WorkspaceTemplatePolicyAlphaSourceDocument is the exact predecessor source
+// envelope accepted only by the explicit non-activating migration workflow.
+// Ordinary source reads and Template Plan/Apply never decode this type.
+type WorkspaceTemplatePolicyAlphaSourceDocument struct {
+	SchemaVersion string                                     `json:"schema"`
+	TemplateID    WorkspaceTemplateID                        `json:"workspace_template_id"`
+	Boundary      WorkspaceTemplatePolicyAlphaBoundarySource `json:"boundary"`
+	Semantic      WorkspaceTemplatePolicyBody                `json:"semantic"`
+}
+
+type WorkspaceTemplatePolicyAlphaBoundarySource struct {
 	DestinationCeiling ManifestPolicyDestinationCeiling `json:"destination_ceiling"`
 	MethodPolicy       ManifestMethodPolicy             `json:"method_policy"`
 }
 
+type WorkspaceTemplateAlphaSource struct {
+	Template WorkspaceTemplateSourceDocument
+	Policy   WorkspaceTemplatePolicyAlphaSourceDocument
+}
+
+func (s WorkspaceTemplateAlphaSource) Validate() error {
+	if s.Template.SchemaVersion != WorkspaceTemplateSourceSchemaVersion || s.Policy.SchemaVersion != WorkspaceTemplatePolicyAlphaSchemaVersion {
+		return fmt.Errorf("Template alpha source schema is unsupported")
+	}
+	if err := s.Template.validate(); err != nil {
+		return err
+	}
+	if s.Policy.TemplateID != s.Template.TemplateID {
+		return fmt.Errorf("Template alpha source identity does not match")
+	}
+	if s.Policy.Semantic.SemanticModules != nil {
+		return fmt.Errorf("Template alpha source contains final semantic modules")
+	}
+	boundary := WorkspaceTemplateBoundary{
+		SourceAccess:       s.Template.SourceAccess,
+		DestinationCeiling: s.Policy.Boundary.DestinationCeiling,
+		MethodPolicy:       s.Policy.Boundary.MethodPolicy.Clone(),
+	}
+	if err := boundary.Validate(); err != nil {
+		return fmt.Errorf("Template alpha source Boundary: %w", err)
+	}
+	if err := s.Policy.Semantic.Validate(boundary); err != nil {
+		return fmt.Errorf("Template alpha source Semantic Policy: %w", err)
+	}
+	return nil
+}
+
+func (s WorkspaceTemplateAlphaSource) Body(resolved RuntimeBinding) (WorkspaceTemplateBody, error) {
+	if err := s.Validate(); err != nil {
+		return WorkspaceTemplateBody{}, err
+	}
+	if err := resolved.Validate(); err != nil || !s.Template.EntryDefaults.Runtime.Matches(resolved) {
+		return WorkspaceTemplateBody{}, fmt.Errorf("Template alpha source Runtime does not match exact resolved revision")
+	}
+	body := WorkspaceTemplateBody{
+		Boundary: WorkspaceTemplateBoundary{
+			SourceAccess:       s.Template.SourceAccess,
+			DestinationCeiling: s.Policy.Boundary.DestinationCeiling,
+			MethodPolicy:       s.Policy.Boundary.MethodPolicy.Clone(),
+		},
+		Policy:           s.Policy.Semantic.Clone(),
+		EntryDefaults:    WorkspaceTemplateEntryDefaults{Runtime: resolved},
+		SessionDefaults:  s.Template.SessionDefaults.Clone(),
+		CreationDefaults: s.Template.CreationDefaults.Clone(),
+	}
+	return body, body.Validate()
+}
+
+func (s WorkspaceTemplateAlphaSource) MigrateToV1(resolved RuntimeBinding) (WorkspaceTemplateSource, error) {
+	body, err := s.Body(resolved)
+	if err != nil {
+		return WorkspaceTemplateSource{}, err
+	}
+	if err := validateV1ConvertibleBoundary(body.Boundary); err != nil {
+		return WorkspaceTemplateSource{}, err
+	}
+	modules, err := migrateAlphaPolicyBody(body.Policy)
+	if err != nil {
+		return WorkspaceTemplateSource{}, err
+	}
+	semantic := WorkspaceTemplatePolicySemanticSource{
+		AgentProfile:    body.Policy.AgentProfile,
+		NativeReadiness: body.Policy.NativeReadiness,
+		Protocols:       modules.Protocols,
+		Providers:       modules.Providers,
+	}
+	result := WorkspaceTemplateSource{
+		Template: s.Template,
+		Policy: WorkspaceTemplatePolicySourceDocument{
+			SchemaVersion: WorkspaceTemplatePolicySchemaVersion,
+			TemplateID:    s.Policy.TemplateID,
+			Boundary:      WorkspaceTemplatePolicyBoundarySource{Methods: WorkspaceTemplateMethodBoundarySource{Deny: deniedMethodsFromPolicy(body.Boundary.MethodPolicy)}},
+			Semantic:      semantic,
+		},
+	}
+	if err := result.Validate(); err != nil {
+		return WorkspaceTemplateSource{}, err
+	}
+	return result, nil
+}
+
+func (d WorkspaceTemplateSourceDocument) validate() error {
+	if d.SchemaVersion != WorkspaceTemplateSourceSchemaVersion {
+		return fmt.Errorf("Template source schema is unsupported")
+	}
+	if err := d.TemplateID.Validate(); err != nil {
+		return fmt.Errorf("Template source identity: %w", err)
+	}
+	if err := ValidateName(d.Name); err != nil {
+		return fmt.Errorf("Template source name: %w", err)
+	}
+	if d.BaseRevision != nil {
+		if err := d.BaseRevision.Validate(); err != nil {
+			return fmt.Errorf("Template source base revision: %w", err)
+		}
+	}
+	if err := d.EntryDefaults.Validate(); err != nil {
+		return fmt.Errorf("Template source Runtime: %w", err)
+	}
+	if err := d.SourceAccess.Validate(); err != nil {
+		return fmt.Errorf("Template source access: %w", err)
+	}
+	if err := d.SessionDefaults.Validate(); err != nil {
+		return fmt.Errorf("Template session defaults: %w", err)
+	}
+	if err := d.CreationDefaults.Validate(); err != nil {
+		return fmt.Errorf("Template creation defaults: %w", err)
+	}
+	return nil
+}
+
 func (b WorkspaceTemplatePolicyBoundarySource) Clone() WorkspaceTemplatePolicyBoundarySource {
-	result := b
-	result.DestinationCeiling.Authorities = append([]ManifestPolicyAuthority{}, b.DestinationCeiling.Authorities...)
-	result.MethodPolicy = b.MethodPolicy.Clone()
-	return result
+	return WorkspaceTemplatePolicyBoundarySource{Methods: WorkspaceTemplateMethodBoundarySource{Deny: append([]string{}, b.Methods.Deny...)}}
+}
+
+func (s WorkspaceTemplatePolicySemanticSource) modules() WorkspaceTemplateSemanticModules {
+	// Whole-module omission in source means known-none. The strict source
+	// topology reader rejects a present module with missing allow/deny sets;
+	// normalization here expands only the value-type representation of omitted
+	// modules before the compiled authority validator runs.
+	return (WorkspaceTemplateSemanticModules{Protocols: s.Protocols, Providers: s.Providers}).normalized(false)
+}
+
+func semanticSourceFromPolicy(policy WorkspaceTemplatePolicyBody) (WorkspaceTemplatePolicySemanticSource, error) {
+	modules := policy.SemanticModules
+	if modules == nil {
+		converted, err := migrateAlphaPolicyBody(policy)
+		if err != nil {
+			return WorkspaceTemplatePolicySemanticSource{}, err
+		}
+		modules = &converted
+	}
+	normalized := modules.Normalize()
+	return WorkspaceTemplatePolicySemanticSource{
+		AgentProfile: policy.AgentProfile, NativeReadiness: policy.NativeReadiness,
+		Protocols: normalized.Protocols, Providers: normalized.Providers,
+	}, nil
 }
 
 func NewWorkspaceTemplateSource(template WorkspaceTemplate) (WorkspaceTemplateSource, error) {
 	if err := template.Validate(); err != nil {
+		return WorkspaceTemplateSource{}, err
+	}
+	if err := validateV1ConvertibleBoundary(template.Current.Body.Boundary); err != nil {
+		return WorkspaceTemplateSource{}, err
+	}
+	semantic, err := semanticSourceFromPolicy(template.Current.Body.Policy)
+	if err != nil {
 		return WorkspaceTemplateSource{}, err
 	}
 	source := WorkspaceTemplateSource{Template: WorkspaceTemplateSourceDocument{
@@ -148,11 +313,8 @@ func NewWorkspaceTemplateSource(template WorkspaceTemplate) (WorkspaceTemplateSo
 	}, Policy: WorkspaceTemplatePolicySourceDocument{
 		SchemaVersion: WorkspaceTemplatePolicySchemaVersion,
 		TemplateID:    template.ID,
-		Boundary: WorkspaceTemplatePolicyBoundarySource{
-			DestinationCeiling: template.Current.Body.Boundary.DestinationCeiling,
-			MethodPolicy:       template.Current.Body.Boundary.MethodPolicy.Clone(),
-		},
-		Semantic: template.Current.Body.Policy.Clone(),
+		Boundary:      WorkspaceTemplatePolicyBoundarySource{Methods: WorkspaceTemplateMethodBoundarySource{Deny: deniedMethodsFromPolicy(template.Current.Body.Boundary.MethodPolicy)}},
+		Semantic:      semantic,
 	}}
 	return source, source.Validate()
 }
@@ -167,14 +329,21 @@ func NewWorkspaceTemplateDraftSource(id WorkspaceTemplateID, name string, body W
 	if err := body.Validate(); err != nil {
 		return WorkspaceTemplateSource{}, err
 	}
+	if err := validateV1ConvertibleBoundary(body.Boundary); err != nil {
+		return WorkspaceTemplateSource{}, err
+	}
+	semantic, err := semanticSourceFromPolicy(body.Policy)
+	if err != nil {
+		return WorkspaceTemplateSource{}, err
+	}
 	source := WorkspaceTemplateSource{Template: WorkspaceTemplateSourceDocument{
 		SchemaVersion: WorkspaceTemplateSourceSchemaVersion, TemplateID: id, Name: name, BaseRevision: nil,
 		SourceAccess: body.Boundary.SourceAccess, EntryDefaults: WorkspaceTemplateSourceEntryDefaults{Runtime: RuntimeSourceRefFrom(body.EntryDefaults.Runtime)},
 		SessionDefaults: body.SessionDefaults.Clone(), CreationDefaults: body.CreationDefaults.Clone(),
 	}, Policy: WorkspaceTemplatePolicySourceDocument{
 		SchemaVersion: WorkspaceTemplatePolicySchemaVersion, TemplateID: id,
-		Boundary: WorkspaceTemplatePolicyBoundarySource{DestinationCeiling: body.Boundary.DestinationCeiling, MethodPolicy: body.Boundary.MethodPolicy.Clone()},
-		Semantic: body.Policy.Clone(),
+		Boundary: WorkspaceTemplatePolicyBoundarySource{Methods: WorkspaceTemplateMethodBoundarySource{Deny: deniedMethodsFromPolicy(body.Boundary.MethodPolicy)}},
+		Semantic: semantic,
 	}}
 	return source, source.Validate()
 }
@@ -183,34 +352,26 @@ func (s WorkspaceTemplateSource) Validate() error {
 	if s.Template.SchemaVersion != WorkspaceTemplateSourceSchemaVersion || s.Policy.SchemaVersion != WorkspaceTemplatePolicySchemaVersion {
 		return fmt.Errorf("Template source schema is unsupported")
 	}
-	if err := s.Template.TemplateID.Validate(); err != nil || s.Policy.TemplateID != s.Template.TemplateID {
-		return fmt.Errorf("Template source identity: %w", err)
+	if err := s.Template.validate(); err != nil {
+		return err
 	}
-	if err := ValidateName(s.Template.Name); err != nil {
-		return fmt.Errorf("Template source name: %w", err)
+	if s.Policy.TemplateID != s.Template.TemplateID {
+		return fmt.Errorf("Template source identity does not match")
 	}
-	if s.Template.BaseRevision != nil {
-		if err := s.Template.BaseRevision.Validate(); err != nil {
-			return fmt.Errorf("Template source base revision: %w", err)
-		}
+	boundary, err := s.compiledBoundary()
+	if err != nil {
+		return fmt.Errorf("Template source Boundary: %w", err)
 	}
-	if err := s.Template.EntryDefaults.Validate(); err != nil {
-		return fmt.Errorf("Template source Runtime: %w", err)
-	}
-	if err := s.Template.SourceAccess.Validate(); err != nil {
-		return fmt.Errorf("Template source access: %w", err)
-	}
-	if err := s.Template.SessionDefaults.Validate(); err != nil {
-		return fmt.Errorf("Template session defaults: %w", err)
-	}
-	if err := s.Template.CreationDefaults.Validate(); err != nil {
-		return fmt.Errorf("Template creation defaults: %w", err)
-	}
-	boundary := WorkspaceTemplateBoundary{SourceAccess: s.Template.SourceAccess, DestinationCeiling: s.Policy.Boundary.DestinationCeiling, MethodPolicy: s.Policy.Boundary.MethodPolicy.Clone()}
 	if err := boundary.Validate(); err != nil {
 		return fmt.Errorf("Template source Boundary: %w", err)
 	}
-	if err := s.Policy.Semantic.Validate(boundary); err != nil {
+	if err := ValidateName(s.Policy.Semantic.AgentProfile); err != nil {
+		return fmt.Errorf("Template agent profile: %w", err)
+	}
+	if err := s.Policy.Semantic.NativeReadiness.Validate(); err != nil {
+		return fmt.Errorf("Template native readiness: %w", err)
+	}
+	if err := s.Policy.Semantic.modules().Validate(s.Policy.Boundary.Methods.Deny); err != nil {
 		return fmt.Errorf("Template source Semantic Policy: %w", err)
 	}
 	return nil
@@ -225,7 +386,9 @@ func (s WorkspaceTemplateSource) Clone() WorkspaceTemplateSource {
 	result.Template.SessionDefaults = s.Template.SessionDefaults.Clone()
 	result.Template.CreationDefaults = s.Template.CreationDefaults.Clone()
 	result.Policy.Boundary = s.Policy.Boundary.Clone()
-	result.Policy.Semantic = s.Policy.Semantic.Clone()
+	modules := s.Policy.Semantic.modules().Clone()
+	result.Policy.Semantic.Protocols = modules.Protocols
+	result.Policy.Semantic.Providers = modules.Providers
 	return result
 }
 
@@ -236,12 +399,65 @@ func (s WorkspaceTemplateSource) Body(resolved RuntimeBinding) (WorkspaceTemplat
 	if err := resolved.Validate(); err != nil || !s.Template.EntryDefaults.Runtime.Matches(resolved) {
 		return WorkspaceTemplateBody{}, fmt.Errorf("Template source Runtime does not match exact resolved revision")
 	}
+	boundary, err := s.compiledBoundary()
+	if err != nil {
+		return WorkspaceTemplateBody{}, err
+	}
+	modules := s.Policy.Semantic.modules().Normalize()
 	body := WorkspaceTemplateBody{
-		Boundary: WorkspaceTemplateBoundary{SourceAccess: s.Template.SourceAccess, DestinationCeiling: s.Policy.Boundary.DestinationCeiling, MethodPolicy: s.Policy.Boundary.MethodPolicy.Clone()}, Policy: s.Policy.Semantic.Clone(),
+		Boundary: boundary, Policy: WorkspaceTemplatePolicyBody{
+			AgentProfile: s.Policy.Semantic.AgentProfile, NativeReadiness: s.Policy.Semantic.NativeReadiness,
+			SemanticModules: &modules,
+			BaselineGrants:  []ManifestPolicyExactRule{}, BaselineTemplates: []ManifestPolicyPathTemplateRule{},
+			MCPBaselineGrants: []ManifestPolicyMCPRule{}, BaselineDenies: []ManifestPolicyExactRule{},
+			GraphQLEndpoints: []ManifestPolicyExactRule{}, MCPEndpoints: []ManifestPolicyExactRule{},
+		},
 		EntryDefaults: WorkspaceTemplateEntryDefaults{Runtime: resolved}, SessionDefaults: s.Template.SessionDefaults.Clone(),
 		CreationDefaults: s.Template.CreationDefaults.Clone(),
 	}
 	return body, body.Validate()
+}
+
+func (s WorkspaceTemplateSource) compiledBoundary() (WorkspaceTemplateBoundary, error) {
+	if s.Policy.Boundary.Methods.Deny == nil {
+		return WorkspaceTemplateBoundary{}, fmt.Errorf("method deny collection must be explicit")
+	}
+	denied := append([]string{}, s.Policy.Boundary.Methods.Deny...)
+	seen := make(map[string]struct{}, len(denied))
+	for _, method := range denied {
+		if !httpMethodPattern.MatchString(method) {
+			return WorkspaceTemplateBoundary{}, fmt.Errorf("method deny is invalid")
+		}
+		if _, duplicate := seen[method]; duplicate {
+			return WorkspaceTemplateBoundary{}, fmt.Errorf("method deny is duplicated")
+		}
+		seen[method] = struct{}{}
+	}
+	sort.Strings(denied)
+	overrides := make([]ManifestMethodOverride, 0, len(denied))
+	for _, method := range denied {
+		overrides = append(overrides, ManifestMethodOverride{Method: method, Decision: ManifestMethodDeny})
+	}
+	return WorkspaceTemplateBoundary{
+		SourceAccess:       s.Template.SourceAccess,
+		DestinationCeiling: ManifestPolicyDestinationCeiling{Mode: "public_https", Authorities: []ManifestPolicyAuthority{}},
+		MethodPolicy:       ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: overrides},
+	}, nil
+}
+
+func deniedMethodsFromPolicy(policy ManifestMethodPolicy) []string {
+	result := []string{}
+	if policy.Default != ManifestMethodExactReview {
+		return nil
+	}
+	for _, override := range policy.Overrides {
+		if override.Decision != ManifestMethodDeny {
+			return nil
+		}
+		result = append(result, override.Method)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func (s WorkspaceTemplateSource) SemanticRevision(resolved RuntimeBinding) (SemanticDigest, error) {
@@ -499,6 +715,171 @@ type ResourceSourceObservation struct {
 	State          ResourceSourceState `json:"source_state"`
 	SourceRevision *SemanticDigest     `json:"source_revision,omitempty"`
 	ActiveRevision *SemanticDigest     `json:"active_revision,omitempty"`
+}
+
+const WorkspaceTemplatePolicyMigrationPlanSchemaVersion = 1
+
+// WorkspaceTemplatePolicyMigrationPlan is a read-only content-addressed
+// review of one alpha source pair and its exact non-activating V1 replacement.
+type WorkspaceTemplatePolicyMigrationPlan struct {
+	SchemaVersion     int            `json:"schema_version"`
+	PlanRef           string         `json:"plan_ref"`
+	TemplateRef       string         `json:"template_ref"`
+	ActiveRevision    SemanticDigest `json:"active_revision"`
+	SourceFingerprint string         `json:"source_fingerprint"`
+	TargetFingerprint string         `json:"target_fingerprint"`
+	SourceSchema      string         `json:"source_schema"`
+	TargetSchema      string         `json:"target_schema"`
+}
+
+type workspaceTemplatePolicyMigrationPlanAuthority WorkspaceTemplatePolicyMigrationPlan
+
+func NewWorkspaceTemplatePolicyMigrationPlan(template WorkspaceTemplate, alpha WorkspaceTemplateAlphaSource, migrated WorkspaceTemplateSource, sourceFingerprint, targetFingerprint string) (WorkspaceTemplatePolicyMigrationPlan, error) {
+	if err := template.Validate(); err != nil {
+		return WorkspaceTemplatePolicyMigrationPlan{}, err
+	}
+	if err := alpha.Validate(); err != nil {
+		return WorkspaceTemplatePolicyMigrationPlan{}, err
+	}
+	if err := migrated.Validate(); err != nil {
+		return WorkspaceTemplatePolicyMigrationPlan{}, err
+	}
+	if !validSourceFingerprint(sourceFingerprint) || !validSourceFingerprint(targetFingerprint) || sourceFingerprint == targetFingerprint {
+		return WorkspaceTemplatePolicyMigrationPlan{}, fmt.Errorf("Template policy migration fingerprints are invalid")
+	}
+	if alpha.Template.TemplateID != template.ID || migrated.Template.TemplateID != template.ID || alpha.Template.Name != template.Name || migrated.Template.Name != template.Name || alpha.Template.BaseRevision == nil || *alpha.Template.BaseRevision != template.Current.Revision || migrated.Template.BaseRevision == nil || *migrated.Template.BaseRevision != template.Current.Revision {
+		return WorkspaceTemplatePolicyMigrationPlan{}, fmt.Errorf("Template policy migration does not bind the exact active Template")
+	}
+	before, err := alpha.Body(template.Current.Body.EntryDefaults.Runtime)
+	if err != nil {
+		return WorkspaceTemplatePolicyMigrationPlan{}, err
+	}
+	after, err := migrated.Body(template.Current.Body.EntryDefaults.Runtime)
+	if err != nil || !reflect.DeepEqual(before, template.Current.Body) || !reflect.DeepEqual(after.Boundary, before.Boundary) || !reflect.DeepEqual(after.EntryDefaults, before.EntryDefaults) || !reflect.DeepEqual(after.SessionDefaults, before.SessionDefaults) || !reflect.DeepEqual(after.CreationDefaults, before.CreationDefaults) || after.Policy.AgentProfile != before.Policy.AgentProfile || after.Policy.NativeReadiness != before.Policy.NativeReadiness {
+		return WorkspaceTemplatePolicyMigrationPlan{}, fmt.Errorf("Template policy migration is not semantically in sync")
+	}
+	expected, err := alpha.MigrateToV1(template.Current.Body.EntryDefaults.Runtime)
+	if err != nil || !reflect.DeepEqual(expected, migrated) {
+		return WorkspaceTemplatePolicyMigrationPlan{}, fmt.Errorf("Template policy migration target is not the exact lossless conversion")
+	}
+	templateRef, _ := WorkspaceTemplateRef(template.ID)
+	plan := WorkspaceTemplatePolicyMigrationPlan{
+		SchemaVersion:     WorkspaceTemplatePolicyMigrationPlanSchemaVersion,
+		TemplateRef:       templateRef,
+		ActiveRevision:    template.Current.Revision,
+		SourceFingerprint: sourceFingerprint,
+		TargetFingerprint: targetFingerprint,
+		SourceSchema:      WorkspaceTemplatePolicyAlphaSchemaVersion,
+		TargetSchema:      WorkspaceTemplatePolicySchemaVersion,
+	}
+	digest, err := semanticIdentity(workspaceTemplatePolicyMigrationPlanAuthority(plan))
+	if err != nil {
+		return WorkspaceTemplatePolicyMigrationPlan{}, err
+	}
+	plan.PlanRef = strings.Join([]string{
+		workspaceTemplatePolicyMigrationPlanRefPrefix + string(template.ID),
+		strings.TrimPrefix(string(plan.ActiveRevision), "sha256:"),
+		plan.SourceFingerprint,
+		plan.TargetFingerprint,
+		strings.TrimPrefix(string(digest), "sha256:"),
+	}, "_")
+	return plan, plan.Validate()
+}
+
+func validSourceFingerprint(value string) bool {
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == 32 && hex.EncodeToString(decoded) == value
+}
+
+func ParseWorkspaceTemplatePolicyMigrationPlanRef(reference string) (WorkspaceTemplateID, error) {
+	if !strings.HasPrefix(reference, workspaceTemplatePolicyMigrationPlanRefPrefix) {
+		return "", fmt.Errorf("Workspace Template policy migration plan reference is invalid")
+	}
+	parts := strings.Split(strings.TrimPrefix(reference, workspaceTemplatePolicyMigrationPlanRefPrefix), "_")
+	if len(parts) != 5 {
+		return "", fmt.Errorf("Workspace Template policy migration plan reference is invalid")
+	}
+	id, err := ParseWorkspaceTemplateID(parts[0])
+	if err != nil {
+		return "", fmt.Errorf("Workspace Template policy migration plan reference is invalid")
+	}
+	for _, value := range parts[1:] {
+		decoded, decodeErr := hex.DecodeString(value)
+		if decodeErr != nil || len(decoded) != 32 || hex.EncodeToString(decoded) != value {
+			return "", fmt.Errorf("Workspace Template policy migration plan reference is invalid")
+		}
+	}
+	return id, nil
+}
+
+func WorkspaceTemplatePolicyMigrationPlanFromRef(reference string) (WorkspaceTemplatePolicyMigrationPlan, error) {
+	id, err := ParseWorkspaceTemplatePolicyMigrationPlanRef(reference)
+	if err != nil {
+		return WorkspaceTemplatePolicyMigrationPlan{}, err
+	}
+	parts := strings.Split(strings.TrimPrefix(reference, workspaceTemplatePolicyMigrationPlanRefPrefix), "_")
+	templateRef, _ := WorkspaceTemplateRef(id)
+	plan := WorkspaceTemplatePolicyMigrationPlan{
+		SchemaVersion:     WorkspaceTemplatePolicyMigrationPlanSchemaVersion,
+		PlanRef:           reference,
+		TemplateRef:       templateRef,
+		ActiveRevision:    SemanticDigest("sha256:" + parts[1]),
+		SourceFingerprint: parts[2],
+		TargetFingerprint: parts[3],
+		SourceSchema:      WorkspaceTemplatePolicyAlphaSchemaVersion,
+		TargetSchema:      WorkspaceTemplatePolicySchemaVersion,
+	}
+	if err := plan.Validate(); err != nil {
+		return WorkspaceTemplatePolicyMigrationPlan{}, err
+	}
+	return plan, nil
+}
+
+func (p WorkspaceTemplatePolicyMigrationPlan) Validate() error {
+	if p.SchemaVersion != WorkspaceTemplatePolicyMigrationPlanSchemaVersion || p.SourceSchema != WorkspaceTemplatePolicyAlphaSchemaVersion || p.TargetSchema != WorkspaceTemplatePolicySchemaVersion || !validSourceFingerprint(p.SourceFingerprint) || !validSourceFingerprint(p.TargetFingerprint) || p.SourceFingerprint == p.TargetFingerprint || p.ActiveRevision.Validate() != nil {
+		return fmt.Errorf("Template policy migration plan authority is invalid")
+	}
+	id, err := ParseWorkspaceTemplatePolicyMigrationPlanRef(p.PlanRef)
+	if err != nil {
+		return err
+	}
+	parsed, err := ParseWorkspaceTemplateRef(p.TemplateRef)
+	if err != nil || parsed != id {
+		return fmt.Errorf("Template policy migration plan target is invalid")
+	}
+	copy := p
+	copy.PlanRef = ""
+	digest, err := semanticIdentity(workspaceTemplatePolicyMigrationPlanAuthority(copy))
+	if err != nil {
+		return err
+	}
+	want := strings.Join([]string{
+		workspaceTemplatePolicyMigrationPlanRefPrefix + string(id),
+		strings.TrimPrefix(string(p.ActiveRevision), "sha256:"),
+		p.SourceFingerprint,
+		p.TargetFingerprint,
+		strings.TrimPrefix(string(digest), "sha256:"),
+	}, "_")
+	if p.PlanRef != want {
+		return fmt.Errorf("Template policy migration plan reference does not match authority")
+	}
+	return nil
+}
+
+type WorkspaceTemplatePolicyMigrationResult struct {
+	TemplateID        WorkspaceTemplateID `json:"workspace_template_id"`
+	TemplateRef       string              `json:"template_ref"`
+	ActiveRevision    SemanticDigest      `json:"active_revision"`
+	SourceFingerprint string              `json:"source_fingerprint"`
+	Changed           bool                `json:"changed"`
+}
+
+func (r WorkspaceTemplatePolicyMigrationResult) Validate() error {
+	id, err := ParseWorkspaceTemplateRef(r.TemplateRef)
+	if err != nil || id != r.TemplateID || r.ActiveRevision.Validate() != nil || !validSourceFingerprint(r.SourceFingerprint) {
+		return fmt.Errorf("Template policy migration result is invalid")
+	}
+	return nil
 }
 
 const WorkspaceTemplateChangePlanSchemaVersion = 1

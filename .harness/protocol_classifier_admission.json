@@ -16,7 +16,7 @@
       "parser_functions": ["classify_aws_request_headers", "parse_aws_query_request"],
       "evidence": {
         "positive": ["python:gateway/test_aws_request.py::AWSRequestIdentityTests::test_query_extracts_only_action_after_complete_body"],
-        "collision": ["python:gateway/test_aws_request.py::AWSRequestIdentityTests::test_non_aws_and_non_rpc_requests_remain_unclassified"],
+        "collision": ["python:gateway/test_tobari_gateway.py::ProtocolEndpointDeclarationTests::test_semantic_module_selector_is_order_free_and_rejects_siblings"],
         "malformed_local_failure": ["python:gateway/test_aws_request.py::AWSRequestIdentityTests::test_ambiguous_or_changed_query_fails_closed"],
         "minimal_policy_projection": ["python:gateway/test_tobari_gateway_aws.py::ReviewedAWSSigV4GatewayTests::test_aws_sigv4_handle_is_signed_only_after_policy_and_complete_body"],
         "privacy_exclusion": ["python:gateway/test_tobari_gateway_aws.py::ReviewedAWSSigV4GatewayTests::test_aws_sigv4_handle_is_signed_only_after_policy_and_complete_body"],
@@ -44,7 +44,7 @@
       "parser_functions": ["classify_git_request"],
       "evidence": {
         "positive": ["python:gateway/test_git_request.py::GitRequestTests::test_discovery_identifies_upload_and_receive_without_payload"],
-        "collision": ["python:gateway/test_git_request.py::GitRequestTests::test_unrelated_http_is_not_claimed"],
+        "collision": ["python:gateway/test_tobari_gateway.py::ReviewedBrokerGatewayTests::test_git_and_kubernetes_claim_collision_is_terminal_before_policy"],
         "malformed_local_failure": ["python:gateway/test_git_request.py::GitRequestTests::test_malformed_claims_fail_closed"],
         "minimal_policy_projection": ["python:gateway/test_tobari_gateway.py::ReviewedBrokerGatewayTests::test_git_smart_http_receive_pack_is_exact_and_body_opaque"],
         "privacy_exclusion": ["python:gateway/test_tobari_gateway.py::ReviewedBrokerGatewayTests::test_git_smart_http_receive_pack_is_exact_and_body_opaque"],
@@ -86,7 +86,7 @@
       "parser_functions": ["parse_oci_request"],
       "evidence": {
         "positive": ["python:gateway/test_oci_request.py::OCIRequestTests::test_read_routes_keep_repository_and_object_exact"],
-        "collision": ["python:gateway/test_oci_request.py::OCIRequestTests::test_unrelated_http_is_not_claimed"],
+        "collision": ["python:gateway/test_tobari_gateway.py::ReviewedBrokerGatewayTests::test_oci_and_graphql_claim_collision_is_terminal_and_audits_no_selected_module"],
         "malformed_local_failure": ["python:gateway/test_oci_request.py::OCIRequestTests::test_malformed_or_unsupported_distribution_routes_fail_closed"],
         "minimal_policy_projection": ["python:gateway/test_tobari_gateway.py::ReviewedBrokerGatewayTests::test_oci_manifest_push_is_exact_and_body_opaque"],
         "privacy_exclusion": ["python:gateway/test_tobari_gateway.py::ReviewedBrokerGatewayTests::test_oci_manifest_push_is_exact_and_body_opaque"],

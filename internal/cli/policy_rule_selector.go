@@ -480,6 +480,15 @@ func policyRuleRequest(rule tobari.PolicyRule) string {
 	if coordinate := policyAWSCoordinate(rule.PolicyProtocolIdentity); coordinate != "" {
 		request += " · AWS " + coordinate
 	}
+	if coordinate := policyKubernetesCoordinate(rule.PolicyProtocolIdentity); coordinate != "" {
+		request += " · Kubernetes " + coordinate
+	}
+	if rule.EffectiveProtocol() == tobari.PolicyProtocolGit {
+		request += " · Git " + safeExternalText(rule.GitService+" "+rule.GitRepository)
+	}
+	if rule.EffectiveProtocol() == tobari.PolicyProtocolOCI {
+		request += " · OCI " + safeExternalText(rule.OCIAction+" "+rule.OCIRepository+" "+rule.OCIObject)
+	}
 	return request
 }
 

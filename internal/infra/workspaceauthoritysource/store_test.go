@@ -23,8 +23,8 @@ func sourceTemplateFixture(t *testing.T) tobari.WorkspaceTemplateSource {
 	body := tobari.WorkspaceTemplateBody{
 		Boundary: tobari.WorkspaceTemplateBoundary{
 			SourceAccess:       tobari.ManifestSourceAccessReadOnly,
-			DestinationCeiling: tobari.ManifestPolicyDestinationCeiling{Mode: "exact", Authorities: []tobari.ManifestPolicyAuthority{{Scheme: "https", Host: "api.example.dev", Port: 443}}},
-			MethodPolicy:       tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview, Overrides: []tobari.ManifestMethodOverride{{Method: "GET", Decision: tobari.ManifestMethodAllow}}},
+			DestinationCeiling: tobari.ManifestPolicyDestinationCeiling{Mode: "public_https", Authorities: []tobari.ManifestPolicyAuthority{}},
+			MethodPolicy:       tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview, Overrides: []tobari.ManifestMethodOverride{}},
 		},
 		Policy: tobari.WorkspaceTemplatePolicyBody{
 			AgentProfile:      tobari.DefaultProfile,
@@ -86,6 +86,143 @@ func sourceMigrationCollectionFixture(t *testing.T) tobari.WorkspaceAuthorityCol
 	return collection
 }
 
+func writeAlphaTemplateSourceFixture(t *testing.T, store *Store) tobari.WorkspaceTemplate {
+	t.Helper()
+	v1 := sourceTemplateFixture(t)
+	finalBody, err := v1.Body(sourceRuntimeBindingFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	alphaPolicy := tobari.WorkspaceTemplatePolicyBody{
+		AgentProfile: tobari.DefaultProfile, NativeReadiness: tobari.ManifestNativeReadinessEnabled,
+		BaselineGrants: []tobari.ManifestPolicyExactRule{}, BaselineTemplates: []tobari.ManifestPolicyPathTemplateRule{},
+		MCPBaselineGrants: []tobari.ManifestPolicyMCPRule{}, BaselineDenies: []tobari.ManifestPolicyExactRule{},
+		GraphQLEndpoints: []tobari.ManifestPolicyExactRule{}, MCPEndpoints: []tobari.ManifestPolicyExactRule{},
+	}
+	alphaBody := finalBody
+	alphaBody.Policy = alphaPolicy
+	revision, err := tobari.NewWorkspaceTemplateRevision(sourceTemplateID, 1, alphaBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := tobari.WorkspaceTemplate{SchemaVersion: tobari.WorkspaceTemplateSchemaVersion, ID: sourceTemplateID, Name: "tools", Current: revision, Retained: []tobari.WorkspaceTemplateRevision{revision}}
+	if err := tobari.InitializeWorkspaceTemplateMetadata(&template); err != nil {
+		t.Fatal(err)
+	}
+	document := v1.Template
+	document.BaseRevision = &revision.Revision
+	alpha := tobari.WorkspaceTemplatePolicyAlphaSourceDocument{
+		SchemaVersion: tobari.WorkspaceTemplatePolicyAlphaSchemaVersion,
+		TemplateID:    sourceTemplateID,
+		Boundary: tobari.WorkspaceTemplatePolicyAlphaBoundarySource{
+			DestinationCeiling: alphaBody.Boundary.DestinationCeiling,
+			MethodPolicy:       alphaBody.Boundary.MethodPolicy,
+		},
+		Semantic: alphaPolicy,
+	}
+	if err := store.PublishTemplate(context.Background(), v1); err != nil {
+		t.Fatal(err)
+	}
+	path, _ := store.TemplatePath(sourceTemplateID)
+	templateData, _ := encodeCanonicalYAML(document)
+	policyData, _ := encodeCanonicalYAML(alpha)
+	if err := os.WriteFile(path, templateData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(path), policyFileName), policyData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return template
+}
+
+func TestExplicitTemplatePolicyMigrationIsLosslessAndNonActivating(t *testing.T) {
+	store, err := New(filepath.Join(t.TempDir(), "config"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := writeAlphaTemplateSourceFixture(t, store)
+	if _, _, present, err := store.ReadTemplateSnapshot(context.Background(), sourceTemplateID); !present || !errors.Is(err, tobari.ErrResourceSourceInvalid) {
+		t.Fatalf("ordinary V1 read accepted alpha: present=%t err=%v", present, err)
+	}
+	alpha, migrated, sourceFingerprint, targetFingerprint, present, err := store.ReadTemplatePolicyMigrationSnapshot(context.Background(), sourceTemplateID, sourceRuntimeBindingFixture())
+	if err != nil || !present {
+		t.Fatalf("migration snapshot: present=%t err=%v", present, err)
+	}
+	plan, err := tobari.NewWorkspaceTemplatePolicyMigrationPlan(template, alpha, migrated, sourceFingerprint, targetFingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, changed, err := store.ApplyTemplatePolicyMigration(context.Background(), plan, sourceRuntimeBindingFixture())
+	if err != nil || !changed || got != targetFingerprint {
+		t.Fatalf("migration apply = %q/%t/%v", got, changed, err)
+	}
+	current, fingerprint, present, err := store.ReadTemplateSnapshot(context.Background(), sourceTemplateID)
+	if err != nil || !present || fingerprint != targetFingerprint || current.Policy.SchemaVersion != tobari.WorkspaceTemplatePolicySchemaVersion {
+		t.Fatalf("V1 read = %+v/%q/%t/%v", current, fingerprint, present, err)
+	}
+	if current.Template.BaseRevision == nil || *current.Template.BaseRevision != template.Current.Revision {
+		t.Fatal("source migration changed the active/base revision binding")
+	}
+	if replay, changed, err := store.ApplyTemplatePolicyMigration(context.Background(), plan, sourceRuntimeBindingFixture()); err != nil || changed || replay != targetFingerprint {
+		t.Fatalf("same-plan replay = %q/%t/%v", replay, changed, err)
+	}
+}
+
+func TestExplicitTemplatePolicyMigrationRecoversPublicationBoundaries(t *testing.T) {
+	for _, boundary := range []string{
+		"template_base_repair_journal_temp_written:prepared",
+		"template_base_repair_journal_temp_synced:prepared",
+		"template_base_repair_journal_renamed:prepared",
+		"template_base_repair_journal_parent_synced:prepared",
+		"template_base_repair_before_discard_rename",
+		"template_base_repair_discard_renamed",
+		"template_base_repair_discard_sync",
+		"template_base_repair_before_publish_rename",
+		"template_base_repair_published_renamed",
+		"template_base_repair_publish_sync",
+		"template_base_repair_quarantine_removed",
+		"template_base_repair_discard_removed",
+		"template_base_repair_cleanup_sync",
+		"template_base_repair_journal_removed",
+	} {
+		t.Run(boundary, func(t *testing.T) {
+			store, err := New(filepath.Join(t.TempDir(), "config"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			template := writeAlphaTemplateSourceFixture(t, store)
+			alpha, migrated, sourceFingerprint, targetFingerprint, _, err := store.ReadTemplatePolicyMigrationSnapshot(context.Background(), sourceTemplateID, sourceRuntimeBindingFixture())
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan, err := tobari.NewWorkspaceTemplatePolicyMigrationPlan(template, alpha, migrated, sourceFingerprint, targetFingerprint)
+			if err != nil {
+				t.Fatal(err)
+			}
+			injected := errors.New("injected migration interruption")
+			fired := false
+			store.phase = func(observed string) error {
+				if !fired && observed == boundary {
+					fired = true
+					return injected
+				}
+				return nil
+			}
+			if _, _, err := store.ApplyTemplatePolicyMigration(context.Background(), plan, sourceRuntimeBindingFixture()); !errors.Is(err, injected) {
+				t.Fatalf("boundary %q was not observed: %v", boundary, err)
+			}
+			store.phase = func(string) error { return nil }
+			fingerprint, _, err := store.ApplyTemplatePolicyMigration(context.Background(), plan, sourceRuntimeBindingFixture())
+			if err != nil || fingerprint != targetFingerprint {
+				t.Fatalf("same-plan recovery = %q/%v", fingerprint, err)
+			}
+			if _, observed, present, err := store.ReadTemplateSnapshot(context.Background(), sourceTemplateID); err != nil || !present || observed != targetFingerprint {
+				t.Fatalf("recovered V1 source = %q/%t/%v", observed, present, err)
+			}
+		})
+	}
+}
+
 func TestTemplateSourceRuntimeReferenceExposesOnlyStableIDAndRevision(t *testing.T) {
 	store, err := New(filepath.Join(t.TempDir(), "config"))
 	if err != nil {
@@ -120,7 +257,7 @@ func TestTemplateSourceRuntimeReferenceExposesOnlyStableIDAndRevision(t *testing
 	}
 }
 
-func TestTemplatePolicyTransitionalSchemaRoundTripsExactly(t *testing.T) {
+func TestTemplatePolicyV1SchemaRoundTripsExactly(t *testing.T) {
 	store, err := New(filepath.Join(t.TempDir(), "config"))
 	if err != nil {
 		t.Fatal(err)
@@ -135,11 +272,16 @@ func TestTemplatePolicyTransitionalSchemaRoundTripsExactly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "schema: tobari.dev/template-policy/v1alpha1\n") {
-		t.Fatalf("policy.yaml lacks exact transitional schema token:\n%s", data)
+	if !strings.Contains(string(data), "schema: tobari.dev/template-policy/v1\n") {
+		t.Fatalf("policy.yaml lacks exact final schema token:\n%s", data)
 	}
-	if strings.Contains(string(data), "schema_version:") || strings.Contains(string(data), "tobari.dev/template-policy/v1\n") {
-		t.Fatalf("policy.yaml claims a numeric or final schema:\n%s", data)
+	if strings.Contains(string(data), "schema_version:") || strings.Contains(string(data), "tobari.dev/template-policy/v1alpha1\n") {
+		t.Fatalf("policy.yaml claims a numeric or transitional schema:\n%s", data)
+	}
+	for _, required := range []string{"boundary:\n", "methods:\n", "deny: []", "semantic:\n", "protocols:\n", "http:\n", "generic:\n", "graphql:\n", "mcp:\n", "git:\n", "oci:\n", "providers:\n", "aws:\n", "kubernetes:\n"} {
+		if !strings.Contains(string(data), required) {
+			t.Fatalf("policy.yaml lacks V1 topology %q:\n%s", required, data)
+		}
 	}
 	got, _, present, err := store.ReadTemplateSnapshot(context.Background(), sourceTemplateID)
 	if err != nil || !present {
@@ -150,11 +292,32 @@ func TestTemplatePolicyTransitionalSchemaRoundTripsExactly(t *testing.T) {
 	}
 }
 
-func TestTemplatePolicyRejectsNumericUnknownAndReservedFinalSchema(t *testing.T) {
+func TestTemplatePolicyV1RequiresBoundaryAndPresentModuleTopology(t *testing.T) {
+	valid := []byte("boundary:\n  methods:\n    deny: []\nsemantic:\n  protocols:\n    http: {}\n  providers: {}\n")
+	if err := validateFinalPolicySourceTopology(valid); err != nil {
+		t.Fatalf("absent known-none modules were rejected: %v", err)
+	}
+	invalid := map[string][]byte{
+		"missing boundary":            []byte("semantic:\n  protocols:\n    http: {}\n  providers: {}\n"),
+		"missing deny":                []byte("boundary:\n  methods: {}\nsemantic:\n  protocols:\n    http: {}\n  providers: {}\n"),
+		"null deny":                   []byte("boundary:\n  methods:\n    deny: null\nsemantic:\n  protocols:\n    http: {}\n  providers: {}\n"),
+		"present module missing deny": []byte("boundary:\n  methods:\n    deny: []\nsemantic:\n  protocols:\n    http:\n      generic:\n        allow:\n          rules: []\n  providers: {}\n"),
+		"null module":                 []byte("boundary:\n  methods:\n    deny: []\nsemantic:\n  protocols:\n    http:\n      oci: null\n  providers: {}\n"),
+	}
+	for name, source := range invalid {
+		t.Run(name, func(t *testing.T) {
+			if err := validateFinalPolicySourceTopology(source); err == nil {
+				t.Fatal("invalid final policy topology was accepted")
+			}
+		})
+	}
+}
+
+func TestTemplatePolicyRejectsNumericUnknownAndTransitionalSchema(t *testing.T) {
 	for name, schemaLine := range map[string]string{
 		"numeric predecessor": "schema_version: 1",
 		"unknown":             "schema: tobari.dev/template-policy/v2",
-		"reserved final v1":   "schema: tobari.dev/template-policy/v1",
+		"transitional alpha":  "schema: tobari.dev/template-policy/v1alpha1",
 	} {
 		t.Run(name, func(t *testing.T) {
 			store, err := New(filepath.Join(t.TempDir(), "config"))
@@ -170,7 +333,7 @@ func TestTemplatePolicyRejectsNumericUnknownAndReservedFinalSchema(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			data = bytes.Replace(data, []byte("schema: tobari.dev/template-policy/v1alpha1"), []byte(schemaLine), 1)
+			data = bytes.Replace(data, []byte("schema: tobari.dev/template-policy/v1"), []byte(schemaLine), 1)
 			if err := os.WriteFile(policyPath, data, 0o600); err != nil {
 				t.Fatal(err)
 			}

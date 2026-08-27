@@ -371,6 +371,72 @@ func TestContextApplyRechecksSourceAtFinalPublicationFence(t *testing.T) {
 	}
 }
 
+func TestTemplatePolicyMigrationFenceSerializesDeleteAndRejectsMissingActiveRevision(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	secondID := tobari.WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789e8")
+	revision, err := tobari.NewWorkspaceTemplateRevision(secondID, 1, existing.Templates[0].Current.Body.Clone())
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := tobari.WorkspaceTemplate{
+		SchemaVersion: tobari.WorkspaceTemplateSchemaVersion, ID: secondID, Name: "migration-target",
+		Current: revision, Retained: []tobari.WorkspaceTemplateRevision{revision.Clone()},
+	}
+	existing, _, err = tobari.PublishWorkspaceAuthorityCollection(
+		append(existing.Templates, second), existing.Contexts, existing.Workspaces,
+		existing.PendingCandidates, existing.DefaultTemplateID, &existing,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, mutator, _, _, _ := newMutationFixture(t, &existing)
+	wrongCalled := false
+	wrongRevision := tobari.SemanticDigest("sha256:" + strings.Repeat("d", 64))
+	if err := mutator.WithWorkspaceTemplatePolicyMigrationFence(context.Background(), secondID, wrongRevision, func(context.Context, tobari.WorkspaceTemplate) error {
+		wrongCalled = true
+		return nil
+	}); !errors.Is(err, tobari.ErrWorkspaceTemplatePolicyMigrationStale) || wrongCalled {
+		t.Fatalf("revision-drift fence err=%v called=%t", err, wrongCalled)
+	}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	fenceDone := make(chan error, 1)
+	go func() {
+		fenceDone <- mutator.WithWorkspaceTemplatePolicyMigrationFence(context.Background(), secondID, revision.Revision, func(context.Context, tobari.WorkspaceTemplate) error {
+			close(entered)
+			<-release
+			return nil
+		})
+	}()
+	<-entered
+	deleteDone := make(chan error, 1)
+	ref, _ := tobari.WorkspaceTemplateRef(secondID)
+	go func() {
+		_, deleteErr := mutator.DeleteWorkspaceTemplateByReference(context.Background(), ref)
+		deleteDone <- deleteErr
+	}()
+	select {
+	case err := <-deleteDone:
+		t.Fatalf("Template delete crossed the migration lifecycle fence: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(release)
+	if err := <-fenceDone; err != nil {
+		t.Fatalf("migration fence: %v", err)
+	}
+	if err := <-deleteDone; err != nil {
+		t.Fatalf("serialized Template delete: %v", err)
+	}
+	called := false
+	err = mutator.WithWorkspaceTemplatePolicyMigrationFence(context.Background(), secondID, revision.Revision, func(context.Context, tobari.WorkspaceTemplate) error {
+		called = true
+		return nil
+	})
+	if !errors.Is(err, tobari.ErrWorkspaceTemplatePolicyMigrationStale) || called {
+		t.Fatalf("missing active Template fence err=%v called=%t", err, called)
+	}
+}
+
 func TestDeletedStableIDsCannotReenterTemplateOrContextApply(t *testing.T) {
 	existing := storeCollectionFixture(t)
 	_, mutator, _, _, _ := newMutationFixture(t, &existing)
@@ -697,7 +763,7 @@ func TestApplyWorkspaceTemplateSourcePublishesOneMovingHeadRevision(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	source.Policy.Semantic.BaselineGrants[0].Path = "/edited"
+	source.Policy.Semantic.Protocols.HTTP.Generic.Allow.Rules[0].Path = "/edited"
 	fingerprint := strings.Repeat("a", 64)
 	plan, err := tobari.NewWorkspaceTemplateChangePlan(existing, active.ID, source, active.Current.Body.EntryDefaults.Runtime, runningWorkspaceFixture(existing), fingerprint)
 	if err != nil {
@@ -712,7 +778,7 @@ func TestApplyWorkspaceTemplateSourcePublishesOneMovingHeadRevision(t *testing.T
 		t.Fatalf("Apply = %+v, loads=%d, err=%v", publication, loads, err)
 	}
 	current, present, err := store.ReadComplete(context.Background())
-	if err != nil || !present || current.Templates[0].Current.Body.Policy.BaselineGrants[0].Path != "/edited" || current.Contexts[0].Context.TemplateID != active.ID {
+	if err != nil || !present || current.Templates[0].Current.Body.Policy.SemanticModules.Protocols.HTTP.Generic.Allow.Rules[0].Path != "/edited" || current.Contexts[0].Context.TemplateID != active.ID {
 		t.Fatalf("active moving head = %+v, present=%t, err=%v", current, present, err)
 	}
 }
@@ -734,7 +800,7 @@ func TestApplyWorkspaceTemplateSourceFencesConcurrentBytesAndStaleBase(t *testin
 			if err != nil {
 				t.Fatal(err)
 			}
-			source.Policy.Semantic.BaselineGrants[0].Path = "/edited"
+			source.Policy.Semantic.Protocols.HTTP.Generic.Allow.Rules[0].Path = "/edited"
 			if test.stale {
 				value := tobari.SemanticDigest("sha256:" + strings.Repeat("e", 64))
 				source.Template.BaseRevision = &value
@@ -746,7 +812,7 @@ func TestApplyWorkspaceTemplateSourceFencesConcurrentBytesAndStaleBase(t *testin
 				if err != nil {
 					t.Fatal(err)
 				}
-				plannedSource.Policy.Semantic.BaselineGrants[0].Path = "/edited"
+				plannedSource.Policy.Semantic.Protocols.HTTP.Generic.Allow.Rules[0].Path = "/edited"
 			}
 			plan, planErr := tobari.NewWorkspaceTemplateChangePlan(existing, active.ID, plannedSource, active.Current.Body.EntryDefaults.Runtime, runningWorkspaceFixture(existing), fingerprint)
 			if planErr != nil {

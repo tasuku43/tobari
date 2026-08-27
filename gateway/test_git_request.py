@@ -31,6 +31,16 @@ class GitRequestTests(unittest.TestCase):
             with self.subTest(case=case), self.assertRaises(GitRequestError):
                 classify_git_request(*case)
 
+    def test_projection_rejects_invalid_direct_construction(self) -> None:
+        valid_type = type(classify_git_request("GET", "/team/repo.git/info/refs", "service=git-upload-pack", []))
+        for fields in (
+            {"service": "future", "repository": "/team/repo.git"},
+            {"service": "upload-pack", "repository": "/team/../repo.git"},
+            {"service": "upload-pack", "repository": "/team/\ud800.git"},
+        ):
+            with self.subTest(fields=fields), self.assertRaises(GitRequestError):
+                valid_type(**fields)
+
 
 if __name__ == "__main__":
     unittest.main()

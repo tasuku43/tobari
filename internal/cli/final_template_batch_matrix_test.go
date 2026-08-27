@@ -45,11 +45,59 @@ func TestFinalTemplatePlanJSONOmitsPrivatePlanningFields(t *testing.T) {
 }
 
 type finalTemplateBatchPort struct {
-	mu       sync.Mutex
-	template tobari.WorkspaceTemplate
-	changes  []tobari.WorkspaceTemplateChange
-	aws      tobari.ManifestBootstrapSnapshot
-	eks      tobari.ManifestBootstrapSnapshot
+	mu              sync.Mutex
+	template        tobari.WorkspaceTemplate
+	changes         []tobari.WorkspaceTemplateChange
+	aws             tobari.ManifestBootstrapSnapshot
+	eks             tobari.ManifestBootstrapSnapshot
+	migrationPlan   tobari.WorkspaceTemplatePolicyMigrationPlan
+	migrationResult tobari.WorkspaceTemplatePolicyMigrationResult
+}
+
+func (p *finalTemplateBatchPort) PlanWorkspaceTemplatePolicyMigrationByReference(_ context.Context, ref string) (tobari.WorkspaceTemplatePolicyMigrationPlan, error) {
+	if ref != p.migrationPlan.TemplateRef {
+		return tobari.WorkspaceTemplatePolicyMigrationPlan{}, tobari.ErrWorkspaceTemplateNotFound
+	}
+	return p.migrationPlan, nil
+}
+
+func (p *finalTemplateBatchPort) ApplyWorkspaceTemplatePolicyMigrationByReference(_ context.Context, ref string) (tobari.WorkspaceTemplatePolicyMigrationResult, error) {
+	if ref != p.migrationPlan.PlanRef {
+		return tobari.WorkspaceTemplatePolicyMigrationResult{}, tobari.ErrWorkspaceTemplatePolicyMigrationStale
+	}
+	return p.migrationResult, nil
+}
+
+func newFinalTemplateMigrationPort(t *testing.T) *finalTemplateBatchPort {
+	t.Helper()
+	body := finalAxisTemplateBody("/items")
+	body.Policy.SemanticModules = nil
+	body.Policy.BaselineGrants = []tobari.ManifestPolicyExactRule{{Scheme: "https", Host: "api.example.dev", Port: 443, Method: "GET", Path: "/items"}}
+	revision, err := tobari.NewWorkspaceTemplateRevision("01912345-6789-7abc-8def-0123456789a1", 1, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := tobari.WorkspaceTemplate{SchemaVersion: tobari.WorkspaceTemplateSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789a1", Name: "standard", Current: revision, Retained: []tobari.WorkspaceTemplateRevision{revision.Clone()}}
+	v1, err := tobari.NewWorkspaceTemplateSource(template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alpha := tobari.WorkspaceTemplateAlphaSource{Template: v1.Template, Policy: tobari.WorkspaceTemplatePolicyAlphaSourceDocument{
+		SchemaVersion: tobari.WorkspaceTemplatePolicyAlphaSchemaVersion, TemplateID: template.ID,
+		Boundary: tobari.WorkspaceTemplatePolicyAlphaBoundarySource{DestinationCeiling: body.Boundary.DestinationCeiling, MethodPolicy: body.Boundary.MethodPolicy},
+		Semantic: body.Policy.Clone(),
+	}}
+	migrated, err := alpha.MigrateToV1(body.EntryDefaults.Runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := tobari.NewWorkspaceTemplatePolicyMigrationPlan(template, alpha, migrated, strings.Repeat("a", 64), strings.Repeat("b", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &finalTemplateBatchPort{template: template, migrationPlan: plan, migrationResult: tobari.WorkspaceTemplatePolicyMigrationResult{
+		TemplateID: template.ID, TemplateRef: plan.TemplateRef, ActiveRevision: revision.Revision, SourceFingerprint: plan.TargetFingerprint, Changed: true,
+	}}
 }
 
 func newFinalTemplateBatchPort(t *testing.T) *finalTemplateBatchPort {
@@ -211,6 +259,21 @@ func TestFinalTemplateApplyPublishesReferencesAndChangedState(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("Apply output lacks %q: %q", want, stdout)
 		}
+	}
+}
+
+func TestFinalTemplatePolicyMigrationPlanApplyIsSourceOnlyAndReferenceBound(t *testing.T) {
+	port := newFinalTemplateMigrationPort(t)
+	if _, err := workspaceauthoritycmd.NewTemplateService(port).PlanPolicyMigration(context.Background(), port.migrationPlan.TemplateRef); err != nil {
+		t.Fatalf("direct migration plan failed: %v", err)
+	}
+	code, stdout, stderr := runFinalTemplateBatchCommand(t, port, "template", "migration", "plan", "--id", port.migrationPlan.TemplateRef, "--format=json")
+	if code != ExitOK || !strings.Contains(stdout, port.migrationPlan.PlanRef) {
+		t.Fatalf("plan code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	code, stdout, stderr = runFinalTemplateBatchCommand(t, port, "template", "migration", "apply", "--plan", port.migrationPlan.PlanRef, "--format=json")
+	if code != ExitOK || !strings.Contains(stdout, `"changed":true`) || !strings.Contains(stdout, string(port.template.Current.Revision)) {
+		t.Fatalf("apply code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 }
 

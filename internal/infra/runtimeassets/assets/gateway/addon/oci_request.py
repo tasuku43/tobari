@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from urllib.parse import parse_qsl, quote
+from urllib.parse import parse_qsl, quote, unquote
 
 
 class OCIRequestError(ValueError):
@@ -18,6 +18,48 @@ class ParsedOCIRequest:
     repository: str
     object: str
 
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> None:
+        if not isinstance(self.action, str) or self.action not in {
+            "list", "pull", "push", "delete", "start_upload", "upload_status",
+            "upload_chunk", "complete_upload", "mount", "cancel_upload",
+        }:
+            raise OCIRequestError("oci_projection_invalid", "OCI action is invalid")
+        if not _valid_repository(self.repository, allow_empty=True) or not _valid_coordinate(self.object, allow_empty=False):
+            raise OCIRequestError("oci_projection_invalid", "OCI coordinate is invalid")
+        valid = False
+        if self.action == "list":
+            valid = (self.repository == "" and self.object == "catalog") or (self.repository != "" and self.object == "tags")
+        elif self.action == "pull":
+            valid = self.repository != "" and _valid_path_object(self.object, ("manifest:", "blob:", "referrers:"))
+        elif self.action == "push":
+            valid = self.repository != "" and _valid_path_object(self.object, ("manifest:",))
+        elif self.action == "delete":
+            valid = self.repository != "" and _valid_path_object(self.object, ("manifest:", "blob:"))
+        elif self.action == "start_upload":
+            valid = self.repository != "" and self.object == "upload"
+        elif self.action in {"upload_status", "upload_chunk", "cancel_upload"}:
+            valid = self.repository != "" and _valid_path_object(self.object, ("upload:",))
+        elif self.action == "complete_upload":
+            if self.object.startswith("blob:"):
+                valid = self.repository != "" and _valid_quoted_token(self.object.removeprefix("blob:"))
+            elif self.object.startswith("upload:") and ":blob:" in self.object:
+                session, digest = self.object.removeprefix("upload:").split(":blob:", 1)
+                valid = self.repository != "" and _valid_quoted_token(session) and _valid_quoted_token(digest)
+        elif self.action == "mount":
+            parts = self.object.removeprefix("mount:").split(":from:")
+            if self.repository != "" and self.object.startswith("mount:") and len(parts) == 2:
+                digest, source = parts
+                valid = (
+                    _valid_quoted_token(digest)
+                    and _valid_quoted_token(source)
+                    and _valid_repository(_decode_quoted_token(source), allow_empty=False)
+                )
+        if not valid or self.object.endswith(":"):
+            raise OCIRequestError("oci_projection_invalid", "OCI action coordinate is invalid")
+
 
 def _segment(value: str) -> str:
     if (
@@ -25,11 +67,60 @@ def _segment(value: str) -> str:
         or len(value.encode("utf-8")) > 512
         or value in {".", ".."}
         or "%" in value
+        or "/" in value
         or "\\" in value
         or any(ord(character) < 32 or ord(character) == 127 or character in {"\u2028", "\u2029"} for character in value)
     ):
         raise OCIRequestError("oci_path_invalid", "OCI Distribution path is invalid")
     return value
+
+
+def _valid_coordinate(value: object, allow_empty: bool) -> bool:
+    if not isinstance(value, str) or (not allow_empty and not value):
+        return False
+    try:
+        return len(value.encode("utf-8")) <= 1024 and not any(
+            ord(character) < 32 or ord(character) == 127 or character in {"\u2028", "\u2029"}
+            for character in value
+        )
+    except UnicodeEncodeError:
+        return False
+
+
+def _valid_repository(value: object, allow_empty: bool) -> bool:
+    if value == "":
+        return allow_empty
+    if not _valid_coordinate(value, allow_empty=False):
+        return False
+    try:
+        return all(_segment(segment) == segment for segment in value.split("/"))
+    except OCIRequestError:
+        return False
+
+
+def _valid_quoted_token(value: str) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        decoded = _decode_quoted_token(value)
+    except (UnicodeError, ValueError):
+        return False
+    return len(decoded.encode("utf-8")) <= 512 and quote(decoded, safe="") == value
+
+
+def _decode_quoted_token(value: str) -> str:
+    return unquote(value, encoding="utf-8", errors="strict")
+
+
+def _valid_path_object(value: str, prefixes: tuple[str, ...]) -> bool:
+    for prefix in prefixes:
+        if value.startswith(prefix):
+            suffix = value.removeprefix(prefix)
+            try:
+                return _segment(suffix) == suffix
+            except OCIRequestError:
+                return False
+    return False
 
 
 def _query(raw_query: str, allowed: set[str]) -> dict[str, str]:
@@ -106,6 +197,8 @@ def parse_oci_request(method: str, path: str, raw_query: str) -> ParsedOCIReques
             if "mount" in query:
                 if set(query) != {"mount", "from"} or not query["mount"] or not query["from"]:
                     raise OCIRequestError("oci_query_invalid", "OCI blob mount query is invalid")
+                if not _valid_repository(query["from"], allow_empty=False):
+                    raise OCIRequestError("oci_query_invalid", "OCI blob mount source repository is invalid")
                 mount_object = (
                     "mount:" + quote(query["mount"], safe="")
                     + ":from:" + quote(query["from"], safe="")
@@ -114,7 +207,7 @@ def parse_oci_request(method: str, path: str, raw_query: str) -> ParsedOCIReques
             if "digest" in query:
                 if not query["digest"] or set(query) != {"digest"}:
                     raise OCIRequestError("oci_query_invalid", "OCI monolithic upload query is invalid")
-                return _identity("complete_upload", repository, "blob:" + query["digest"])
+                return _identity("complete_upload", repository, "blob:" + quote(query["digest"], safe=""))
             if query:
                 raise OCIRequestError("oci_query_invalid", "OCI upload-start query is invalid")
             return _identity("start_upload", repository, "upload")
@@ -124,8 +217,13 @@ def parse_oci_request(method: str, path: str, raw_query: str) -> ParsedOCIReques
             if method == "PATCH" and not query:
                 return _identity("upload_chunk", repository, "upload:" + upload_id)
             if method == "PUT" and set(query) == {"digest"} and query["digest"]:
-                return _identity("complete_upload", repository, "blob:" + query["digest"])
+                return _identity(
+                    "complete_upload", repository,
+                    "upload:" + quote(upload_id, safe="") + ":blob:" + quote(query["digest"], safe=""),
+                )
             if method == "DELETE" and not query:
                 return _identity("cancel_upload", repository, "upload:" + upload_id)
         raise OCIRequestError("oci_route_invalid", "OCI blob upload request is invalid")
+    if any(marker in parts for marker in {"_catalog", "manifests", "referrers", "blobs", "tags"}):
+        raise OCIRequestError("oci_route_invalid", "OCI Distribution object route is malformed")
     return None

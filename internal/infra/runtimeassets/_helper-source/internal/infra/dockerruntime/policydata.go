@@ -26,7 +26,7 @@ const (
 	maxPolicyDataBytes    = 1024 * 1024
 	maxPolicyPreflight    = 4 * 1024 * 1024
 	maxPolicyFiles        = 128
-	policySchemaVersion   = 1
+	policySchemaVersion   = 2
 	learnedPolicyDataName = "learned_allows"
 	learnedDenyDataName   = "learned_denies"
 	policyDomainsName     = "domains"

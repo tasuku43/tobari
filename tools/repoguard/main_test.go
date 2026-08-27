@@ -58,6 +58,8 @@ func TestCurrentAuthorityDocumentationRejectsSchemaCopyAndGranularWriterContradi
 		"All Tobari-owned schemas and component APIs are V1.\n",
 		"Template copy publishes a fresh generation-1 identity.\n",
 		"Evidence includes one atomic multi-row shell write.\n",
+		"The current transitional schema is tobari.dev/template-policy/v1alpha1.\n",
+		"The reserved final tobari.dev/template-policy/v1 remains rejected.\n",
 	} {
 		t.Run(strings.TrimSpace(claim), func(t *testing.T) {
 			root := t.TempDir()

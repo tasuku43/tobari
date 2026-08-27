@@ -51,6 +51,8 @@ type FinalGatewayNetworkAddress struct {
 	Address string
 }
 
+const finalPolicyProjectionSchemaVersion = 2
+
 func (a FinalGatewayComponentAuthority) Validate() error {
 	if !containerIDPattern.MatchString(a.ContainerID) || !imageIDPattern.MatchString(a.ImageID) || a.Role != gatewayRole || a.State != "running" || a.Health != "healthy" || a.Networks == nil {
 		return fmt.Errorf("final Gateway component authority is invalid")
@@ -523,11 +525,18 @@ func finalAggregateContext(authority tobari.WorkspacePolicyProjectionContext) (a
 	if err != nil {
 		return aggregateContext{}, err
 	}
-	graphql, err := aggregateGraphQLEndpoints(learnedGraphQL, effective.GraphQLEndpoints)
+	semantic, hasSemantic := authority.TemplatePolicy.Policy.FinalSemanticModules()
+	staticGraphQL := []tobari.GraphQLEndpoint{}
+	staticMCP := []tobari.MCPEndpoint{}
+	if hasSemantic {
+		staticGraphQL = semantic.GraphQLEndpoints()
+		staticMCP = semantic.MCPEndpoints()
+	}
+	graphql, err := aggregateGraphQLEndpoints(append(learnedGraphQL, staticGraphQL...), effective.GraphQLEndpoints)
 	if err != nil {
 		return aggregateContext{}, err
 	}
-	mcp, err := aggregateMCPEndpoints(effective.MCPEndpoints)
+	mcp, err := aggregateFinalMCPEndpoints(staticMCP, effective.MCPEndpoints)
 	if err != nil {
 		return aggregateContext{}, err
 	}
@@ -536,7 +545,7 @@ func finalAggregateContext(authority tobari.WorkspacePolicyProjectionContext) (a
 		return aggregateContext{}, err
 	}
 	data := map[string]any{
-		"schema_version": policySchemaVersion,
+		"schema_version": finalPolicyProjectionSchemaVersion,
 		"boundary":       map[string]any{"graphql_endpoints": graphql, "mcp_endpoints": mcp, "kubernetes_endpoints": kubernetes},
 		"rules":          map[string]any{learnedPolicyDataName: allows, learnedDenyDataName: denies},
 		"policy": map[string]any{
@@ -544,6 +553,7 @@ func finalAggregateContext(authority tobari.WorkspacePolicyProjectionContext) (a
 			"method_default": effective.MethodPolicy.Default, "method_overrides": effective.MethodPolicy.Overrides,
 			"baseline_grants": effective.BaselineGrants, "baseline_templates": effective.BaselineTemplates,
 			"mcp_baseline_grants": effective.MCPBaselineGrants, "baseline_denies": effective.BaselineDenies,
+			"semantic": semantic,
 		},
 	}
 	finalAuthority := authority.Clone()
@@ -591,6 +601,7 @@ func finalPolicyMemoryRows(authority tobari.WorkspacePolicyProjectionContext) ([
 		if err := json.Unmarshal(encoded, &row); err != nil {
 			return nil, nil, nil, err
 		}
+		completeFinalPolicyProtocolCoordinates(row, rule.Body.PolicyProtocolIdentity)
 		if rule.Decision == tobari.PolicyMemoryAllow {
 			allows = append(allows, row)
 		} else {
@@ -601,6 +612,23 @@ func finalPolicyMemoryRows(authority tobari.WorkspacePolicyProjectionContext) ([
 		}
 	}
 	return allows, denies, graphql, nil
+}
+
+// completeFinalPolicyProtocolCoordinates keeps meaningful empty coordinates on
+// the OPA wire. The retained domain JSON omits zero-value siblings so unrelated
+// protocols stay closed, but core Kubernetes and OCI catalog identities use an
+// empty string as an exact coordinate rather than an absent value.
+func completeFinalPolicyProtocolCoordinates(row map[string]any, identity tobari.PolicyProtocolIdentity) {
+	switch identity.EffectiveProtocol() {
+	case tobari.PolicyProtocolKubernetes:
+		if identity.KubernetesKind == tobari.KubernetesRequestResource {
+			row["kubernetes_group"] = identity.KubernetesGroup
+		}
+	case tobari.PolicyProtocolOCI:
+		if identity.OCIAction == "list" && identity.OCIObject == "catalog" {
+			row["oci_repository"] = identity.OCIRepository
+		}
+	}
 }
 
 func finalKubernetesEndpoints(principal *tobari.WorkspacePolicyPrincipalAuthority) ([]tobari.GraphQLEndpoint, error) {

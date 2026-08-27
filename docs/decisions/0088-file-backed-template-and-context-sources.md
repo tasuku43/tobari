@@ -83,16 +83,13 @@ migration uses a dedicated old-schema decoder, writes only current desired
 source without semantic widening, and never activates it. Normal Apply remains
 required.
 
-The exact current tokens are `tobari.dev/template/v1`,
-`tobari.dev/context/v1`, and the deliberately transitional
-`tobari.dev/template-policy/v1alpha1`. The alpha policy document is a lossless,
-installation-owned projection of the current policy body, not a portable
-contract. Numeric policy schemas are unsupported. The token
-`tobari.dev/template-policy/v1` is reserved for the deferred closed
-`boundary` plus `semantic.protocols`/`semantic.providers` topology and compiler;
-the alpha topology must fail if relabeled as final V1. Moving from alpha to
-that final schema requires an explicit source migration which does not activate
-authority; normal Plan/Apply remains required afterward.
+The original decision introduced `tobari.dev/template-policy/v1alpha1` as a
+lossless installation bridge and reserved the final token. ADR 0089 now
+supersedes this seam: current ordinary source is
+`tobari.dev/template-policy/v1`, while alpha is decoded only by explicit
+non-activating `template migration plan/apply`. Relabeling alpha bytes as V1
+still fails. Migration updates desired source only; normal Plan/Apply remains
+required afterward.
 
 The Template directory contains exactly `template.yaml` and `policy.yaml`; the
 Context directory contains exactly `context.yaml`. Owner/mode, regular-file,
@@ -152,13 +149,19 @@ Ordinary semantic authoring is direct human/agent editing followed by Template
 Apply. Granular shell, Git, bootstrap, and Runtime setter commands are retired;
 they neither mutate active authority nor silently rewrite source.
 
+The ADR 0089 alpha-to-V1 schema migration is not an additional semantic
+authoring path: it accepts only one deterministic non-widening conversion of
+exact in-sync predecessor bytes, leaves active authority unchanged, and still
+requires ordinary Template Plan/Apply for any semantic publication.
+
 The sole additional writer reserved for later work is explicit reviewed Policy
 Memory promotion. It is limited to `policy.yaml`, starts only from an `in_sync`
 Template, binds the exact source fingerprint, base/active Template revision,
 and Policy Memory revision, preserves unrelated rules/comments or fails, and
 atomically publishes one Template revision with supersession of selected Memory
 Allows. It retains provenance/history and never promotes Denies implicitly.
-Promotion implementation and the semantic AWS language are out of scope here.
+Promotion implementation remains out of scope here. The semantic AWS language
+and the rest of the closed module taxonomy are decided by ADR 0089.
 
 Future policy collections are semantic sets: order has no meaning, exact
 duplicates are invalid, and canonical digests ignore reorder-only edits while
@@ -167,8 +170,8 @@ provider/protocol, and canonical matcher dimensions; users author no IDs.
 Static precedence and provider-specific matcher semantics remain governed by a
 later policy-language decision.
 
-The final `tobari.dev/template-policy/v1` policy schema is constrained, but not
-implemented here. Its top
+The final `tobari.dev/template-policy/v1` policy schema was constrained here
+and is implemented by ADR 0089. Its top
 level has required `boundary` and `semantic` containers. V1 Method Boundary is
 only `boundary.methods.deny`: exact uppercase ASCII tokens terminal-deny while
 unlisted methods merely continue. `semantic` has closed, non-fallback sibling
@@ -188,8 +191,9 @@ match a template. AWS rules use `service` XOR `services`, closed lowercase
 and at most one terminal operation-prefix `*`. Static Deny precedence is fixed:
 exact Allow/Deny equality, fully Deny-shadowed Allow, and Method-Boundary-
 shadowed Allow are compile errors; narrower Deny carve-outs and partial overlap
-remain valid and reportable. These constraints need their own implementation
-ADR and executable compiler tests before becoming an accepted source schema.
+remain valid and reportable. ADR 0089 owns the executable compiler, common
+projection, and per-module tests that make these constraints an accepted source
+schema.
 
 ### Rego remains internal
 

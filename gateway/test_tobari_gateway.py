@@ -244,7 +244,7 @@ class PermissionResumeProjectionTests(unittest.TestCase):
             gateway, "request_authority", return_value=("https", "api.example.com", 443)
         ):
             policy_input = gateway.build_policy_input(flow, "default", principal, set())
-        self.assertEqual(policy_input["schema_version"], 1)
+        self.assertEqual(policy_input["schema_version"], 2)
         self.assertEqual(policy_input["principal"], {
             "cluster": "default", "context_id": CONTEXT, "project_id": PROJECT,
         })
@@ -628,7 +628,7 @@ class PermissionResumeProjectionTests(unittest.TestCase):
         }
         gateway._policy_denied(flow, 403, True, principal, resume)
         denial = json.loads(flow.response.content)
-        self.assertEqual(denial["tobari"]["schema_version"], 2)
+        self.assertEqual(denial["tobari"]["schema_version"], 3)
         self.assertEqual(denial["tobari"]["workspace_manifest_id"], CONTEXT)
         self.assertEqual(denial["tobari"]["workspace_id"], PROJECT)
         self.assertNotIn("context_id", denial["tobari"])
@@ -663,7 +663,7 @@ class PermissionResumeProjectionTests(unittest.TestCase):
         ):
             addon.requestheaders(flow)
         denial = json.loads(flow.response.content)
-        self.assertEqual(denial["tobari"]["schema_version"], 2)
+        self.assertEqual(denial["tobari"]["schema_version"], 3)
         self.assertEqual(denial["tobari"]["workspace_manifest_id"], CONTEXT)
         self.assertEqual(denial["tobari"]["workspace_id"], PROJECT)
         self.assertNotIn("context_id", denial["tobari"])
@@ -683,11 +683,14 @@ class PermissionResumeProjectionTests(unittest.TestCase):
         protocol_cases = (
             (
                 "kubernetes",
-                gateway.ParsedKubernetesRequest("get", "core/v1/pods/example", "none"),
+                gateway.ParsedKubernetesRequest(
+                    kind="resource", verb="get", dry_run="none", group="", version="v1",
+                    resource="pods", name="example",
+                ),
             ),
             ("git", gateway.ParsedGitRequest("upload-pack", "/team/repo.git")),
             ("oci", gateway.ParsedOCIRequest("pull", "team/app", "manifest:latest")),
-            ("aws", gateway.ParsedAWSRequest("json", "sts", "GetCallerIdentity")),
+            ("aws", gateway.ParsedAWSRequest("json", "sts", "GetCallerIdentity", target_namespace="AWSSecurityTokenServiceV20110615")),
         )
         for protocol, identity in protocol_cases:
             with self.subTest(protocol=protocol):
@@ -787,7 +790,7 @@ class PermissionResumeProjectionTests(unittest.TestCase):
                     addon.requestheaders(flow)
                 register.assert_not_called()
                 denial = json.loads(flow.response.content)["tobari"]
-                self.assertEqual(denial["schema_version"], 2)
+                self.assertEqual(denial["schema_version"], 3)
                 self.assertNotIn("resume", denial)
 
     def test_deeply_malformed_registry_omits_resume_and_preserves_denial(self):
@@ -823,12 +826,23 @@ class PermissionResumeProjectionTests(unittest.TestCase):
 
 class ProtocolEndpointDeclarationTests(unittest.TestCase):
 
+    def test_semantic_module_selector_is_order_free_and_rejects_siblings(self):
+        for claims in (
+            ["protocols.http.generic", "protocols.http.git"],
+            ["protocols.http.git", "protocols.http.generic"],
+        ):
+            self.assertEqual(gateway.select_semantic_module_claims(claims), "protocols.http.git")
+        with self.assertRaises(gateway.SemanticClassificationError):
+            gateway.select_semantic_module_claims(["protocols.http.git", "providers.kubernetes"])
+        with self.assertRaises(gateway.SemanticClassificationError):
+            gateway.select_semantic_module_claims(["protocols.http.future"])
+
     def test_semantic_endpoint_declarations_are_exact_and_cross_protocol_collisions_fail(self):
         graphql = {"scheme": "https", "host": "api.example.com", "port": 443, "path": "/graphql"}
         mcp = {"scheme": "https", "host": "api.example.com", "port": 443, "path": "/mcp"}
-        kubernetes = {"scheme": "https", "host": "cluster.example.com", "port": 443, "path": "/"}
+        kubernetes = {"scheme": "https", "host": "cluster.us-east-1.eks.amazonaws.com", "port": 443, "path": "/"}
         document = {
-            "version": "v1",
+            "version": "v2",
             "contexts": {
                 CONTEXT: {
                     "name": "default",
@@ -856,11 +870,19 @@ class ProtocolEndpointDeclarationTests(unittest.TestCase):
                 loaded, CONTEXT, "https", "other.example.com", 443, "/mcp"
             ))
             self.assertTrue(gateway.kubernetes_endpoint_declared(
-                loaded, CONTEXT, "https", "cluster.example.com", 443
+                loaded, CONTEXT, "https", "cluster.us-east-1.eks.amazonaws.com", 443
             ))
             self.assertFalse(gateway.kubernetes_endpoint_declared(
-                loaded, CONTEXT, "https", "cluster.example.com", 8443
+                loaded, CONTEXT, "https", "cluster.us-east-1.eks.amazonaws.com", 8443
             ))
+
+            outside_eks = copy.deepcopy(document)
+            outside_eks["contexts"][CONTEXT]["kubernetes_endpoints"] = [
+                {"scheme": "https", "host": "cluster.example.com", "port": 443, "path": "/"}
+            ]
+            atomic_json(path, outside_eks)
+            with self.assertRaises(gateway.CredentialError):
+                gateway.load_gateway_config(path)
 
             colliding = copy.deepcopy(document)
             colliding["contexts"][CONTEXT]["mcp_endpoints"] = [graphql]
@@ -1662,6 +1684,7 @@ class ReviewedBrokerGatewayTests(unittest.TestCase):
             ),
             mock.patch.object(gateway, "resolve_project_principal", return_value=principal),
             mock.patch.object(gateway, "graphql_endpoint_declared", return_value=True),
+            mock.patch.object(gateway, "mcp_endpoint_declared", return_value=False),
             mock.patch.object(gateway, "query_opa", side_effect=allow),
             mock.patch.object(gateway, "commit_upstream_authority") as commit,
             mock.patch.object(gateway, "_audit") as audit,
@@ -1713,6 +1736,7 @@ class ReviewedBrokerGatewayTests(unittest.TestCase):
             mock.patch.object(gateway, "normalize_ingress_authority", return_value=("https", "api.example.com", 443)),
             mock.patch.object(gateway, "resolve_project_principal", return_value=principal),
             mock.patch.object(gateway, "graphql_endpoint_declared", return_value=True),
+            mock.patch.object(gateway, "mcp_endpoint_declared", return_value=False),
             mock.patch.object(gateway, "query_opa", side_effect=allow),
             mock.patch.object(gateway, "commit_upstream_authority") as commit,
         ):
@@ -1767,16 +1791,108 @@ class ReviewedBrokerGatewayTests(unittest.TestCase):
         self.assertEqual(flow.response.status_code, 403)
         commit.assert_not_called()
         self.assertEqual(policy_inputs[0]["request"]["kubernetes"], {
+            "kind": "resource",
             "verb": "watch",
-            "resource": "acme.example/v1/namespaces/team/widgets",
             "dry_run": "none",
+            "resource": {
+                "group": "acme.example",
+                "version": "v1",
+                "resource": "widgets",
+                "namespace": "team",
+                "name": None,
+                "subresource": None,
+            },
         })
         denial = json.loads(flow.response.content)
         self.assertEqual(denial["tobari"]["request"]["protocol"], "kubernetes")
+        self.assertEqual(denial["tobari"]["request"]["kubernetes_kind"], "resource")
         self.assertEqual(denial["tobari"]["request"]["kubernetes_verb"], "watch")
-        self.assertEqual(denial["tobari"]["request"]["kubernetes_resource"], "acme.example/v1/namespaces/team/widgets")
+        self.assertEqual(denial["tobari"]["request"]["kubernetes_group"], "acme.example")
+        self.assertEqual(denial["tobari"]["request"]["kubernetes_version"], "v1")
+        self.assertEqual(denial["tobari"]["request"]["kubernetes_resource"], "widgets")
+        self.assertEqual(denial["tobari"]["request"]["kubernetes_namespace"], "team")
         self.assertNotIn("secret-canary", json.dumps(policy_inputs[0]))
         self.assertNotIn("secret-canary", json.dumps(denial))
+
+    def test_git_and_kubernetes_claim_collision_is_terminal_before_policy(self):
+        addon = gateway.TobariGateway.__new__(gateway.TobariGateway)
+        addon.cluster = "default"
+        addon.opa_url = "http://opa.invalid/decision"
+        addon.opa_timeout = 2
+        addon.graphql_config = {}
+        addon.principal_source = mock.Mock()
+        addon.principal_source.load.return_value = {}
+        addon.credential_adapter = mock.Mock()
+        addon.credential_adapter.prepare.return_value = mock.Mock(
+            secret_headers=set(), broker_provider=None, deferred=False,
+        )
+        flow = tflow.tflow(req=http.Request.make(
+            "GET",
+            "https://cluster.us-east-1.eks.amazonaws.com/api/v1/info/refs?service=git-upload-pack",
+        ))
+        principal = {
+            "project_id": PROJECT, "context_id": CONTEXT,
+            "context": "default", "project_root": "/workspace/project",
+        }
+        with (
+            mock.patch.object(gateway, "normalize_ingress_authority", return_value=("https", "cluster.us-east-1.eks.amazonaws.com", 443)),
+            mock.patch.object(gateway, "resolve_project_principal", return_value=principal),
+            mock.patch.object(gateway, "graphql_endpoint_declared", return_value=False),
+            mock.patch.object(gateway, "mcp_endpoint_declared", return_value=False),
+            mock.patch.object(gateway, "kubernetes_endpoint_declared", return_value=True),
+            mock.patch.object(gateway, "query_opa", side_effect=AssertionError("ambiguous traffic reached policy")) as query_opa,
+            mock.patch.object(gateway, "commit_upstream_authority") as commit,
+            mock.patch.object(gateway, "_audit") as audit,
+        ):
+            addon.requestheaders(flow)
+        self.assertEqual(flow.response.status_code, 400)
+        self.assertEqual(json.loads(flow.response.content)["error"], "semantic_classification_ambiguous")
+        self.assertFalse(query_opa.called)
+        self.assertFalse(commit.called)
+        audit.assert_called_once()
+        event = audit.call_args.kwargs
+        self.assertEqual(event["protocol"], "http")
+        self.assertFalse("git_service" in event)
+        self.assertFalse("kubernetes_kind" in event)
+
+    def test_oci_and_graphql_claim_collision_is_terminal_and_audits_no_selected_module(self):
+        addon = gateway.TobariGateway.__new__(gateway.TobariGateway)
+        addon.cluster = "default"
+        addon.opa_url = "http://opa.invalid/decision"
+        addon.opa_timeout = 2
+        addon.graphql_config = {}
+        addon.principal_source = mock.Mock()
+        addon.principal_source.load.return_value = {}
+        addon.credential_adapter = mock.Mock()
+        addon.credential_adapter.prepare.return_value = mock.Mock(
+            secret_headers=set(), broker_provider=None, deferred=False,
+        )
+        flow = tflow.tflow(req=http.Request.make(
+            "PUT", "https://registry.example.com/v2/team/app/manifests/latest",
+        ))
+        principal = {
+            "project_id": PROJECT, "context_id": CONTEXT,
+            "context": "default", "project_root": "/workspace/project",
+        }
+        with (
+            mock.patch.object(gateway, "normalize_ingress_authority", return_value=("https", "registry.example.com", 443)),
+            mock.patch.object(gateway, "resolve_project_principal", return_value=principal),
+            mock.patch.object(gateway, "graphql_endpoint_declared", return_value=True),
+            mock.patch.object(gateway, "mcp_endpoint_declared", return_value=False),
+            mock.patch.object(gateway, "kubernetes_endpoint_declared", return_value=False),
+            mock.patch.object(gateway, "query_opa", side_effect=AssertionError("ambiguous traffic reached policy")),
+            mock.patch.object(gateway, "commit_upstream_authority") as commit,
+            mock.patch.object(gateway, "_audit") as audit,
+        ):
+            addon.requestheaders(flow)
+        self.assertEqual(flow.response.status_code, 400)
+        self.assertEqual(json.loads(flow.response.content)["error"], "semantic_classification_ambiguous")
+        commit.assert_not_called()
+        audit.assert_called_once()
+        event = audit.call_args.kwargs
+        self.assertEqual(event["protocol"], "http")
+        self.assertFalse("oci_action" in event)
+        self.assertNotIn("graphql_operation_type", event)
 
     def test_git_smart_http_receive_pack_is_exact_and_body_opaque(self):
         addon = gateway.TobariGateway.__new__(gateway.TobariGateway)

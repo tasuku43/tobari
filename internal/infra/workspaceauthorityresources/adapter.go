@@ -499,6 +499,63 @@ func (a *Adapter) PlanWorkspaceTemplateSourceByReference(ctx context.Context, re
 	})
 }
 
+func (a *Adapter) PlanWorkspaceTemplatePolicyMigrationByReference(ctx context.Context, ref string) (tobari.WorkspaceTemplatePolicyMigrationPlan, error) {
+	id, err := tobari.ParseWorkspaceTemplateRef(ref)
+	if err != nil {
+		return tobari.WorkspaceTemplatePolicyMigrationPlan{}, err
+	}
+	template, err := a.workspaceTemplateByID(ctx, id)
+	if err != nil {
+		return tobari.WorkspaceTemplatePolicyMigrationPlan{}, err
+	}
+	alpha, migrated, sourceFingerprint, targetFingerprint, present, err := a.sources.ReadTemplatePolicyMigrationSnapshot(ctx, id, template.Current.Body.EntryDefaults.Runtime)
+	if err != nil {
+		return tobari.WorkspaceTemplatePolicyMigrationPlan{}, err
+	}
+	if !present {
+		return tobari.WorkspaceTemplatePolicyMigrationPlan{}, tobari.ErrResourceSourceMissing
+	}
+	return tobari.NewWorkspaceTemplatePolicyMigrationPlan(template, alpha, migrated, sourceFingerprint, targetFingerprint)
+}
+
+func (a *Adapter) ApplyWorkspaceTemplatePolicyMigrationByReference(ctx context.Context, ref string) (tobari.WorkspaceTemplatePolicyMigrationResult, error) {
+	plan, err := tobari.WorkspaceTemplatePolicyMigrationPlanFromRef(ref)
+	if err != nil {
+		return tobari.WorkspaceTemplatePolicyMigrationResult{}, err
+	}
+	id, _ := tobari.ParseWorkspaceTemplateRef(plan.TemplateRef)
+	var result tobari.WorkspaceTemplatePolicyMigrationResult
+	err = a.mutator.WithWorkspaceTemplatePolicyMigrationFence(ctx, id, plan.ActiveRevision, func(locked context.Context, template tobari.WorkspaceTemplate) error {
+		fingerprint, changed, applyErr := a.sources.ApplyTemplatePolicyMigration(locked, plan, template.Current.Body.EntryDefaults.Runtime)
+		if applyErr != nil {
+			return applyErr
+		}
+		source, observed, present, readErr := a.sources.ReadTemplateSnapshot(locked, id)
+		if readErr != nil || !present || observed != fingerprint || observed != plan.TargetFingerprint || source.ValidateFor(template) != nil || source.Template.Name != template.Name {
+			return recoveryError("migrated Template policy source", errors.Join(tobari.ErrResourceSourceRecoveryRequired, readErr))
+		}
+		result = tobari.WorkspaceTemplatePolicyMigrationResult{
+			TemplateID: id, TemplateRef: plan.TemplateRef, ActiveRevision: plan.ActiveRevision,
+			SourceFingerprint: fingerprint, Changed: changed,
+		}
+		return result.Validate()
+	})
+	return result, err
+}
+
+func (a *Adapter) workspaceTemplateByID(ctx context.Context, id tobari.WorkspaceTemplateID) (tobari.WorkspaceTemplate, error) {
+	templates, err := a.Store.ListWorkspaceTemplates(ctx)
+	if err != nil {
+		return tobari.WorkspaceTemplate{}, err
+	}
+	for _, template := range templates {
+		if template.ID == id {
+			return template, nil
+		}
+	}
+	return tobari.WorkspaceTemplate{}, tobari.ErrWorkspaceTemplateNotFound
+}
+
 func (a *Adapter) DeleteWorkspaceTemplateByReference(ctx context.Context, ref string) (tobari.WorkspaceTemplateDeleteResult, error) {
 	id, parseErr := tobari.ParseWorkspaceTemplateRef(ref)
 	if parseErr != nil {

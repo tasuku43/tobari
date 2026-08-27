@@ -1049,6 +1049,15 @@ func policyReviewCandidateListEffect(candidate tobari.PolicyCandidate) string {
 	if coordinate := policyAWSCoordinate(candidate.PolicyProtocolIdentity); coordinate != "" {
 		effect += " · AWS " + coordinate
 	}
+	if coordinate := policyKubernetesCoordinate(candidate.PolicyProtocolIdentity); coordinate != "" {
+		effect += " · Kubernetes " + coordinate
+	}
+	if candidate.EffectiveProtocol() == tobari.PolicyProtocolGit {
+		effect += " · Git " + safeExternalText(candidate.GitService+" "+candidate.GitRepository)
+	}
+	if candidate.EffectiveProtocol() == tobari.PolicyProtocolOCI {
+		effect += " · OCI " + safeExternalText(candidate.OCIAction+" "+candidate.OCIRepository+" "+candidate.OCIObject)
+	}
 	return effect
 }
 
@@ -1068,6 +1077,15 @@ func policyReviewCandidateEffect(candidate tobari.PolicyCandidate) string {
 	}
 	if coordinate := policyAWSCoordinate(candidate.PolicyProtocolIdentity); coordinate != "" {
 		effect += " · AWS " + coordinate
+	}
+	if coordinate := policyKubernetesCoordinate(candidate.PolicyProtocolIdentity); coordinate != "" {
+		effect += " · Kubernetes " + coordinate
+	}
+	if candidate.EffectiveProtocol() == tobari.PolicyProtocolGit {
+		effect += " · Git " + safeExternalText(candidate.GitService+" "+candidate.GitRepository)
+	}
+	if candidate.EffectiveProtocol() == tobari.PolicyProtocolOCI {
+		effect += " · OCI " + safeExternalText(candidate.OCIAction+" "+candidate.OCIRepository+" "+candidate.OCIObject)
 	}
 	return effect
 }

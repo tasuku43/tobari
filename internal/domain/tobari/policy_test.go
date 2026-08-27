@@ -121,11 +121,11 @@ func TestPolicyProtocolIdentityValidationAndEffectiveProtocol(t *testing.T) {
 		{Scheme: "https", Protocol: PolicyProtocolHTTP},
 		{Scheme: "https", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: "_viewer"},
 		{Scheme: "http", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationMutation, GraphQLRootField: "updateIssue"},
-		{Scheme: "https", Protocol: PolicyProtocolAWS, AWSWireProtocol: AWSWireProtocolQuery, AWSService: "sts", AWSOperation: "GetCallerIdentity"},
-		{Scheme: "https", Protocol: PolicyProtocolAWS, AWSWireProtocol: AWSWireProtocolJSON, AWSService: "dynamodb", AWSOperation: "DynamoDB_20120810.ListTables"},
-		{Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesVerb: "watch", KubernetesResource: "core/v1/namespaces/team/pods", KubernetesDryRun: "none"},
-		{Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesVerb: "patch", KubernetesResource: "apps/v1/deployments/demo", KubernetesDryRun: "all"},
-		{Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesVerb: "connect", KubernetesResource: "core/v1/pods/demo/exec", KubernetesDryRun: "none"},
+		{Scheme: "https", Protocol: PolicyProtocolAWS, AWSWireProtocol: AWSWireProtocolQuery, AWSService: "sts", AWSProtocolVersion: "2011-06-15", AWSOperation: "GetCallerIdentity"},
+		{Scheme: "https", Protocol: PolicyProtocolAWS, AWSWireProtocol: AWSWireProtocolJSON, AWSService: "dynamodb", AWSTargetNamespace: "DynamoDB_20120810", AWSOperation: "ListTables"},
+		{Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesKind: KubernetesRequestResource, KubernetesVerb: "watch", KubernetesGroup: "", KubernetesVersion: "v1", KubernetesResource: "pods", KubernetesNamespace: "team", KubernetesDryRun: "none"},
+		{Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesKind: KubernetesRequestResource, KubernetesVerb: "patch", KubernetesGroup: "apps", KubernetesVersion: "v1", KubernetesResource: "deployments", KubernetesName: "demo", KubernetesDryRun: "all"},
+		{Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesKind: KubernetesRequestResource, KubernetesVerb: "connect", KubernetesGroup: "", KubernetesVersion: "v1", KubernetesResource: "pods", KubernetesName: "demo", KubernetesSubresource: "exec", KubernetesDryRun: "none"},
 		{Scheme: "https", Protocol: PolicyProtocolGit, GitService: "upload-pack", GitRepository: "/team/repo.git"},
 		{Scheme: "https", Protocol: PolicyProtocolGit, GitService: "receive-pack", GitRepository: "/team/repo.git"},
 		{Scheme: "https", Protocol: PolicyProtocolOCI, OCIAction: "pull", OCIRepository: "team/app", OCIObject: "manifest:latest"},
@@ -203,6 +203,18 @@ func TestPolicyProtocolIdentityValidationAndEffectiveProtocol(t *testing.T) {
 	}
 }
 
+func TestPredecessorAWSAndKubernetesPolicyIdentitiesFailClosed(t *testing.T) {
+	predecessors := []PolicyProtocolIdentity{
+		{Scheme: "https", Protocol: PolicyProtocolAWS, AWSWireProtocol: AWSWireProtocolQuery, AWSService: "sts", AWSOperation: "GetCallerIdentity"},
+		{Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesVerb: "get", KubernetesResource: "core/v1/pods", KubernetesDryRun: "none"},
+	}
+	for _, identity := range predecessors {
+		if err := identity.Validate(); err == nil {
+			t.Fatalf("incomplete predecessor identity was inferred: %+v", identity)
+		}
+	}
+}
+
 func TestAWSIdentityBindsCandidatesAndRulesWithoutSemanticClassification(t *testing.T) {
 	t.Parallel()
 	denial := validPolicyDenial()
@@ -211,7 +223,7 @@ func TestAWSIdentityBindsCandidatesAndRulesWithoutSemanticClassification(t *test
 	denial.Host = "sts.us-east-1.amazonaws.com"
 	denial.PolicyProtocolIdentity = PolicyProtocolIdentity{
 		Scheme: "https", Protocol: PolicyProtocolAWS, AWSWireProtocol: AWSWireProtocolQuery,
-		AWSService: "sts", AWSOperation: "GetCallerIdentity",
+		AWSService: "sts", AWSProtocolVersion: "2011-06-15", AWSOperation: "GetCallerIdentity",
 	}
 	candidate, err := NewPolicyCandidate(denial)
 	if err != nil {
@@ -251,8 +263,8 @@ func TestKubernetesIdentityKeepsVerbsAndDryRunDistinct(t *testing.T) {
 	denial.Path = "/apis/apps/v1/namespaces/team/deployments/demo"
 	denial.Host = "abc.gr7.ap-northeast-1.eks.amazonaws.com"
 	denial.PolicyProtocolIdentity = PolicyProtocolIdentity{
-		Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesVerb: "patch",
-		KubernetesResource: "apps/v1/namespaces/team/deployments/demo", KubernetesDryRun: "none",
+		Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesKind: KubernetesRequestResource, KubernetesVerb: "patch",
+		KubernetesGroup: "apps", KubernetesVersion: "v1", KubernetesResource: "deployments", KubernetesNamespace: "team", KubernetesName: "demo", KubernetesDryRun: "none",
 	}
 	dryRun := denial
 	dryRun.KubernetesDryRun = "all"
@@ -323,6 +335,7 @@ func TestOCIIdentityKeepsActionAndObjectDistinct(t *testing.T) {
 	}
 	other := denial
 	other.OCIObject = "manifest:stable"
+	other.Path = "/v2/team/app/manifests/stable"
 	first, err := NewPolicyCandidate(denial)
 	if err != nil {
 		t.Fatal(err)

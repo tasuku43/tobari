@@ -17,7 +17,7 @@ from tobari_gateway_test_support import ReviewedDynamicCredentialGatewayTestCase
 
 
 class ReviewedAWSSigV4GatewayTests(ReviewedDynamicCredentialGatewayTestCase):
-    def test_brokered_aws_handle_wins_over_every_colliding_protocol_classifier(self):
+    def test_brokered_aws_handle_precedes_wire_classifiers_at_credential_boundary(self):
         self.provider_projection = self.aws_provider_projection()
         calls = []
 
@@ -52,14 +52,14 @@ class ReviewedAWSSigV4GatewayTests(ReviewedDynamicCredentialGatewayTestCase):
                 },
             }
 
-        collisions = {
+        classifiers = {
             "graphql": "graphql_endpoint_declared",
             "mcp": "mcp_endpoint_declared",
             "kubernetes": "kubernetes_endpoint_declared",
             "oci": "parse_oci_request",
             "git": "classify_git_request",
         }
-        for name, classifier in collisions.items():
+        for name, classifier in classifiers.items():
             with self.subTest(classifier=name):
                 flow = self.aws_signed_flow()
                 captured = {}
@@ -72,10 +72,9 @@ class ReviewedAWSSigV4GatewayTests(ReviewedDynamicCredentialGatewayTestCase):
                 with ExitStack() as stack:
                     stack.enter_context(
                         mock.patch.object(
-                            gateway,
-                            classifier,
+                            gateway, classifier,
                             side_effect=AssertionError(
-                                f"{name} classifier ran before brokered AWS"
+                                f"{name} wire classifier crossed the brokered credential boundary"
                             ),
                         )
                     )
@@ -94,18 +93,14 @@ class ReviewedAWSSigV4GatewayTests(ReviewedDynamicCredentialGatewayTestCase):
                     {
                         "wire_protocol": "query",
                         "service": "sts",
+                        "protocol_version": "2011-06-15",
                         "operation": "GetCallerIdentity",
                     },
                 )
-                self.assertNotIn("graphql", captured["request"])
-                self.assertNotIn("mcp", captured["request"])
-                self.assertNotIn("kubernetes", captured["request"])
-                self.assertNotIn("oci", captured["request"])
-                self.assertNotIn("git", captured["request"])
 
         self.assertEqual(
             [request["op"] for request in calls],
-            ["introspect_signing", "sign_sigv4"] * len(collisions),
+            ["introspect_signing", "sign_sigv4"] * len(classifiers),
         )
 
     def test_malformed_brokered_aws_handle_is_terminal_before_colliding_classifiers(self):
@@ -245,6 +240,7 @@ class ReviewedAWSSigV4GatewayTests(ReviewedDynamicCredentialGatewayTestCase):
         self.assertEqual(captured["request"]["aws"], {
             "wire_protocol": "query",
             "service": "sts",
+            "protocol_version": "2011-06-15",
             "operation": "GetCallerIdentity",
         })
         self.assertEqual(captured["authorization"], {"broker_provider": "aws"})

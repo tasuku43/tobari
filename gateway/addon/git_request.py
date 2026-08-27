@@ -17,6 +17,14 @@ class ParsedGitRequest:
     service: str
     repository: str
 
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> None:
+        if not isinstance(self.service, str) or self.service not in {"upload-pack", "receive-pack"}:
+            raise GitRequestError("git_service_invalid", "Git service is invalid")
+        _validate_repository(self.repository)
+
 
 _SERVICE_PATHS = {
     "/git-upload-pack": ("upload-pack", "application/x-git-upload-pack-request"),
@@ -28,12 +36,16 @@ def _header_values(headers: list[tuple[str, str]], name: str) -> list[str]:
     return [value.strip() for key, value in headers if key.lower() == name]
 
 
-def _repository(path: str, suffix: str) -> str:
-    repository = path[: -len(suffix)]
+def _validate_repository(repository: str) -> None:
+    try:
+        encoded_length = len(repository.encode("utf-8")) if isinstance(repository, str) else 0
+    except UnicodeEncodeError as error:
+        raise GitRequestError("git_repository_invalid", "Git repository path is invalid") from error
     if (
-        not repository.startswith("/")
+        not isinstance(repository, str)
+        or not repository.startswith("/")
         or repository == "/"
-        or len(repository.encode("utf-8")) > 1024
+        or encoded_length > 1024
         or "//" in repository
         or "%" in repository
         or "\\" in repository
@@ -44,6 +56,11 @@ def _repository(path: str, suffix: str) -> str:
         )
     ):
         raise GitRequestError("git_repository_invalid", "Git repository path is invalid")
+
+
+def _repository(path: str, suffix: str) -> str:
+    repository = path[: -len(suffix)]
+    _validate_repository(repository)
     return repository
 
 

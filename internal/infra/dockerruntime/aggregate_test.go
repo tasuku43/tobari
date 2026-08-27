@@ -911,7 +911,7 @@ func TestAggregateRouterAWSBehaviorInOPA(t *testing.T) {
 	contextID := "01912345-6789-7abc-8def-0123456789ad"
 	data := map[string]any{
 		"tobari_contexts": map[string]any{contextID: map[string]any{
-			"schema_version": 1,
+			"schema_version": 2,
 			"boundary":       map[string]any{"graphql_endpoints": []any{}, "mcp_endpoints": []any{}, "kubernetes_endpoints": []any{}},
 			"rules":          map[string]any{"learned_allows": []any{}, "learned_denies": []any{}},
 			"policy": map[string]any{
@@ -921,8 +921,8 @@ func TestAggregateRouterAWSBehaviorInOPA(t *testing.T) {
 			},
 		}},
 		"tobari": map[string]any{
-			"aggregate_schema_version": 1, "aggregate_revision": strings.Repeat("a", 64),
-			"evaluator_identity":   map[string]any{"schema_version": 1, "version": "tobari-evaluator-v1", "digest": "sha256:" + strings.Repeat("b", 64)},
+			"aggregate_schema_version": 2, "aggregate_revision": strings.Repeat("a", 64),
+			"evaluator_identity":   map[string]any{"schema_version": 1, "version": "tobari-evaluator-v2", "digest": "sha256:" + strings.Repeat("b", 64)},
 			"policy_data_identity": map[string]any{"schema_version": 1, "digest": "sha256:" + strings.Repeat("c", 64)},
 		},
 	}
@@ -947,12 +947,12 @@ context_id := "01912345-6789-7abc-8def-0123456789ad"
 project_id := "01912345-6789-7abc-8def-0123456789ab"
 
 base_request := {
-	"schema_version": 1,
+	"schema_version": 2,
 	"principal": {"cluster": "default", "context_id": context_id, "project_id": project_id},
 	"request": {
 		"authority": {"scheme": "https", "host": "sts.us-east-1.amazonaws.com", "port": 443},
 		"method": "POST", "path": {"raw": "/", "segments": []}, "query": {}, "headers": {},
-		"aws": {"wire_protocol": "query", "service": "sts", "operation": "GetCallerIdentity"},
+		"aws": {"wire_protocol": "query", "service": "sts", "protocol_version": "2011-06-15", "operation": "GetCallerIdentity"},
 	},
 	"authorization": {"broker_provider": null},
 }
@@ -962,14 +962,14 @@ http_baseline_rule := {"scheme": "https", "host": "sts.us-east-1.amazonaws.com",
 aws_allow_rule := {
 	"id": "plr_0123456789abcdef0123456789abcdef", "match": "exact", "context_id": context_id, "project_id": project_id,
 	"scheme": "https", "host": "sts.us-east-1.amazonaws.com", "port": 443, "method": "POST", "path": "/",
-	"protocol": "aws", "aws_wire_protocol": "query", "aws_service": "sts", "aws_operation": "GetCallerIdentity",
+	"protocol": "aws", "aws_wire_protocol": "query", "aws_service": "sts", "aws_protocol_version": "2011-06-15", "aws_operation": "GetCallerIdentity",
 	"examples": ["/"], "source_candidates": ["pcy_0123456789abcdef0123456789abcdef"],
 }
 
 aggregate_contexts(baseline_grants, learned_allows, learned_denies) := object.union(
 	{},
 	{"01912345-6789-7abc-8def-0123456789ad": {
-		"schema_version": 1,
+		"schema_version": 2,
 		"boundary": {"graphql_endpoints": [], "mcp_endpoints": [], "kubernetes_endpoints": []},
 		"rules": {"learned_allows": learned_allows, "learned_denies": learned_denies},
 		"policy": {
@@ -996,7 +996,7 @@ test_matching_learned_aws_allow_is_required_and_works if {
 	evidence.rule_refs == [aws_allow_rule.id]
 	evidence.default_overridden
 	evidence.semantic_effect.protocol == "aws"
-	evidence.semantic_effect.coordinates == {"wire_protocol": "query", "service": "sts", "operation": "GetCallerIdentity"}
+	evidence.semantic_effect.coordinates == {"wire_protocol": "query", "service": "sts", "protocol_version": "2011-06-15", "target_namespace": "", "operation": "GetCallerIdentity"}
 }
 
 test_matching_learned_aws_deny_is_terminal if {
@@ -1014,7 +1014,7 @@ test_matching_learned_aws_deny_is_terminal if {
 }
 
 test_mismatched_aws_coordinate_does_not_fallback_to_http if {
-	request := object.union(base_request, {"request": object.union(base_request.request, {"aws": {"wire_protocol": "query", "service": "sts", "operation": "AssumeRole"}})})
+	request := object.union(base_request, {"request": object.union(base_request.request, {"aws": {"wire_protocol": "query", "service": "sts", "protocol_version": "2011-06-15", "operation": "AssumeRole"}})})
 	result := decision with input as request
 		with data.tobari_contexts as aggregate_contexts([http_baseline_rule], [aws_allow_rule], [])
 	not result.allow
@@ -1022,7 +1022,7 @@ test_mismatched_aws_coordinate_does_not_fallback_to_http if {
 }
 
 test_malformed_aws_coordinate_fails_closed_without_fallback if {
-	request := object.union(base_request, {"request": object.union(base_request.request, {"aws": {"wire_protocol": "query", "service": "sts", "operation": "Get-Caller-Identity"}})})
+	request := object.union(base_request, {"request": object.union(base_request.request, {"aws": {"wire_protocol": "query", "service": "sts", "protocol_version": "2011-06-15", "operation": "Get-Caller-Identity"}})})
 	result := decision with input as request
 		with data.tobari_contexts as aggregate_contexts([http_baseline_rule], [], [])
 	not result.allow

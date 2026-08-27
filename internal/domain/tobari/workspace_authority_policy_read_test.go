@@ -121,7 +121,7 @@ func TestFinalPolicyReadJSONProducesOnlyCandidateAndRuleReferences(t *testing.T)
 	}
 }
 
-func TestFinalPolicyReadSchemaTwoRejectsPredecessorSchema(t *testing.T) {
+func TestFinalPolicyReadSchemaThreeRejectsPredecessorSchema(t *testing.T) {
 	collection := policyReadCollectionFixture(t)
 	candidates, err := NewPolicyCandidateAuthorityList(collection, true)
 	if err != nil {
@@ -131,16 +131,16 @@ func TestFinalPolicyReadSchemaTwoRejectsPredecessorSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if candidates.SchemaVersion != 2 || rules.SchemaVersion != 2 {
-		t.Fatalf("final Policy read schemas = %d/%d, want 2/2", candidates.SchemaVersion, rules.SchemaVersion)
+	if candidates.SchemaVersion != 3 || rules.SchemaVersion != 3 {
+		t.Fatalf("final Policy read schemas = %d/%d, want 3/3", candidates.SchemaVersion, rules.SchemaVersion)
 	}
-	candidates.SchemaVersion = 1
+	candidates.SchemaVersion = 2
 	if err := candidates.Validate(); err == nil {
-		t.Fatal("Policy candidate schema 1 was accepted after the final owner-scope hard cut")
+		t.Fatal("Policy candidate schema 2 was accepted after the semantic-coordinate cut")
 	}
-	rules.SchemaVersion = 1
+	rules.SchemaVersion = 2
 	if err := rules.Validate(); err == nil {
-		t.Fatal("Policy rule schema 1 was accepted after the final owner-scope hard cut")
+		t.Fatal("Policy rule schema 2 was accepted after the semantic-coordinate cut")
 	}
 }
 

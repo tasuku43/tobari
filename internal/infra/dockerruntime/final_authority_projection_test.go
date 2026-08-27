@@ -115,6 +115,112 @@ func TestFinalAggregateContextBindsMemoryToCurrentProjectedWorkspace(t *testing.
 	}
 }
 
+func TestFinalPolicyMemoryRowsRetainMeaningfulEmptyProtocolCoordinates(t *testing.T) {
+	tests := []struct {
+		name     string
+		identity tobari.PolicyProtocolIdentity
+		key      string
+	}{
+		{
+			name: "kubernetes core group",
+			identity: tobari.PolicyProtocolIdentity{
+				Scheme: "https", Protocol: tobari.PolicyProtocolKubernetes,
+				KubernetesKind: "resource", KubernetesVerb: "list", KubernetesGroup: "",
+				KubernetesVersion: "v1", KubernetesResource: "pods", KubernetesDryRun: "none",
+			},
+			key: "kubernetes_group",
+		},
+		{
+			name: "OCI catalog repository",
+			identity: tobari.PolicyProtocolIdentity{
+				Scheme: "https", Protocol: tobari.PolicyProtocolOCI,
+				OCIAction: "list", OCIRepository: "", OCIObject: "catalog",
+			},
+			key: "oci_repository",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			row := map[string]any{"protocol": tt.identity.Protocol}
+			completeFinalPolicyProtocolCoordinates(row, tt.identity)
+			value, present := row[tt.key]
+			if !present || value != "" {
+				t.Fatalf("meaningful empty coordinate %s = %#v, present=%t", tt.key, value, present)
+			}
+		})
+	}
+}
+
+func TestFinalPolicyMemoryRowsPreserveVariantExactCoordinates(t *testing.T) {
+	collection := finalProjectionCollectionFixture(t, finalProjectionWorkspaceA)
+	projection, err := tobari.BuildClusterWorkspacePolicyProjection(collection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name      string
+		body      tobari.PolicyMemoryRuleBody
+		required  map[string]any
+		forbidden []string
+	}{
+		{
+			name: "AWS JSON",
+			body: tobari.PolicyMemoryRuleBody{
+				PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolAWS, AWSWireProtocol: tobari.AWSWireProtocolJSON, AWSService: "dynamodb", AWSTargetNamespace: "DynamoDB_20120810", AWSOperation: "ListTables"},
+				Match:                  tobari.PolicyMatchExact, Host: "dynamodb.us-east-1.amazonaws.com", Port: 443, Method: "POST", Path: "/", Segments: []string{}, Examples: []string{"/"}, SourceCandidates: []string{"pcy_0123456789abcdef0123456789abcdef"},
+			},
+			required:  map[string]any{"aws_target_namespace": "DynamoDB_20120810", "aws_operation": "ListTables"},
+			forbidden: []string{"aws_protocol_version"},
+		},
+		{
+			name: "Kubernetes non-resource",
+			body: tobari.PolicyMemoryRuleBody{
+				PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolKubernetes, KubernetesKind: tobari.KubernetesRequestNonResource, KubernetesVerb: "get", KubernetesNonResourcePath: "/openapi/v3"},
+				Match:                  tobari.PolicyMatchExact, Host: "cluster.us-east-1.eks.amazonaws.com", Port: 443, Method: "GET", Path: "/openapi/v3", Segments: []string{}, Examples: []string{"/openapi/v3"}, SourceCandidates: []string{"pcy_0123456789abcdef0123456789abcdef"},
+			},
+			required:  map[string]any{"kubernetes_kind": tobari.KubernetesRequestNonResource, "kubernetes_non_resource_path": "/openapi/v3"},
+			forbidden: []string{"kubernetes_group", "kubernetes_version", "kubernetes_resource", "kubernetes_dry_run"},
+		},
+		{
+			name: "MCP non-call",
+			body: tobari.PolicyMemoryRuleBody{
+				PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolMCP, MCPMethod: "tools/list"},
+				Match:                  tobari.PolicyMatchExact, Host: "mcp.example.dev", Port: 443, Method: "POST", Path: "/mcp", Segments: []string{}, Examples: []string{"/mcp"}, SourceCandidates: []string{"pcy_0123456789abcdef0123456789abcdef"},
+			},
+			required: map[string]any{"mcp_method": "tools/list"}, forbidden: []string{"mcp_tool_name"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rule, err := tobari.NewPolicyMemoryRule(finalProjectionContextID, tobari.PolicyMemoryAllow, tt.body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			memory, _, err := tobari.PublishPolicyMemory(finalProjectionContextID, []tobari.PolicyMemoryRule{rule}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			authority := projection.Contexts[0]
+			authority.PolicyMemory = memory
+			authority.MemoryReceipt = tobari.PolicyMemoryActivationReceipt{ContextID: finalProjectionContextID, Revision: memory.Revision}
+			rows, _, _, err := finalPolicyMemoryRows(authority)
+			if err != nil || len(rows) != 1 {
+				t.Fatalf("rows=%#v err=%v", rows, err)
+			}
+			for key, want := range tt.required {
+				if got, present := rows[0][key]; !present || got != want {
+					t.Fatalf("%s=%#v present=%t want=%#v row=%#v", key, got, present, want, rows[0])
+				}
+			}
+			for _, key := range tt.forbidden {
+				if value, present := rows[0][key]; present {
+					t.Fatalf("inapplicable %s=%#v was emitted in row=%#v", key, value, rows[0])
+				}
+			}
+		})
+	}
+}
+
 func TestFinalAggregateContextRejectsUntypedOrMismatchedRenderedContent(t *testing.T) {
 	collection := finalProjectionCollectionFixture(t, finalProjectionWorkspaceA)
 	plan, err := tobari.BuildClusterWorkspacePolicyProjection(collection)

@@ -159,6 +159,10 @@ func checkCurrentAuthorityDocumentation(root string, repositoryPaths []string) (
 				message = "current documentation claims Template copy directly publishes active generation 1 instead of an unpublished source draft"
 			case strings.Contains(lower, "atomic multi-row shell write") || strings.Contains(lower, "owner-only atomic update tests") || strings.Contains(lower, "exact v1 shell-setting preservation"):
 				message = "current documentation claims retired granular Template shell/Git persistence evidence"
+			case strings.Contains(lower, "current transitional") && strings.Contains(lower, "template-policy/v1alpha1"):
+				message = "current documentation claims the predecessor alpha policy schema is current"
+			case strings.Contains(lower, "reserved final") && strings.Contains(lower, "template-policy/v1"):
+				message = "current documentation claims the implemented final policy schema is still reserved"
 			}
 			if message != "" {
 				issues = append(issues, issue{Path: relative, Line: index + 1, Message: message})

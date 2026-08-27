@@ -77,6 +77,60 @@ class CredentialError(Exception):
     """A selected credential could not be injected safely."""
 
 
+class SemanticClassificationError(ValueError):
+    """Classified traffic did not select one unique semantic module."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+_SEMANTIC_MODULE_PARENT = {
+    "protocols.http.generic": None,
+    "protocols.http.graphql": "protocols.http.generic",
+    "protocols.http.mcp": "protocols.http.generic",
+    "providers.aws": "protocols.http.generic",
+    "providers.kubernetes": "protocols.http.generic",
+    "protocols.http.git": "protocols.http.generic",
+    "protocols.http.oci": "protocols.http.generic",
+}
+
+
+def _semantic_module_refines(candidate: str, ancestor: str) -> bool:
+    current = _SEMANTIC_MODULE_PARENT.get(candidate)
+    while current is not None:
+        if current == ancestor:
+            return True
+        current = _SEMANTIC_MODULE_PARENT.get(current)
+    return False
+
+
+def select_semantic_module_claims(claims: list[str]) -> str | None:
+    """Select one unique most-specific claim; order is never authority."""
+
+    unique = set(claims)
+    if any(claim not in _SEMANTIC_MODULE_PARENT for claim in unique):
+        raise SemanticClassificationError(
+            "semantic_classification_invalid", "semantic module claim is unknown"
+        )
+    most_specific = sorted(
+        claim
+        for claim in unique
+        if not any(
+            other != claim and _semantic_module_refines(other, claim)
+            for other in unique
+        )
+    )
+    if not most_specific:
+        return None
+    if len(most_specific) != 1:
+        raise SemanticClassificationError(
+            "semantic_classification_ambiguous",
+            "request matches more than one semantic module",
+        )
+    return most_specific[0]
+
+
 # Standard images do not contain the experimental Broker module. Distinct
 # inactive exception types keep generic adapter failures out of the
 # Broker-specific handlers until an experimental projection explicitly loads
@@ -938,7 +992,7 @@ def build_policy_input(
     scheme, host, port = request_authority(flow)
     path = split.path or "/"
     policy_input = {
-        "schema_version": 1,
+        "schema_version": 2,
         "principal": {
             "cluster": cluster,
             "context_id": principal["context_id"],
@@ -982,13 +1036,34 @@ def build_policy_input(
             "service": aws.service,
             "operation": aws.operation,
         }
+        if aws.protocol_version is not None:
+            policy_input["request"]["aws"]["protocol_version"] = aws.protocol_version
+        if aws.target_namespace is not None:
+            policy_input["request"]["aws"]["target_namespace"] = aws.target_namespace
     if kubernetes is not None:
-        policy_input["request"]["kubernetes"] = {
-            "verb": kubernetes.verb,
-            "resource": kubernetes.resource,
-            "dry_run": kubernetes.dry_run,
-        }
+        kubernetes.validate()
+        if kubernetes.kind == "resource":
+            policy_input["request"]["kubernetes"] = {
+                "kind": "resource",
+                "verb": kubernetes.verb,
+                "dry_run": kubernetes.dry_run,
+                "resource": {
+                    "group": kubernetes.group,
+                    "version": kubernetes.version,
+                    "resource": kubernetes.resource,
+                    "namespace": kubernetes.namespace,
+                    "name": kubernetes.name,
+                    "subresource": kubernetes.subresource,
+                },
+            }
+        else:
+            policy_input["request"]["kubernetes"] = {
+                "kind": "non_resource",
+                "verb": kubernetes.verb,
+                "path": kubernetes.non_resource_path,
+            }
     if git is not None:
+        git.validate()
         policy_input["request"]["git"] = {
             "service": git.service,
             "repository": git.repository,
@@ -998,6 +1073,7 @@ def build_policy_input(
                 "service": [f"git-{git.service}"],
             }
     if oci is not None:
+        oci.validate()
         policy_input["request"]["query"] = {}
         policy_input["request"]["oci"] = {
             "action": oci.action,
@@ -1077,7 +1153,7 @@ def load_gateway_config(path: str) -> dict[str, Any]:
     if (
         not isinstance(document, dict)
         or set(document) != {"version", "contexts"}
-        or document.get("version") != "v1"
+        or document.get("version") != "v2"
     ):
         raise CredentialError("Gateway configuration version is invalid")
     contexts = document.get("contexts")
@@ -1101,6 +1177,13 @@ def load_gateway_config(path: str) -> dict[str, Any]:
             seen_endpoints: set[tuple[str, str, int, str]] = set()
             for endpoint in endpoints:
                 _validate_gateway_endpoint(endpoint)
+                if protocol_key == "kubernetes_endpoints" and (
+                    endpoint["scheme"] != "https"
+                    or endpoint["port"] != 443
+                    or endpoint["path"] != "/"
+                    or not endpoint["host"].endswith(".eks.amazonaws.com")
+                ):
+                    raise CredentialError("Gateway Kubernetes endpoint is outside the validated EKS boundary")
                 identity = (endpoint["scheme"], endpoint["host"], endpoint["port"], endpoint["path"])
                 if identity in seen_endpoints or identity in seen_protocol_endpoints:
                     raise CredentialError("Gateway semantic endpoint configuration is ambiguous")
@@ -1313,7 +1396,7 @@ def _policy_denied(
         "error": "policy_denied",
         "message": message,
         "tobari": {
-            "schema_version": 2,
+            "schema_version": 3,
             "workspace_manifest_id": principal["context_id"],
             "workspace_id": principal["project_id"],
             "event": "permission_review_available"
@@ -1345,17 +1428,33 @@ def _policy_denied(
         document["tobari"]["request"]["protocol"] = "aws"
         document["tobari"]["request"]["aws_wire_protocol"] = aws.wire_protocol
         document["tobari"]["request"]["aws_service"] = aws.service
+        if aws.protocol_version is not None:
+            document["tobari"]["request"]["aws_protocol_version"] = aws.protocol_version
+        if aws.target_namespace is not None:
+            document["tobari"]["request"]["aws_target_namespace"] = aws.target_namespace
         document["tobari"]["request"]["aws_operation"] = aws.operation
     if kubernetes is not None:
+        kubernetes.validate()
         document["tobari"]["request"]["protocol"] = "kubernetes"
+        document["tobari"]["request"]["kubernetes_kind"] = kubernetes.kind
         document["tobari"]["request"]["kubernetes_verb"] = kubernetes.verb
-        document["tobari"]["request"]["kubernetes_resource"] = kubernetes.resource
-        document["tobari"]["request"]["kubernetes_dry_run"] = kubernetes.dry_run
+        if kubernetes.kind == "resource":
+            document["tobari"]["request"]["kubernetes_group"] = kubernetes.group
+            document["tobari"]["request"]["kubernetes_version"] = kubernetes.version
+            document["tobari"]["request"]["kubernetes_resource"] = kubernetes.resource
+            document["tobari"]["request"]["kubernetes_namespace"] = kubernetes.namespace
+            document["tobari"]["request"]["kubernetes_name"] = kubernetes.name
+            document["tobari"]["request"]["kubernetes_subresource"] = kubernetes.subresource
+            document["tobari"]["request"]["kubernetes_dry_run"] = kubernetes.dry_run
+        else:
+            document["tobari"]["request"]["kubernetes_non_resource_path"] = kubernetes.non_resource_path
     if git is not None:
+        git.validate()
         document["tobari"]["request"]["protocol"] = "git"
         document["tobari"]["request"]["git_service"] = git.service
         document["tobari"]["request"]["git_repository"] = git.repository
     if oci is not None:
+        oci.validate()
         document["tobari"]["request"]["protocol"] = "oci"
         document["tobari"]["request"]["oci_action"] = oci.action
         document["tobari"]["request"]["oci_repository"] = oci.repository
@@ -1365,7 +1464,7 @@ def _policy_denied(
 
 
 def _audit(**fields: Any) -> None:
-    fields["schema_version"] = 1
+    fields["schema_version"] = 2
     print(json.dumps(fields, separators=(",", ":"), sort_keys=True), flush=True)
 
 
@@ -1400,21 +1499,34 @@ def _aws_audit_event(base: dict[str, Any], parsed: ParsedAWSRequest) -> dict[str
     event["protocol"] = "aws"
     event["aws_wire_protocol"] = parsed.wire_protocol
     event["aws_service"] = parsed.service
+    if parsed.protocol_version is not None:
+        event["aws_protocol_version"] = parsed.protocol_version
+    if parsed.target_namespace is not None:
+        event["aws_target_namespace"] = parsed.target_namespace
     event["aws_operation"] = parsed.operation
     return event
 
 
 def _kubernetes_audit_event(base: dict[str, Any], parsed: ParsedKubernetesRequest) -> dict[str, Any]:
-    return {
-        **base,
-        "protocol": "kubernetes",
-        "kubernetes_verb": parsed.verb,
-        "kubernetes_resource": parsed.resource,
-        "kubernetes_dry_run": parsed.dry_run,
-    }
+    parsed.validate()
+    event = {**base, "protocol": "kubernetes", "kubernetes_kind": parsed.kind, "kubernetes_verb": parsed.verb}
+    if parsed.kind == "resource":
+        event.update({
+            "kubernetes_group": parsed.group,
+            "kubernetes_version": parsed.version,
+            "kubernetes_resource": parsed.resource,
+            "kubernetes_namespace": parsed.namespace,
+            "kubernetes_name": parsed.name,
+            "kubernetes_subresource": parsed.subresource,
+            "kubernetes_dry_run": parsed.dry_run,
+        })
+    else:
+        event["kubernetes_non_resource_path"] = parsed.non_resource_path
+    return event
 
 
 def _git_audit_event(base: dict[str, Any], parsed: ParsedGitRequest) -> dict[str, Any]:
+    parsed.validate()
     return {
         **base,
         "protocol": "git",
@@ -1424,6 +1536,7 @@ def _git_audit_event(base: dict[str, Any], parsed: ParsedGitRequest) -> dict[str
 
 
 def _oci_audit_event(base: dict[str, Any], parsed: ParsedOCIRequest) -> dict[str, Any]:
+    parsed.validate()
     return {
         **base,
         "protocol": "oci",
@@ -1599,6 +1712,7 @@ class TobariGateway:
         kubernetes_identity: ParsedKubernetesRequest | None = None
         git_identity: ParsedGitRequest | None = None
         oci_identity: ParsedOCIRequest | None = None
+        selected_module: str | None = None
         try:
             scheme, host, port = normalize_ingress_authority(flow)
             request_path = urlsplit(flow.request.url).path or "/"
@@ -1634,83 +1748,77 @@ class TobariGateway:
             ):
                 brokered_aws_classification = None
             if brokered_aws_classification is not None:
-                # Brokered AWS classification is authoritative for this
-                # request.  It must be selected before every other protocol
-                # classifier because prepare has already removed the handle
-                # and secret headers from the request visible to OPA.
                 aws_classification = brokered_aws_classification
-            else:
-                if graphql_endpoint_declared(
-                    self.graphql_config,
-                    context_id,
-                    scheme,
-                    host,
-                    port,
-                    request_path,
-                ):
-                    validate_graphql_headers(
-                        flow.request.method.upper(),
-                        _request_header_pairs(flow.request),
-                        limits=GraphQLParseLimits(),
-                    )
-                    flow.request.stream = False
-                    audit_deferred = True
-                    flow.metadata["tobari_graphql_pending"] = {
-                        "started": started,
-                        "request_id": request_id,
-                        "scheme": scheme,
-                        "host": host,
-                        "port": port,
-                        "audit_path": audit_path,
-                        "url_query": urlsplit(flow.request.url).query,
-                        "principal": principal,
-                        "credential_request": credential_request,
-                    }
-                    return
-                if mcp_endpoint_declared(
-                    self.graphql_config, context_id, scheme, host, port, request_path
-                ):
-                    validate_mcp_post_headers(
-                        flow.request.method.upper(), _request_header_pairs(flow.request)
-                    )
-                    flow.request.stream = False
-                    audit_deferred = True
-                    flow.metadata["tobari_mcp_pending"] = {
-                        "started": started,
-                        "request_id": request_id,
-                        "scheme": scheme,
-                        "host": host,
-                        "port": port,
-                        "audit_path": audit_path,
-                        "principal": principal,
-                        "credential_request": credential_request,
-                    }
-                    return
-                if kubernetes_endpoint_declared(
-                    self.graphql_config, context_id, scheme, host, port
-                ):
-                    kubernetes_identity = parse_kubernetes_request(
-                        flow.request.method.upper(),
-                        request_path,
-                        urlsplit(flow.request.url).query,
-                        request_headers,
-                    )
-                if kubernetes_identity is None:
-                    oci_identity = parse_oci_request(
-                        flow.request.method.upper(), request_path,
-                        urlsplit(flow.request.url).query,
-                    )
-                if kubernetes_identity is None and oci_identity is None:
-                    git_identity = classify_git_request(
-                        flow.request.method.upper(), request_path,
-                        urlsplit(flow.request.url).query, request_headers,
-                    )
-            if brokered_aws_classification is None and kubernetes_identity is None and git_identity is None and oci_identity is None:
+            graphql_claimed = brokered_aws_classification is None and graphql_endpoint_declared(
+                self.graphql_config, context_id, scheme, host, port, request_path
+            )
+            mcp_claimed = brokered_aws_classification is None and mcp_endpoint_declared(
+                self.graphql_config, context_id, scheme, host, port, request_path
+            )
+            kubernetes_claimed = brokered_aws_classification is None and kubernetes_endpoint_declared(
+                self.graphql_config, context_id, scheme, host, port
+            )
+            if kubernetes_claimed:
+                kubernetes_identity = parse_kubernetes_request(
+                    flow.request.method.upper(), request_path,
+                    urlsplit(flow.request.url).query, request_headers,
+                )
+            if brokered_aws_classification is None:
+                oci_identity = parse_oci_request(
+                    flow.request.method.upper(), request_path,
+                    urlsplit(flow.request.url).query,
+                )
+                git_identity = classify_git_request(
+                    flow.request.method.upper(), request_path,
+                    urlsplit(flow.request.url).query, request_headers,
+                )
+            if brokered_aws_classification is None:
                 aws_classification = classify_aws_request_headers(
                     flow.request.method.upper(), scheme, host, port, request_path,
                     urlsplit(flow.request.url).query,
                     request_headers,
                 )
+            claims = []
+            if graphql_claimed:
+                claims.append("protocols.http.graphql")
+            if mcp_claimed:
+                claims.append("protocols.http.mcp")
+            if aws_classification is not None:
+                claims.append("providers.aws")
+            if kubernetes_identity is not None:
+                claims.append("providers.kubernetes")
+            if git_identity is not None:
+                claims.append("protocols.http.git")
+            if oci_identity is not None:
+                claims.append("protocols.http.oci")
+            selected_module = select_semantic_module_claims(claims)
+            if selected_module == "protocols.http.graphql":
+                validate_graphql_headers(
+                    flow.request.method.upper(), request_headers,
+                    limits=GraphQLParseLimits(),
+                )
+                flow.request.stream = False
+                audit_deferred = True
+                flow.metadata["tobari_graphql_pending"] = {
+                    "started": started, "request_id": request_id,
+                    "scheme": scheme, "host": host, "port": port,
+                    "audit_path": audit_path,
+                    "url_query": urlsplit(flow.request.url).query,
+                    "principal": principal,
+                    "credential_request": credential_request,
+                }
+                return
+            if selected_module == "protocols.http.mcp":
+                validate_mcp_post_headers(flow.request.method.upper(), request_headers)
+                flow.request.stream = False
+                audit_deferred = True
+                flow.metadata["tobari_mcp_pending"] = {
+                    "started": started, "request_id": request_id,
+                    "scheme": scheme, "host": host, "port": port,
+                    "audit_path": audit_path, "principal": principal,
+                    "credential_request": credential_request,
+                }
+                return
             if isinstance(aws_classification, PendingAWSQueryRequest):
                 flow.request.stream = False
                 audit_deferred = True
@@ -1782,11 +1890,11 @@ class TobariGateway:
                 "learnable": learnable,
                 "started": started,
             }
-            if oci_identity is not None:
+            if selected_module == "protocols.http.oci" and oci_identity is not None:
                 flow.metadata["tobari_audit"] = _oci_audit_event(audit_event, oci_identity)
-            elif git_identity is not None:
+            elif selected_module == "protocols.http.git" and git_identity is not None:
                 flow.metadata["tobari_audit"] = _git_audit_event(audit_event, git_identity)
-            elif kubernetes_identity is not None:
+            elif selected_module == "providers.kubernetes" and kubernetes_identity is not None:
                 flow.metadata["tobari_audit"] = _kubernetes_audit_event(
                     audit_event, kubernetes_identity
                 )
@@ -1818,7 +1926,7 @@ class TobariGateway:
                 # Authorization is complete before mitmproxy forwards any body bytes.
                 # The body is deliberately opaque to policy and is never retained here.
                 flow.request.stream = True
-        except (GraphQLRequestError, MCPRequestError, AWSRequestError, KubernetesRequestError, GitRequestError, OCIRequestError) as error:
+        except (SemanticClassificationError, GraphQLRequestError, MCPRequestError, AWSRequestError, KubernetesRequestError, GitRequestError, OCIRequestError) as error:
             reason = str(error)
             _deny(flow, 400, error.code)
             upstream_status = 400
@@ -1870,13 +1978,13 @@ class TobariGateway:
                     "upstream_status": upstream_status,
                     "duration_ms": int((time.monotonic() - started) * 1000),
                 }
-                if oci_identity is not None:
+                if selected_module == "protocols.http.oci" and oci_identity is not None:
                     event = _oci_audit_event(event, oci_identity)
-                elif git_identity is not None:
+                elif selected_module == "protocols.http.git" and git_identity is not None:
                     event = _git_audit_event(event, git_identity)
-                elif kubernetes_identity is not None:
+                elif selected_module == "providers.kubernetes" and kubernetes_identity is not None:
                     event = _kubernetes_audit_event(event, kubernetes_identity)
-                elif aws_identity is not None:
+                elif selected_module == "providers.aws" and aws_identity is not None:
                     event = _aws_audit_event(event, aws_identity)
                 _audit(**event)
 

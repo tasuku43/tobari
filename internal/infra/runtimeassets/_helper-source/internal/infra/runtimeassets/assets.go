@@ -16,7 +16,7 @@ import (
 // PolicyEvaluatorVersion is the Tobari-owned evaluator contract. It is not a
 // user-selectable policy mode and is reported as path-free public audit
 // evidence in routine status and policy results.
-const PolicyEvaluatorVersion = "tobari-evaluator-v1"
+const PolicyEvaluatorVersion = "tobari-evaluator-v2"
 
 // Version returns a deterministic digest prefix over every embedded runtime file.
 func Version() (string, error) {

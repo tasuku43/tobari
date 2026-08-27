@@ -129,6 +129,24 @@ func finalTemplateChangePlanFrom(plan tobari.WorkspaceTemplateChangePlan) finalT
 	}
 }
 
+type finalTemplatePolicyMigrationPlanProjection struct {
+	PlanRef           string                `json:"plan_ref"`
+	TemplateRef       string                `json:"template_ref"`
+	ActiveRevision    tobari.SemanticDigest `json:"active_revision"`
+	SourceFingerprint string                `json:"source_fingerprint"`
+	TargetFingerprint string                `json:"target_fingerprint"`
+	SourceSchema      string                `json:"source_schema"`
+	TargetSchema      string                `json:"target_schema"`
+}
+
+func finalTemplatePolicyMigrationPlanFrom(plan tobari.WorkspaceTemplatePolicyMigrationPlan) finalTemplatePolicyMigrationPlanProjection {
+	return finalTemplatePolicyMigrationPlanProjection{
+		PlanRef: plan.PlanRef, TemplateRef: plan.TemplateRef, ActiveRevision: plan.ActiveRevision,
+		SourceFingerprint: plan.SourceFingerprint, TargetFingerprint: plan.TargetFingerprint,
+		SourceSchema: plan.SourceSchema, TargetSchema: plan.TargetSchema,
+	}
+}
+
 type finalWorkspaceProjection struct {
 	WorkspaceRef         string `json:"workspace_ref,omitempty"`
 	WorkspaceID          string `json:"workspace_id"`
@@ -170,7 +188,7 @@ func projectTemplate(view interface{ Validate() error }) error { return view.Val
 
 func finalTemplateFrom(view workspaceauthoritycmd.TemplateView, exposeRevisionRef bool) finalTemplateProjection {
 	revision := view.Template.Current
-	result := finalTemplateProjection{Lifecycle: "active", TemplateRef: view.TemplateRef, TemplateID: string(view.Template.ID), Name: view.Template.Name, Generation: revision.Generation, Revision: string(revision.Revision), RuntimeID: revision.Slices.RuntimeID, RuntimeRevision: string(revision.Slices.RuntimeRevision), SourceAccess: string(revision.Body.Boundary.SourceAccess), GraphQLEndpoints: append([]tobari.ManifestPolicyExactRule{}, revision.Body.Policy.GraphQLEndpoints...), PolicySliceDigest: string(revision.Slices.PolicySliceDigest), EntrySliceDigest: string(revision.Slices.EntrySliceDigest), ActiveRevision: string(revision.Revision)}
+	result := finalTemplateProjection{Lifecycle: "active", TemplateRef: view.TemplateRef, TemplateID: string(view.Template.ID), Name: view.Template.Name, Generation: revision.Generation, Revision: string(revision.Revision), RuntimeID: revision.Slices.RuntimeID, RuntimeRevision: string(revision.Slices.RuntimeRevision), SourceAccess: string(revision.Body.Boundary.SourceAccess), GraphQLEndpoints: finalTemplateGraphQLEndpoints(revision.Body.Policy), PolicySliceDigest: string(revision.Slices.PolicySliceDigest), EntrySliceDigest: string(revision.Slices.EntrySliceDigest), ActiveRevision: string(revision.Revision)}
 	if view.Source != nil {
 		result.SourcePath = view.Source.Path
 		result.SourceState = string(view.Source.State)
@@ -190,7 +208,7 @@ func finalTemplateDraftFrom(view workspaceauthoritycmd.TemplateDraftView) finalT
 	if view.Draft.Source.SourceRevision != nil {
 		revision = string(*view.Draft.Source.SourceRevision)
 	}
-	return finalTemplateDraftProjection{Lifecycle: "draft", TemplateRef: view.TemplateRef, TemplateID: string(view.Draft.ID), Name: view.Draft.Name, SourcePath: view.Draft.Source.Path, SourceState: string(view.Draft.Source.State), SourceRevision: &revision, SourceAccess: string(view.Draft.Body.Boundary.SourceAccess), GraphQLEndpoints: append([]tobari.ManifestPolicyExactRule{}, view.Draft.Body.Policy.GraphQLEndpoints...)}
+	return finalTemplateDraftProjection{Lifecycle: "draft", TemplateRef: view.TemplateRef, TemplateID: string(view.Draft.ID), Name: view.Draft.Name, SourcePath: view.Draft.Source.Path, SourceState: string(view.Draft.Source.State), SourceRevision: &revision, SourceAccess: string(view.Draft.Body.Boundary.SourceAccess), GraphQLEndpoints: finalTemplateGraphQLEndpoints(view.Draft.Body.Policy)}
 }
 
 func finalTemplateDraftResourceFrom(view workspaceauthoritycmd.TemplateDraftView) finalTemplateProjection {
@@ -212,6 +230,21 @@ func finalTemplateGraphQLEndpointText(endpoints []tobari.ManifestPolicyExactRule
 		values[index] = safeExternalText(fmt.Sprintf("%s://%s:%d%s", endpoint.Scheme, endpoint.Host, endpoint.Port, endpoint.Path))
 	}
 	return strings.Join(values, ", ")
+}
+
+func finalTemplateGraphQLEndpoints(policy tobari.WorkspaceTemplatePolicyBody) []tobari.ManifestPolicyExactRule {
+	modules, ok := policy.FinalSemanticModules()
+	if !ok {
+		return append([]tobari.ManifestPolicyExactRule{}, policy.GraphQLEndpoints...)
+	}
+	endpoints := modules.GraphQLEndpoints()
+	result := make([]tobari.ManifestPolicyExactRule, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		result = append(result, tobari.ManifestPolicyExactRule{
+			Scheme: endpoint.Scheme, Host: endpoint.Host, Port: endpoint.Port, Method: "POST", Path: endpoint.Path,
+		})
+	}
+	return result
 }
 
 func finalTemplateText(value finalTemplateProjection, includeReferences bool) []byte {
@@ -490,6 +523,49 @@ func runFinalTemplatePlan(ctx context.Context, c *CLI, command CommandSpec, _ op
 	return c.emitResult(ctx, output)
 }
 
+func runFinalTemplateMigrationPlan(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
+	if c == nil || c.finalTemplates == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	plan, err := c.finalTemplates.PlanPolicyMigration(ctx, inputs.One("--id"))
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	format, code, ok := finalFormat(ctx, c, command, inputs)
+	if !ok {
+		return code
+	}
+	human := []byte(fmt.Sprintf("Template policy migration %s\nTemplate %s\nSource %s\nTarget %s\nApply %s template migration apply --plan %s\n", plan.PlanRef, plan.TemplateRef, plan.SourceSchema, plan.TargetSchema, ProgramName, plan.PlanRef))
+	output, err := finalAuthorityOutput(command.Path, "template_policy_migration_plan", finalTemplatePolicyMigrationPlanFrom(plan), format, human)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitResult(ctx, output)
+}
+
+func runFinalTemplateMigrationApply(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {
+	if c == nil || c.finalTemplates == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	ref := inputs.One("--plan")
+	intent.Target = operation.TargetRef{Kind: tobari.WorkspaceTemplatePolicyMigrationPlanReferenceKind, ID: ref}
+	intent.Impact = command.Agent.Mutation.Impact
+	result, err := c.finalTemplates.ApplyPolicyMigration(ctx, intent, ref)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	format, code, ok := finalFormat(ctx, c, command, inputs)
+	if !ok {
+		return code
+	}
+	human := []byte(fmt.Sprintf("Template policy source migrated %s\nRevision %s unchanged\nSource %s\n", result.TemplateRef, result.ActiveRevision, result.SourceFingerprint))
+	output, err := finalAuthorityOutput(command.Path, "template_policy_migration", result, format, human)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitMutationResult(ctx, command, output)
+}
+
 func (c *CLI) emitFinalTemplateMutation(ctx context.Context, command CommandSpec, inputs ParsedInputs, view workspaceauthoritycmd.TemplateView, includeReferences bool) int {
 	format, code, ok := finalFormat(ctx, c, command, inputs)
 	if !ok {
@@ -517,7 +593,13 @@ func applyTemplateCreateInputs(body *tobari.WorkspaceTemplateBody, inputs Parsed
 		if err != nil {
 			return err
 		}
-		body.Policy.GraphQLEndpoints = append(body.Policy.GraphQLEndpoints, endpoint)
+		if body.Policy.SemanticModules == nil {
+			return fmt.Errorf("Template body is not compiled as semantic policy V1")
+		}
+		body.Policy.SemanticModules.Protocols.HTTP.GraphQL.Endpoints = append(
+			body.Policy.SemanticModules.Protocols.HTTP.GraphQL.Endpoints,
+			tobari.SemanticHTTPEndpoint{SemanticRuleAuthority: tobari.SemanticRuleAuthority{Scheme: endpoint.Scheme, Host: endpoint.Host, Port: endpoint.Port}, Path: endpoint.Path},
+		)
 	}
 	return body.Validate()
 }
@@ -836,8 +918,5 @@ func (c *CLI) reviewedStandardTemplateBody(ctx context.Context) (tobari.Workspac
 		return tobari.WorkspaceTemplateBody{}, fault.New(fault.KindContract, "invalid_template_body", "The built-in standard Template policy is unavailable.", false)
 	}
 	body := tobari.WorkspaceTemplateBody{Boundary: tobari.WorkspaceTemplateBoundary{SourceAccess: tobari.ManifestSourceAccessReadWrite, DestinationCeiling: policy.DestinationCeiling, MethodPolicy: policy.MethodPolicy}, Policy: tobari.WorkspaceTemplatePolicyBody{AgentProfile: tobari.DefaultProfile, NativeReadiness: tobari.ManifestNativeReadinessEnabled, BaselineGrants: policy.BaselineGrants, BaselineTemplates: policy.BaselineTemplates, MCPBaselineGrants: policy.MCPBaselineGrants, BaselineDenies: policy.BaselineDenies, GraphQLEndpoints: policy.GraphQLEndpoints, MCPEndpoints: policy.MCPEndpoints}, EntryDefaults: tobari.WorkspaceTemplateEntryDefaults{Runtime: binding}, SessionDefaults: tobari.WorkspaceTemplateSessionDefaults{ShellEnvironment: []tobari.ManifestShellEnvironmentSetting{}}, CreationDefaults: tobari.WorkspaceTemplateCreationDefaults{}}
-	if err := body.Validate(); err != nil {
-		return tobari.WorkspaceTemplateBody{}, err
-	}
-	return body, nil
+	return tobari.CompileWorkspaceTemplateBodyV1(body)
 }

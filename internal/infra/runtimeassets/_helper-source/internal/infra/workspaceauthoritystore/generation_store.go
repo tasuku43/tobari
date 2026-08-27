@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	authorityStoreSchemaVersion = 1
+	authorityStoreSchemaVersion = 2
 	activeFileName              = "active.json"
 	legacyAuthorityFileName     = "authority.json"
 	maxPointerBytes             = 4 << 10
@@ -275,8 +275,11 @@ func (s *Store) readGenerationRaw(ctx context.Context) (tobari.WorkspaceAuthorit
 		return tobari.WorkspaceAuthorityCollection{}, false, err
 	}
 	var pointer activeGenerationPointer
-	if err := decodeStrictJSON(pointerData, &pointer); err != nil || pointer.SchemaVersion != authorityStoreSchemaVersion {
+	if err := decodeStrictJSON(pointerData, &pointer); err != nil {
 		return tobari.WorkspaceAuthorityCollection{}, false, fmt.Errorf("decode authority active pointer: %w", err)
+	}
+	if pointer.SchemaVersion != authorityStoreSchemaVersion {
+		return tobari.WorkspaceAuthorityCollection{}, false, fmt.Errorf("%w: final generation store schema %d is unsupported; reset and recreate this pre-release installation", tobari.ErrPreReleaseLegacyAuthority, pointer.SchemaVersion)
 	}
 	component, err := digestFileComponent(pointer.GenerationDigest)
 	if err != nil {

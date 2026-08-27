@@ -83,6 +83,8 @@ type fakePort struct {
 	draftCopy         tobari.WorkspaceTemplateDraft
 	plan              tobari.WorkspaceTemplateChangePlan
 	planErr           error
+	migrationPlan     tobari.WorkspaceTemplatePolicyMigrationPlan
+	migrationResult   tobari.WorkspaceTemplatePolicyMigrationResult
 	contextPlan       tobari.ContextActivationPlan
 	contextPlanErr    error
 	updatePublication tobari.WorkspaceTemplateRevisionPublication
@@ -97,6 +99,18 @@ type fakePort struct {
 	createContextErr  error
 	deleteContextErr  error
 	readErr           error
+}
+
+func (f *fakePort) PlanWorkspaceTemplatePolicyMigrationByReference(_ context.Context, ref string) (tobari.WorkspaceTemplatePolicyMigrationPlan, error) {
+	f.calls++
+	f.lastRef = ref
+	return f.migrationPlan, nil
+}
+
+func (f *fakePort) ApplyWorkspaceTemplatePolicyMigrationByReference(_ context.Context, ref string) (tobari.WorkspaceTemplatePolicyMigrationResult, error) {
+	f.calls++
+	f.lastRef = ref
+	return f.migrationResult, nil
 }
 
 func (f *fakePort) ListWorkspaceTemplates(context.Context) ([]tobari.WorkspaceTemplate, error) {
@@ -243,6 +257,57 @@ func TestTemplateServiceHasNoRetiredDirectMutationMethods(t *testing.T) {
 	}
 	if method, exists := reflect.TypeOf((*ContextService)(nil)).MethodByName("Create"); exists {
 		t.Errorf("retired direct Context mutation method remains reachable: %+v", method)
+	}
+}
+
+func TestTemplatePolicyMigrationIsExplicitSourceOnlyPlanAndApply(t *testing.T) {
+	body := bodyFixture("/items")
+	body.Boundary.DestinationCeiling = tobari.ManifestPolicyDestinationCeiling{Mode: "public_https", Authorities: []tobari.ManifestPolicyAuthority{}}
+	body.Boundary.MethodPolicy = tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview, Overrides: []tobari.ManifestMethodOverride{}}
+	revision, err := tobari.NewWorkspaceTemplateRevision(templateID, 1, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := tobari.WorkspaceTemplate{SchemaVersion: tobari.WorkspaceTemplateSchemaVersion, ID: templateID, Name: "restricted", Current: revision, Retained: []tobari.WorkspaceTemplateRevision{revision.Clone()}}
+	v1, err := tobari.NewWorkspaceTemplateSource(template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alpha := tobari.WorkspaceTemplateAlphaSource{Template: v1.Template, Policy: tobari.WorkspaceTemplatePolicyAlphaSourceDocument{
+		SchemaVersion: tobari.WorkspaceTemplatePolicyAlphaSchemaVersion, TemplateID: templateID,
+		Boundary: tobari.WorkspaceTemplatePolicyAlphaBoundarySource{DestinationCeiling: body.Boundary.DestinationCeiling, MethodPolicy: body.Boundary.MethodPolicy},
+		Semantic: body.Policy.Clone(),
+	}}
+	migrated, err := alpha.MigrateToV1(body.EntryDefaults.Runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := tobari.NewWorkspaceTemplatePolicyMigrationPlan(template, alpha, migrated, strings.Repeat("a", 64), strings.Repeat("b", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	widened := migrated.Clone()
+	widened.Policy.Semantic.Protocols.HTTP.Generic.Allow.Rules = append(widened.Policy.Semantic.Protocols.HTTP.Generic.Allow.Rules, tobari.SemanticHTTPRule{
+		SemanticRuleAuthority: tobari.SemanticRuleAuthority{Scheme: "https", Host: "other.example.dev", Port: 443},
+		Method:                "GET", Path: "/extra",
+	})
+	if _, err := tobari.NewWorkspaceTemplatePolicyMigrationPlan(template, alpha, widened, strings.Repeat("a", 64), strings.Repeat("c", 64)); err == nil {
+		t.Fatal("migration plan accepted an arbitrary widened V1 target")
+	}
+	result := tobari.WorkspaceTemplatePolicyMigrationResult{TemplateID: templateID, TemplateRef: plan.TemplateRef, ActiveRevision: revision.Revision, SourceFingerprint: plan.TargetFingerprint, Changed: true}
+	fake := &fakePort{migrationPlan: plan, migrationResult: result}
+	service := NewTemplateService(fake)
+	observed, err := service.PlanPolicyMigration(context.Background(), plan.TemplateRef)
+	if err != nil || observed.PlanRef != plan.PlanRef || fake.lastRef != plan.TemplateRef {
+		t.Fatalf("plan=%+v ref=%q err=%v", observed, fake.lastRef, err)
+	}
+	applyIntent := intent(TaskTemplateMigrationApply, operation.EffectWrite, operation.TargetRef{Kind: tobari.WorkspaceTemplatePolicyMigrationPlanReferenceKind, ID: plan.PlanRef}, TemplatePolicyMigrationImpact())
+	applied, err := service.ApplyPolicyMigration(context.Background(), applyIntent, plan.PlanRef)
+	if err != nil || applied.ActiveRevision != revision.Revision || !applied.Changed || fake.lastRef != plan.PlanRef {
+		t.Fatalf("result=%+v ref=%q err=%v", applied, fake.lastRef, err)
+	}
+	if TemplatePolicyMigrationImpact().AccessChange != operation.DeclarationNo {
+		t.Fatal("source-only migration declared an authority access change")
 	}
 }
 

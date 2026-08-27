@@ -146,18 +146,20 @@ func TestCompletionRecordProjectionRejectsStructuralInjection(t *testing.T) {
 
 func TestCatalogDeclaresTypedCompletionSources(t *testing.T) {
 	tests := map[string]map[string]InputCompletion{
-		"doctor":           {"--root": InputCompletionDirectory},
-		"help":             {"command": InputCompletionCommand},
-		"template copy":    {"--from": InputCompletionNone, "--name": InputCompletionNone},
-		"template plan":    {"--id": InputCompletionNone},
-		"template apply":   {"--plan": InputCompletionNone},
-		"context show":     {"--id": InputCompletionNone},
-		"workspace status": {"--id": InputCompletionNone},
-		"runtime show":     {"--name": InputCompletionRuntimeName},
-		"runtime create":   {"--copy-source-from": InputCompletionRuntimeName},
-		"runtime build":    {"--id": InputCompletionNone},
-		"runtime restore":  {"--id": InputCompletionNone},
-		"runtime delete":   {"--id": InputCompletionNone},
+		"doctor":                   {"--root": InputCompletionDirectory},
+		"help":                     {"command": InputCompletionCommand},
+		"template copy":            {"--from": InputCompletionNone, "--name": InputCompletionNone},
+		"template migration plan":  {"--id": InputCompletionNone},
+		"template migration apply": {"--plan": InputCompletionNone},
+		"template plan":            {"--id": InputCompletionNone},
+		"template apply":           {"--plan": InputCompletionNone},
+		"context show":             {"--id": InputCompletionNone},
+		"workspace status":         {"--id": InputCompletionNone},
+		"runtime show":             {"--name": InputCompletionRuntimeName},
+		"runtime create":           {"--copy-source-from": InputCompletionRuntimeName},
+		"runtime build":            {"--id": InputCompletionNone},
+		"runtime restore":          {"--id": InputCompletionNone},
+		"runtime delete":           {"--id": InputCompletionNone},
 	}
 	for path, expected := range tests {
 		spec, found := DefaultCatalog().Lookup(path)

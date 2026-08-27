@@ -38,6 +38,19 @@ class MCPRequestTest(unittest.TestCase):
         with self.assertRaises(MCPRequestError):
             parse_mcp_post_request("POST", headers, body)
 
+    def test_rejects_duplicate_keys_and_nonfinite_numbers_at_any_depth(self):
+        bodies = [
+            b'{"jsonrpc":"2.0","method":"tools/list","method":"tools/call"}',
+            b'{"jsonrpc":"2.0","method":"tools/call","params":{"name":"issues.get","arguments":{"value":1,"value":2}}}',
+            b'{"jsonrpc":"2.0","method":"tools/call","params":{"name":"issues.get","arguments":{"value":NaN}}}',
+            b'{"jsonrpc":"2.0","method":"tools/call","params":{"name":"issues.get","arguments":{"value":Infinity}}}',
+        ]
+        for body in bodies:
+            with self.subTest(body=body):
+                headers = [("content-type", "application/json"), ("content-length", str(len(body)))]
+                with self.assertRaises(MCPRequestError):
+                    parse_mcp_post_request("POST", headers, body)
+
 
 if __name__ == "__main__":
     unittest.main()

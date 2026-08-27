@@ -262,7 +262,8 @@ brand.
   proxy-environment settings do not select policy behavior.
 - Gateway sends generic HTTP attributes plus only the bounded protocol-derived
   coordinates declared below: GraphQL operation/root, MCP method/tool, signed
-  AWS wire protocol/service/operation, Kubernetes verb/resource/dry-run, Git
+  AWS wire protocol/service/version-or-namespace/operation, Kubernetes
+  resource-or-non-resource coordinate/verb/dry-run, Git
   repository/service, or OCI repository/action/object. These coordinates are
   structural request identity, not provider semantic classifications.
 - Ordinary request bodies are payload, not permission identity. Gateway
@@ -272,8 +273,8 @@ brand.
   exceptions. Signed AWS Query RPC is another narrow exception: Gateway
   buffers at most 8 MiB and retains only one exact `Action`; AWS JSON retains
   only one signed `X-Amz-Target`. No other AWS parameter becomes policy data.
-  A declared GraphQL endpoint
-  Gateway buffers one strictly bounded body before policy and derives only its
+  For a declared GraphQL endpoint, Gateway buffers one strictly bounded body
+  before policy and derives only its
   selected operation type and canonical root fields as additional identity.
 - Allowed ordinary request and response bodies stream through Gateway. A
   declared GraphQL, MCP, or AWS Query request is forwarded byte-for-byte after allow and its
@@ -300,8 +301,10 @@ brand.
 - OCI Distribution is self-describing only at distinctive standard object
   routes under `/v2/`. Repository, action, and object coordinate are exact
   review authority. The base `/v2/` probe, token routes, and unsupported
-  `/v2/*` paths remain ordinary HTTP so unrelated versioned APIs are not
-  claimed; manifest/blob bodies and authorization query values stay opaque.
+  unrelated paths such as `/v2/me` remain ordinary HTTP so unrelated versioned
+  APIs are not claimed; malformed near-misses under reserved Distribution
+  markers fail locally. Manifest/blob bodies and authorization query values
+  stay opaque.
 
 ### Mechanical enforcement
 
@@ -455,10 +458,11 @@ exist only when the research surface is compiled.
   and Context ID as authenticated data.
 - Every Tobari-owned schema and component API has one exact declared version
   before first publication. Readers accept only the version declared for that
-  surface and reject every other version; the installed Template policy source
-  deliberately remains `tobari.dev/template-policy/v1alpha1` until the reserved
-  final V1 taxonomy and compiler ship through explicit source migration. There
-  is no implicit compatibility path or migration. Before the first public release,
+  surface and reject every other version. Template policy source is the final
+  closed `tobari.dev/template-policy/v1` taxonomy. The predecessor
+  `v1alpha1` decoder is reachable only through explicit, non-activating
+  `template migration plan/apply`; ordinary reads, lifecycle, and Template
+  Apply never interpret or rewrite alpha source. Before the first public release,
   incompatible development state is never automatically interpreted, adopted,
   transformed, or deleted. One bounded fixed-path presence guard distinguishes
   a genuinely fresh installation from retained legacy authority. The sole
@@ -466,6 +470,12 @@ exist only when the research surface is compiled.
   `authority.json`, accepted only by an explicit read-only Plan and stale-bound
   reference-consuming Apply; Advanced/Rego, unsupported, or ambiguous presence
   fails closed with reset-and-recreate guidance. This clean-break exception
+  also covers an incompatible pre-public generation-store schema: ordinary
+  readers report `legacy_state_present`, never decode or infer its policy
+  coordinates, and require reset/recreate. The narrower `authority.json`
+  migration does not accept a predecessor generation store. Source-only policy
+  migration requires current-generation active authority.
+  This clean-break exception
   expires at the first public release:
   any later persistent-state incompatibility requires an explicit release-policy
   and migration/compatibility decision based on actual user obligations. Owner
@@ -1101,13 +1111,19 @@ OPA allow.
   ID and is never referenced from a Template revision. Workspace Template
   creation never accepts a secret value in an argument or environment variable.
 - Workspace Template policy source is exactly `policy.yaml` beside
-  `template.yaml`. The current lossless transitional schema is
-  `tobari.dev/template-policy/v1alpha1`; the reserved final
-  `tobari.dev/template-policy/v1` boundary/semantic taxonomy is not claimed
-  until its compiler and explicit source migration exist. Context Policy
+  `template.yaml`. Its schema is `tobari.dev/template-policy/v1`, with the
+  terminal Method Boundary under `boundary.methods.deny` and the closed
+  semantic module tree under `semantic.protocols` and `semantic.providers`.
+  Context Policy
   Memory separately owns dynamic Allows and Denies. User configuration and
   Workspace files contain no `data.json` or Rego; Docker-managed projection
   material may use internal generated data files.
+- Alpha source migration is source-only. `template migration plan --id` binds
+  the exact active Template revision and alpha/V1 source fingerprints;
+  `template migration apply --plan` atomically replaces the desired source but
+  leaves active authority untouched. A normal `template plan/apply` is still
+  required to activate the reviewed V1 policy. Alpha shapes that cannot be
+  represented without widening fail with manual-edit guidance.
 - Research auth login/import affects one explicit Context and makes that
   Context's Workspace eligibility explicit. Login does not rewrite running
   Workspaces; their next matching entry issues project-bound handles and

@@ -150,10 +150,10 @@ func writePolicyDomainFixture(t *testing.T, state tobari.State, domain, allow, d
 	}
 }
 
-const minimalPolicyAllowFixture = `{"schema_version":1,"host":"api.github.com","graphql_endpoints":[],"rules":[]}
+const minimalPolicyAllowFixture = `{"schema_version":2,"host":"api.github.com","graphql_endpoints":[],"rules":[]}
 `
 
-const minimalPolicyDenyFixture = `{"schema_version":1,"host":"api.github.com","rules":[]}
+const minimalPolicyDenyFixture = `{"schema_version":2,"host":"api.github.com","rules":[]}
 `
 
 func writeMinimalPolicyFixture(t *testing.T, state tobari.State) {
@@ -180,8 +180,8 @@ func TestPolicyDataValidatesDeclaredGraphQLEndpoints(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			state := tobari.State{PolicyDirectory: filepath.Join(t.TempDir(), "policy")}
-			allow := `{"schema_version":1,"host":"api.example.com",` + test.endpoints + `,"rules":[]}`
-			writePolicyDomainFixture(t, state, "api.example.com", allow, `{"schema_version":1,"host":"api.example.com","rules":[]}`)
+			allow := `{"schema_version":2,"host":"api.example.com",` + test.endpoints + `,"rules":[]}`
+			writePolicyDomainFixture(t, state, "api.example.com", allow, `{"schema_version":2,"host":"api.example.com","rules":[]}`)
 			file, err := readPolicyData(state.PolicyDirectory)
 			if test.wantError {
 				if err == nil {
@@ -196,6 +196,16 @@ func TestPolicyDataValidatesDeclaredGraphQLEndpoints(t *testing.T) {
 				t.Fatalf("GraphQL endpoints = %#v", file.graphqlEndpoints)
 			}
 		})
+	}
+}
+
+func TestPolicyDataRejectsPredecessorSchema(t *testing.T) {
+	state := tobari.State{PolicyDirectory: filepath.Join(t.TempDir(), "policy")}
+	writePolicyDomainFixture(t, state, "api.example.com",
+		`{"schema_version":1,"host":"api.example.com","graphql_endpoints":[],"rules":[]}`,
+		`{"schema_version":1,"host":"api.example.com","rules":[]}`)
+	if _, err := readPolicyData(state.PolicyDirectory); err == nil || !strings.Contains(err.Error(), "schema_version 2") {
+		t.Fatalf("predecessor policy data error=%v", err)
 	}
 }
 
@@ -293,8 +303,8 @@ func newAggregatePolicyMutationFixture(t *testing.T, runner commandRunner, schem
 		t.Fatal(err)
 	}
 	writePolicyDomainFixture(t, tobari.State{PolicyDirectory: paths.PolicyDirectory}, "api.example.com",
-		`{"schema_version":1,"host":"api.example.com","graphql_endpoints":[],"rules":[]}`+"\n",
-		`{"schema_version":1,"host":"api.example.com","rules":[]}`+"\n")
+		`{"schema_version":2,"host":"api.example.com","graphql_endpoints":[],"rules":[]}`+"\n",
+		`{"schema_version":2,"host":"api.example.com","rules":[]}`+"\n")
 	if seedGitHub {
 		writeMinimalPolicyFixture(t, tobari.State{PolicyDirectory: paths.PolicyDirectory})
 	}
@@ -1236,7 +1246,7 @@ func TestApplyLearnedPolicyRulesRejectsHostEditDuringPreflight(t *testing.T) {
 		if call != 1 {
 			return
 		}
-		changed := strings.Replace(`{"schema_version":1,"host":"api.example.com","graphql_endpoints":[],"rules":[]}`+"\n", `"graphql_endpoints":[]`, `"graphql_endpoints":[{"scheme":"https","host":"api.example.com","port":443,"path":"/graphql"}]`, 1)
+		changed := strings.Replace(`{"schema_version":2,"host":"api.example.com","graphql_endpoints":[],"rules":[]}`+"\n", `"graphql_endpoints":[]`, `"graphql_endpoints":[{"scheme":"https","host":"api.example.com","port":443,"path":"/graphql"}]`, 1)
 		if err := os.WriteFile(dataPath, []byte(changed), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -1267,7 +1277,7 @@ func TestManagedPolicyDataRejectsAmbiguousOrUnsafeHostFiles(t *testing.T) {
 		"duplicate key": func(t *testing.T, state tobari.State) {
 			writeMinimalPolicyFixture(t, state)
 			path := filepath.Join(state.PolicyDirectory, policyDomainsName, "api.github.com", policyAllowFileName)
-			if err := os.WriteFile(path, []byte(`{"schema_version":1,"schema_version":1,"host":"api.github.com","graphql_endpoints":[],"rules":[]}`), 0o600); err != nil {
+			if err := os.WriteFile(path, []byte(`{"schema_version":2,"schema_version":2,"host":"api.github.com","graphql_endpoints":[],"rules":[]}`), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		},

@@ -289,6 +289,54 @@ func finalTemplatePlanSpec() CommandSpec {
 	}, handler: runFinalTemplatePlan}
 }
 
+func finalTemplateMigrationPlanFields() []OutputField {
+	return []OutputField{
+		{Name: "plan_ref", Type: OutputFieldTypeString, Description: "Opaque exact non-activating policy source migration plan.", ReferenceKind: tobari.WorkspaceTemplatePolicyMigrationPlanReferenceKind},
+		{Name: "template_ref", Type: OutputFieldTypeString, Description: "Opaque active Workspace Template reference.", ReferenceKind: tobari.WorkspaceTemplateReferenceKind},
+		{Name: "active_revision", Type: OutputFieldTypeString, Description: "Exact active Template revision that remains unchanged."},
+		{Name: "source_fingerprint", Type: OutputFieldTypeString, Description: "Exact alpha template.yaml and policy.yaml byte-pair fingerprint."},
+		{Name: "target_fingerprint", Type: OutputFieldTypeString, Description: "Exact generated V1 source-pair fingerprint."},
+		{Name: "source_schema", Type: OutputFieldTypeString, Description: "Exact predecessor schema.", Enum: []string{tobari.WorkspaceTemplatePolicyAlphaSchemaVersion}},
+		{Name: "target_schema", Type: OutputFieldTypeString, Description: "Exact final schema.", Enum: []string{tobari.WorkspaceTemplatePolicySchemaVersion}},
+	}
+}
+
+func finalTemplateMigrationPlanSpec() CommandSpec {
+	errors := append(finalAuthorityReadErrors("template migration plan", "template list"),
+		declaredCommandError(fault.KindInvalidInput, "invalid_template_ref", false, "template list", "Use an exact active Template reference."),
+		declaredCommandError(fault.KindInvalidInput, "resource_source_invalid", false, "template show", "The alpha source must be strict, in sync, and losslessly representable in V1."),
+		declaredCommandError(fault.KindNotFound, "resource_source_missing", false, "template show", "Restore the exact source pair before migration planning."),
+	)
+	return CommandSpec{Path: "template migration plan", Summary: "Review an alpha policy source migration to V1", Args: "--id <template-ref> [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{
+		CapabilityID: "workspace.authority", Outcome: "Bind one in-sync alpha source and its exact non-activating V1 replacement without mutation",
+		Inputs:        []CommandInput{finalReferenceInput("--id", "Opaque active Template reference whose source is migrated.", tobari.WorkspaceTemplateReferenceKind), formatInput()},
+		Output:        finalJSONOutput("template_policy_migration_plan", finalTemplateMigrationPlanFields(), CollectionCoverageNotApplicable),
+		Prerequisites: []string{"The active Template source is in sync and uses the exact supported alpha schema."}, Errors: errors,
+	}, handler: runFinalTemplateMigrationPlan}
+}
+
+func finalTemplateMigrationApplySpec() CommandSpec {
+	fields := []OutputField{
+		{Name: "workspace_template_id", Type: OutputFieldTypeString, Description: "Exact migrated Template identity."},
+		{Name: "template_ref", Type: OutputFieldTypeString, Description: "Opaque active Workspace Template reference.", ReferenceKind: tobari.WorkspaceTemplateReferenceKind},
+		{Name: "active_revision", Type: OutputFieldTypeString, Description: "Exact active revision left unchanged."},
+		{Name: "source_fingerprint", Type: OutputFieldTypeString, Description: "Exact resulting V1 source-pair fingerprint."},
+		{Name: "changed", Type: OutputFieldTypeBoolean, Description: "Whether the desired source pair was migrated during this reconciliation."},
+	}
+	errors := append(finalAuthorityMutationErrors("template migration apply", "template show"),
+		declaredCommandError(fault.KindInvalidInput, "invalid_template_policy_migration_plan_ref", false, "template list", "Discover the active Template, then create and use one exact migration plan unchanged."),
+		declaredCommandError(fault.KindRejected, "template_policy_migration_plan_stale", false, "template list", "Rediscover the active Template before creating a fresh plan after source or authority drift."),
+		declaredCommandError(fault.KindUnavailable, "resource_source_recovery_required", false, "template show", "Inspect the source state, then retry the same exact migration plan to settle source-only publication."),
+	)
+	return CommandSpec{Path: "template migration apply", Summary: "Apply a reviewed non-activating policy source migration", Args: "--plan <template-policy-migration-plan-ref> [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct, Agent: AgentContract{
+		CapabilityID: "workspace.authority", Outcome: "Atomically replace one exact alpha policy.yaml with lossless V1 desired source while leaving active authority unchanged",
+		Inputs:        []CommandInput{finalReferenceInput("--plan", "Opaque migration plan emitted by template migration plan and consumed unchanged.", tobari.WorkspaceTemplatePolicyMigrationPlanReferenceKind), formatInput()},
+		Output:        finalJSONOutput("template_policy_migration", fields, CollectionCoverageNotApplicable),
+		Prerequisites: []string{"The reviewed source bytes and active revision are unchanged."}, Errors: errors,
+		Mutation: &MutationContract{TargetKind: tobari.WorkspaceTemplatePolicyMigrationPlanReferenceKind, TargetInputs: []string{"--plan"}, TargetIDInput: "--plan", Impact: workspaceauthoritycmd.TemplatePolicyMigrationImpact()},
+	}, handler: runFinalTemplateMigrationApply}
+}
+
 func finalTemplateDefaultSetSpec() CommandSpec {
 	return finalTemplateWriteSpec("template default set", "Select the default Workspace Template", runFinalTemplateDefaultSet, workspaceauthoritycmd.TemplateDefaultImpact(), false)
 }

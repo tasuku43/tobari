@@ -78,6 +78,7 @@ func TestEveryCatalogReadExecutesOnFreshXDGWithoutDurableOrExternalMutation(t *t
 		"completion zsh":              {},
 		"completion candidates":       {"--current=2", "--", "tobari", "cont"},
 		"template list":               {"--format=json"},
+		"template migration plan":     {"--id=wtpl1_01912345-6789-7abc-8def-0123456789a1", "--format=json"},
 		"template plan":               {"--id=wtpl1_01912345-6789-7abc-8def-0123456789a1", "--format=json"},
 		"template show":               {"--name=standard", "--format=json"},
 		"context list":                {"--format=json"},

@@ -171,7 +171,7 @@ func TestPolicyApplyReturnsAuthoritativeValidatedReceipt(t *testing.T) {
 	t.Parallel()
 	snapshot := validReviewedSnapshot(t)
 	item := snapshot.Review.Items[0]
-	change := tobari.PolicyMemoryReviewedResult{SchemaVersion: 2, Task: tobari.TaskPolicyReviewApply, AllowCount: 1, Applied: true, ActiveRevision: strings.Repeat("b", 64), Decisions: []tobari.PolicyMemoryReviewedResultDecision{{ReviewItemID: item.ID, RuleID: "pmr_11111111111111111111111111111111", Decision: tobari.PolicyMemoryAllow, Match: item.Match}}}
+	change := tobari.PolicyMemoryReviewedResult{SchemaVersion: tobari.WorkspaceAuthorityPolicyReadSchemaVersion, Task: tobari.TaskPolicyReviewApply, AllowCount: 1, Applied: true, ActiveRevision: strings.Repeat("b", 64), Decisions: []tobari.PolicyMemoryReviewedResultDecision{{ReviewItemID: item.ID, RuleID: "pmr_11111111111111111111111111111111", Decision: tobari.PolicyMemoryAllow, Match: item.Match}}}
 	if err := change.Validate(); err != nil {
 		t.Fatal(err)
 	}

@@ -164,7 +164,7 @@ func TestFinalPolicyCatalogHasExactSchemaAndReferenceGraph(t *testing.T) {
 	}
 	candidates, _ := catalog.Lookup("policy candidates")
 	rules, _ := catalog.Lookup("policy rules")
-	if candidates.Agent.Output.JSONSchemaVersion != 2 || rules.Agent.Output.JSONSchemaVersion != 2 {
+	if candidates.Agent.Output.JSONSchemaVersion != 3 || rules.Agent.Output.JSONSchemaVersion != 3 {
 		t.Fatalf("policy schemas candidates=%d rules=%d", candidates.Agent.Output.JSONSchemaVersion, rules.Agent.Output.JSONSchemaVersion)
 	}
 	if got := candidates.ProducedRefs(); !reflect.DeepEqual(got, []ProducedRef{{Kind: tobari.PolicyCandidateKind, Field: "id"}}) {
@@ -211,7 +211,7 @@ func TestFinalPolicyReadsAndDirectMutationsUseOnlyFinalService(t *testing.T) {
 		if code := command.RunContext(context.Background(), test.args); code != ExitOK {
 			t.Fatalf("%v code=%d stdout=%q stderr=%q", test.args, code, out.String(), errOut.String())
 		}
-		if !strings.Contains(out.String(), `"schema_version":2`) || !strings.Contains(out.String(), `"`+test.envelope+`"`) || !strings.Contains(out.String(), test.wantField) || strings.Contains(out.String(), "manifest") {
+		if !strings.Contains(out.String(), `"schema_version":3`) || !strings.Contains(out.String(), `"`+test.envelope+`"`) || !strings.Contains(out.String(), test.wantField) || strings.Contains(out.String(), "manifest") {
 			t.Fatalf("%v output=%q", test.args, out.String())
 		}
 	}

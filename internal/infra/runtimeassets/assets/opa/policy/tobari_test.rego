@@ -3,7 +3,7 @@ package tobari.http
 import rego.v1
 
 base_input := {
-	"schema_version": 1,
+	"schema_version": 2,
 	"principal": {
 		"cluster": "default",
 		"context_id": "01912345-6789-7abc-8def-0123456789ad",
@@ -116,7 +116,7 @@ test_no_embedded_plain_http_test_host_allow if {
 	request := request_with_authority({"scheme": "http", "host": "mock-upstream", "port": 8080})
 	result := decision with input as input_with_request(request)
 	not result.allow
-	result.learnable
+	not result.learnable
 }
 
 test_body_content_is_not_a_policy_dimension if {
@@ -164,7 +164,7 @@ test_deny_plain_http_external if {
 		"port": 8080,
 	}))
 	not result.allow
-	result.learnable
+	not result.learnable
 }
 
 test_retired_write_path_exclusion_grants_no_authority if {
@@ -238,7 +238,19 @@ kubernetes_request_fixture := object.union(
 	{
 		"method": "GET",
 		"path": {"raw": "/api/v1/namespaces/team/pods", "segments": ["api", "v1", "namespaces", "team", "pods"]},
-		"kubernetes": {"verb": "list", "resource": "core/v1/namespaces/team/pods", "dry_run": "none"},
+		"kubernetes": {
+			"kind": "resource",
+			"verb": "list",
+			"resource": {
+				"group": "",
+				"version": "v1",
+				"resource": "pods",
+				"namespace": "team",
+				"name": null,
+				"subresource": null,
+			},
+			"dry_run": "none",
+		},
 	},
 )
 
@@ -248,8 +260,14 @@ kubernetes_allow_fixture := object.union(learned_exact_fixture, {
 	"path": "/api/v1/namespaces/team/pods",
 	"examples": ["/api/v1/namespaces/team/pods"],
 	"protocol": "kubernetes",
+	"kubernetes_kind": "resource",
 	"kubernetes_verb": "list",
-	"kubernetes_resource": "core/v1/namespaces/team/pods",
+	"kubernetes_group": "",
+	"kubernetes_version": "v1",
+	"kubernetes_resource": "pods",
+	"kubernetes_namespace": "team",
+	"kubernetes_name": null,
+	"kubernetes_subresource": null,
 	"kubernetes_dry_run": "none",
 })
 
@@ -339,7 +357,7 @@ aws_query_request_fixture := object.union(
 		request_with_authority({"host": "sts.us-east-1.amazonaws.com"}),
 		{"method": "POST", "path": {"raw": "/", "segments": []}},
 	),
-	{"aws": {"wire_protocol": "query", "service": "sts", "operation": "GetCallerIdentity"}},
+	{"aws": {"wire_protocol": "query", "service": "sts", "protocol_version": "2011-06-15", "operation": "GetCallerIdentity"}},
 )
 
 aws_query_allow_fixture := object.union(learned_exact_fixture, {
@@ -350,6 +368,7 @@ aws_query_allow_fixture := object.union(learned_exact_fixture, {
 	"protocol": "aws",
 	"aws_wire_protocol": "query",
 	"aws_service": "sts",
+	"aws_protocol_version": "2011-06-15",
 	"aws_operation": "GetCallerIdentity",
 })
 
@@ -362,7 +381,7 @@ test_aws_operation_is_learnable_without_a_service_catalog if {
 test_aws_exact_rule_does_not_authorize_another_operation if {
 	allowed := decision with input as input_with_request(aws_query_request_fixture)
 		with data.tobari.rules.learned_allows as [aws_query_allow_fixture]
-	other_request := object.union(aws_query_request_fixture, {"aws": {"wire_protocol": "query", "service": "sts", "operation": "AssumeRole"}})
+	other_request := object.union(aws_query_request_fixture, {"aws": {"wire_protocol": "query", "service": "sts", "protocol_version": "2011-06-15", "operation": "AssumeRole"}})
 	other := decision with input as input_with_request(other_request)
 		with data.tobari.rules.learned_allows as [aws_query_allow_fixture]
 	allowed.allow
@@ -391,7 +410,7 @@ test_aws_coordinate_requires_matching_learned_allow_and_deny_is_terminal if {
 }
 
 test_aws_mismatched_coordinate_never_falls_back_to_http if {
-	mismatched := object.union(aws_query_request_fixture, {"aws": {"wire_protocol": "query", "service": "sts", "operation": "AssumeRole"}})
+	mismatched := object.union(aws_query_request_fixture, {"aws": {"wire_protocol": "query", "service": "sts", "protocol_version": "2011-06-15", "operation": "AssumeRole"}})
 	http_rule := object.union(learned_exact_fixture, {"host": "sts.us-east-1.amazonaws.com", "method": "POST", "path": "/", "examples": ["/"]})
 	result := decision with input as input_with_request(mismatched)
 		with data.tobari.rules.learned_allows as [http_rule]
@@ -417,9 +436,23 @@ test_kubernetes_exact_rule_allows_without_http_fallback if {
 	allowed.allow
 }
 
+test_kubernetes_core_group_learned_allow_and_deny_are_exact if {
+	allowed := decision with input as input_with_request(kubernetes_request_fixture)
+		with data.tobari.boundary.kubernetes_endpoints as [kubernetes_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [kubernetes_allow_fixture]
+	deny_rule := object.union(kubernetes_allow_fixture, {"id": "pdr_2123456789abcdef0123456789abcdef"})
+	denied := decision with input as input_with_request(kubernetes_request_fixture)
+		with data.tobari.boundary.kubernetes_endpoints as [kubernetes_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [kubernetes_allow_fixture]
+		with data.tobari.rules.learned_denies as [deny_rule]
+	allowed.allow
+	not denied.allow
+	not denied.learnable
+}
+
 test_kubernetes_verb_and_dry_run_are_exact if {
-	watch := object.union(kubernetes_request_fixture, {"kubernetes": {"verb": "watch", "resource": "core/v1/namespaces/team/pods", "dry_run": "none"}})
-	dry_run := object.union(kubernetes_request_fixture, {"kubernetes": {"verb": "list", "resource": "core/v1/namespaces/team/pods", "dry_run": "all"}})
+	watch := object.union(kubernetes_request_fixture, {"kubernetes": object.union(kubernetes_request_fixture.kubernetes, {"verb": "watch"})})
+	dry_run := object.union(kubernetes_request_fixture, {"kubernetes": object.union(kubernetes_request_fixture.kubernetes, {"dry_run": "all"})})
 	every request in [watch, dry_run] {
 		result := decision with input as input_with_request(request)
 			with data.tobari.boundary.kubernetes_endpoints as [kubernetes_endpoint_fixture]
@@ -508,6 +541,25 @@ oci_push_allow_fixture := object.union(learned_exact_fixture, {
 	"oci_object": "manifest:latest",
 })
 
+oci_catalog_request_fixture := object.union(
+	object.union(
+		request_with_authority({"host": "registry.example.com"}),
+		{"method": "GET", "path": {"raw": "/v2/_catalog", "segments": ["v2", "_catalog"]}},
+	),
+	{"oci": {"action": "list", "repository": "", "object": "catalog"}},
+)
+
+oci_catalog_allow_fixture := object.union(learned_exact_fixture, {
+	"host": "registry.example.com",
+	"method": "GET",
+	"path": "/v2/_catalog",
+	"examples": ["/v2/_catalog"],
+	"protocol": "oci",
+	"oci_action": "list",
+	"oci_repository": "",
+	"oci_object": "catalog",
+})
+
 test_oci_exact_rule_allows_push_without_http_fallback if {
 	http_rule := object.union(learned_exact_fixture, {
 		"host": "registry.example.com", "method": "PUT", "path": "/v2/team/app/manifests/latest",
@@ -520,6 +572,42 @@ test_oci_exact_rule_allows_push_without_http_fallback if {
 	not denied.allow
 	denied.learnable
 	allowed.allow
+}
+
+test_oci_catalog_empty_repository_learned_allow_and_deny_are_exact if {
+	allowed := decision with input as input_with_request(oci_catalog_request_fixture)
+		with data.tobari.rules.learned_allows as [oci_catalog_allow_fixture]
+	deny_rule := object.union(oci_catalog_allow_fixture, {"id": "pdr_3123456789abcdef0123456789abcdef"})
+	denied := decision with input as input_with_request(oci_catalog_request_fixture)
+		with data.tobari.rules.learned_allows as [oci_catalog_allow_fixture]
+		with data.tobari.rules.learned_denies as [deny_rule]
+	allowed.allow
+	not denied.allow
+	not denied.learnable
+}
+
+test_mixed_protocol_siblings_fail_closed_before_policy if {
+	mixed := object.union(graphql_request_fixture, {"oci": {"action": "list", "repository": "", "object": "catalog"}})
+	result := decision with input as input_with_request(mixed)
+		with data.tobari.rules.learned_allows as [graphql_allow_fixture]
+	null_sibling := object.union(graphql_request_fixture, {"oci": null})
+	null_result := decision with input as input_with_request(null_sibling)
+		with data.tobari.rules.learned_allows as [graphql_allow_fixture]
+	static_deny := decision_evidence with input as input_with_request(mixed)
+		with data.tobari.policy.semantic as {"protocols": {"http": {"graphql": {"deny": {"rules": [static_graphql_allow_rule]}}}}}
+	learned_deny := object.union(graphql_allow_fixture, {"id": "pdr_4123456789abcdef0123456789abcdef"})
+	learned_evidence := decision_evidence with input as input_with_request(mixed)
+		with data.tobari.rules.learned_denies as [learned_deny]
+	not result.allow
+	not result.learnable
+	not null_result.allow
+	not null_result.learnable
+	static_deny.policy_layer == "default_posture"
+	static_deny.rule_refs == []
+	static_deny.semantic_effect.protocol == "invalid"
+	learned_evidence.policy_layer == "default_posture"
+	learned_evidence.rule_refs == []
+	learned_evidence.semantic_effect.protocol == "invalid"
 }
 
 test_oci_action_repository_and_object_are_exact if {
@@ -690,12 +778,12 @@ test_graphql_http_deny_does_not_match if {
 test_graphql_without_exact_rule_is_learnable if {
 	request := object.union(
 		object.union(
-			request_with_authority({"scheme": "http", "host": "mock-upstream", "port": 8080}),
+			request_with_authority({"scheme": "https", "host": "mock-upstream", "port": 443}),
 			{"method": "POST", "path": {"raw": "/denied", "segments": ["denied"]}},
 		),
 		{"graphql": {"operation_type": "mutation", "root_fields": ["updateThing"]}},
 	)
-	endpoint := {"scheme": "http", "host": "mock-upstream", "port": 8080, "path": "/denied"}
+	endpoint := {"scheme": "https", "host": "mock-upstream", "port": 443, "path": "/denied"}
 	result := decision with input as input_with_request(request)
 		with data.tobari.boundary.graphql_endpoints as [endpoint]
 	not result.allow
@@ -723,11 +811,11 @@ test_explicit_http_protocol_preserves_http_learning if {
 	result.allow
 }
 
-test_http_null_graphql_preserves_ordinary_authorization if {
+test_explicit_null_protocol_sibling_fails_closed if {
 	request := object.union(base_input.request, {"graphql": null})
 	result := decision with input as input_with_request(request)
 	not result.allow
-	result.learnable
+	not result.learnable
 }
 
 test_explicit_http_protocol_preserves_exact_deny if {
@@ -986,7 +1074,7 @@ test_deny_mock_write_path if {
 	)
 	result := decision with input as input_with_request(request)
 	not result.allow
-	result.learnable
+	not result.learnable
 }
 
 test_decision_evidence_has_exact_internal_schema_and_default_posture if {
@@ -1037,13 +1125,13 @@ test_decision_evidence_preserves_major_protocol_semantic_coordinates if {
 	aws := decision_evidence with input as input_with_request(aws_query_request_fixture)
 		with data.tobari.rules.learned_allows as [aws_query_allow_fixture]
 	aws.semantic_effect.protocol == "aws"
-	aws.semantic_effect.coordinates == {"wire_protocol": "query", "service": "sts", "operation": "GetCallerIdentity"}
+	aws.semantic_effect.coordinates == {"wire_protocol": "query", "service": "sts", "protocol_version": "2011-06-15", "target_namespace": "", "operation": "GetCallerIdentity"}
 
 	kubernetes := decision_evidence with input as input_with_request(kubernetes_request_fixture)
 		with data.tobari.boundary.kubernetes_endpoints as [kubernetes_endpoint_fixture]
 		with data.tobari.rules.learned_allows as [kubernetes_allow_fixture]
 	kubernetes.semantic_effect.protocol == "kubernetes"
-	kubernetes.semantic_effect.coordinates == {"verb": "list", "resource": "core/v1/namespaces/team/pods", "dry_run": "none"}
+	kubernetes.semantic_effect.coordinates == kubernetes_request_fixture.kubernetes
 
 	git := decision_evidence with input as input_with_request(git_receive_request_fixture)
 		with data.tobari.rules.learned_allows as [git_receive_allow_fixture]
@@ -1054,4 +1142,235 @@ test_decision_evidence_preserves_major_protocol_semantic_coordinates if {
 		with data.tobari.rules.learned_allows as [oci_push_allow_fixture]
 	oci.semantic_effect.protocol == "oci"
 	oci.semantic_effect.coordinates == {"action": "push", "repository": "team/app", "object": "manifest:latest"}
+}
+
+static_http_allow_rule := {
+	"scheme": "https", "host": "api.github.com", "port": 443,
+	"method": "GET", "path": "/user",
+}
+
+static_graphql_allow_rule := {
+	"scheme": "https", "host": "api.github.com", "port": 443,
+	"path": "/graphql", "operation_type": "query", "root_field": "viewer",
+}
+
+static_mcp_allow_rule := {
+	"scheme": "https", "host": "api.github.com", "port": 443,
+	"path": "/mcp", "method": "tools/call", "tool_name": "codex_apps.search",
+}
+
+static_aws_allow_rule := {
+	"scheme": "https", "host": "sts.us-east-1.amazonaws.com", "port": 443,
+	"wire_protocol": "query", "service": "sts", "protocol_version": "2011-06-15", "operation": "GetCallerIdentity",
+}
+
+static_kubernetes_allow_rule := {
+	"scheme": "https", "host": "cluster.us-east-1.eks.amazonaws.com", "port": 443,
+	"resource": {
+		"group": "", "version": "v1", "resource": "pods", "namespace": "team",
+		"verb": "list", "dry_run": "none",
+	},
+}
+
+static_git_allow_rule := {
+	"scheme": "https", "host": "git.example.com", "port": 443,
+	"service": "receive-pack", "repository": "/team/repo.git",
+}
+
+static_oci_allow_rule := {
+	"scheme": "https", "host": "registry.example.com", "port": 443,
+	"action": "push", "repository": "team/app", "object": "manifest:latest",
+}
+
+test_static_semantic_allow_is_executable_for_every_module if {
+	http := decision_evidence with input as base_input
+		with data.tobari.policy.semantic as {"protocols": {"http": {"generic": {"allow": {"rules": [static_http_allow_rule]}}}}}
+	http.decision.allow
+	http.policy_layer == "static_allow"
+	http.rule_refs == ["semantic:http.generic:allow:0"]
+
+	graphql := decision with input as input_with_request(graphql_request_fixture)
+		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+		with data.tobari.policy.semantic as {"protocols": {"http": {"graphql": {"allow": {"rules": [static_graphql_allow_rule]}}}}}
+	graphql.allow
+
+	mcp := decision with input as input_with_request(mcp_tool_request_fixture)
+		with data.tobari.boundary.mcp_endpoints as [mcp_endpoint_fixture]
+		with data.tobari.policy.semantic as {"protocols": {"http": {"mcp": {"allow": {"rules": [static_mcp_allow_rule]}}}}}
+	mcp.allow
+
+	aws := decision with input as input_with_request(aws_query_request_fixture)
+		with data.tobari.policy.semantic as {"providers": {"aws": {"allow": {"rules": [static_aws_allow_rule]}}}}
+	aws.allow
+
+	kubernetes := decision with input as input_with_request(kubernetes_request_fixture)
+		with data.tobari.boundary.kubernetes_endpoints as [kubernetes_endpoint_fixture]
+		with data.tobari.policy.semantic as {"providers": {"kubernetes": {"allow": {"rules": [static_kubernetes_allow_rule]}}}}
+	kubernetes.allow
+
+	git := decision with input as input_with_request(git_receive_request_fixture)
+		with data.tobari.policy.semantic as {"protocols": {"http": {"git": {"allow": {"rules": [static_git_allow_rule]}}}}}
+	git.allow
+
+	oci := decision with input as input_with_request(oci_push_request_fixture)
+		with data.tobari.policy.semantic as {"protocols": {"http": {"oci": {"allow": {"rules": [static_oci_allow_rule]}}}}}
+	oci.allow
+}
+
+test_static_semantic_deny_is_terminal_for_every_module if {
+	graphql := decision_evidence with input as input_with_request(graphql_request_fixture)
+		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+		with data.tobari.policy.semantic as {"protocols": {"http": {"graphql": {"deny": {"rules": [static_graphql_allow_rule]}}}}}
+	mcp := decision_evidence with input as input_with_request(mcp_tool_request_fixture)
+		with data.tobari.boundary.mcp_endpoints as [mcp_endpoint_fixture]
+		with data.tobari.policy.semantic as {"protocols": {"http": {"mcp": {"deny": {"rules": [static_mcp_allow_rule]}}}}}
+	aws := decision_evidence with input as input_with_request(aws_query_request_fixture)
+		with data.tobari.policy.semantic as {"providers": {"aws": {"deny": {"rules": [static_aws_allow_rule]}}}}
+	kubernetes := decision_evidence with input as input_with_request(kubernetes_request_fixture)
+		with data.tobari.boundary.kubernetes_endpoints as [kubernetes_endpoint_fixture]
+		with data.tobari.policy.semantic as {"providers": {"kubernetes": {"deny": {"rules": [static_kubernetes_allow_rule]}}}}
+	git := decision_evidence with input as input_with_request(git_receive_request_fixture)
+		with data.tobari.policy.semantic as {"protocols": {"http": {"git": {"deny": {"rules": [static_git_allow_rule]}}}}}
+	oci := decision_evidence with input as input_with_request(oci_push_request_fixture)
+		with data.tobari.policy.semantic as {"protocols": {"http": {"oci": {"deny": {"rules": [static_oci_allow_rule]}}}}}
+	every evidence in [graphql, mcp, aws, kubernetes, git, oci] {
+		not evidence.decision.allow
+		not evidence.decision.learnable
+		evidence.policy_layer == "static_deny"
+	}
+}
+
+test_static_variant_denies_cover_aws_json_kubernetes_nonresource_and_mcp_noncall if {
+	aws_json_request := object.union(object.remove(aws_query_request_fixture, ["aws"]), {
+		"aws": {"wire_protocol": "json", "service": "dynamodb", "target_namespace": "DynamoDB_20120810", "operation": "PutItem"},
+		"authority": {"scheme": "https", "host": "dynamodb.us-east-1.amazonaws.com", "port": 443},
+	})
+	aws_json_rule := {
+		"scheme": "https", "host": "dynamodb.us-east-1.amazonaws.com", "port": 443,
+		"wire_protocol": "json", "service": "dynamodb", "target_namespace": "DynamoDB_20120810", "operation": "PutItem",
+	}
+	aws := decision_evidence with input as input_with_request(aws_json_request)
+		with data.tobari.policy.semantic as {"providers": {"aws": {"deny": {"rules": [aws_json_rule]}}}}
+
+	kubernetes_nonresource_request := object.union(object.remove(kubernetes_request_fixture, ["kubernetes"]), {
+		"method": "GET",
+		"path": {"raw": "/healthz", "segments": ["healthz"]},
+		"kubernetes": {"kind": "non_resource", "verb": "get", "path": "/healthz"},
+	})
+	kubernetes_nonresource_rule := {
+		"scheme": "https", "host": "cluster.us-east-1.eks.amazonaws.com", "port": 443,
+		"non_resource": {"verb": "get", "path": "/healthz"},
+	}
+	kubernetes := decision_evidence with input as input_with_request(kubernetes_nonresource_request)
+		with data.tobari.boundary.kubernetes_endpoints as [kubernetes_endpoint_fixture]
+		with data.tobari.policy.semantic as {"providers": {"kubernetes": {"deny": {"rules": [kubernetes_nonresource_rule]}}}}
+
+	mcp_list_request := object.union(object.remove(mcp_tool_request_fixture, ["mcp"]), {"mcp": {"method": "tools/list"}})
+	mcp_list_rule := object.remove(object.union(static_mcp_allow_rule, {"method": "tools/list"}), ["tool_name"])
+	mcp := decision_evidence with input as input_with_request(mcp_list_request)
+		with data.tobari.boundary.mcp_endpoints as [mcp_endpoint_fixture]
+		with data.tobari.policy.semantic as {"protocols": {"http": {"mcp": {"deny": {"rules": [mcp_list_rule]}}}}}
+	every evidence in [aws, kubernetes, mcp] {
+		not evidence.decision.allow
+		not evidence.decision.learnable
+		evidence.policy_layer == "static_deny"
+		count(evidence.rule_refs) == 1
+	}
+}
+
+test_dynamic_variant_coordinates_allow_and_deny_exactly if {
+	aws_json_request := object.union(object.remove(aws_query_request_fixture, ["aws"]), {
+		"aws": {"wire_protocol": "json", "service": "dynamodb", "target_namespace": "DynamoDB_20120810", "operation": "PutItem"},
+		"authority": {"scheme": "https", "host": "dynamodb.us-east-1.amazonaws.com", "port": 443},
+	})
+	aws_rule := object.remove(
+		object.union(aws_query_allow_fixture, {
+			"host": "dynamodb.us-east-1.amazonaws.com", "aws_wire_protocol": "json", "aws_service": "dynamodb",
+			"aws_target_namespace": "DynamoDB_20120810", "aws_operation": "PutItem",
+		}),
+		["aws_protocol_version"],
+	)
+
+	kubernetes_request := object.union(object.remove(kubernetes_request_fixture, ["kubernetes"]), {
+		"method": "GET", "path": {"raw": "/healthz", "segments": ["healthz"]},
+		"kubernetes": {"kind": "non_resource", "verb": "get", "path": "/healthz"},
+	})
+	kubernetes_rule := object.remove(
+		object.union(kubernetes_allow_fixture, {
+			"path": "/healthz", "examples": ["/healthz"], "kubernetes_kind": "non_resource",
+			"kubernetes_verb": "get", "kubernetes_non_resource_path": "/healthz",
+		}),
+		["kubernetes_group", "kubernetes_version", "kubernetes_resource", "kubernetes_namespace", "kubernetes_name", "kubernetes_subresource", "kubernetes_dry_run"],
+	)
+
+	mcp_request := object.union(object.remove(mcp_tool_request_fixture, ["mcp"]), {"mcp": {"method": "tools/list"}})
+	mcp_rule := object.remove(object.union(mcp_tool_allow_fixture, {"mcp_method": "tools/list"}), ["mcp_tool_name"])
+
+	requests := [aws_json_request, kubernetes_request, mcp_request]
+	rules := [aws_rule, kubernetes_rule, mcp_rule]
+	every index, request in requests {
+		allow := decision_evidence with input as input_with_request(request)
+			with data.tobari.boundary.kubernetes_endpoints as [kubernetes_endpoint_fixture]
+			with data.tobari.boundary.mcp_endpoints as [mcp_endpoint_fixture]
+			with data.tobari.rules.learned_allows as [rules[index]]
+		deny_rule := object.union(rules[index], {"id": sprintf("pdr_%032d", [index + 1])})
+		deny := decision_evidence with input as input_with_request(request)
+			with data.tobari.boundary.kubernetes_endpoints as [kubernetes_endpoint_fixture]
+			with data.tobari.boundary.mcp_endpoints as [mcp_endpoint_fixture]
+			with data.tobari.rules.learned_denies as [deny_rule]
+		allow.decision.allow
+		allow.policy_layer == "learned_allow"
+		not deny.decision.allow
+		not deny.decision.learnable
+		deny.policy_layer == "learned_deny"
+	}
+}
+
+test_static_semantic_deny_precedes_allow_and_has_static_evidence if {
+	allow := object.union(object.remove(static_http_allow_rule, ["host"]), {"hosts": ["api.github.com", "example.com"]})
+	semantic := {"protocols": {"http": {"generic": {
+		"allow": {"rules": [allow]},
+		"deny": {"rules": [static_http_allow_rule]},
+	}}}}
+	evidence := decision_evidence with input as base_input
+		with data.tobari.policy.semantic as semantic
+	not evidence.decision.allow
+	not evidence.decision.learnable
+	evidence.policy_layer == "static_deny"
+	evidence.rule_refs == ["semantic:http.generic:deny:0"]
+}
+
+test_static_generic_http_never_authorizes_classified_requests if {
+	generic_post := object.union(static_http_allow_rule, {"method": "POST", "path": "/graphql"})
+	graphql := decision with input as input_with_request(graphql_request_fixture)
+		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+		with data.tobari.policy.semantic as {"protocols": {"http": {"generic": {"allow": {"rules": [generic_post]}}}}}
+	not graphql.allow
+
+	mcp_rule := object.union(generic_post, {"path": "/mcp"})
+	mcp := decision with input as input_with_request(mcp_tool_request_fixture)
+		with data.tobari.boundary.mcp_endpoints as [mcp_endpoint_fixture]
+		with data.tobari.policy.semantic as {"protocols": {"http": {"generic": {"allow": {"rules": [mcp_rule]}}}}}
+	not mcp.allow
+
+	aws_rule := object.union(generic_post, {"host": "sts.us-east-1.amazonaws.com", "path": "/"})
+	aws := decision with input as input_with_request(aws_query_request_fixture)
+		with data.tobari.policy.semantic as {"protocols": {"http": {"generic": {"allow": {"rules": [aws_rule]}}}}}
+	not aws.allow
+
+	kubernetes_rule := object.union(static_http_allow_rule, {"host": "cluster.us-east-1.eks.amazonaws.com", "path": "/api/v1/namespaces/team/pods"})
+	kubernetes := decision with input as input_with_request(kubernetes_request_fixture)
+		with data.tobari.boundary.kubernetes_endpoints as [kubernetes_endpoint_fixture]
+		with data.tobari.policy.semantic as {"protocols": {"http": {"generic": {"allow": {"rules": [kubernetes_rule]}}}}}
+	not kubernetes.allow
+
+	git_rule := object.union(generic_post, {"host": "git.example.com", "path": "/team/repo.git/git-receive-pack"})
+	git := decision with input as input_with_request(git_receive_request_fixture)
+		with data.tobari.policy.semantic as {"protocols": {"http": {"generic": {"allow": {"rules": [git_rule]}}}}}
+	not git.allow
+
+	oci_rule := object.union(generic_post, {"host": "registry.example.com", "method": "PUT", "path": "/v2/team/app/manifests/latest"})
+	oci := decision with input as input_with_request(oci_push_request_fixture)
+		with data.tobari.policy.semantic as {"protocols": {"http": {"generic": {"allow": {"rules": [oci_rule]}}}}}
+	not oci.allow
 }

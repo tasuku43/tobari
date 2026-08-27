@@ -123,12 +123,80 @@ func TestBatchCB3FinalSchemaAndReferenceBoundary(t *testing.T) {
 			t.Errorf("redirected %v code=%d stdout=%q stderr=%q", args, code, stdout.String(), stderr.String())
 			continue
 		}
-		if args[len(args)-1] == "--format=json" && (!json.Valid(stdout.Bytes()) || !strings.Contains(stdout.String(), `"schema_version":2`)) {
+		if args[len(args)-1] == "--format=json" && (!json.Valid(stdout.Bytes()) || !strings.Contains(stdout.String(), `"schema_version":3`)) {
 			t.Errorf("redirected JSON=%q", stdout.String())
 		}
 	}
 	if base.allowCalls != 0 || base.denyCalls != 0 || base.resetCalls != 0 {
 		t.Fatalf("redirected Permission Inbox mutated final policy: %+v", base)
+	}
+}
+
+func TestPolicyOutputsDeclareEveryClosedModuleCoordinate(t *testing.T) {
+	required := []string{
+		"graphql_operation_type", "graphql_root_field", "mcp_method", "mcp_tool_name",
+		"aws_wire_protocol", "aws_service", "aws_protocol_version", "aws_target_namespace", "aws_operation",
+		"kubernetes_kind", "kubernetes_verb", "kubernetes_group", "kubernetes_version", "kubernetes_resource",
+		"kubernetes_namespace", "kubernetes_name", "kubernetes_subresource", "kubernetes_dry_run", "kubernetes_non_resource_path",
+		"git_service", "git_repository", "oci_action", "oci_repository", "oci_object",
+	}
+	for _, path := range []string{"policy candidates", "review permissions", "policy rules", "cluster denials"} {
+		command, found := DefaultCatalog().lookupRegistered(path)
+		if !found {
+			t.Fatalf("missing %s", path)
+		}
+		encoded, err := json.Marshal(command.Agent.Output.Fields)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, field := range required {
+			if !bytes.Contains(encoded, []byte(`"name":"`+field+`"`)) {
+				t.Errorf("%s output omits closed coordinate %s", path, field)
+			}
+		}
+	}
+}
+
+func TestFinalPolicyTextRetainsSelectedModuleCoordinate(t *testing.T) {
+	tests := []struct {
+		name string
+		id   tobari.PolicyProtocolIdentity
+		want []string
+	}{
+		{name: "graphql", id: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolGraphQL, GraphQLOperationType: "mutation", GraphQLRootField: "updateItem"}, want: []string{"GraphQL", "mutation.updateItem"}},
+		{name: "mcp", id: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolMCP, MCPMethod: "tools/call", MCPToolName: "deploy"}, want: []string{"MCP", "tools/call deploy"}},
+		{name: "aws", id: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolAWS, AWSWireProtocol: "json", AWSService: "dynamodb", AWSTargetNamespace: "DynamoDB_20120810", AWSOperation: "PutItem"}, want: []string{"AWS", "json dynamodb/DynamoDB_20120810/PutItem"}},
+		{name: "kubernetes", id: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolKubernetes, KubernetesKind: tobari.KubernetesRequestResource, KubernetesVerb: "update", KubernetesGroup: "apps", KubernetesVersion: "v1", KubernetesResource: "deployments", KubernetesNamespace: "team", KubernetesName: "api", KubernetesSubresource: "scale", KubernetesDryRun: "all"}, want: []string{"Kubernetes", "apps/v1/deployments", "namespace=team", "name=api", "subresource=scale", "dry-run=all"}},
+		{name: "git", id: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolGit, GitService: "receive-pack", GitRepository: "/team/repo.git"}, want: []string{"Git", "receive-pack /team/repo.git"}},
+		{name: "oci", id: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolOCI, OCIAction: "push", OCIRepository: "team/app", OCIObject: "manifest:latest"}, want: []string{"OCI", "push team/app manifest:latest"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := finalPolicyEffectSummary(test.id, "POST", "api.example.dev", 443, "/effect")
+			for _, want := range test.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("summary %q lacks %q", got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestFinalPolicyJSONRetainsMeaningfulEmptyCoordinates(t *testing.T) {
+	value := []any{
+		map[string]any{"protocol": tobari.PolicyProtocolKubernetes, "kubernetes_kind": tobari.KubernetesRequestResource},
+		map[string]any{"protocol": tobari.PolicyProtocolOCI, "oci_action": "list", "oci_object": "catalog"},
+	}
+	projected, err := finalPolicyJSONProjection(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := projected.([]any)
+	if group, present := items[0].(map[string]any)["kubernetes_group"]; !present || group != "" {
+		t.Fatalf("core Kubernetes group = %#v, present=%t", group, present)
+	}
+	if repository, present := items[1].(map[string]any)["oci_repository"]; !present || repository != "" {
+		t.Fatalf("OCI catalog repository = %#v, present=%t", repository, present)
 	}
 }
 

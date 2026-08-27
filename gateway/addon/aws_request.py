@@ -40,6 +40,8 @@ class ParsedAWSRequest:
     wire_protocol: str
     service: str
     operation: str
+    protocol_version: str | None = None
+    target_namespace: str | None = None
 
 
 @dataclass(frozen=True)
@@ -150,7 +152,13 @@ def classify_aws_request_headers(
     if media_type in {"application/x-amz-json-1.0", "application/x-amz-json-1.1"}:
         if len(targets) != 1 or "x-amz-target" not in signed_headers or _JSON_TARGET.fullmatch(targets[0]) is None or len(targets[0]) > 256:
             raise AWSRequestError("aws_operation_invalid", "AWS JSON operation target is invalid or unsigned")
-        return ParsedAWSRequest(wire_protocol="json", service=service, operation=targets[0])
+        namespace, operation = targets[0].rsplit(".", 1)
+        return ParsedAWSRequest(
+            wire_protocol="json",
+            service=service,
+            operation=operation,
+            target_namespace=namespace,
+        )
     if targets:
         raise AWSRequestError("aws_request_invalid", "X-Amz-Target is invalid for this content type")
     return None
@@ -201,4 +209,9 @@ def parse_aws_query_request(
         raise AWSRequestError("aws_operation_invalid", "AWS Query Action is invalid or ambiguous")
     if len(versions) != 1 or _VERSION.fullmatch(versions[0]) is None:
         raise AWSRequestError("aws_operation_invalid", "AWS Query Version is invalid or ambiguous")
-    return ParsedAWSRequest(wire_protocol="query", service=pending.service, operation=actions[0])
+    return ParsedAWSRequest(
+        wire_protocol="query",
+        service=pending.service,
+        operation=actions[0],
+        protocol_version=versions[0],
+    )

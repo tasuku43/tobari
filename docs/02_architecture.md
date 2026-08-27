@@ -1440,19 +1440,18 @@ the existing OPA activation boundary. Deny and reset use the same transaction;
 they never edit Template source.
 
 Editable static policy is the closed `templates/<template-id>/policy.yaml`
-document. The current transitional `tobari.dev/template-policy/v1alpha1`
-schema is installation-owned and lossless for the implemented typed policy;
-the reserved `tobari.dev/template-policy/v1` token is rejected until the final
-`boundary` plus `semantic.protocols/providers` compiler exists. Template Plan
+document. The current `tobari.dev/template-policy/v1` compiler accepts only
+`boundary.methods.deny` plus the sealed `semantic.protocols` and
+`semantic.providers` inventories. Template Plan
 and Apply validate the complete `template.yaml`/`policy.yaml` pair and publish
 one immutable Template revision. Aggregate generation then joins that static
 revision with separate Context Policy Memory and the fixed evaluator embedded
 in Tobari. User-owned Template, Context, and configuration layouts contain no
-executable policy source. Gateway runtime input uses exact schema 1
+executable policy source. Gateway runtime input uses exact schema 2
 and rejects any other shape. The generated aggregate projection contains
 immutable `data.json` plus private Tobari-owned router/evaluator modules; those
 files are Docker-managed execution material, never Workspace Template or
-Context source. The aggregate projection is schema 1 and stores the composed
+Context source. The aggregate projection is schema 2 and stores the composed
 typed data below `tobari_contexts[context_id]`; the Tobari-owned router is the only
 `tobari.http` decision entrypoint. Each entry in `boundary.authorities` owns its
 scheme, host, ports, and host-local methods;
@@ -1461,6 +1460,13 @@ baseline denies, learned allows, and learned denies in separate collections.
 Gateway and OPA share this structure. The CLI mutates learned collections only
 through Policy Memory actions; reviewed Template Apply is the only current
 writer of static Template authority.
+
+The predecessor `v1alpha1` decoder is isolated behind the read-only
+`template migration plan` and reference-bound `template migration apply`
+ports. Migration stages and atomically replaces one complete desired source
+directory, binds both byte fingerprints and the active revision, and never
+publishes authority. Ordinary V1 readers cannot call the alpha decoder. A
+subsequent ordinary Template Plan/Apply is the only activation path.
 
 Routine mutations serialize through an in-process mutex and a cross-process
 file lock. They prepare and fsync a complete sibling generation, record a
@@ -1474,8 +1480,8 @@ otherwise restores the validated original. Unexpected external edits make the
 transaction ambiguous and fail closed instead of being overwritten.
 
 Workspace Templates use one current Tobari-owned evaluator, projected once, with
-Template-specific authorities, methods, ports, GraphQL endpoints, exact and
-semantic baseline decisions, remembered decisions, and credential metadata
+Template-specific Method Boundary, closed HTTP/GraphQL/MCP/Git/OCI protocol
+modules, closed AWS/Kubernetes provider modules, remembered decisions, and credential metadata
 supplied as data. The evaluator owns the router and system packages; no
 Template-specific executable module is accepted. The cluster router sends
 every input carrying a GraphQL, MCP, AWS, Kubernetes, Git, or OCI coordinate

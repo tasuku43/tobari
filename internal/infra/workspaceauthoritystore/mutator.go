@@ -1149,6 +1149,49 @@ func (m *Mutator) DeleteWorkspaceTemplateByReference(ctx context.Context, ref st
 	return result, resultErr
 }
 
+// WithWorkspaceTemplatePolicyMigrationFence serializes the source-only alpha
+// migration with Template revision changes and deletion. The callback runs
+// under the same installation lifecycle lock as active authority mutation, so
+// a successful result remains bound to an existing exact active revision.
+func (m *Mutator) WithWorkspaceTemplatePolicyMigrationFence(
+	ctx context.Context,
+	id tobari.WorkspaceTemplateID,
+	revision tobari.SemanticDigest,
+	action func(context.Context, tobari.WorkspaceTemplate) error,
+) error {
+	if m == nil || m.store == nil || m.lifecycle == nil || action == nil || id.Validate() != nil || revision.Validate() != nil {
+		return fmt.Errorf("Template policy migration fence is unavailable")
+	}
+	if _, _, err := m.store.ReadComplete(ctx); err != nil {
+		return err
+	}
+	return m.lifecycle.WithLifecycleLock(ctx, func(locked context.Context) error {
+		current, present, err := m.store.ReadComplete(locked)
+		if err != nil {
+			return err
+		}
+		if !present {
+			return tobari.ErrWorkspaceTemplatePolicyMigrationStale
+		}
+		if err := m.store.ConfirmSelected(locked, current, true); err != nil {
+			return err
+		}
+		for _, template := range current.Templates {
+			if template.ID != id {
+				continue
+			}
+			if template.Current.Revision != revision {
+				return tobari.ErrWorkspaceTemplatePolicyMigrationStale
+			}
+			if err := action(locked, template.Clone()); err != nil {
+				return err
+			}
+			return m.store.ConfirmSelected(locked, current, true)
+		}
+		return tobari.ErrWorkspaceTemplatePolicyMigrationStale
+	})
+}
+
 func (m *Mutator) seedContextForLegacyMigration(ctx context.Context, templateRef, projectRoot string) (created tobari.ContextAuthoritySnapshot, resultErr error) {
 	templateID, err := tobari.ParseWorkspaceTemplateRef(templateRef)
 	if err != nil {

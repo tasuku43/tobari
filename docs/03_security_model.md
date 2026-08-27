@@ -548,6 +548,16 @@ Template, Context, and configuration layouts contain no executable policy source
 the internal bundle is generated and verified only inside Tobari-managed runtime
 material before policy activation.
 
+Semantic classification is a sealed inventory: generic HTTP, GraphQL, MCP,
+AWS, Kubernetes, Git Smart HTTP, and OCI Distribution. Outside the earlier
+brokered-AWS credential-binding trust boundary, Gateway evaluates all
+applicable classifier claims without precedence-by-order; zero claims remain
+generic HTTP, one selects that module, and multiple claims fail locally before
+OPA, audit-module selection, credential action, DNS, or upstream I/O. Static
+Template rules and Context Policy Memory consume the same validated typed
+effect. Classified traffic cannot fall back to generic HTTP, and static Deny
+precedes static Allow before learned authority is considered.
+
 Secret header values, handles, credential revisions, queries, headers, and
 request/response body content are absent from denial audit. GraphQL source,
 operation name, variables, aliases, fragment names, directives, nested

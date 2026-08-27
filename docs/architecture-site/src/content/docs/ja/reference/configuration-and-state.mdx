@@ -41,7 +41,9 @@ active authority は state root の `authority/` 以下に、Template、Context�
 
 agent CLI の login 形式は Workspace home に残り、Tobari の共有サービスや公開 JSON の権限にはなりません。Tobari はホストのログイン情報を継承しません。
 
-Workspace Template policy の正本は `policy.yaml` の canonical typed data だけです。Context Policy Memory は別の immutable state object です。内部 `data.json` は、検証済みの完全な `cluster-projections/<revision>/` 内でのみ生成されます。固定 evaluator は Tobari に組み込まれ、Docker 管理の policy bundle 内だけに現れます。未知または重複する field、不完全な source set、余分な file、symlink、hardlink、owner drift、安全でない mode は拒否されます。
+Workspace Template policy の正本は `policy.yaml` の canonical typed data だけです。現行 schema は `tobari.dev/template-policy/v1` で、`boundary.methods.deny` が terminal Method Boundary、closed な `semantic.protocols` と `semantic.providers` が static module rule を保持します。Context Policy Memory は別の immutable state object です。内部 `data.json` は、検証済みの完全な `cluster-projections/<revision>/` 内でのみ生成されます。固定 evaluator は Tobari に組み込まれ、Docker 管理の policy bundle 内だけに現れます。未知または重複する field、不完全な source set、余分な file、symlink、hardlink、owner drift、安全でない mode は拒否されます。
+
+旧 `v1alpha1` shape は通常の source reader では読めません。専用 decoder は `template migration plan/apply` だけが所有し、desired source を atomic に置換しても active authority は変えません。その後に通常の Template Plan/Apply が必要です。
 
 ホスト所有の設定と状態は、サポート対象プラットフォームの owner/mode 検査で保護します。Linux と macOS では所有者、symlink、schema が安全でないとき fail closed です。同じホスト利用者が侵害された後の保護までは主張しません。共有の読み取り専用 agent profile は `${XDG_DATA_HOME:-$HOME/.local/share}/tobari/profiles` 以下にあります。
 

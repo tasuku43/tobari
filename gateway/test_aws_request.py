@@ -42,7 +42,10 @@ class AWSRequestIdentityTests(unittest.TestCase):
             "POST", "https", "sts.us-east-1.amazonaws.com", 443, "/", "",
             self.headers("application/x-www-form-urlencoded", len(body)), body,
         )
-        self.assertEqual(parsed, ParsedAWSRequest("query", "sts", "GetCallerIdentity"))
+        self.assertEqual(
+            parsed,
+            ParsedAWSRequest("query", "sts", "GetCallerIdentity", protocol_version="2011-06-15"),
+        )
         self.assertNotIn("secret", repr(parsed))
 
     def test_json_requires_one_signed_exact_target(self):
@@ -51,7 +54,10 @@ class AWSRequestIdentityTests(unittest.TestCase):
             "content-type;host;x-amz-date;x-amz-target",
         ) + [("x-amz-target", "DynamoDB_20120810.ListTables")]
         parsed = self.classify(headers)
-        self.assertEqual(parsed, ParsedAWSRequest("json", "sts", "DynamoDB_20120810.ListTables"))
+        self.assertEqual(
+            parsed,
+            ParsedAWSRequest("json", "sts", "ListTables", target_namespace="DynamoDB_20120810"),
+        )
         for changed in (
             [item for item in headers if item[0] != "x-amz-target"],
             headers + [("x-amz-target", "DynamoDB_20120810.PutItem")],
@@ -59,6 +65,18 @@ class AWSRequestIdentityTests(unittest.TestCase):
         ):
             with self.assertRaises(AWSRequestError):
                 self.classify(changed)
+
+    def test_json_namespace_uses_the_exact_full_target_budget(self):
+        namespace = "N" * 129
+        target = namespace + ".GetItem"
+        headers = self.headers(
+            "application/x-amz-json-1.0", 2,
+            "content-type;host;x-amz-date;x-amz-target",
+        ) + [("x-amz-target", target)]
+        self.assertEqual(
+            self.classify(headers),
+            ParsedAWSRequest("json", "sts", "GetItem", target_namespace=namespace),
+        )
 
     def test_non_aws_and_non_rpc_requests_remain_unclassified(self):
         headers = self.headers("application/octet-stream", 2)

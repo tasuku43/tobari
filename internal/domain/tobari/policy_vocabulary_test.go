@@ -74,7 +74,7 @@ func TestPolicyFiniteVocabularyValidationAndDerivedStateChangeStayClosed(t *test
 		{Scheme: "https", Protocol: PolicyProtocolHTTP},
 		{Scheme: "https", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: "viewer"},
 		{Scheme: "https", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationMutation, GraphQLRootField: "updateIssue"},
-		{Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesVerb: "connect", KubernetesResource: "core/v1/pods/exec", KubernetesDryRun: "none"},
+		{Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesKind: KubernetesRequestResource, KubernetesVerb: "connect", KubernetesGroup: "", KubernetesVersion: "v1", KubernetesResource: "pods", KubernetesName: "demo", KubernetesSubresource: "exec", KubernetesDryRun: "none"},
 	}
 	for _, identity := range identities {
 		if err := identity.Validate(); err != nil {

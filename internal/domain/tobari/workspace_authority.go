@@ -13,19 +13,20 @@ import (
 )
 
 const (
-	WorkspaceTemplateSchemaVersion = 1
+	WorkspaceTemplateSchemaVersion = 2
 	ContextBindingSchemaVersion    = 1
-	PolicyMemorySchemaVersion      = 1
+	PolicyMemorySchemaVersion      = 2
 	WorkspaceBindingSchemaVersion  = 3
 
-	WorkspaceTemplateReferenceKind           = "workspace-template"
-	WorkspaceTemplateRevisionReferenceKind   = "workspace-template-revision"
-	WorkspaceTemplateChangePlanReferenceKind = "workspace-template-change-plan"
-	ContextReferenceKind                     = "context"
-	ContextActivationPlanReferenceKind       = "context-activation-plan"
-	WorkspaceReferenceKind                   = "workspace"
-	WorkspaceTemplateCatalogTargetKind       = "workspace-template-catalog"
-	WorkspaceTemplateCatalogTargetID         = "workspace-template-catalog"
+	WorkspaceTemplateReferenceKind                    = "workspace-template"
+	WorkspaceTemplateRevisionReferenceKind            = "workspace-template-revision"
+	WorkspaceTemplateChangePlanReferenceKind          = "workspace-template-change-plan"
+	WorkspaceTemplatePolicyMigrationPlanReferenceKind = "workspace-template-policy-migration-plan"
+	ContextReferenceKind                              = "context"
+	ContextActivationPlanReferenceKind                = "context-activation-plan"
+	WorkspaceReferenceKind                            = "workspace"
+	WorkspaceTemplateCatalogTargetKind                = "workspace-template-catalog"
+	WorkspaceTemplateCatalogTargetID                  = "workspace-template-catalog"
 )
 
 var (
@@ -56,12 +57,13 @@ var (
 )
 
 const (
-	workspaceTemplateRefPrefix           = "wtpl1_"
-	workspaceTemplateRevisionRefPrefix   = "wtrev1_"
-	workspaceTemplateChangePlanRefPrefix = "wtplan1_"
-	contextRefPrefix                     = "ctx1_"
-	contextActivationPlanRefPrefix       = "ctxplan1_"
-	workspaceRefPrefix                   = "wsp1_"
+	workspaceTemplateRefPrefix                    = "wtpl1_"
+	workspaceTemplateRevisionRefPrefix            = "wtrev1_"
+	workspaceTemplateChangePlanRefPrefix          = "wtplan1_"
+	workspaceTemplatePolicyMigrationPlanRefPrefix = "wtpmplan1_"
+	contextRefPrefix                              = "ctx1_"
+	contextActivationPlanRefPrefix                = "ctxplan1_"
+	workspaceRefPrefix                            = "wsp1_"
 )
 
 // WorkspaceTemplateID, ContextID, and WorkspaceID are distinct V1 authority
@@ -220,14 +222,15 @@ func (b WorkspaceTemplateBoundary) Clone() WorkspaceTemplateBoundary {
 // destination and method ceilings live only in Boundary and are supplied for
 // validation rather than duplicated here.
 type WorkspaceTemplatePolicyBody struct {
-	AgentProfile      string                           `json:"agent_profile"`
-	NativeReadiness   ManifestNativeReadiness          `json:"native_readiness"`
-	BaselineGrants    []ManifestPolicyExactRule        `json:"baseline_grants"`
-	BaselineTemplates []ManifestPolicyPathTemplateRule `json:"baseline_templates"`
-	MCPBaselineGrants []ManifestPolicyMCPRule          `json:"mcp_baseline_grants"`
-	BaselineDenies    []ManifestPolicyExactRule        `json:"baseline_denies"`
-	GraphQLEndpoints  []ManifestPolicyExactRule        `json:"graphql_endpoints"`
-	MCPEndpoints      []ManifestPolicyExactRule        `json:"mcp_endpoints"`
+	AgentProfile      string                            `json:"agent_profile"`
+	NativeReadiness   ManifestNativeReadiness           `json:"native_readiness"`
+	SemanticModules   *WorkspaceTemplateSemanticModules `json:"semantic_modules,omitempty"`
+	BaselineGrants    []ManifestPolicyExactRule         `json:"baseline_grants"`
+	BaselineTemplates []ManifestPolicyPathTemplateRule  `json:"baseline_templates"`
+	MCPBaselineGrants []ManifestPolicyMCPRule           `json:"mcp_baseline_grants"`
+	BaselineDenies    []ManifestPolicyExactRule         `json:"baseline_denies"`
+	GraphQLEndpoints  []ManifestPolicyExactRule         `json:"graphql_endpoints"`
+	MCPEndpoints      []ManifestPolicyExactRule         `json:"mcp_endpoints"`
 }
 
 func (p WorkspaceTemplatePolicyBody) Validate(boundary WorkspaceTemplateBoundary) error {
@@ -239,6 +242,20 @@ func (p WorkspaceTemplatePolicyBody) Validate(boundary WorkspaceTemplateBoundary
 	}
 	if err := p.NativeReadiness.Validate(); err != nil {
 		return err
+	}
+	if p.SemanticModules != nil {
+		if len(p.BaselineGrants) != 0 || len(p.BaselineTemplates) != 0 || len(p.MCPBaselineGrants) != 0 || len(p.BaselineDenies) != 0 || len(p.GraphQLEndpoints) != 0 || len(p.MCPEndpoints) != 0 {
+			return fmt.Errorf("Template policy cannot mix final semantic modules with predecessor static fields")
+		}
+		deniedMethods := []string{}
+		for _, override := range boundary.MethodPolicy.Overrides {
+			if override.Decision == ManifestMethodDeny {
+				deniedMethods = append(deniedMethods, override.Method)
+			}
+		}
+		if err := p.SemanticModules.Validate(deniedMethods); err != nil {
+			return err
+		}
 	}
 	policy := ManifestPolicy{
 		SchemaVersion: ManifestPolicySchemaVersion, Name: "workspace-template",
@@ -252,6 +269,10 @@ func (p WorkspaceTemplatePolicyBody) Validate(boundary WorkspaceTemplateBoundary
 
 func (p WorkspaceTemplatePolicyBody) Clone() WorkspaceTemplatePolicyBody {
 	result := p
+	if p.SemanticModules != nil {
+		modules := p.SemanticModules.Clone()
+		result.SemanticModules = &modules
+	}
 	result.BaselineGrants = append([]ManifestPolicyExactRule{}, p.BaselineGrants...)
 	result.BaselineTemplates = append([]ManifestPolicyPathTemplateRule{}, p.BaselineTemplates...)
 	for index := range result.BaselineTemplates {
@@ -960,6 +981,9 @@ func (b PolicyMemoryRuleBody) Validate(decision PolicyMemoryDecision) error {
 	if b.Match == PolicyMatchExact {
 		if err := validatePolicyPath(b.Path); err != nil {
 			return err
+		}
+		if err := (SemanticRequestEffect{Scheme: b.Scheme, Host: b.Host, Port: b.Port, Method: b.Method, Path: b.Path, Identity: b.PolicyProtocolIdentity}).Validate(); err != nil {
+			return fmt.Errorf("Policy Memory semantic effect: %w", err)
 		}
 		if len(b.Segments) != 0 || len(b.Examples) != 1 || b.Examples[0] != b.Path {
 			return fmt.Errorf("exact Policy Memory rule evidence is invalid")

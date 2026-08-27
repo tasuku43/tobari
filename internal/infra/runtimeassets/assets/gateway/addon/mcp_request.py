@@ -24,6 +24,19 @@ class ParsedMCPRequest:
     tool_name: str | None = None
 
 
+def _strict_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON object key")
+        result[key] = value
+    return result
+
+
+def _reject_nonfinite_json(value: str) -> object:
+    raise ValueError(f"non-finite JSON number {value}")
+
+
 def validate_mcp_post_headers(method: str, headers: list[tuple[str, str]]) -> None:
     if method != "POST":
         raise MCPRequestError("invalid_method", "MCP transport method must be POST")
@@ -51,8 +64,12 @@ def parse_mcp_post_request(method: str, headers: list[tuple[str, str]], body: by
     if int(declared_length) != len(body):
         raise MCPRequestError("content_length_mismatch", "MCP request body length does not match Content-Length")
     try:
-        document = json.loads(body)
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        document = json.loads(
+            body,
+            object_pairs_hook=_strict_object,
+            parse_constant=_reject_nonfinite_json,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
         raise MCPRequestError("invalid_json", "MCP request body is invalid JSON") from error
     if not isinstance(document, dict) or not set(document).issubset({"jsonrpc", "id", "method", "params"}):
         raise MCPRequestError("invalid_shape", "MCP request must be one JSON-RPC object")

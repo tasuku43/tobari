@@ -116,7 +116,7 @@ func TestFinalWorkspaceAuthorityCatalogOwnsExactReferenceGraph(t *testing.T) {
 		t.Fatalf("Validate() error = %v", err)
 	}
 	for _, path := range []string{
-		"template list", "template show", "template create", "template copy", "template plan", "template apply", "template default set", "template delete",
+		"template list", "template show", "template create", "template copy", "template migration plan", "template migration apply", "template plan", "template apply", "template default set", "template delete",
 		"context list", "context show", "context apply", "context create", "context enter", "context delete",
 		"workspace list", "workspace status", "workspace delete",
 	} {
@@ -131,17 +131,19 @@ func TestFinalWorkspaceAuthorityCatalogOwnsExactReferenceGraph(t *testing.T) {
 	}
 
 	wantProduced := map[string][]ProducedRef{
-		"context apply":    {{Kind: tobari.ContextReferenceKind, Field: "context_ref"}},
-		"template apply":   {{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}, {Kind: tobari.WorkspaceTemplateRevisionReferenceKind, Field: "current_revision_ref"}},
-		"template plan":    {{Kind: tobari.WorkspaceTemplateChangePlanReferenceKind, Field: "plan_ref"}, {Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}, {Kind: tobari.ContextReferenceKind, Field: "contexts[].context_ref"}, {Kind: tobari.WorkspaceReferenceKind, Field: "contexts[].workspace_ref"}},
-		"template create":  {{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}},
-		"template list":    {{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "items[].template_ref"}},
-		"template show":    {{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}, {Kind: tobari.WorkspaceTemplateRevisionReferenceKind, Field: "current_revision_ref"}},
-		"context list":     {{Kind: tobari.ContextReferenceKind, Field: "items[].context_ref"}},
-		"context show":     {{Kind: tobari.ContextReferenceKind, Field: "context_ref"}},
-		"workspace list":   {{Kind: tobari.WorkspaceReferenceKind, Field: "items[].workspace_ref"}},
-		"workspace status": {{Kind: tobari.WorkspaceReferenceKind, Field: "workspace_ref"}},
-		"context enter":    {{Kind: tobari.WorkspaceReferenceKind, Field: "workspace_ref"}},
+		"context apply":            {{Kind: tobari.ContextReferenceKind, Field: "context_ref"}},
+		"template apply":           {{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}, {Kind: tobari.WorkspaceTemplateRevisionReferenceKind, Field: "current_revision_ref"}},
+		"template migration plan":  {{Kind: tobari.WorkspaceTemplatePolicyMigrationPlanReferenceKind, Field: "plan_ref"}, {Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}},
+		"template migration apply": {{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}},
+		"template plan":            {{Kind: tobari.WorkspaceTemplateChangePlanReferenceKind, Field: "plan_ref"}, {Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}, {Kind: tobari.ContextReferenceKind, Field: "contexts[].context_ref"}, {Kind: tobari.WorkspaceReferenceKind, Field: "contexts[].workspace_ref"}},
+		"template create":          {{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}},
+		"template list":            {{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "items[].template_ref"}},
+		"template show":            {{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}, {Kind: tobari.WorkspaceTemplateRevisionReferenceKind, Field: "current_revision_ref"}},
+		"context list":             {{Kind: tobari.ContextReferenceKind, Field: "items[].context_ref"}},
+		"context show":             {{Kind: tobari.ContextReferenceKind, Field: "context_ref"}},
+		"workspace list":           {{Kind: tobari.WorkspaceReferenceKind, Field: "items[].workspace_ref"}},
+		"workspace status":         {{Kind: tobari.WorkspaceReferenceKind, Field: "workspace_ref"}},
+		"context enter":            {{Kind: tobari.WorkspaceReferenceKind, Field: "workspace_ref"}},
 	}
 	for path, want := range wantProduced {
 		command, _ := catalog.Lookup(path)
@@ -149,7 +151,7 @@ func TestFinalWorkspaceAuthorityCatalogOwnsExactReferenceGraph(t *testing.T) {
 			t.Fatalf("%s ProducedRefs() = %+v, want %+v", path, got, want)
 		}
 	}
-	for _, path := range []string{"template apply", "template default set", "template delete", "context show", "context apply", "context enter", "context delete", "workspace status", "workspace delete"} {
+	for _, path := range []string{"template apply", "template migration apply", "template default set", "template delete", "context show", "context apply", "context enter", "context delete", "workspace status", "workspace delete"} {
 		command, _ := catalog.Lookup(path)
 		if command.Role == RoleUtility || len(command.ConsumedRefs()) == 0 {
 			t.Fatalf("%s role/consumed refs = %q %+v", path, command.Role, command.ConsumedRefs())
@@ -161,6 +163,10 @@ func TestFinalWorkspaceAuthorityCatalogOwnsExactReferenceGraph(t *testing.T) {
 	}
 	if apply.Agent.Mutation == nil || apply.Agent.Mutation.TargetIDInput != "--plan" || apply.Agent.Mutation.ParentInput != "" {
 		t.Fatalf("template apply mutation = %+v", apply.Agent.Mutation)
+	}
+	migrationApply, _ := catalog.Lookup("template migration apply")
+	if got, want := migrationApply.ConsumedRefs(), []ConsumedRef{{Kind: tobari.WorkspaceTemplatePolicyMigrationPlanReferenceKind, Argument: "--plan"}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("template migration apply refs = %+v, want %+v", got, want)
 	}
 	defaultSet, _ := catalog.Lookup("template default set")
 	if got := defaultSet.Agent.Output.Fields[1].Name; got != "selected" {
@@ -220,12 +226,13 @@ func TestFinalTemplateCreateCanPublishReadAccessAndBoundedGraphQLEndpoint(t *tes
 			if code := command.RunContext(context.Background(), args); code != ExitOK {
 				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 			}
-			if capture.calls != 1 || capture.body.Boundary.SourceAccess != tobari.ManifestSourceAccess(sourceAccess) || len(capture.body.Policy.GraphQLEndpoints) == 0 {
-				t.Fatalf("calls=%d source=%q endpoints=%+v", capture.calls, capture.body.Boundary.SourceAccess, capture.body.Policy.GraphQLEndpoints)
+			if capture.calls != 1 || capture.body.Boundary.SourceAccess != tobari.ManifestSourceAccess(sourceAccess) || capture.body.Policy.SemanticModules == nil || len(capture.body.Policy.SemanticModules.Protocols.HTTP.GraphQL.Endpoints) == 0 {
+				t.Fatalf("calls=%d source=%q policy=%+v", capture.calls, capture.body.Boundary.SourceAccess, capture.body.Policy)
 			}
 			parsed, err := parseBoundedGraphQLEndpoint(endpoint)
-			if err != nil || !reflect.DeepEqual(capture.body.Policy.GraphQLEndpoints[len(capture.body.Policy.GraphQLEndpoints)-1], parsed) {
-				t.Fatalf("custom endpoint=%+v parsed=%+v err=%v", capture.body.Policy.GraphQLEndpoints, parsed, err)
+			got := finalTemplateGraphQLEndpoints(capture.body.Policy)
+			if err != nil || !reflect.DeepEqual(got[len(got)-1], parsed) {
+				t.Fatalf("custom endpoint=%+v parsed=%+v err=%v", got, parsed, err)
 			}
 			var document struct {
 				Template finalTemplateDraftProjection `json:"template"`
@@ -864,15 +871,21 @@ func finalDesiredActiveSnapshotFixture(t *testing.T, active bool) (tobari.Contex
 
 func finalAxisTemplateBody(path string) tobari.WorkspaceTemplateBody {
 	digest := tobari.SemanticDigest("sha256:" + strings.Repeat("f", 64))
+	modules := tobari.EmptyWorkspaceTemplateSemanticModules()
+	modules.Protocols.HTTP.Generic.Allow.Rules = append(modules.Protocols.HTTP.Generic.Allow.Rules, tobari.SemanticHTTPRule{
+		SemanticRuleAuthority: tobari.SemanticRuleAuthority{Scheme: "https", Host: "api.example.dev", Port: 443},
+		Method:                "GET",
+		Path:                  path,
+	})
 	return tobari.WorkspaceTemplateBody{
 		Boundary: tobari.WorkspaceTemplateBoundary{
 			SourceAccess:       tobari.ManifestSourceAccessReadOnly,
-			DestinationCeiling: tobari.ManifestPolicyDestinationCeiling{Mode: "exact", Authorities: []tobari.ManifestPolicyAuthority{{Scheme: "https", Host: "api.example.dev", Port: 443}}},
-			MethodPolicy:       tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview, Overrides: []tobari.ManifestMethodOverride{{Method: "GET", Decision: tobari.ManifestMethodAllow}}},
+			DestinationCeiling: tobari.ManifestPolicyDestinationCeiling{Mode: "public_https", Authorities: []tobari.ManifestPolicyAuthority{}},
+			MethodPolicy:       tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview, Overrides: []tobari.ManifestMethodOverride{}},
 		},
 		Policy: tobari.WorkspaceTemplatePolicyBody{
 			AgentProfile: tobari.DefaultProfile, NativeReadiness: tobari.ManifestNativeReadinessEnabled,
-			BaselineGrants:    []tobari.ManifestPolicyExactRule{{Scheme: "https", Host: "api.example.dev", Port: 443, Method: "GET", Path: path}},
+			SemanticModules: &modules, BaselineGrants: []tobari.ManifestPolicyExactRule{},
 			BaselineTemplates: []tobari.ManifestPolicyPathTemplateRule{}, MCPBaselineGrants: []tobari.ManifestPolicyMCPRule{}, BaselineDenies: []tobari.ManifestPolicyExactRule{}, GraphQLEndpoints: []tobari.ManifestPolicyExactRule{}, MCPEndpoints: []tobari.ManifestPolicyExactRule{},
 		},
 		EntryDefaults:   tobari.WorkspaceTemplateEntryDefaults{Runtime: tobari.RuntimeBinding{RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Revision: string(digest), Ordinal: 1, Image: "tobari-runtime:test"}},

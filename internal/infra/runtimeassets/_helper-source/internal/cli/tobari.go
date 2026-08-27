@@ -1191,79 +1191,97 @@ type clusterDenialsOutput struct {
 }
 
 type policyDenialOutput struct {
-	Timestamp            string `json:"timestamp"`
-	RequestID            string `json:"request_id"`
-	WorkspaceManifestID  string `json:"workspace_manifest_id"`
-	Context              string `json:"workspace_manifest"`
-	WorkspaceID          string `json:"workspace_id"`
-	ProjectRoot          string `json:"project_root"`
-	Scheme               string `json:"scheme"`
-	Host                 string `json:"host"`
-	Port                 int    `json:"port"`
-	Method               string `json:"method"`
-	Path                 string `json:"path"`
-	Protocol             string `json:"protocol"`
-	StateChange          string `json:"state_change"`
-	GraphQLOperationType string `json:"graphql_operation_type"`
-	GraphQLRootField     string `json:"graphql_root_field"`
-	MCPMethod            string `json:"mcp_method"`
-	MCPToolName          string `json:"mcp_tool_name"`
-	AWSWireProtocol      string `json:"aws_wire_protocol"`
-	AWSService           string `json:"aws_service"`
-	AWSOperation         string `json:"aws_operation"`
-	KubernetesVerb       string `json:"kubernetes_verb"`
-	KubernetesResource   string `json:"kubernetes_resource"`
-	KubernetesDryRun     string `json:"kubernetes_dry_run"`
-	GitService           string `json:"git_service"`
-	GitRepository        string `json:"git_repository"`
-	OCIAction            string `json:"oci_action"`
-	OCIRepository        string `json:"oci_repository"`
-	OCIObject            string `json:"oci_object"`
-	Reason               string `json:"reason"`
-	StatusCode           int    `json:"status_code"`
-	Learnable            bool   `json:"learnable"`
-	DestinationKind      string `json:"destination_kind"`
-	AuthorityLifetime    string `json:"authority_lifetime"`
-	AttachmentEpochID    string `json:"attachment_epoch_id"`
+	Timestamp                 string `json:"timestamp"`
+	RequestID                 string `json:"request_id"`
+	WorkspaceManifestID       string `json:"workspace_manifest_id"`
+	Context                   string `json:"workspace_manifest"`
+	WorkspaceID               string `json:"workspace_id"`
+	ProjectRoot               string `json:"project_root"`
+	Scheme                    string `json:"scheme"`
+	Host                      string `json:"host"`
+	Port                      int    `json:"port"`
+	Method                    string `json:"method"`
+	Path                      string `json:"path"`
+	Protocol                  string `json:"protocol"`
+	StateChange               string `json:"state_change"`
+	GraphQLOperationType      string `json:"graphql_operation_type"`
+	GraphQLRootField          string `json:"graphql_root_field"`
+	MCPMethod                 string `json:"mcp_method"`
+	MCPToolName               string `json:"mcp_tool_name"`
+	AWSWireProtocol           string `json:"aws_wire_protocol"`
+	AWSService                string `json:"aws_service"`
+	AWSProtocolVersion        string `json:"aws_protocol_version"`
+	AWSTargetNamespace        string `json:"aws_target_namespace"`
+	AWSOperation              string `json:"aws_operation"`
+	KubernetesKind            string `json:"kubernetes_kind"`
+	KubernetesVerb            string `json:"kubernetes_verb"`
+	KubernetesGroup           string `json:"kubernetes_group"`
+	KubernetesVersion         string `json:"kubernetes_version"`
+	KubernetesResource        string `json:"kubernetes_resource"`
+	KubernetesNamespace       string `json:"kubernetes_namespace"`
+	KubernetesName            string `json:"kubernetes_name"`
+	KubernetesSubresource     string `json:"kubernetes_subresource"`
+	KubernetesDryRun          string `json:"kubernetes_dry_run"`
+	KubernetesNonResourcePath string `json:"kubernetes_non_resource_path"`
+	GitService                string `json:"git_service"`
+	GitRepository             string `json:"git_repository"`
+	OCIAction                 string `json:"oci_action"`
+	OCIRepository             string `json:"oci_repository"`
+	OCIObject                 string `json:"oci_object"`
+	Reason                    string `json:"reason"`
+	StatusCode                int    `json:"status_code"`
+	Learnable                 bool   `json:"learnable"`
+	DestinationKind           string `json:"destination_kind"`
+	AuthorityLifetime         string `json:"authority_lifetime"`
+	AttachmentEpochID         string `json:"attachment_epoch_id"`
 }
 
 type policyCandidateOutput struct {
-	ID                   string `json:"id"`
-	ObservedAt           string `json:"observed_at"`
-	ObservationCount     int    `json:"observation_count"`
-	WorkspaceManifestID  string `json:"workspace_manifest_id"`
-	Context              string `json:"workspace_manifest"`
-	WorkspaceID          string `json:"workspace_id"`
-	ProjectRoot          string `json:"project_root"`
-	Scheme               string `json:"scheme"`
-	Host                 string `json:"host"`
-	Port                 int    `json:"port"`
-	Method               string `json:"method"`
-	Path                 string `json:"path"`
-	Protocol             string `json:"protocol"`
-	StateChange          string `json:"state_change"`
-	GraphQLOperationType string `json:"graphql_operation_type"`
-	GraphQLRootField     string `json:"graphql_root_field"`
-	MCPMethod            string `json:"mcp_method"`
-	MCPToolName          string `json:"mcp_tool_name"`
-	AWSWireProtocol      string `json:"aws_wire_protocol"`
-	AWSService           string `json:"aws_service"`
-	AWSOperation         string `json:"aws_operation"`
-	KubernetesVerb       string `json:"kubernetes_verb"`
-	KubernetesResource   string `json:"kubernetes_resource"`
-	KubernetesDryRun     string `json:"kubernetes_dry_run"`
-	GitService           string `json:"git_service"`
-	GitRepository        string `json:"git_repository"`
-	OCIAction            string `json:"oci_action"`
-	OCIRepository        string `json:"oci_repository"`
-	OCIObject            string `json:"oci_object"`
-	Reason               string `json:"reason"`
-	StatusCode           int    `json:"status_code"`
-	AllowCommand         string `json:"allow_command"`
-	DenyCommand          string `json:"deny_command"`
-	DestinationKind      string `json:"destination_kind"`
-	AuthorityLifetime    string `json:"authority_lifetime"`
-	AttachmentEpochID    string `json:"attachment_epoch_id"`
+	ID                        string `json:"id"`
+	ObservedAt                string `json:"observed_at"`
+	ObservationCount          int    `json:"observation_count"`
+	WorkspaceManifestID       string `json:"workspace_manifest_id"`
+	Context                   string `json:"workspace_manifest"`
+	WorkspaceID               string `json:"workspace_id"`
+	ProjectRoot               string `json:"project_root"`
+	Scheme                    string `json:"scheme"`
+	Host                      string `json:"host"`
+	Port                      int    `json:"port"`
+	Method                    string `json:"method"`
+	Path                      string `json:"path"`
+	Protocol                  string `json:"protocol"`
+	StateChange               string `json:"state_change"`
+	GraphQLOperationType      string `json:"graphql_operation_type"`
+	GraphQLRootField          string `json:"graphql_root_field"`
+	MCPMethod                 string `json:"mcp_method"`
+	MCPToolName               string `json:"mcp_tool_name"`
+	AWSWireProtocol           string `json:"aws_wire_protocol"`
+	AWSService                string `json:"aws_service"`
+	AWSProtocolVersion        string `json:"aws_protocol_version"`
+	AWSTargetNamespace        string `json:"aws_target_namespace"`
+	AWSOperation              string `json:"aws_operation"`
+	KubernetesKind            string `json:"kubernetes_kind"`
+	KubernetesVerb            string `json:"kubernetes_verb"`
+	KubernetesGroup           string `json:"kubernetes_group"`
+	KubernetesVersion         string `json:"kubernetes_version"`
+	KubernetesResource        string `json:"kubernetes_resource"`
+	KubernetesNamespace       string `json:"kubernetes_namespace"`
+	KubernetesName            string `json:"kubernetes_name"`
+	KubernetesSubresource     string `json:"kubernetes_subresource"`
+	KubernetesDryRun          string `json:"kubernetes_dry_run"`
+	KubernetesNonResourcePath string `json:"kubernetes_non_resource_path"`
+	GitService                string `json:"git_service"`
+	GitRepository             string `json:"git_repository"`
+	OCIAction                 string `json:"oci_action"`
+	OCIRepository             string `json:"oci_repository"`
+	OCIObject                 string `json:"oci_object"`
+	Reason                    string `json:"reason"`
+	StatusCode                int    `json:"status_code"`
+	AllowCommand              string `json:"allow_command"`
+	DenyCommand               string `json:"deny_command"`
+	DestinationKind           string `json:"destination_kind"`
+	AuthorityLifetime         string `json:"authority_lifetime"`
+	AttachmentEpochID         string `json:"attachment_epoch_id"`
 }
 
 type policyCandidatesDocument struct {
@@ -1284,38 +1302,47 @@ type policyCandidateReportOutput struct {
 }
 
 type policyRuleOutput struct {
-	ID                   string   `json:"id"`
-	Decision             string   `json:"decision"`
-	Match                string   `json:"match"`
-	WorkspaceManifestID  string   `json:"workspace_manifest_id"`
-	Context              string   `json:"workspace_manifest"`
-	WorkspaceID          string   `json:"workspace_id"`
-	ProjectRoot          string   `json:"project_root"`
-	Scheme               string   `json:"scheme"`
-	Host                 string   `json:"host"`
-	Port                 int      `json:"port"`
-	Method               string   `json:"method"`
-	Path                 string   `json:"path"`
-	Protocol             string   `json:"protocol"`
-	StateChange          string   `json:"state_change"`
-	GraphQLOperationType string   `json:"graphql_operation_type"`
-	GraphQLRootField     string   `json:"graphql_root_field"`
-	MCPMethod            string   `json:"mcp_method"`
-	MCPToolName          string   `json:"mcp_tool_name"`
-	AWSWireProtocol      string   `json:"aws_wire_protocol"`
-	AWSService           string   `json:"aws_service"`
-	AWSOperation         string   `json:"aws_operation"`
-	KubernetesVerb       string   `json:"kubernetes_verb"`
-	KubernetesResource   string   `json:"kubernetes_resource"`
-	KubernetesDryRun     string   `json:"kubernetes_dry_run"`
-	GitService           string   `json:"git_service"`
-	GitRepository        string   `json:"git_repository"`
-	OCIAction            string   `json:"oci_action"`
-	OCIRepository        string   `json:"oci_repository"`
-	OCIObject            string   `json:"oci_object"`
-	Examples             []string `json:"examples"`
-	SourceCandidates     []string `json:"source_candidates"`
-	ResetCommand         string   `json:"reset_command"`
+	ID                        string   `json:"id"`
+	Decision                  string   `json:"decision"`
+	Match                     string   `json:"match"`
+	WorkspaceManifestID       string   `json:"workspace_manifest_id"`
+	Context                   string   `json:"workspace_manifest"`
+	WorkspaceID               string   `json:"workspace_id"`
+	ProjectRoot               string   `json:"project_root"`
+	Scheme                    string   `json:"scheme"`
+	Host                      string   `json:"host"`
+	Port                      int      `json:"port"`
+	Method                    string   `json:"method"`
+	Path                      string   `json:"path"`
+	Protocol                  string   `json:"protocol"`
+	StateChange               string   `json:"state_change"`
+	GraphQLOperationType      string   `json:"graphql_operation_type"`
+	GraphQLRootField          string   `json:"graphql_root_field"`
+	MCPMethod                 string   `json:"mcp_method"`
+	MCPToolName               string   `json:"mcp_tool_name"`
+	AWSWireProtocol           string   `json:"aws_wire_protocol"`
+	AWSService                string   `json:"aws_service"`
+	AWSProtocolVersion        string   `json:"aws_protocol_version"`
+	AWSTargetNamespace        string   `json:"aws_target_namespace"`
+	AWSOperation              string   `json:"aws_operation"`
+	KubernetesKind            string   `json:"kubernetes_kind"`
+	KubernetesVerb            string   `json:"kubernetes_verb"`
+	KubernetesGroup           string   `json:"kubernetes_group"`
+	KubernetesVersion         string   `json:"kubernetes_version"`
+	KubernetesResource        string   `json:"kubernetes_resource"`
+	KubernetesNamespace       string   `json:"kubernetes_namespace"`
+	KubernetesName            string   `json:"kubernetes_name"`
+	KubernetesSubresource     string   `json:"kubernetes_subresource"`
+	KubernetesDryRun          string   `json:"kubernetes_dry_run"`
+	KubernetesNonResourcePath string   `json:"kubernetes_non_resource_path"`
+	GitService                string   `json:"git_service"`
+	GitRepository             string   `json:"git_repository"`
+	OCIAction                 string   `json:"oci_action"`
+	OCIRepository             string   `json:"oci_repository"`
+	OCIObject                 string   `json:"oci_object"`
+	Examples                  []string `json:"examples"`
+	SourceCandidates          []string `json:"source_candidates"`
+	ResetCommand              string   `json:"reset_command"`
 }
 
 type policyRulesDocument struct {
@@ -1408,8 +1435,8 @@ func policyCandidateOutputs(
 			Path: safeExternalText(item.Path), Protocol: safeExternalText(item.EffectiveProtocol()), StateChange: item.StateChangePotential(),
 			GraphQLOperationType: safeExternalText(item.GraphQLOperationType), GraphQLRootField: safeExternalText(item.GraphQLRootField),
 			MCPMethod: safeExternalText(item.MCPMethod), MCPToolName: safeExternalText(item.MCPToolName),
-			AWSWireProtocol: safeExternalText(item.AWSWireProtocol), AWSService: safeExternalText(item.AWSService), AWSOperation: safeExternalText(item.AWSOperation),
-			KubernetesVerb: safeExternalText(item.KubernetesVerb), KubernetesResource: safeExternalText(item.KubernetesResource), KubernetesDryRun: safeExternalText(item.KubernetesDryRun),
+			AWSWireProtocol: safeExternalText(item.AWSWireProtocol), AWSService: safeExternalText(item.AWSService), AWSProtocolVersion: safeExternalText(item.AWSProtocolVersion), AWSTargetNamespace: safeExternalText(item.AWSTargetNamespace), AWSOperation: safeExternalText(item.AWSOperation),
+			KubernetesKind: safeExternalText(item.KubernetesKind), KubernetesVerb: safeExternalText(item.KubernetesVerb), KubernetesGroup: safeExternalText(item.KubernetesGroup), KubernetesVersion: safeExternalText(item.KubernetesVersion), KubernetesResource: safeExternalText(item.KubernetesResource), KubernetesNamespace: safeExternalText(item.KubernetesNamespace), KubernetesName: safeExternalText(item.KubernetesName), KubernetesSubresource: safeExternalText(item.KubernetesSubresource), KubernetesDryRun: safeExternalText(item.KubernetesDryRun), KubernetesNonResourcePath: safeExternalText(item.KubernetesNonResourcePath),
 			GitService: safeExternalText(item.GitService), GitRepository: safeExternalText(item.GitRepository),
 			OCIAction: safeExternalText(item.OCIAction), OCIRepository: safeExternalText(item.OCIRepository), OCIObject: safeExternalText(item.OCIObject),
 			Reason:          safeExternalText(item.Reason),
@@ -1550,7 +1577,35 @@ func policyAWSCoordinate(identity tobari.PolicyProtocolIdentity) string {
 	if identity.EffectiveProtocol() != tobari.PolicyProtocolAWS {
 		return ""
 	}
-	return safeExternalText(identity.AWSService) + "/" + safeExternalText(identity.AWSOperation)
+	qualifier := identity.AWSProtocolVersion
+	if identity.AWSWireProtocol == "json" {
+		qualifier = identity.AWSTargetNamespace
+	}
+	return safeExternalText(identity.AWSWireProtocol) + " " + safeExternalText(identity.AWSService) + "/" + safeExternalText(qualifier) + "/" + safeExternalText(identity.AWSOperation)
+}
+
+func policyKubernetesCoordinate(identity tobari.PolicyProtocolIdentity) string {
+	if identity.EffectiveProtocol() != tobari.PolicyProtocolKubernetes {
+		return ""
+	}
+	if identity.KubernetesKind == tobari.KubernetesRequestNonResource {
+		return safeExternalText(identity.KubernetesVerb + " " + identity.KubernetesNonResourcePath)
+	}
+	group := identity.KubernetesGroup
+	if group == "" {
+		group = "core"
+	}
+	coordinate := group + "/" + identity.KubernetesVersion + "/" + identity.KubernetesResource
+	if identity.KubernetesNamespace != "" {
+		coordinate += " namespace=" + identity.KubernetesNamespace
+	}
+	if identity.KubernetesName != "" {
+		coordinate += " name=" + identity.KubernetesName
+	}
+	if identity.KubernetesSubresource != "" {
+		coordinate += " subresource=" + identity.KubernetesSubresource
+	}
+	return safeExternalText(identity.KubernetesVerb + " " + coordinate)
 }
 
 func writePolicyGraphQLIdentity(output *humanOutput, identity tobari.PolicyProtocolIdentity) {
@@ -1567,10 +1622,9 @@ func writePolicyGraphQLIdentity(output *humanOutput, identity tobari.PolicyProto
 	}
 	if coordinate := policyAWSCoordinate(identity); coordinate != "" {
 		output.row("AWS operation", coordinate, styleText)
-		output.row("AWS protocol", safeExternalText(identity.AWSWireProtocol), styleText)
 	}
-	if identity.EffectiveProtocol() == tobari.PolicyProtocolKubernetes {
-		output.row("Kubernetes", safeExternalText(identity.KubernetesVerb+" "+identity.KubernetesResource), styleText)
+	if coordinate := policyKubernetesCoordinate(identity); coordinate != "" {
+		output.row("Kubernetes", coordinate, styleText)
 		output.row("Dry run", safeExternalText(identity.KubernetesDryRun), styleText)
 	}
 	if identity.EffectiveProtocol() == tobari.PolicyProtocolGit {
@@ -1696,8 +1750,8 @@ func policyRuleOutputs(result tobari.PolicyRuleReport, resetCommand string) []po
 			Method: safeExternalText(rule.Method), Path: safeExternalText(rule.Path), Protocol: safeExternalText(rule.EffectiveProtocol()), StateChange: rule.StateChangePotential(),
 			GraphQLOperationType: safeExternalText(rule.GraphQLOperationType), GraphQLRootField: safeExternalText(rule.GraphQLRootField),
 			MCPMethod: safeExternalText(rule.MCPMethod), MCPToolName: safeExternalText(rule.MCPToolName),
-			AWSWireProtocol: safeExternalText(rule.AWSWireProtocol), AWSService: safeExternalText(rule.AWSService), AWSOperation: safeExternalText(rule.AWSOperation),
-			KubernetesVerb: safeExternalText(rule.KubernetesVerb), KubernetesResource: safeExternalText(rule.KubernetesResource), KubernetesDryRun: safeExternalText(rule.KubernetesDryRun),
+			AWSWireProtocol: safeExternalText(rule.AWSWireProtocol), AWSService: safeExternalText(rule.AWSService), AWSProtocolVersion: safeExternalText(rule.AWSProtocolVersion), AWSTargetNamespace: safeExternalText(rule.AWSTargetNamespace), AWSOperation: safeExternalText(rule.AWSOperation),
+			KubernetesKind: safeExternalText(rule.KubernetesKind), KubernetesVerb: safeExternalText(rule.KubernetesVerb), KubernetesGroup: safeExternalText(rule.KubernetesGroup), KubernetesVersion: safeExternalText(rule.KubernetesVersion), KubernetesResource: safeExternalText(rule.KubernetesResource), KubernetesNamespace: safeExternalText(rule.KubernetesNamespace), KubernetesName: safeExternalText(rule.KubernetesName), KubernetesSubresource: safeExternalText(rule.KubernetesSubresource), KubernetesDryRun: safeExternalText(rule.KubernetesDryRun), KubernetesNonResourcePath: safeExternalText(rule.KubernetesNonResourcePath),
 			GitService: safeExternalText(rule.GitService), GitRepository: safeExternalText(rule.GitRepository),
 			OCIAction: safeExternalText(rule.OCIAction), OCIRepository: safeExternalText(rule.OCIRepository), OCIObject: safeExternalText(rule.OCIObject),
 			Examples: examples, SourceCandidates: append([]string{}, rule.SourceCandidates...),
@@ -1867,8 +1921,8 @@ func renderClusterDenialsWithReviewCommand(
 				Scheme: safeExternalText(item.Scheme), Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method), Path: safeExternalText(item.Path),
 				Protocol: safeExternalText(item.EffectiveProtocol()), StateChange: item.StateChangePotential(), GraphQLOperationType: safeExternalText(item.GraphQLOperationType),
 				GraphQLRootField: safeExternalText(item.GraphQLRootField), MCPMethod: safeExternalText(item.MCPMethod), MCPToolName: safeExternalText(item.MCPToolName), Reason: safeExternalText(item.Reason), StatusCode: item.StatusCode,
-				AWSWireProtocol: safeExternalText(item.AWSWireProtocol), AWSService: safeExternalText(item.AWSService), AWSOperation: safeExternalText(item.AWSOperation),
-				KubernetesVerb: safeExternalText(item.KubernetesVerb), KubernetesResource: safeExternalText(item.KubernetesResource), KubernetesDryRun: safeExternalText(item.KubernetesDryRun),
+				AWSWireProtocol: safeExternalText(item.AWSWireProtocol), AWSService: safeExternalText(item.AWSService), AWSProtocolVersion: safeExternalText(item.AWSProtocolVersion), AWSTargetNamespace: safeExternalText(item.AWSTargetNamespace), AWSOperation: safeExternalText(item.AWSOperation),
+				KubernetesKind: safeExternalText(item.KubernetesKind), KubernetesVerb: safeExternalText(item.KubernetesVerb), KubernetesGroup: safeExternalText(item.KubernetesGroup), KubernetesVersion: safeExternalText(item.KubernetesVersion), KubernetesResource: safeExternalText(item.KubernetesResource), KubernetesNamespace: safeExternalText(item.KubernetesNamespace), KubernetesName: safeExternalText(item.KubernetesName), KubernetesSubresource: safeExternalText(item.KubernetesSubresource), KubernetesDryRun: safeExternalText(item.KubernetesDryRun), KubernetesNonResourcePath: safeExternalText(item.KubernetesNonResourcePath),
 				GitService: safeExternalText(item.GitService), GitRepository: safeExternalText(item.GitRepository),
 				OCIAction: safeExternalText(item.OCIAction), OCIRepository: safeExternalText(item.OCIRepository), OCIObject: safeExternalText(item.OCIObject),
 				Learnable:       item.Learnable,

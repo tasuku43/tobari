@@ -90,9 +90,9 @@ func storeCollectionFixture(t *testing.T) tobari.WorkspaceAuthorityCollection {
 		Boundary: tobari.WorkspaceTemplateBoundary{
 			SourceAccess: tobari.ManifestSourceAccessReadOnly,
 			DestinationCeiling: tobari.ManifestPolicyDestinationCeiling{
-				Mode: "exact", Authorities: []tobari.ManifestPolicyAuthority{{Scheme: "https", Host: "api.example.dev", Port: 443}},
+				Mode: "public_https", Authorities: []tobari.ManifestPolicyAuthority{},
 			},
-			MethodPolicy: tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview, Overrides: []tobari.ManifestMethodOverride{{Method: "GET", Decision: tobari.ManifestMethodAllow}}},
+			MethodPolicy: tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview, Overrides: []tobari.ManifestMethodOverride{}},
 		},
 		Policy: tobari.WorkspaceTemplatePolicyBody{
 			AgentProfile: tobari.DefaultProfile, NativeReadiness: tobari.ManifestNativeReadinessEnabled,
@@ -411,6 +411,35 @@ func TestFinalOnlyStoreAcceptsFreshOrCompleteFinalOnlyWhenLegacyIsAbsent(t *test
 		}
 		if _, err := os.Lstat(root); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("legacy rejection created final state: %v", err)
+		}
+	})
+
+	t.Run("pre-public generation schema", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "final-authority")
+		materializeCollection(t, root, storeCollectionFixture(t))
+		path := filepath.Join(root, activeFileName)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var pointer activeGenerationPointer
+		if err := json.Unmarshal(data, &pointer); err != nil {
+			t.Fatal(err)
+		}
+		pointer.SchemaVersion = 1
+		data, err = json.Marshal(pointer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		store, err := NewFinalOnly(root, &legacyGuardFake{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := store.ReadComplete(ctx); err == nil || !errors.Is(err, tobari.ErrPreReleaseLegacyAuthority) || !strings.Contains(err.Error(), "reset and recreate") {
+			t.Fatalf("pre-public generation error=%v", err)
 		}
 	})
 

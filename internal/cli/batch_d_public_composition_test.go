@@ -63,7 +63,7 @@ func TestBatchDPublicPathSetAndResearchDeltaAreExact(t *testing.T) {
 		"installation migration apply", "installation migration plan",
 		"policy allow", "policy candidates", "policy deny", "policy reset", "policy rules", "review permissions", "review runtimes", "review services",
 		"runtime build", "runtime create", "runtime delete", "runtime history", "runtime list", "runtime prune apply", "runtime prune dry-run", "runtime restore", "runtime show",
-		"service allow", "service deny", "service open", "service status", "service stop", "status", "template apply", "template copy", "template create", "template default set", "template delete", "template list", "template plan", "template show", "tobari", "version",
+		"service allow", "service deny", "service open", "service status", "service stop", "status", "template apply", "template copy", "template create", "template default set", "template delete", "template list", "template migration apply", "template migration plan", "template plan", "template show", "tobari", "version",
 		"workspace delete", "workspace list", "workspace status",
 	}
 	if buildIdentityHasBroker() {
@@ -123,11 +123,11 @@ func assertBatchDOutputFields(t *testing.T, path string, fields []OutputField) {
 
 func TestBatchDChangedPublicSchemasAreExact(t *testing.T) {
 	want := map[string]int{
-		"template list": 1, "template show": 1, "template create": 1, "template copy": 1, "template plan": 1, "template apply": 1, "template default set": 1, "template delete": 1,
+		"template list": 1, "template show": 1, "template create": 1, "template copy": 1, "template plan": 1, "template apply": 1, "template migration plan": 1, "template migration apply": 1, "template default set": 1, "template delete": 1,
 		"context list": 1, "context show": 1, "context apply": 1, "context create": 1, "context enter": 1, "context delete": 1,
 		"workspace list": 1, "workspace status": 1, "workspace delete": 1,
-		"status": 3, "cluster status": 3, "cluster denials": 4,
-		"policy candidates": 2, "review permissions": 2, "policy rules": 2, "policy apply-reviewed": 2,
+		"status": 3, "cluster status": 3, "cluster denials": 5,
+		"policy candidates": 3, "review permissions": 3, "policy rules": 3, "policy apply-reviewed": 3,
 		"runtime prune dry-run": 2, "runtime prune apply": 2,
 	}
 	if buildIdentityHasBroker() {

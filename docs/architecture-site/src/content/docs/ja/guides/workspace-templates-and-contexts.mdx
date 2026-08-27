@@ -81,6 +81,22 @@ Apply は完全なimmutable Template revisionを発行します。Runtimeとsess
 defaultは後続のentry/session境界、bootstrapは新しいWorkspace homeにだけ
 適用されます。
 
+`templates/<template-id>/policy.yaml` は final
+`tobari.dev/template-policy/v1` schema で編集します。static policy は closed
+な protocol module（HTTP、GraphQL、MCP、Git、OCI）と provider module
+（AWS、Kubernetes）に分かれます。各 module は bounded な request fact だけを
+投影し、provider の permission catalog を取り込みません。
+
+旧 alpha source が残る installation では、まず desired source だけを移行し、
+その後に通常の Template change をレビューします。
+
+```sh
+tobari template migration plan --id TEMPLATE_REF
+tobari template migration apply --plan TEMPLATE_POLICY_MIGRATION_PLAN_REF
+tobari template plan --id TEMPLATE_REF
+tobari template apply --plan TEMPLATE_CHANGE_PLAN_REF
+```
+
 ## 観察と削除
 
 bare `status`はmutationを行わないCWD homeです。

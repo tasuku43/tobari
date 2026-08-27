@@ -5,7 +5,7 @@ import (
 	"sort"
 )
 
-const WorkspaceAuthorityCollectionSchemaVersion = 1
+const WorkspaceAuthorityCollectionSchemaVersion = 2
 
 // WorkspaceAuthorityContextRecord is the Context-owned portion of one final
 // authority envelope. Template and Workspace values remain normalized so one

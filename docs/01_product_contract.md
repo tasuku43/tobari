@@ -169,7 +169,8 @@ and upload-status checks are `not_expected`; manifest pushes, deletes, upload
 steps, and cross-repository mounts are `possible`. A mount retains both digest
 and source repository. Blob and manifest bodies, credentials, and raw query
 values remain outside policy and audit. The base `/v2/` probe, token routes,
-and unsupported `/v2/*` paths remain ordinary HTTP, while a classified OCI
+and unrelated `/v2/*` paths remain ordinary HTTP, while malformed paths using
+reserved Distribution markers fail locally and a classified OCI
 request cannot inherit an ordinary HTTP rule.
 For a commercial AWS endpoint using signed AWS Query or AWS JSON RPC, Gateway
 derives only wire protocol, SigV4 service, and exact `Action` or signed
@@ -367,6 +368,8 @@ The public commands are:
 | `template show [--name <name>] [--format text|json]` | discover | read | Return one final Template and its exact current immutable revision |
 | `template create --name <name> [--source-access read-only\|read-write] [--graphql-endpoint <https-url>] [--format text|json]` | act | create | Write one fresh unpublished Template source draft from the reviewed standard body |
 | `template copy --from <template-revision-ref> --name <name> [--format text|json]` | act | create | Write one independent unpublished Template source draft from one exact retained revision |
+| `template migration plan --id <template-ref> [--format text|json]` | discover | read | Bind one exact in-sync alpha source, active revision, and generated V1 source without mutation |
+| `template migration apply --plan <template-policy-migration-plan-ref> [--format text|json]` | act | write | Atomically replace only the reviewed desired source with V1, leaving active authority unchanged |
 | `template plan --id <template-ref> [--format text|json]` | discover | read | Bind and classify one exact desired Template change without mutation |
 | `template apply --plan <template-change-plan-ref> [--format text|json]` | act | write | Revalidate one reviewed source/authority plan and publish at most one immutable moving-head Template revision |
 | `template default set --id <template-ref> [--format text|json]` | act | write | Select the default Workspace Template |
@@ -422,18 +425,28 @@ remains an explicit opaque-reference mutation and is not inferred from file
 deletion.
 
 The exact current source schema tokens are `tobari.dev/template/v1`,
-`tobari.dev/context/v1`, and `tobari.dev/template-policy/v1alpha1`. The alpha
-policy schema is an installation-owned lossless bridge, not portable
-interchange. Numeric policy schemas, unknown tokens, and the reserved final
-`tobari.dev/template-policy/v1` token carrying the alpha topology are invalid.
-Adoption of final V1 requires a dedicated explicit source migration and then
-normal planned Apply; reads, upgrades, and cluster lifecycle never rewrite it.
+`tobari.dev/context/v1`, and `tobari.dev/template-policy/v1`. Policy V1 has
+required `boundary.methods.deny` and the closed
+`semantic.protocols`/`semantic.providers` module tree. Numeric schemas,
+unknown tokens, alpha-shaped data relabeled as V1, and unknown modules or
+fields are invalid. The predecessor `v1alpha1` decoder exists only behind
+`template migration plan/apply`: it binds exact active/source/target identity,
+atomically updates desired source without activation, and still requires a
+normal reviewed Template Plan/Apply. Reads, upgrades, and cluster lifecycle
+never rewrite it.
 
 Active authority is concept-separated immutable state under
 `$XDG_STATE_HOME/tobari/authority`, selected by one verified generation manifest
 and `active.json` pointer. Ordinary commands never migrate the supported old
 typed `authority.json`; they return `installation_migration_required`. Only the
 reference-bound `installation migration plan/apply` workflow can migrate it.
+The semantic-policy cutover advances the pre-public final generation,
+Workspace Template, Policy Memory, and authority collection schemas to 2.
+Schema-1 generation state is unsupported development state and returns
+`legacy_state_present` with reset/recreate guidance; it is not eligible for the
+typed `authority.json` migration and no old AWS or Kubernetes coordinate is
+inferred. Source-only alpha migration remains available only when the active
+authority already uses the current generation schema.
 
 Runtime configuration uses stable-ID directories and exact immutable revision
 bindings. Runtime source/build updates never propagate to a Template. No
@@ -869,15 +882,17 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Doctor report | `report` | 1 |
 | Cluster activation result | `cluster_up` | 3 |
 | Cluster status | `cluster` | 3 |
-| Cluster denial window | `denials` | 4 |
+| Cluster denial window | `denials` | 5 |
 | Cluster stop result | `cluster_down` | 3 |
-| Policy candidates | `policy_candidates` | 2 |
-| Policy review | `policy_review` | 2 |
-| Policy rules | `policy_rules` | 2 |
-| Policy mutation result | `result` | 2 |
+| Policy candidates | `policy_candidates` | 3 |
+| Policy review | `policy_review` | 3 |
+| Policy rules | `policy_rules` | 3 |
+| Policy mutation result | `result` | 3 |
 | Workspace Template list | `templates` | 1 |
 | Workspace Template report | `template` | 1 |
 | Workspace Template change plan | `template_change_plan` | 1 |
+| Workspace Template policy source migration plan | `template_policy_migration_plan` | 1 |
+| Workspace Template policy source migration result | `template_policy_migration` | 1 |
 | Template, Context, or Workspace selection/deletion result | `result` | 1 |
 | Context list | `contexts` | 1 |
 | Context report | `context` | 1 |

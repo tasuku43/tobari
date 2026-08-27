@@ -29,7 +29,7 @@ class ReviewedDynamicCredentialGatewayTestCase(unittest.TestCase):
         self.real_token = "real-token-canary"
         self.provider_projection = self.github_provider_projection()
         self.config = {
-            "version": "v1",
+            "version": "v2",
             "contexts": {
                 self.context_a: {"name": "default", "graphql_endpoints": [], "profiles": {
                     "example": {
