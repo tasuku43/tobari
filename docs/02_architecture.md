@@ -845,9 +845,11 @@ data source: it cannot supply an ID, policy rule, Runtime binding, principal,
 session, or credential.
 
 The fixed inventory is explicit rather than a directory walk. Predecessor
-Context/Workspace roots and journals, cluster reconciliation, and migration
-roots are legacy-only. Projection, principal, auth (including the lazily
-created research Workspace-auth registry), Workspace profile/home, Host
+active Context/Workspace roots and journals, cluster reconciliation, and
+migration roots are legacy-only. The final editable Context source root is
+checked for absence only before first final publication, then its strict final
+source adapter owns schema and path validation. Projection, principal, auth
+(including the lazily created research Workspace-auth registry), Workspace profile/home, Host
 Loopback, interactive-attachment, and service-exposure roots are checked for
 absence only before first final publication because their final owners may
 create them later. Each later owner validates its own exact schema; the

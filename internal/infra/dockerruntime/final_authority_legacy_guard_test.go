@@ -65,10 +65,11 @@ func TestFinalAuthorityLegacyGuardIsNonCreatingAndSeparatesReusedRoots(t *testin
 	if err := os.MkdirAll(runtime.contextsDirectory(), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for _, initialized := range []bool{false, true} {
-		if err := runtime.ConfirmNoPreReleaseLegacyAuthority(context.Background(), initialized); err == nil {
-			t.Fatalf("legacy-only Context root was accepted with finalInitialized=%t", initialized)
-		}
+	if err := runtime.ConfirmNoPreReleaseLegacyAuthority(context.Background(), false); err == nil {
+		t.Fatal("Context source root was accepted before first final initialization")
+	}
+	if err := runtime.ConfirmNoPreReleaseLegacyAuthority(context.Background(), true); err != nil {
+		t.Fatalf("final-owned Context source root self-blocked after initialization: %v", err)
 	}
 }
 
@@ -143,7 +144,6 @@ func TestFinalAuthorityLegacyGuardClosedInventoryAndLifetime(t *testing.T) {
 	reference := newRuntime(t)
 	inventory := reference.preReleaseLegacyAuthorityPaths()
 	wantLegacy := []string{
-		reference.contextsDirectory(),
 		reference.rootsDirectory(),
 		reference.instancesDirectory(),
 		reference.statePath(),
@@ -153,6 +153,7 @@ func TestFinalAuthorityLegacyGuardClosedInventoryAndLifetime(t *testing.T) {
 		filepath.Join(reference.stateDirectory, "migrations"),
 	}
 	wantFirst := []string{
+		reference.contextsDirectory(),
 		reference.aggregateRoot(),
 		reference.principalRegistryDirectory(),
 		filepath.Join(reference.stateDirectory, "auth"),
@@ -196,9 +197,23 @@ func TestFinalAuthorityLegacyGuardClosedInventoryAndLifetime(t *testing.T) {
 		}
 	}
 
+	// Context desired source is final-owned after the first envelope. Its
+	// strict source adapter, not the predecessor presence guard, owns later
+	// schema validation.
+	runtime := newRuntime(t)
+	if err := os.MkdirAll(runtime.contextsDirectory(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runtime.contextsDirectory(), "final-source-placeholder"), []byte("final Context source placeholder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.ConfirmNoPreReleaseLegacyAuthority(context.Background(), true); err != nil {
+		t.Fatalf("final Context source root was rejected after initialization: %v", err)
+	}
+
 	// WP03 is preserved across the clean cut and must never be mistaken for
 	// predecessor Workspace authority.
-	runtime := newRuntime(t)
+	runtime = newRuntime(t)
 	for _, path := range []string{
 		runtime.runtimesDirectory(),
 		filepath.Join(runtime.stateDirectory, "runtime"),

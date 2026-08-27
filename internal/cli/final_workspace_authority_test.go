@@ -20,6 +20,12 @@ import (
 
 type finalAuthorityReadFixture struct{}
 
+type finalContextPlanErrorFixture struct{ err error }
+
+func (f finalContextPlanErrorFixture) PlanContextSourceByReference(context.Context, string) (tobari.ContextActivationPlan, error) {
+	return tobari.ContextActivationPlan{}, f.err
+}
+
 type finalTemplateCreateCapture struct {
 	calls int
 	name  string
@@ -167,6 +173,22 @@ func TestFinalWorkspaceAuthorityCatalogOwnsExactReferenceGraph(t *testing.T) {
 	contextEnter, _ := catalog.Lookup("context enter")
 	if !reflect.DeepEqual(contextEnter.Agent.Output.Formats, []OutputFormat{OutputFormatText, OutputFormatJSON}) || contextEnter.Agent.Output.JSONEnvelope != "entry" || contextEnter.Agent.Output.JSONSchemaVersion != 1 {
 		t.Fatalf("context enter output must expose the final entry receipt without writing to child stdout: %+v", contextEnter.Agent.Output)
+	}
+}
+
+func TestFinalContextPlanEmitsDeclaredLegacyReadFault(t *testing.T) {
+	contextRef, err := tobari.ContextRef(tobari.ContextID("01912345-6789-7abc-8def-0123456789a2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.finalContexts = workspaceauthoritycmd.NewContextService(finalContextPlanErrorFixture{err: fmt.Errorf("%w: synthetic legacy root", tobari.ErrPreReleaseLegacyAuthority)})
+	if code := command.RunContext(context.Background(), []string{"context", "plan", "--id", contextRef}); code != ExitRejected {
+		t.Fatalf("context plan code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "legacy_state_present") || strings.Contains(stderr.String(), "undeclared_fault_contract") {
+		t.Fatalf("context plan fault=%q", stderr.String())
 	}
 }
 

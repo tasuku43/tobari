@@ -23,7 +23,6 @@ type preReleaseLegacyAuthorityInventory struct {
 func (r *Runtime) preReleaseLegacyAuthorityPaths() preReleaseLegacyAuthorityInventory {
 	return preReleaseLegacyAuthorityInventory{
 		legacyOnly: []string{
-			r.contextsDirectory(),
 			r.rootsDirectory(),
 			r.instancesDirectory(),
 			r.statePath(),
@@ -33,6 +32,7 @@ func (r *Runtime) preReleaseLegacyAuthorityPaths() preReleaseLegacyAuthorityInve
 			filepath.Join(r.stateDirectory, "migrations"),
 		},
 		firstInitializationOnly: []string{
+			r.contextsDirectory(),
 			r.aggregateRoot(),
 			r.principalRegistryDirectory(),
 			filepath.Join(r.stateDirectory, "auth"),

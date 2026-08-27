@@ -14,6 +14,7 @@ import (
 
 	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
+	"github.com/tasuku43/tobari/internal/infra/dockerruntime"
 	"github.com/tasuku43/tobari/internal/infra/workspaceauthorityresources"
 	"github.com/tasuku43/tobari/internal/infra/workspaceauthoritysource"
 	"github.com/tasuku43/tobari/internal/infra/workspaceauthoritystore"
@@ -34,12 +35,6 @@ func (l *firstUseIntegrationLifecycle) WithLifecycleLock(ctx context.Context, ac
 	l.lock.Lock()
 	defer l.lock.Unlock()
 	return action(ctx)
-}
-
-type firstUseIntegrationGuard struct{}
-
-func (firstUseIntegrationGuard) ConfirmNoPreReleaseLegacyAuthority(context.Context, bool) error {
-	return nil
 }
 
 type firstUseIntegrationRuntime struct {
@@ -305,8 +300,14 @@ func (firstUseIntegrationMigrationStage) Abort(context.Context) error    { retur
 
 func TestFinalRootFreshStartBootstrapsAuthorityClusterAndWorkspaceFromEmptyXDG(t *testing.T) {
 	root := t.TempDir()
-	configRoot := filepath.Join(root, "config", "tobari")
-	stateRoot := filepath.Join(root, "state", "tobari")
+	configHome := filepath.Join(root, "config")
+	stateHome := filepath.Join(root, "state")
+	dataHome := filepath.Join(root, "data")
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	configRoot := filepath.Join(configHome, "tobari")
+	stateRoot := filepath.Join(stateHome, "tobari")
 	authorityRoot := filepath.Join(stateRoot, "authority")
 	for _, path := range []string{configRoot, stateRoot} {
 		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
@@ -321,7 +322,10 @@ func TestFinalRootFreshStartBootstrapsAuthorityClusterAndWorkspaceFromEmptyXDG(t
 
 	lifetime := context.Background()
 	lifecycle := &firstUseIntegrationLifecycle{parent: stateRoot}
-	guard := firstUseIntegrationGuard{}
+	guard, err := dockerruntime.New(lifetime)
+	if err != nil {
+		t.Fatal(err)
+	}
 	store, err := workspaceauthoritystore.NewFinalOnly(authorityRoot, guard)
 	if err != nil {
 		t.Fatal(err)
@@ -410,6 +414,18 @@ func TestFinalRootFreshStartBootstrapsAuthorityClusterAndWorkspaceFromEmptyXDG(t
 	if collection.Contexts[0].ActiveTemplatePolicy == nil || collection.Contexts[0].ActivePolicyMemory == nil || collection.Contexts[0].ActivePolicyMemoryRef == nil || collection.Workspaces[0].LastSuccessfulEntry == nil {
 		t.Fatalf("fresh final authority did not retain active cluster and Workspace entry axes: %#v", collection)
 	}
+	observed, err := pair.Observe(context.Background())
+	if err != nil || !observed.CollectionPresent || observed.Context == nil {
+		t.Fatalf("post-create default-pair observation=%#v err=%v", observed, err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := command.RunContext(context.Background(), []string{"context", "list", "--format=json"}); code != ExitOK {
+		t.Fatalf("post-create context list exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stdout.String()+stderr.String(), "legacy_state_present") || strings.Contains(stdout.String()+stderr.String(), "undeclared_fault_contract") {
+		t.Fatalf("post-create context list regressed to legacy failure: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
 	drafts, err := resources.ListWorkspaceTemplateDrafts(context.Background())
 	if err != nil || len(drafts) != 0 {
 		t.Fatalf("fresh bootstrap left unbound Template drafts=%#v err=%v", drafts, err)
@@ -433,7 +449,6 @@ func (r firstUseIntegrationProjectRoot) ResolveProjectRoot(context.Context, stri
 }
 
 var _ workspaceauthoritystore.LifecycleAuthority = (*firstUseIntegrationLifecycle)(nil)
-var _ workspaceauthoritystore.LegacyAuthorityGuard = firstUseIntegrationGuard{}
 var _ workspaceauthoritystore.WorkspaceTemplateRuntimeRevisionAuthority = (*firstUseIntegrationRuntime)(nil)
 var _ workspaceauthoritystore.PolicyMemoryActivationAuthority = (*firstUseIntegrationActivation)(nil)
 var _ workspaceauthoritystore.FinalAuthoritySettlementAuthority = (*firstUseIntegrationSettlement)(nil)

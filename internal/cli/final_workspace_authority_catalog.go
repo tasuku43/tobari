@@ -347,6 +347,9 @@ func finalContextPlanSpec() CommandSpec {
 		{Name: "new_policy_memory_owner", Type: OutputFieldTypeString, Description: "New empty Policy Memory owner Context ID."},
 	}
 	errors := append(finalAuthorityReadErrors("context plan", "context list"),
+		declaredCommandError(fault.KindUnavailable, "context_plan_read_failed", false, "context list", "Inspect the current Context source and authority before planning again."),
+		declaredCommandError(fault.KindInvalidInput, "invalid_context_ref", false, "context list", "Use one exact opaque Context reference emitted by Context discovery."),
+		declaredCommandError(fault.KindContract, "invalid_context_activation_plan", false, "context list", "Repair the Context planning result before applying it."),
 		declaredCommandError(fault.KindNotFound, "resource_source_missing", false, "context list", "Restore context.yaml before planning."),
 		declaredCommandError(fault.KindInvalidInput, "resource_source_invalid", false, "context list", "Correct strict context.yaml before planning."),
 		declaredCommandError(fault.KindRejected, "context_exists", false, "context list", "Use the existing root and Template binding."))

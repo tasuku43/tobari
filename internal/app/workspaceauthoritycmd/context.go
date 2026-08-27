@@ -264,12 +264,36 @@ func (s *ContextService) Plan(ctx context.Context, contextRef string) (tobari.Co
 	}
 	plan, err := s.planner.PlanContextSourceByReference(ctx, contextRef)
 	if err != nil {
-		return tobari.ContextActivationPlan{}, contextMutationFault(err)
+		return tobari.ContextActivationPlan{}, contextPlanFault(err)
 	}
 	if err := plan.Validate(); err != nil || plan.ContextRef != contextRef {
 		return tobari.ContextActivationPlan{}, contractFault("invalid_context_activation_plan", "Context activation plan is invalid", err)
 	}
 	return plan, nil
+}
+
+func contextPlanFault(err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	if _, ok := fault.PublicCopy(err); ok {
+		return err
+	}
+	if errors.Is(err, tobari.ErrFinalAuthorityMigrationRequired) || isPreReleaseLegacyAuthority(err) {
+		return readFault(err, "context_plan_read_failed", "Context activation plan could not be read")
+	}
+	switch {
+	case errors.Is(err, tobari.ErrResourceSourceMissing):
+		return notFoundFault("resource_source_missing", "The exact Context source file is missing", "context list")
+	case errors.Is(err, tobari.ErrResourceSourceInvalid):
+		return fault.WithClassification(fault.New(fault.KindInvalidInput, "resource_source_invalid", "The exact Context source does not satisfy its strict schema", false, fault.NextAction{Command: "context list", Reason: "Rediscover the retained Context and correct the typed source diagnostic."}), fault.PhaseObservation, fault.ChangeNotApplicable)
+	case errors.Is(err, tobari.ErrWorkspaceTemplateNotFound), errors.Is(err, tobari.ErrContextBindingNotFound):
+		return notFoundFault("authority_not_found", "Context planning authority no longer exists", "context list")
+	case errors.Is(err, tobari.ErrContextBindingExists):
+		return fault.WithClassification(fault.New(fault.KindRejected, "context_exists", "the Project and Workspace Template already have a Context", false, fault.NextAction{Command: "context list", Reason: "Use the existing Context reference."}), fault.PhaseObservation, fault.ChangeNotApplicable)
+	default:
+		return readFault(err, "context_plan_read_failed", "Context activation plan could not be read")
+	}
 }
 
 func (s *ContextService) Apply(ctx context.Context, intent operation.Intent, contextRef string) (ContextApplyResult, error) {

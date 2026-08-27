@@ -83,6 +83,8 @@ type fakePort struct {
 	draftCopy         tobari.WorkspaceTemplateDraft
 	plan              tobari.WorkspaceTemplateChangePlan
 	planErr           error
+	contextPlan       tobari.ContextActivationPlan
+	contextPlanErr    error
 	updatePublication tobari.WorkspaceTemplateRevisionPublication
 	policy            tobari.PolicyCandidatePublication
 	reset             tobari.PolicyRuleResetPublication
@@ -124,6 +126,10 @@ func (f *fakePort) CopyWorkspaceTemplateDraftByRevisionReference(_ context.Conte
 func (f *fakePort) PlanWorkspaceTemplateSourceByReference(_ context.Context, ref string) (tobari.WorkspaceTemplateChangePlan, error) {
 	f.lastRef = ref
 	return f.plan, f.planErr
+}
+func (f *fakePort) PlanContextSourceByReference(_ context.Context, ref string) (tobari.ContextActivationPlan, error) {
+	f.lastRef = ref
+	return f.contextPlan, f.contextPlanErr
 }
 func (f *fakePort) UpdateWorkspaceTemplateByReference(_ context.Context, ref string, _ tobari.WorkspaceTemplateChange) (tobari.WorkspaceTemplateRevisionPublication, error) {
 	f.calls++
@@ -250,6 +256,31 @@ func TestTemplatePlanClassifiesUnknownPlannerFailureAsObservationFault(t *testin
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Code != "template_plan_read_failed" || public.Kind != fault.KindUnavailable || public.Phase != fault.PhaseObservation || public.ChangeState != fault.ChangeNotApplicable {
 		t.Fatalf("planner failure fault=%#v ok=%t", public, ok)
+	}
+}
+
+func TestContextPlanClassifiesLegacyAndUnknownPlannerFailuresAsReadFaults(t *testing.T) {
+	contextRef, err := tobari.ContextRef(contextID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name string
+		err  error
+		code string
+		kind fault.Kind
+	}{
+		{name: "legacy", err: fmt.Errorf("%w: synthetic legacy root", tobari.ErrPreReleaseLegacyAuthority), code: "legacy_state_present", kind: fault.KindRejected},
+		{name: "unknown", err: errors.New("synthetic planner failure"), code: "context_plan_read_failed", kind: fault.KindUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &fakePort{contextPlanErr: test.err}
+			_, err := NewContextService(fake).Plan(context.Background(), contextRef)
+			public, ok := fault.PublicCopy(err)
+			if !ok || public.Code != test.code || public.Kind != test.kind || public.Phase != fault.PhaseObservation || public.ChangeState != fault.ChangeNotApplicable {
+				t.Fatalf("planner failure fault=%#v ok=%t", public, ok)
+			}
+		})
 	}
 }
 
