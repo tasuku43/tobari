@@ -979,6 +979,12 @@ Image preflight fails before the policy test, cluster journal, shared network,
 or service-container mutation. Local Tobari-managed image development uses
 `task build` and the source-hash development resolver instead of a public
 cluster option.
+Policy testing uses the fixed bundle volume without weakening the later fresh-
+resource fence. When preflight creates that volume, preflight owns exact
+owner-verified removal on success, failure, and cancellation using a bounded
+process-lifetime cleanup context. A volume that existed before preflight is
+retained and rejected by the fresh-resource proof. Only the journaled cluster
+activation creates the persistent bundle volume covered by rollback authority.
 On first use, root validates the canonical Project root and observes known empty
 final Template/Context authority before rendering one typed recommended draft.
 The draft has no ID or persistence. Start and Customize both produce one

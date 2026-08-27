@@ -2,12 +2,41 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
+	"github.com/tasuku43/tobari/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
+
+type finalClusterErrorFixture struct{ err error }
+
+func (f finalClusterErrorFixture) Reconcile(context.Context, operation.Intent) (workspaceauthoritycmd.FinalClusterReconciliation, error) {
+	return workspaceauthoritycmd.FinalClusterReconciliation{}, f.err
+}
+
+func TestFinalClusterUpEmitsDeclaredResourceConflict(t *testing.T) {
+	structured := fault.WithClassification(fault.New(
+		fault.KindRejected,
+		"cluster_resource_conflict",
+		"Fresh shared-cluster resources are present or could not be proved absent.",
+		false,
+		fault.NextAction{Command: "doctor", Reason: "Inspect exact Docker and Tobari ownership state before another cluster activation."},
+	), fault.PhasePrecondition, fault.ChangeNone)
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.finalCluster = finalClusterErrorFixture{err: structured}
+	if code := command.RunContext(context.Background(), []string{"cluster", "up"}); code != ExitRejected {
+		t.Fatalf("cluster up exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "cluster_resource_conflict") || strings.Contains(stderr.String(), "undeclared_fault_contract") {
+		t.Fatalf("cluster up fault=%q", stderr.String())
+	}
+}
 
 func TestFinalClusterUpPublicResultOwnsOnlyTheCatalogEnvelopeVersion(t *testing.T) {
 	encoded, err := finalClusterJSON("cluster up", "cluster_up", tobari.FinalClusterUpSchemaVersion, finalClusterUpPublicResult{

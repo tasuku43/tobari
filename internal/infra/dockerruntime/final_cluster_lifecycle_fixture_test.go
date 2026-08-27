@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
@@ -28,6 +30,11 @@ type finalClusterLifecycleRunner struct {
 	networkConnectCalls  int
 	recordStatusCalls    bool
 	statusCalls          [][]string
+	policyVolumeExists   bool
+	policyVolumeCreates  int
+	policyVolumeRemoves  int
+	failPolicyTestOnce   bool
+	policyReadyMisses    int
 }
 
 func newFinalClusterLifecycleRunner(base *finalGatewaySettlementRunner) *finalClusterLifecycleRunner {
@@ -95,6 +102,12 @@ func (r *finalClusterLifecycleRunner) Run(ctx context.Context, args, environment
 		_, _ = io.WriteString(out, imageID+"\n")
 		return nil
 	}
+	if len(args) >= 2 && args[0] == "volume" && args[1] == "ls" && slices.Contains(args, "name=^"+policyBundleVolume+"$") {
+		if r.policyVolumeExists {
+			_, _ = fmt.Fprintln(out, policyBundleVolume)
+		}
+		return nil
+	}
 	if len(args) >= 2 && args[0] == "inspect" {
 		name := args[len(args)-1]
 		if r.componentMissing(name) {
@@ -126,6 +139,25 @@ func (r *finalClusterLifecycleRunner) Output(ctx context.Context, args, environm
 		}
 		return output.Bytes(), nil
 	}
+	if len(args) >= 2 && args[0] == "volume" && args[1] == "inspect" && args[len(args)-1] == policyBundleVolume {
+		if !r.policyVolumeExists {
+			return []byte("Error: No such volume: " + policyBundleVolume), errors.New("No such volume")
+		}
+		return []byte(ownerValue + "\n"), nil
+	}
+	if len(args) >= 2 && args[0] == "volume" && args[1] == "create" && args[len(args)-1] == policyBundleVolume {
+		r.policyVolumeExists = true
+		r.policyVolumeCreates++
+		return []byte(policyBundleVolume + "\n"), nil
+	}
+	if len(args) >= 3 && args[0] == "exec" && args[1] == opaContainer && r.policyReadyMisses > 0 {
+		r.policyReadyMisses--
+		return []byte("policy revision is not ready"), errors.New("policy revision is not ready")
+	}
+	if slices.Contains(args, "test") && r.failPolicyTestOnce {
+		r.failPolicyTestOnce = false
+		return []byte("synthetic first-use policy failure"), errors.New("synthetic first-use policy failure")
+	}
 	if len(args) >= 2 && args[0] == "container" && args[1] == "rm" {
 		id := args[len(args)-1]
 		for _, name := range []string{gatewayContainer, opaContainer, authBrokerContainer} {
@@ -149,6 +181,10 @@ func (r *finalClusterLifecycleRunner) Output(ctx context.Context, args, environm
 	}
 	if len(args) >= 2 && args[0] == "volume" && args[1] == "rm" {
 		r.volumeRemoveCalls++
+		if args[len(args)-1] == policyBundleVolume {
+			r.policyVolumeExists = false
+			r.policyVolumeRemoves++
+		}
 		return nil, nil
 	}
 	if len(args) != 0 {
@@ -307,6 +343,9 @@ func TestFinalClusterCleanDaemonReconcilesThroughBootstrapAndPublishesActiveAuth
 	if runner.base.composeCalls != 1 {
 		t.Fatalf("clean activation Compose calls=%d, want one journaled exact bootstrap", runner.base.composeCalls)
 	}
+	if !runner.policyVolumeExists || runner.policyVolumeCreates < 2 || runner.policyVolumeRemoves < 1 {
+		t.Fatalf("fresh policy volume lifecycle exists=%t creates=%d removes=%d", runner.policyVolumeExists, runner.policyVolumeCreates, runner.policyVolumeRemoves)
+	}
 	if _, err := runtime.readFinalPolicyActivation(runtime.finalPolicyActiveReceiptPath()); err != nil {
 		t.Fatalf("clean activation omitted active receipt: %v", err)
 	}
@@ -323,6 +362,54 @@ func TestFinalClusterCleanDaemonReconcilesThroughBootstrapAndPublishesActiveAuth
 	}
 	if len(status.Components) != wantComponents {
 		t.Fatalf("surface-selected component closure=%#v", status.Components)
+	}
+}
+
+func TestFinalClusterFreshPolicyPreflightFailureCleansVolumeAndRetries(t *testing.T) {
+	runtime, runner, previous, active, _ := finalClusterLifecycleFixture(t)
+	runner.failPolicyTestOnce = true
+	if err := runtime.ReconcileFinalClusterAuthority(context.Background(), previous, active, "cluster-up", "fresh-policy-retry"); err == nil {
+		t.Fatal("injected fresh policy preflight failure succeeded")
+	}
+	if runner.policyVolumeExists {
+		t.Fatal("failed fresh policy preflight retained its newly created policy volume")
+	}
+	if _, present, err := runtime.readFinalClusterBootstrap(); err != nil || present {
+		t.Fatalf("preflight failure journal present=%t err=%v", present, err)
+	}
+	if err := runtime.ReconcileFinalClusterAuthority(context.Background(), previous, active, "cluster-up", "fresh-policy-retry"); err != nil {
+		t.Fatalf("fresh cluster retry: %v", err)
+	}
+	if !runner.policyVolumeExists || runner.base.composeCalls != 1 {
+		t.Fatalf("retry volume=%t Compose calls=%d", runner.policyVolumeExists, runner.base.composeCalls)
+	}
+}
+
+func TestFinalClusterFreshPublicationDoesNotReadPredecessorContextLayout(t *testing.T) {
+	runtime, runner, previous, active, _ := finalClusterLifecycleFixture(t)
+	runner.policyReadyMisses = 1
+	sourceDirectory := filepath.Join(runtime.contextsDirectory(), string(finalProjectionContextID))
+	if err := os.MkdirAll(sourceDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDirectory, "context.yaml"), []byte("schema_version: 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.ReconcileFinalClusterAuthority(context.Background(), previous, active, "cluster-up", "fresh-final-source"); err != nil {
+		t.Fatalf("fresh final Context source was read as predecessor authority: %v", err)
+	}
+}
+
+func TestFinalClusterFreshPreexistingPolicyVolumeIsCausalConflict(t *testing.T) {
+	runtime, runner, previous, active, _ := finalClusterLifecycleFixture(t)
+	runner.policyVolumeExists = true
+	err := runtime.ReconcileFinalClusterAuthority(context.Background(), previous, active, "cluster-up", "fresh-policy-conflict")
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "cluster_resource_conflict" || public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone {
+		t.Fatalf("fresh conflict=%#v ok=%t private=%v", public, ok, err)
+	}
+	if !runner.policyVolumeExists || runner.base.composeCalls != 0 {
+		t.Fatalf("preexisting volume=%t Compose calls=%d", runner.policyVolumeExists, runner.base.composeCalls)
 	}
 }
 
@@ -442,8 +529,8 @@ func assertFinalClusterDownConsequence(t *testing.T, runtime *Runtime, runner *f
 	if _, present, err := runtime.readFinalClusterStopped(runtime.finalClusterDownJournalPath()); err != nil || present {
 		t.Fatalf("down journal present=%t err=%v", present, err)
 	}
-	if runner.volumeRemoveCalls != 0 {
-		t.Fatalf("down attempted retained volume removal %d times", runner.volumeRemoveCalls)
+	if runner.volumeRemoveCalls != runner.policyVolumeRemoves {
+		t.Fatalf("down attempted retained volume removal: all=%d preflight=%d", runner.volumeRemoveCalls, runner.policyVolumeRemoves)
 	}
 	for _, volume := range []string{"tobari-gateway-ca", policyBundleVolume, "tobari-public-ca"} {
 		if err := runtime.verifyOwned(context.Background(), "volume", volume); err != nil {

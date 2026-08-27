@@ -23,6 +23,8 @@ import (
 
 var aggregateRevisionPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
+const policyPreflightVolumeCleanupTimeout = 15 * time.Second
+
 type gatewayAuditRecord struct {
 	tobari.PolicyProtocolIdentity
 	SchemaVersion int    `json:"schema_version"`
@@ -183,12 +185,17 @@ func nullableAuditString(value *string) string {
 }
 
 func (r *Runtime) ensurePolicyBundleVolume(ctx context.Context) error {
+	_, err := r.ensurePolicyBundleVolumeWithCreation(ctx)
+	return err
+}
+
+func (r *Runtime) ensurePolicyBundleVolumeWithCreation(ctx context.Context) (bool, error) {
 	err := r.verifyOwned(ctx, "volume", policyBundleVolume)
 	if err == nil {
-		return nil
+		return false, nil
 	}
 	if !errors.Is(err, errOwnedResourceMissing) {
-		return err
+		return false, err
 	}
 	output, createErr := r.runner.Output(ctx, []string{
 		"volume", "create",
@@ -197,9 +204,23 @@ func (r *Runtime) ensurePolicyBundleVolume(ctx context.Context) error {
 		policyBundleVolume,
 	}, os.Environ())
 	if createErr != nil {
-		return fmt.Errorf("create policy bundle volume: %w: %s", createErr, boundedDiagnostic(output))
+		return false, fmt.Errorf("create policy bundle volume: %w: %s", createErr, boundedDiagnostic(output))
 	}
-	return r.verifyOwned(ctx, "volume", policyBundleVolume)
+	if err := r.verifyOwned(ctx, "volume", policyBundleVolume); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (r *Runtime) removeCreatedPolicyBundleVolume(ctx context.Context) error {
+	if err := r.verifyOwned(ctx, "volume", policyBundleVolume); err != nil {
+		return fmt.Errorf("verify preflight-created policy bundle volume: %w", err)
+	}
+	output, err := r.runner.Output(ctx, []string{"volume", "rm", policyBundleVolume}, os.Environ())
+	if err != nil {
+		return fmt.Errorf("remove preflight-created policy bundle volume: %w: %s", err, boundedDiagnostic(output))
+	}
+	return nil
 }
 
 func (r *Runtime) publishPolicyBundle(ctx context.Context, state tobari.State) error {
@@ -438,6 +459,24 @@ func (r *Runtime) preparePolicyBundle(ctx context.Context, state tobari.State) e
 	return r.publishPolicyBundle(ctx, state)
 }
 
+// prepareFinalPolicyBundle publishes one final-authority projection without
+// re-entering the predecessor Context store as an authority selector.
+func (r *Runtime) prepareFinalPolicyBundle(ctx context.Context, projection FinalAggregateProjection) error {
+	if err := r.verifyFinalAggregateTarget(projection); err != nil {
+		return err
+	}
+	if err := r.ensurePolicyBundleVolume(ctx); err != nil {
+		return err
+	}
+	if ready, _ := r.policyRevisionReady(ctx, projection.AggregateRevision); ready {
+		return nil
+	}
+	return r.publishPolicyBundleTargetWithVerifier(
+		ctx, projection.PolicyDirectory, projection.AggregateRevision,
+		func() error { return r.verifyFinalAggregateTarget(projection) },
+	)
+}
+
 func (r *Runtime) policyRevisionReady(ctx context.Context, revision string) (bool, []byte) {
 	if revision == "" {
 		return false, []byte("policy revision is required")
@@ -657,12 +696,22 @@ func (r *Runtime) testPolicyPreflight(ctx context.Context, preflight policyPrefl
 	return r.testPolicyArchive(ctx, archive)
 }
 
-func (r *Runtime) testPolicyArchive(ctx context.Context, archive []byte) error {
+func (r *Runtime) testPolicyArchive(ctx context.Context, archive []byte) (resultErr error) {
 	if len(archive) == 0 || len(archive) > maxPolicyPreflight*2 {
 		return fmt.Errorf("policy test bundle is invalid")
 	}
-	if err := r.ensurePolicyBundleVolume(ctx); err != nil {
+	createdVolume, err := r.ensurePolicyBundleVolumeWithCreation(ctx)
+	if err != nil {
 		return err
+	}
+	if createdVolume {
+		defer func() {
+			cleanupCtx, cancel := context.WithTimeout(r.lifetimeParent(ctx), policyPreflightVolumeCleanupTimeout)
+			defer cancel()
+			if cleanupErr := r.removeCreatedPolicyBundleVolume(cleanupCtx); cleanupErr != nil {
+				resultErr = errors.Join(resultErr, cleanupErr)
+			}
+		}()
 	}
 	versions, err := runtimeassets.Versions()
 	if err != nil {

@@ -221,7 +221,15 @@ func (r *Runtime) resumeFinalClusterBootstrap(ctx context.Context, journal final
 	if err := r.validateCandidateComposeClosure(journal.State, journal.Profile, journal.Compose); err != nil {
 		return err
 	}
-	if err := r.preparePolicyBundle(ctx, journal.State); err != nil {
+	projection := FinalAggregateProjection{
+		AggregateRevision:  journal.State.AggregateRevision,
+		PolicyDirectory:    journal.State.PolicyDirectory,
+		GatewayConfig:      journal.State.GatewayConfig,
+		MaterializedDigest: journal.Plan.ContentDigest,
+		EvaluatorIdentity:  journal.State.EvaluatorIdentity,
+		PolicyDataIdentity: journal.State.PolicyDataIdentity,
+	}
+	if err := r.prepareFinalPolicyBundle(ctx, projection); err != nil {
 		return err
 	}
 	transport, ok := journal.Profile.PermissionTransport()

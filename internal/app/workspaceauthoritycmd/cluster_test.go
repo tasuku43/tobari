@@ -148,6 +148,22 @@ func TestFinalClusterServicePreservesLegacyAndUnknownMutationClassification(t *t
 			t.Fatalf("unknown fault=%#v ok=%t calls=%d", public, ok, port.calls)
 		}
 	})
+	t.Run("structured adapter failure", func(t *testing.T) {
+		structured := fault.WithClassification(fault.New(
+			fault.KindRejected,
+			"cluster_resource_conflict",
+			"Fresh shared-cluster resources are present or could not be proved absent.",
+			false,
+			fault.NextAction{Command: "doctor", Reason: "Inspect exact Docker and Tobari ownership state before another cluster activation."},
+		), fault.PhasePrecondition, fault.ChangeNone)
+		port := &fakeFinalClusterPort{err: structured}
+		_, err := NewFinalClusterService(port).Reconcile(context.Background(), finalClusterIntent())
+		public, ok := fault.PublicCopy(err)
+		if !ok || public.Code != "cluster_resource_conflict" || public.Phase != fault.PhasePrecondition ||
+			public.ChangeState != fault.ChangeNone || port.calls != 1 {
+			t.Fatalf("structured fault=%#v ok=%t calls=%d", public, ok, port.calls)
+		}
+	})
 }
 
 func TestFinalClusterReconciliationValidationRejectsRelabeledConsequence(t *testing.T) {

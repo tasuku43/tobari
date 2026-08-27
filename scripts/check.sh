@@ -296,6 +296,7 @@ run_integration() {
   docker --context "$integration_context" version >/dev/null
   export DOCKER_CONTEXT="$integration_context"
   export TOBARI_INTEGRATION_DOCKER_CONTEXT="$integration_context"
+  ./scripts/test-final-first-use-integration.sh
   ./scripts/test-integration.sh
 }
 

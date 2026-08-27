@@ -6,10 +6,32 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 scenario=scripts/test-integration.sh
+first_use_scenario=scripts/test-final-first-use-integration.sh
 workspace_service_helper=test/integration/workspace_service_exposure.sh
 gateway_fixture_helper=test/integration/gateway_fixture.sh
 runtime_image_cleanup_helper=test/integration/runtime_image_cleanup.sh
 permission_resume_helper=test/integration/permission_resume.sh
+
+first_use_line_count=$(wc -l <"$first_use_scenario" | tr -d ' ')
+if ((first_use_line_count > 180)); then
+  echo "integration scope: first-use scenario grew to $first_use_line_count lines (limit 180)" >&2
+  exit 1
+fi
+for claim in \
+  '[[ ! -e $test_root/config/tobari && ! -e $test_root/state/tobari ]]' \
+  'template plan --id "$template_ref"' \
+  'value["runtime_id"] == "builtin/standard"' \
+  'context plan --id "$context_ref"' \
+  'run_tobari cluster up --format=json' \
+  'context enter --id "$context_ref"' \
+  'DOCKER_CONTEXT="$host_docker_context" ./scripts/build-dev-images.sh' \
+  'docker volume inspect --format' \
+  'tobari-policy-bundle'; do
+  if ! grep -F "$claim" "$first_use_scenario" >/dev/null; then
+    echo "integration scope: missing real first-use canary: $claim" >&2
+    exit 1
+  fi
+done
 
 expected_phases=$'preflight\nbuild-fixtures\ntemplates-and-cluster\ncredentials-and-workspaces\ngateway-broker-and-transport\nlive-policy-activation\nattachment-scoped-host-loopback\nruntime-failure-boundaries\nlifecycle'
 actual_phases=$(awk '/^begin_phase / { print $2 }' "$scenario")
@@ -279,4 +301,4 @@ for claim in \
   fi
 done
 
-echo "integration scope: OK ($line_count lines, $cli_reference_count CLI references)"
+echo "integration scope: OK ($line_count lines, $first_use_line_count first-use lines, $cli_reference_count CLI references)"

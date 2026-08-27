@@ -1391,7 +1391,11 @@ network or subprocess call and reads no credential or cache state.
 runtime bases required by all Workspace Templates, generates and validates the complete
 aggregate policy/routing projection, then creates shared labeled networks,
 configuration material, exactly one Gateway, exactly one OPA, and CA volumes
-as needed. It reconnects Gateway to the shared
+as needed. Policy validation may create the fixed bundle volume as temporary
+preflight material, but it removes that volume on every outcome when the same
+preflight created it; persistent shared-resource creation begins only after the
+fresh-resource proof. A pre-existing or ambiguous fixed resource remains a
+causal `cluster_resource_conflict` and is never adopted or deleted. It reconnects Gateway to the shared
 networks and existing registered project networks without creating project
 state or project resources and waits for both services to be healthy. The
 root command only verifies the shared cluster is

@@ -92,6 +92,43 @@ type finalContextPlanProjection struct {
 	NewPolicyMemoryOwner string `json:"new_policy_memory_owner"`
 }
 
+type finalTemplateChangeContextProjection struct {
+	ContextRef           string                `json:"context_ref"`
+	PolicyMemoryRevision tobari.SemanticDigest `json:"policy_memory_revision"`
+	WorkspaceRef         string                `json:"workspace_ref,omitempty"`
+}
+
+type finalTemplateChangePlanProjection struct {
+	PlanRef                string                                 `json:"plan_ref"`
+	TemplateRef            string                                 `json:"template_ref"`
+	ActiveRevision         *tobari.SemanticDigest                 `json:"active_revision,omitempty"`
+	ActiveMetadataRevision *tobari.SemanticDigest                 `json:"active_metadata_revision,omitempty"`
+	BaseRevision           *tobari.SemanticDigest                 `json:"base_revision,omitempty"`
+	SourceFingerprint      string                                 `json:"source_fingerprint"`
+	SourceRevision         tobari.SemanticDigest                  `json:"source_revision"`
+	Impact                 tobari.WorkspaceTemplateChangeImpact   `json:"impact"`
+	Diff                   tobari.WorkspaceTemplateChangeDiff     `json:"diff"`
+	Contexts               []finalTemplateChangeContextProjection `json:"contexts"`
+	AffectedContextCount   int                                    `json:"affected_context_count"`
+	RunningWorkspaceCount  int                                    `json:"running_workspace_count"`
+}
+
+func finalTemplateChangePlanFrom(plan tobari.WorkspaceTemplateChangePlan) finalTemplateChangePlanProjection {
+	contexts := make([]finalTemplateChangeContextProjection, len(plan.Contexts))
+	for index, item := range plan.Contexts {
+		contexts[index] = finalTemplateChangeContextProjection{
+			ContextRef: item.ContextRef, PolicyMemoryRevision: item.PolicyMemoryRevision, WorkspaceRef: item.WorkspaceRef,
+		}
+	}
+	return finalTemplateChangePlanProjection{
+		PlanRef: plan.PlanRef, TemplateRef: plan.TemplateRef, ActiveRevision: plan.ActiveRevision,
+		ActiveMetadataRevision: plan.ActiveMetadataRevision, BaseRevision: plan.BaseRevision,
+		SourceFingerprint: plan.SourceFingerprint, SourceRevision: plan.SourceRevision, Impact: plan.Impact,
+		Diff: plan.Diff, Contexts: contexts, AffectedContextCount: plan.AffectedContextCount,
+		RunningWorkspaceCount: plan.RunningWorkspaceCount,
+	}
+}
+
 type finalWorkspaceProjection struct {
 	WorkspaceRef         string `json:"workspace_ref,omitempty"`
 	WorkspaceID          string `json:"workspace_id"`
@@ -446,7 +483,7 @@ func runFinalTemplatePlan(ctx context.Context, c *CLI, command CommandSpec, _ op
 	}
 	human := []byte(fmt.Sprintf("Template change plan %s\nImpact %s\nTemplate %s\nContexts %d\nRunning Workspaces %d\nApply %s template apply --plan %s\n",
 		plan.PlanRef, plan.Impact, plan.TemplateRef, plan.AffectedContextCount, plan.RunningWorkspaceCount, ProgramName, plan.PlanRef))
-	output, err := finalAuthorityOutput(command.Path, "template_change_plan", plan, format, human)
+	output, err := finalAuthorityOutput(command.Path, "template_change_plan", finalTemplateChangePlanFrom(plan), format, human)
 	if err != nil {
 		return c.fail(ctx, err)
 	}

@@ -483,6 +483,11 @@ before success. A failed activation restores the source and prior known-good
 bundle; a reducing or mixed change first confirms a deny-all transition
 revision. Partial state is never mounted, and OPA receives no authority to
 rewrite source or projection.
+Before fresh shared-resource admission, a policy preflight that creates this
+fixed volume has only cleanup authority over that exact owner-verified volume
+and must remove it on every return path. It never removes or adopts a volume
+observed before the preflight. Persistent creation remains inside the cluster
+journal so rollback covers the complete fixed resource set.
 
 ## HTTP authorization boundary
 

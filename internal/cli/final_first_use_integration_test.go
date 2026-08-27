@@ -387,6 +387,9 @@ func TestFinalRootFreshStartBootstrapsAuthorityClusterAndWorkspaceFromEmptyXDG(t
 		body := finalAxisTemplateBody("/bootstrap")
 		body.Boundary.SourceAccess = tobari.ManifestSourceAccessReadWrite
 		body.EntryDefaults.Runtime.Revision = revision
+		if body.EntryDefaults.Runtime.RuntimeID != tobari.StandardRuntimeID {
+			return tobari.WorkspaceTemplateBody{}, fmt.Errorf("first-use Template Runtime ID = %q, want %q", body.EntryDefaults.Runtime.RuntimeID, tobari.StandardRuntimeID)
+		}
 		if err := body.Validate(); err != nil {
 			return tobari.WorkspaceTemplateBody{}, err
 		}
@@ -398,9 +401,10 @@ func TestFinalRootFreshStartBootstrapsAuthorityClusterAndWorkspaceFromEmptyXDG(t
 	if len(runtime.refs) == 0 {
 		t.Fatal("first-use Template source did not resolve its Runtime revision")
 	}
+	expectedRuntimeRef := tobari.RuntimeRevisionRef(tobari.StandardRuntimeID, revision)
 	for _, ref := range runtime.refs {
-		if !strings.HasPrefix(ref, tobari.StandardRuntimeID+"/sha256:") {
-			t.Fatalf("first-use Runtime reference=%q", ref)
+		if ref != expectedRuntimeRef {
+			t.Fatalf("first-use Runtime reference=%q want=%q", ref, expectedRuntimeRef)
 		}
 	}
 	if settlement.clusterCalls != 1 || settlement.entryCalls != 1 || entryRuntime.planCalls != 1 || entryRuntime.reconcileCalls != 1 || entryRuntime.confirmCalls != 1 || sessions.begin != 1 || sessions.run != 1 || sessions.close != 1 || activation.confirmCalls != 1 {

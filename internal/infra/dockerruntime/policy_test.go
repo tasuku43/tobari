@@ -21,6 +21,52 @@ type bundleBuildFailureRunner struct {
 	outputs []runnerCall
 }
 
+type policyPreflightVolumeRunner struct {
+	volumeExists bool
+	failTest     bool
+	cancelStage  context.CancelFunc
+	creates      int
+	removes      int
+}
+
+func (r *policyPreflightVolumeRunner) Run(
+	ctx context.Context, args, _ []string, _ io.Reader, _, _ io.Writer,
+) error {
+	if r.cancelStage != nil && slices.Contains(args, "tobari-policy-stage") {
+		r.cancelStage()
+		return context.Canceled
+	}
+	return ctx.Err()
+}
+
+func (r *policyPreflightVolumeRunner) Output(ctx context.Context, args, _ []string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	switch {
+	case len(args) >= 2 && args[0] == "volume" && args[1] == "inspect":
+		if !r.volumeExists {
+			return []byte("Error: No such volume: " + policyBundleVolume), errors.New("No such volume")
+		}
+		return []byte(ownerValue + "\n"), nil
+	case len(args) >= 2 && args[0] == "volume" && args[1] == "create":
+		r.volumeExists = true
+		r.creates++
+		return []byte(policyBundleVolume + "\n"), nil
+	case len(args) >= 2 && args[0] == "volume" && args[1] == "rm":
+		if !r.volumeExists {
+			return []byte("Error: No such volume: " + policyBundleVolume), errors.New("No such volume")
+		}
+		r.volumeExists = false
+		r.removes++
+		return []byte(policyBundleVolume + "\n"), nil
+	case slices.Contains(args, "test") && r.failTest:
+		return []byte("synthetic OPA test failure"), errors.New("exit 1")
+	default:
+		return nil, nil
+	}
+}
+
 func (r *bundleBuildFailureRunner) Run(
 	_ context.Context, _ []string, _ []string, _ io.Reader, _ io.Writer, _ io.Writer,
 ) error {
@@ -36,6 +82,48 @@ func (r *bundleBuildFailureRunner) Output(_ context.Context, args, _ []string) (
 		return []byte("synthetic invalid candidate"), errors.New("exit 1")
 	}
 	return nil, nil
+}
+
+func TestPolicyPreflightOwnsOnlyTheVolumeItCreates(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name        string
+		existing    bool
+		failTest    bool
+		cancelStage bool
+		wantErr     bool
+		wantExists  bool
+		wantCreates int
+		wantRemoves int
+	}{
+		{name: "fresh success", wantCreates: 1, wantRemoves: 1},
+		{name: "fresh OPA failure", failTest: true, wantErr: true, wantCreates: 1, wantRemoves: 1},
+		{name: "fresh cancellation", cancelStage: true, wantErr: true, wantCreates: 1, wantRemoves: 1},
+		{name: "existing volume", existing: true, wantExists: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			runner := &policyPreflightVolumeRunner{volumeExists: test.existing, failTest: test.failTest}
+			runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx := context.Background()
+			if test.cancelStage {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				runner.cancelStage = cancel
+				runtime.lifetimeContext = context.Background()
+			}
+			err = runtime.testPolicyArchive(ctx, []byte("synthetic-policy-archive"))
+			if (err != nil) != test.wantErr {
+				t.Fatalf("testPolicyArchive() error=%v wantErr=%t", err, test.wantErr)
+			}
+			if runner.volumeExists != test.wantExists || runner.creates != test.wantCreates || runner.removes != test.wantRemoves {
+				t.Fatalf("volume exists=%t creates=%d removes=%d, want %t/%d/%d", runner.volumeExists, runner.creates, runner.removes, test.wantExists, test.wantCreates, test.wantRemoves)
+			}
+		})
+	}
 }
 
 const denyAuditLine = `{"schema_version":1,"cluster":"default","context":"default","context_id":"01912345-6789-7abc-8def-0123456789ad","decision":"deny","duration_ms":3,"host":"api.github.com","learnable":true,"method":"GET","path":"/repos/cli/cli","port":443,"project_id":"01912345-6789-7abc-8def-0123456789ab","project_root":"/workspace/project","protocol":"http","reason":"request did not match an allow rule","request_id":"7185da2688d7469aae9cd9068e920b0b","scheme":"https","timestamp":"2026-07-30T10:41:11Z","upstream_status":403}`

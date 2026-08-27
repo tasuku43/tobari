@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
@@ -59,7 +60,14 @@ func (a freshClusterResourceAuthority) Validate() error {
 func (r *Runtime) proveFreshClusterResourcesAbsent(ctx context.Context) (freshClusterResourceAuthority, error) {
 	authority := expectedFreshClusterResourceAuthority()
 	if err := r.verifyFreshClusterResourcesAbsent(ctx, authority); err != nil {
-		return freshClusterResourceAuthority{}, err
+		return freshClusterResourceAuthority{}, fault.WithClassification(fault.Wrap(
+			fault.KindRejected,
+			"cluster_resource_conflict",
+			"Fresh shared-cluster resources are present or could not be proved absent.",
+			false,
+			err,
+			fault.NextAction{Command: "doctor", Reason: "Inspect exact Docker and Tobari ownership state before another cluster activation."},
+		), fault.PhasePrecondition, fault.ChangeNone)
 	}
 	return authority, nil
 }

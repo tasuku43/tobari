@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"reflect"
 	"strings"
 	"sync"
@@ -11,6 +12,37 @@ import (
 	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
+
+func TestFinalTemplatePlanJSONOmitsPrivatePlanningFields(t *testing.T) {
+	port := newFinalTemplateBatchPort(t)
+	templateRef, err := tobari.WorkspaceTemplateRef(port.template.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runFinalTemplateBatchCommand(t, port, "template", "plan", "--id", templateRef, "--format=json")
+	if code != ExitOK {
+		t.Fatalf("template plan code=%d stderr=%q", code, stderr)
+	}
+	var document struct {
+		Plan map[string]any `json:"template_change_plan"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &document); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := document.Plan["schema_version"]; exists {
+		t.Fatalf("Template plan exposed its private validation version: %s", stdout)
+	}
+	projection := finalTemplateChangePlanFrom(tobari.WorkspaceTemplateChangePlan{Contexts: []tobari.WorkspaceTemplateChangeContext{{
+		ContextRef: "ctx1_01912345-6789-7abc-8def-0123456789a2", WorkspaceRunning: true,
+	}}})
+	encoded, err := json.Marshal(projection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte("schema_version")) || bytes.Contains(encoded, []byte("workspace_running")) {
+		t.Fatalf("Template plan exposed private planning fields: %s", encoded)
+	}
+}
 
 type finalTemplateBatchPort struct {
 	mu       sync.Mutex
