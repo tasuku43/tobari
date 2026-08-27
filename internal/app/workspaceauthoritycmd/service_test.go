@@ -81,6 +81,8 @@ type fakePort struct {
 	snapshot          tobari.ContextAuthoritySnapshot
 	copyPublication   tobari.WorkspaceTemplateCopyPublication
 	draftCopy         tobari.WorkspaceTemplateDraft
+	plan              tobari.WorkspaceTemplateChangePlan
+	planErr           error
 	updatePublication tobari.WorkspaceTemplateRevisionPublication
 	policy            tobari.PolicyCandidatePublication
 	reset             tobari.PolicyRuleResetPublication
@@ -118,6 +120,10 @@ func (f *fakePort) CopyWorkspaceTemplateDraftByRevisionReference(_ context.Conte
 	f.calls++
 	f.lastRef = ref
 	return f.draftCopy, nil
+}
+func (f *fakePort) PlanWorkspaceTemplateSourceByReference(_ context.Context, ref string) (tobari.WorkspaceTemplateChangePlan, error) {
+	f.lastRef = ref
+	return f.plan, f.planErr
 }
 func (f *fakePort) UpdateWorkspaceTemplateByReference(_ context.Context, ref string, _ tobari.WorkspaceTemplateChange) (tobari.WorkspaceTemplateRevisionPublication, error) {
 	f.calls++
@@ -231,6 +237,26 @@ func TestTemplateServiceHasNoRetiredDirectMutationMethods(t *testing.T) {
 	}
 	if method, exists := reflect.TypeOf((*ContextService)(nil)).MethodByName("Create"); exists {
 		t.Errorf("retired direct Context mutation method remains reachable: %+v", method)
+	}
+}
+
+func TestTemplatePlanClassifiesUnknownPlannerFailureAsObservationFault(t *testing.T) {
+	templateRef, err := tobari.WorkspaceTemplateRef(templateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakePort{template: templateFixture(t), planErr: errors.New("synthetic planner failure")}
+	_, err = NewTemplateService(fake).Plan(context.Background(), templateRef)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "template_plan_read_failed" || public.Kind != fault.KindUnavailable || public.Phase != fault.PhaseObservation || public.ChangeState != fault.ChangeNotApplicable {
+		t.Fatalf("planner failure fault=%#v ok=%t", public, ok)
+	}
+}
+
+func TestTemplateMutationFaultClassifiesUnknownOutcomeBeforeCLINormalization(t *testing.T) {
+	public, ok := fault.PublicCopy(templateMutationFault(errors.New("synthetic mutation failure")))
+	if !ok || public.Code != "unclassified_mutation_outcome" || public.Kind != fault.KindContract || public.Phase != fault.PhaseMutation || public.ChangeState != fault.ChangeUnknown || public.Retryable {
+		t.Fatalf("mutation failure fault=%#v ok=%t", public, ok)
 	}
 }
 

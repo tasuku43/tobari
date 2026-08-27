@@ -113,7 +113,7 @@ type finalProjectRootAuthority interface {
 
 func resolveFinalProjectRoot(ctx context.Context, authority finalProjectRootAuthority) (string, error) {
 	if authority == nil {
-		return "", fault.New(fault.KindInternal, "missing_port", "The final Project-root observation adapter is not configured.", false)
+		return "", missingRuntimeFault()
 	}
 	cwd, err := authority.CurrentDirectory(ctx)
 	if err != nil {
@@ -788,7 +788,7 @@ func (c *CLI) emitFinalSimpleResult(ctx context.Context, command CommandSpec, in
 
 func (c *CLI) reviewedStandardTemplateBody(ctx context.Context) (tobari.WorkspaceTemplateBody, error) {
 	if c == nil || c.runtime == nil {
-		return tobari.WorkspaceTemplateBody{}, fault.New(fault.KindInternal, "missing_port", "The built-in Runtime authority is not configured.", false)
+		return tobari.WorkspaceTemplateBody{}, missingRuntimeFault()
 	}
 	binding, err := c.runtime.BindingByReference(ctx, tobari.StandardRuntimeID, 1)
 	if err != nil {

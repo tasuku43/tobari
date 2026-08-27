@@ -35,7 +35,7 @@ func finalClusterUpErrors() []CommandError {
 		classifiedCommandError(fault.KindContract, "invalid_cluster_reconciliation_result", false, fault.PhaseVerification, fault.ChangeUnknown, "cluster status", "Inspect final authority and component state."),
 		declaredCommandError(fault.KindRejected, "legacy_state_present", false, "doctor", "Reset or recreate this pre-release installation before initializing final authority."),
 		declaredCommandError(fault.KindUnavailable, "cluster_reconcile_interrupted", false, "cluster status", "Inspect the retained final activation decision."),
-		declaredCommandError(fault.KindInternal, "missing_port", false, "doctor", "Configure the final cluster lifecycle adapter."),
+		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the final cluster lifecycle adapter."),
 	}
 	if buildIdentityHasBroker() {
 		errors = append(errors,
@@ -73,7 +73,7 @@ func finalClusterStatusSpec() CommandSpec {
 				declaredCommandError(fault.KindContract, "invalid_cluster_status_result", false, "doctor", "Repair the final cluster observation contract."),
 				declaredCommandError(fault.KindUnavailable, "cluster_observation_changed", true, "cluster status", "Retry one fresh bounded cluster observation."),
 				declaredCommandError(fault.KindContract, "output_encoding_failed", false, "version", "Report the exact build identity without repeating final-cluster JSON encoding."),
-				declaredCommandError(fault.KindInternal, "missing_port", false, "doctor", "Configure the final cluster status adapter."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the final cluster status adapter."),
 			),
 		},
 		handler: runFinalClusterStatus,
@@ -98,7 +98,7 @@ func finalClusterDownSpec() CommandSpec {
 				declaredCommandError(fault.KindRejected, "cluster_not_empty", false, "workspace list", "Delete every final Workspace explicitly."),
 				declaredCommandError(fault.KindUnavailable, "cluster_reconcile_interrupted", false, "cluster status", "Inspect the retained final lifecycle decision."),
 				declaredCommandError(fault.KindContract, "invalid_cluster_down_result", false, "cluster status", "Inspect the final stopped consequence."),
-				declaredCommandError(fault.KindInternal, "missing_port", false, "doctor", "Configure the final cluster lifecycle adapter."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the final cluster lifecycle adapter."),
 			), declaredCommandError(fault.KindUnavailable, "final_authority_mutation_recovery_required", false, "status", "Read and recover the preserved final-authority decision through the exact initiating command; do not remove authority files manually.")),
 			Mutation: &MutationContract{
 				TargetKind: tobari.ClusterTargetKind, TargetInputs: []string{},
@@ -126,7 +126,7 @@ func finalClusterLogsSpec() CommandSpec {
 			declaredCommandError(fault.KindRejected, "legacy_state_present", false, "doctor", "Reset or recreate this pre-release installation."),
 			declaredCommandError(fault.KindUnavailable, "cluster_not_running", false, "cluster status", "Reconcile the final cluster before reading logs."),
 			declaredCommandError(fault.KindInternal, "logs_failed", false, "cluster status", "Inspect the final component closure."),
-			declaredCommandError(fault.KindInternal, "missing_port", false, "doctor", "Configure the final cluster read adapter.")),
+			declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the final cluster read adapter.")),
 	}, handler: runFinalClusterLogs}
 }
 
@@ -150,7 +150,7 @@ func finalClusterDenialsSpec() CommandSpec {
 			declaredCommandError(fault.KindInternal, "denials_failed", false, "cluster status", "Inspect the final Gateway observation."),
 			declaredCommandError(fault.KindContract, "invalid_denial_contract", false, "cluster status", "Repair the final denial projection."),
 			declaredCommandError(fault.KindContract, "output_encoding_failed", false, "version", "Report the exact build identity without repeating denial JSON encoding."),
-			declaredCommandError(fault.KindInternal, "missing_port", false, "doctor", "Configure the final cluster read adapter.")),
+			declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the final cluster read adapter.")),
 	}, handler: runFinalClusterDenials}
 }
 

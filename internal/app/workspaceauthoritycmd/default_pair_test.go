@@ -220,6 +220,13 @@ func TestDefaultPairConfirmedInitializationIsPartialWhenEntryDoesNotStart(t *tes
 	}
 }
 
+func TestDefaultPairInitializationFaultClassifiesUnknownPublication(t *testing.T) {
+	public, ok := fault.PublicCopy(defaultPairInitializationFault(errors.New("synthetic initialization failure")))
+	if !ok || public.Code != "invalid_default_pair_initialization" || public.Kind != fault.KindContract || public.Phase != fault.PhaseVerification || public.ChangeState != fault.ChangeUnknown {
+		t.Fatalf("initialization failure fault=%#v ok=%t", public, ok)
+	}
+}
+
 func (f *defaultPairFixture) DeleteContextByReference(context.Context, string) (tobari.ContextDeleteResult, error) {
 	return tobari.ContextDeleteResult{}, errors.New("unexpected delete")
 }

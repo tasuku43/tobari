@@ -389,7 +389,7 @@ func ParseRuntimeRevisionRef(reference string) (string, string, error) {
 		return "", "", fmt.Errorf("Runtime revision reference is invalid")
 	}
 	runtimeID, revision := reference[:separator], reference[separator+1:]
-	if ValidateRuntimeID(runtimeID) != nil || ValidateDigest(revision) != nil || reference != RuntimeRevisionRef(runtimeID, revision) {
+	if ValidateRuntimeRef(runtimeID) != nil || ValidateDigest(revision) != nil || reference != RuntimeRevisionRef(runtimeID, revision) {
 		return "", "", fmt.Errorf("Runtime revision reference is invalid")
 	}
 	return runtimeID, revision, nil

@@ -34,6 +34,10 @@ func contractFault(code, message string, err error) error {
 	return fault.WithClassification(fault.Wrap(fault.KindContract, code, message, false, err), fault.PhaseVerification, fault.ChangeUnknown)
 }
 
+func unclassifiedMutationFault(message string, err error) error {
+	return fault.WithClassification(fault.Wrap(fault.KindContract, "unclassified_mutation_outcome", message, false, err), fault.PhaseMutation, fault.ChangeUnknown)
+}
+
 func readFault(err error, code, message string) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err

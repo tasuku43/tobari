@@ -22,7 +22,7 @@ func statusHomeReadErrors() []CommandError {
 	return append(finalAuthorityReadErrors("status", "doctor"),
 		declaredCommandError(fault.KindUnavailable, "status_observation_failed", true, "status", "Retry one bounded read-only status snapshot."),
 		declaredCommandError(fault.KindContract, "invalid_status_snapshot", false, "doctor", "Repair contradictory status authority or observation evidence."),
-		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the status snapshot composition root."))
+		declaredCommandError(fault.KindInternal, "missing_port", false, "doctor", "Configure the status snapshot composition root."))
 }
 
 func finalDefaultPairEnterErrors() []CommandError {
@@ -58,7 +58,6 @@ func finalDefaultPairEnterErrors() []CommandError {
 		classifiedCommandError(fault.KindRejected, "runtime_retirement_observation_unknown", false, fault.PhaseObservation, fault.ChangeNotApplicable, "doctor", "Inspect the host Runtime lifecycle state."),
 		classifiedCommandError(fault.KindContract, "invalid_runtime_list", false, fault.PhasePrecondition, fault.ChangeNone, "review runtimes", "Review the current Runtime authority catalog."),
 		classifiedCommandError(fault.KindInvalidInput, "invalid_runtime_ref", false, fault.PhasePrecondition, fault.ChangeNone, "review runtimes", "Choose one exact ready Runtime reference."),
-		classifiedCommandError(fault.KindInternal, "missing_runtime", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Configure the root Workspace-entry composition."),
 	)
 }
 

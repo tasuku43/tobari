@@ -437,7 +437,7 @@ func defaultPairInitializationFault(err error) error {
 	if _, ok := fault.PublicCopy(err); ok {
 		return err
 	}
-	return err
+	return contractFault("invalid_default_pair_initialization", "The final default-pair initialization returned an invalid outcome", err)
 }
 
 func defaultPairPostInitializationFault(err error, initialized bool) error {

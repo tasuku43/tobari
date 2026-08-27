@@ -800,6 +800,19 @@ func (m *Mutator) ApplyWorkspaceTemplateSourceByReference(
 	}
 	var selectedFingerprint string
 	resultErr = m.mutateWithFence(ctx, func(lockedContext context.Context, current tobari.WorkspaceAuthorityCollection, present bool) (tobari.WorkspaceAuthorityCollection, bool, error) {
+		if !present {
+			current, _, err = tobari.PublishWorkspaceAuthorityCollection(
+				[]tobari.WorkspaceTemplate{},
+				[]tobari.WorkspaceAuthorityContextRecord{},
+				[]tobari.WorkspaceBinding{},
+				[]tobari.PolicyCandidateAuthority{},
+				nil,
+				nil,
+			)
+			if err != nil {
+				return current, false, err
+			}
+		}
 		source, fingerprint, err := load(lockedContext)
 		if err != nil {
 			return current, false, err

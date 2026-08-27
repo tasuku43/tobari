@@ -17,7 +17,7 @@ func finalAuthorityReadErrors(path, recovery string) []CommandError {
 		declaredCommandError(fault.KindRejected, "legacy_state_present", false, "doctor", "Reset or recreate this pre-release installation before initializing final authority."),
 		declaredCommandError(fault.KindNotFound, "authority_not_found", false, recovery, "Discover current final authority references."),
 		declaredCommandError(fault.KindContract, "invalid_authority", false, recovery, "Repair the final authority envelope."),
-		declaredCommandError(fault.KindInternal, "missing_port", false, "doctor", "Configure the final authority adapter."))
+		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the final authority adapter."))
 }
 
 func finalAuthorityMutationErrors(path, recovery string) []CommandError {
@@ -29,7 +29,7 @@ func finalAuthorityMutationErrors(path, recovery string) []CommandError {
 		declaredCommandError(fault.KindRejected, "legacy_state_present", false, "doctor", "Reset or recreate this pre-release installation before initializing final authority."),
 		declaredCommandError(fault.KindNotFound, "authority_not_found", false, recovery, "Discover current final authority references."),
 		declaredCommandError(fault.KindRejected, "authority_in_use", false, recovery, "Remove the exact dependent final authority first."),
-		declaredCommandError(fault.KindInternal, "missing_port", false, "doctor", "Configure the final authority mutation adapter."))
+		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the final authority mutation adapter."))
 }
 
 func finalContextEnterErrors(path, recovery string) []CommandError {
@@ -200,11 +200,17 @@ func finalWorkspaceListFields() []OutputField {
 }
 
 func finalTemplateListSpec() CommandSpec {
-	return CommandSpec{Path: "template list", Summary: "List final Workspace Templates", Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Return the exhaustive final Workspace Template collection", Inputs: []CommandInput{formatInput()}, Output: finalJSONOutput("templates", finalTemplateListFields(), CollectionCoverageExhaustive), Prerequisites: []string{}, Errors: finalAuthorityReadErrors("template list", "doctor")}, handler: runFinalTemplateList}
+	errors := append(finalAuthorityReadErrors("template list", "doctor"),
+		declaredCommandError(fault.KindUnavailable, "template_source_read_failed", false, "help template list", "Inspect the canonical Template source pair and draft files."),
+	)
+	return CommandSpec{Path: "template list", Summary: "List final Workspace Templates", Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Return the exhaustive final Workspace Template collection", Inputs: []CommandInput{formatInput()}, Output: finalJSONOutput("templates", finalTemplateListFields(), CollectionCoverageExhaustive), Prerequisites: []string{}, Errors: errors}, handler: runFinalTemplateList}
 }
 
 func finalTemplateShowSpec() CommandSpec {
-	return CommandSpec{Path: "template show", Summary: "Inspect one final Workspace Template", Args: "[--name <name>] [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Return one final Template and its exact current immutable revision", Inputs: []CommandInput{{Name: "--name", Source: InputSourceFlag, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Read-only Template display-name selector; omission selects the exact default.", AllowedValues: []string{}}, formatInput()}, Output: finalJSONOutput("template", finalTemplateShowFields(true), CollectionCoverageNotApplicable), Prerequisites: []string{}, Errors: finalAuthorityReadErrors("template show", "template list")}, handler: runFinalTemplateShow}
+	errors := append(finalAuthorityReadErrors("template show", "template list"),
+		declaredCommandError(fault.KindUnavailable, "template_source_read_failed", false, "template list", "Inspect the canonical Template source pair and draft files."),
+	)
+	return CommandSpec{Path: "template show", Summary: "Inspect one final Workspace Template", Args: "[--name <name>] [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Return one final Template and its exact current immutable revision", Inputs: []CommandInput{{Name: "--name", Source: InputSourceFlag, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Read-only Template display-name selector; omission selects the exact default.", AllowedValues: []string{}}, formatInput()}, Output: finalJSONOutput("template", finalTemplateShowFields(true), CollectionCoverageNotApplicable), Prerequisites: []string{}, Errors: errors}, handler: runFinalTemplateShow}
 }
 
 func finalTemplateCreateSpec() CommandSpec {
@@ -268,6 +274,8 @@ func finalTemplatePlanSpec() CommandSpec {
 		{Name: "running_workspace_count", Type: OutputFieldTypeInteger, Description: "Exact bound Contexts with running Workspace authority."},
 	}
 	errors := append(finalAuthorityReadErrors("template plan", "template list"),
+		declaredCommandError(fault.KindUnavailable, "template_plan_read_failed", false, "template list", "Inspect the current Template source and authority before planning again."),
+		declaredCommandError(fault.KindInvalidInput, "invalid_template_ref", false, "template list", "Use one exact opaque Workspace Template reference emitted by Template discovery."),
 		declaredCommandError(fault.KindNotFound, "template_not_found", false, "template list", "Discover an active or draft Template reference before planning."),
 		declaredCommandError(fault.KindNotFound, "resource_source_missing", false, "template show", "Restore the canonical source pair before planning."),
 		declaredCommandError(fault.KindInvalidInput, "resource_source_invalid", false, "template show", "Correct the strict source schema before planning."),

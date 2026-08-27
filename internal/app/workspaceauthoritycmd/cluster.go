@@ -146,7 +146,7 @@ func (s *FinalClusterService) Reconcile(ctx context.Context, intent operation.In
 			if classified, ok := finalAuthorityMutationRecoveryFault(err); ok {
 				return classified
 			}
-			return err
+			return unclassifiedMutationFault("final cluster reconciliation returned an unclassified outcome", err)
 		}
 		confirmed, err := NewFinalClusterReconciliation(plan, identity)
 		if err != nil {

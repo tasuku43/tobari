@@ -92,7 +92,7 @@ func finalPolicyMutationErrors(path, recovery string) []CommandError {
 		declaredCommandError(fault.KindRejected, "policy_review_changed", false, "review permissions", "Review the current complete final decision set again."),
 		declaredCommandError(fault.KindNotFound, "policy_target_not_found", false, recovery, "Rediscover current final Policy Memory authority."),
 		declaredCommandError(fault.KindContract, "invalid_policy_memory_result", false, recovery, "Reconcile the confirmed final Policy Memory result."),
-		declaredCommandError(fault.KindInternal, "missing_port", false, "doctor", "Configure the final Policy Memory adapter."),
+		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the final Policy Memory adapter."),
 	)
 }
 

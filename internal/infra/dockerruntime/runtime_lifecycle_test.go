@@ -212,6 +212,11 @@ func TestRuntimeLifecycleSnapshotIsZeroWriteAndRequiresStableDockerEvidence(t *t
 	if err != nil || observedAt.IsZero() || observedAt.Location() != time.UTC || !snapshot.CatalogComplete || len(snapshot.Runtimes) != 1 || snapshot.Runtimes[0].ID != tobari.StandardRuntimeID {
 		t.Fatalf("fresh lifecycle snapshot = %+v/%v", snapshot, err)
 	}
+	standardRevision := snapshot.Runtimes[0].Revisions[0].Revision
+	binding, err := runtime.ResolveWorkspaceTemplateRuntimeRevision(context.Background(), tobari.RuntimeRevisionRef(tobari.StandardRuntimeID, standardRevision))
+	if err != nil || binding.RuntimeID != tobari.StandardRuntimeID || binding.Revision != standardRevision {
+		t.Fatalf("fresh built-in Runtime revision resolution = %+v/%v", binding, err)
+	}
 	for _, path := range []string{filepath.Join(root, "config"), filepath.Join(root, "state")} {
 		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("read-only lifecycle snapshot created %s: %v", path, err)

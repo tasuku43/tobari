@@ -33,6 +33,12 @@ func (m *Mutator) writeTemplateApplySettlement(planRef, fingerprint string, publ
 		return err
 	}
 	path := m.templateApplySettlementPath()
+	if err := ensureAuthorityDirectory(m.store.root); err != nil {
+		return err
+	}
+	if err := ensureAuthorityDirectory(filepath.Dir(path)); err != nil {
+		return err
+	}
 	if _, err := os.Lstat(path); err == nil {
 		return finalMutationRecoveryError("another Template Apply settlement is pending")
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -41,7 +47,10 @@ func (m *Mutator) writeTemplateApplySettlement(planRef, fingerprint string, publ
 	if err := writeMutationFile(path, data); err != nil {
 		return err
 	}
-	return m.sync(filepath.Dir(path))
+	if err := m.sync(filepath.Dir(path)); err != nil {
+		return err
+	}
+	return m.sync(m.store.root)
 }
 
 func (m *Mutator) recoverTemplateApplySettlement(ctx context.Context, planRef string, load WorkspaceTemplateSourceLoader) (tobari.WorkspaceTemplateRevisionPublication, bool, error) {

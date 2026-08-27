@@ -238,7 +238,7 @@ func TestRuntimeRestoreRejectsInvalidReferenceAndSemanticResultBeforeSuccess(t *
 	manifest := readyRuntimeManifest()
 	valid := runtimeRestoreResult(manifest, 0, tobari.RuntimeRestored)
 	command, fake, stdout, stderr := newRuntimeRestoreTestCLI(manifest, valid, "")
-	for _, invalidRef := range []string{"frontend@1", tobari.RuntimeRevisionRef(tobari.StandardRuntimeID, valid.Revision)} {
+	for _, invalidRef := range []string{"frontend@1"} {
 		stderr.Reset()
 		if code := command.RunContext(context.Background(), []string{"runtime", "restore", "--id", invalidRef}); code != ExitUsage {
 			t.Fatalf("invalid ref %q code = %d, stderr = %q", invalidRef, code, stderr.String())

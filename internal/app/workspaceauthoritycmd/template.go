@@ -116,7 +116,7 @@ func (s *TemplateService) Plan(ctx context.Context, templateRef string) (tobari.
 	}
 	plan, err := s.planner.PlanWorkspaceTemplateSourceByReference(ctx, templateRef)
 	if err != nil {
-		return tobari.WorkspaceTemplateChangePlan{}, templateMutationFault(err)
+		return tobari.WorkspaceTemplateChangePlan{}, templatePlanFault(err)
 	}
 	if err := plan.Validate(); err != nil || plan.TemplateRef != templateRef {
 		if err == nil {
@@ -379,11 +379,26 @@ func (s *TemplateService) Delete(ctx context.Context, intent operation.Intent, t
 }
 
 func templateMutationFault(err error) error {
+	return templateFault(err, func(cause error) error {
+		return unclassifiedMutationFault("Workspace Template mutation returned an unclassified outcome", cause)
+	})
+}
+
+func templatePlanFault(err error) error {
+	return templateFault(err, func(cause error) error {
+		return readFault(cause, "template_plan_read_failed", "Workspace Template change plan could not be read")
+	})
+}
+
+func templateFault(err error, fallback func(error) error) error {
 	if classified, ok := preReleaseLegacyMutationFault(err); ok {
 		return classified
 	}
 	if classified, ok := finalAuthorityMutationRecoveryFault(err); ok {
 		return classified
+	}
+	if _, ok := fault.PublicCopy(err); ok {
+		return err
 	}
 	switch {
 	case errors.Is(err, tobari.ErrResourceSourceRecoveryRequired):
@@ -405,6 +420,6 @@ func templateMutationFault(err error) error {
 	case errors.Is(err, tobari.ErrWorkspaceTemplateProtected):
 		return fault.WithClassification(fault.New(fault.KindRejected, "template_in_use", "Workspace Template is still selected or bound to a Context", false, fault.NextAction{Command: "context list", Reason: "Remove dependent Contexts and the default selection first."}), fault.PhasePrecondition, fault.ChangeNone)
 	default:
-		return err
+		return fallback(err)
 	}
 }

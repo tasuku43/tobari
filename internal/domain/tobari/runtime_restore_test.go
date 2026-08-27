@@ -16,12 +16,24 @@ func TestRuntimeRevisionReferenceIsExactOpaqueManagedAuthority(t *testing.T) {
 	}
 	for _, invalid := range []string{
 		"", "frontend@1", id, id + "/1", id + "/" + strings.Repeat("a", 64),
-		id + "/sha256:" + strings.Repeat("a", 63), StandardRuntimeID + "/" + revision,
+		id + "/sha256:" + strings.Repeat("a", 63),
 		id + "/" + revision + "/extra", "tobari-runtime-frontend:test",
 	} {
 		if _, _, err := ParseRuntimeRevisionRef(invalid); err == nil {
 			t.Errorf("invalid Runtime revision reference accepted: %q", invalid)
 		}
+	}
+}
+
+func TestBuiltinRuntimeRevisionReferenceRoundTripsExactly(t *testing.T) {
+	revision := "sha256:" + strings.Repeat("f", 64)
+	reference := RuntimeRevisionRef(StandardRuntimeID, revision)
+	gotID, gotRevision, err := ParseRuntimeRevisionRef(reference)
+	if err != nil || gotID != StandardRuntimeID || gotRevision != revision {
+		t.Fatalf("ParseRuntimeRevisionRef() = %q/%q/%v", gotID, gotRevision, err)
+	}
+	if got := RuntimeRevisionRef(gotID, gotRevision); got != reference {
+		t.Fatalf("Runtime revision reference round trip = %q, want %q", got, reference)
 	}
 }
 
