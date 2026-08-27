@@ -84,11 +84,11 @@ func finalClusterStatusSpec() CommandSpec {
 func finalClusterDownSpec() CommandSpec {
 	return CommandSpec{
 		Path: "cluster down", Summary: finalClusterSurfaceSummary("Stop", "retirement"),
-		Args: "[--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
+		Args: "[--purge] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "cluster.lifecycle",
 			Outcome:      "Stop the exact final shared component closure and clear every active Context receipt while preserving Templates, Contexts, current Policy Memory, and the final envelope",
-			Inputs:       []CommandInput{formatInput()},
+			Inputs:       []CommandInput{purgeInput("Also remove exact shared CA and active policy-bundle volumes."), formatInput()},
 			Output:       finalClusterDownOutput(),
 			Prerequisites: []string{
 				"The final collection contains zero Workspaces.",
@@ -216,6 +216,7 @@ func finalClusterDownOutput() CommandOutput {
 		TextPresentation: TextPresentationSemanticTokens, Fields: []OutputField{
 			{Name: "task", Type: OutputFieldTypeString, Description: "Confirmed final cluster retirement task."},
 			{Name: "stopped", Type: OutputFieldTypeBoolean, Description: "Always true after exact stopped confirmation."},
+			{Name: "purged", Type: OutputFieldTypeBoolean, Description: "Whether exact shared CA and active policy-bundle volumes were removed."},
 			{Name: "generation", Type: OutputFieldTypeInteger, Description: "Final collection generation carrying the stopped consequence."},
 			{Name: "collection_revision", Type: OutputFieldTypeString, Description: "Exact stopped final collection revision."},
 			{Name: "envelope_changed", Type: OutputFieldTypeBoolean, Description: "Whether active Context receipts were cleared in a new envelope generation."},

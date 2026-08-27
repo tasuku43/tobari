@@ -38,6 +38,7 @@ func finalContextEnterErrors(path, recovery string) []CommandError {
 		classifiedCommandError(fault.KindUnavailable, "workspace_entry_interrupted", false, fault.PhaseMutation, fault.ChangePartial, "status", "Read the preserved entry decision, then repeat the exact same-Context entry command."),
 		classifiedCommandError(fault.KindRejected, "workspace_entry_template_policy_inactive", false, fault.PhasePrecondition, fault.ChangeNone, "cluster status", "Read the current Template policy activation before explicit cluster reconciliation."),
 		classifiedCommandError(fault.KindRejected, "workspace_entry_policy_memory_inactive", false, fault.PhasePrecondition, fault.ChangeNone, "context list", "Discover current Context authority before explicit policy reconciliation."),
+		classifiedCommandError(fault.KindUnavailable, "workspace_runtime_preparation_uncertain", false, fault.PhaseMutation, fault.ChangeUnknown, "status", "Read current authority and Runtime material before deciding whether to retry entry."),
 		classifiedCommandError(fault.KindUnavailable, "workspace_entry_observation_unavailable", false, fault.PhaseObservation, fault.ChangeNotApplicable, "context list", "Discover desired, applied, and active Context authority without reconciling it."),
 		classifiedCommandError(fault.KindCanceled, "workspace_entry_canceled", false, fault.PhasePrecondition, fault.ChangeNone, "context list", "Discover current Context authority before deciding whether to enter again."),
 	)

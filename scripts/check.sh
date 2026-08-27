@@ -14,7 +14,7 @@ export GOWORK=off
 profile=${1:-}
 
 usage() {
-  echo "usage: $0 <fast|full|security|release|public|policy|gateway|authbroker|integration|runtime|runtime-release>" >&2
+  echo "usage: $0 <fast|full|security|release|public|policy|gateway|authbroker|first-use|integration|runtime|runtime-release-components|runtime-release>" >&2
   exit 2
 }
 
@@ -26,8 +26,8 @@ preflight_commands() {
   if [[ $selected_profile == fast || $selected_profile == full ]]; then
     required_commands+=(python3 node npm)
   fi
-  if [[ $selected_profile == gateway || $selected_profile == runtime ||
-    $selected_profile == runtime-release ]]; then
+  if [[ $selected_profile == gateway || $selected_profile == first-use || $selected_profile == integration || $selected_profile == runtime ||
+    $selected_profile == runtime-release-components || $selected_profile == runtime-release ]]; then
     required_commands+=(python3)
   fi
   if [[ $selected_profile == security || $selected_profile == public ]]; then
@@ -37,7 +37,7 @@ preflight_commands() {
     required_commands+=(shellcheck tar unzip ruby)
   fi
   case "$selected_profile" in
-    policy|gateway|authbroker|integration|runtime|runtime-release) required_commands+=(docker) ;;
+    policy|gateway|authbroker|first-use|integration|runtime|runtime-release-components|runtime-release) required_commands+=(docker) ;;
   esac
   for command_name in "${required_commands[@]}"; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
@@ -287,16 +287,20 @@ run_authbroker() {
     python3 -m unittest discover -s authbroker/tests -v
 }
 
-run_integration() {
+run_first_use() {
   local integration_context=${TOBARI_INTEGRATION_DOCKER_CONTEXT:-${DOCKER_CONTEXT:-}}
   [[ -n $integration_context && $integration_context != default ]] || {
-    echo "check integration: TOBARI_INTEGRATION_DOCKER_CONTEXT must name an explicit non-default Docker context" >&2
+    echo "check first-use: TOBARI_INTEGRATION_DOCKER_CONTEXT must name an explicit non-default Docker context" >&2
     return 1
   }
   docker --context "$integration_context" version >/dev/null
   export DOCKER_CONTEXT="$integration_context"
   export TOBARI_INTEGRATION_DOCKER_CONTEXT="$integration_context"
   ./scripts/test-final-first-use-integration.sh
+}
+
+run_integration() {
+  run_first_use
   ./scripts/test-integration.sh
 }
 
@@ -307,9 +311,14 @@ run_runtime() {
   run_integration
 }
 
-run_runtime_release() {
+run_runtime_release_components() {
   run_policy
   run_gateway
+}
+
+run_runtime_release() {
+  run_runtime_release_components
+  run_first_use
 }
 
 run_full() {
@@ -322,7 +331,7 @@ run_full() {
 }
 
 case "$profile" in
-  fast|full|security|release|public|policy|gateway|authbroker|integration|runtime|runtime-release) ;;
+  fast|full|security|release|public|policy|gateway|authbroker|first-use|integration|runtime|runtime-release-components|runtime-release) ;;
   *) usage ;;
 esac
 
@@ -337,7 +346,9 @@ case "$profile" in
   policy) run_policy ;;
   gateway) run_gateway ;;
   authbroker) run_authbroker ;;
+  first-use) run_first_use ;;
   integration) run_integration ;;
   runtime) run_runtime ;;
+  runtime-release-components) run_runtime_release_components ;;
   runtime-release) run_runtime_release ;;
 esac

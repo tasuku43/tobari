@@ -98,8 +98,8 @@ exists or does not exist, and the user should not need to manage container
 names, network IDs, or policy internals for routine work. `cluster up` remains
 the independently invocable owner of shared Gateway and OPA setup, while an
 interactive first-use `tobari` composes that exact action after a newly
-confirmed default Template/Context pair so a human need not remember the setup
-sequence.
+confirmed default Template/Context pair and materializes the selected canonical
+standard Runtime when absent, so a human need not remember the setup sequence.
 
 The primary operating loop is progressive policy learning: a Workspace workload is
 denied by default, Gateway records the rejected HTTP effect, including one
@@ -356,7 +356,7 @@ The public commands are:
 | `cluster status [--format text|json]` | utility | read | Observe one bounded final collection, its active or stopped receipt consequence, and the selected shared component closure without repair |
 | `cluster denials [--tail <lines>] [--format text|json]` | utility | read | Inspect one bounded Gateway denial window correlated to exact final Context, Template, and Workspace authority |
 | `cluster logs [--component gateway\|opa\|all] [--tail <lines>]` | utility | read | Inspect one bounded redacted window from the surface-selected final shared components |
-| `cluster down [--format text|json]` | act | write | Stop the exact final shared component closure and clear every active Context receipt while preserving Templates, Contexts, current Policy Memory, and the final envelope |
+| `cluster down [--purge] [--format text|json]` | act | write | Stop the exact final shared component closure and clear every active Context receipt while preserving Templates, Contexts, current Policy Memory, and the final envelope; purge also removes exact shared CA and active policy-bundle volumes |
 | `policy candidates [--format text|json]` | discover | read | Return every exact pending candidate from one coherent active authority generation |
 | `review permissions [--format text|json]` | discover | read | Inspect the coherent final pending set without rediscovering predecessor denial logs |
 | `policy rules [--format text|json]` | discover | read | Return every current Context-owned remembered decision from one coherent active authority generation |
@@ -510,11 +510,14 @@ returned final collection receipt, and requires the exact reviewed
 Project/default-Template/Context authority before entry. A later failure never
 rolls back a confirmed earlier receipt. When protection is ready, root invokes
 the canonical Context-entry boundary, which alone reconciles the Workspace
-AppliedEntry and hands off the child. Runtime customization is an independent
-prepare-first flow; root never implicitly builds, restores, prunes, deletes, or
-selects another Runtime. If authoritative Runtime execution material is absent
-or mismatched, immediate human recovery is `review runtimes`, which owns the
-opaque revision reference and exact build/restore choice.
+AppliedEntry and hands off the child. Before its immutable reconciliation plan,
+Context entry materializes only the exact selected canonical built-in standard
+Runtime from embedded pinned source when that local image is absent. Runtime
+customization is an independent prepare-first flow; root never implicitly
+builds, restores, prunes, deletes, or selects a custom Runtime. If authoritative
+custom Runtime execution material is absent or mismatched, immediate human
+recovery is `review runtimes`, which owns the opaque revision reference and
+exact build/restore choice.
 
 An existing default pair skips fresh review and is re-observed before each
 canonical mutation. If its shared projection is absent, stopped, or invalid,
@@ -785,9 +788,10 @@ review runs through `tobari review permissions` in a separate host terminal.
   selection, or lineage. Neither action reconciles Docker or the cluster.
 - Bare root owns the only recommended first-use review. Its draft has no
   authority. Start crosses Template publication, default selection, Context
-  creation, cluster activation, Workspace reconciliation, and child handoff as
-  distinct canonical checkpoints. A later failure retains every earlier
-  confirmed result and emits one causal Next action.
+  creation, cluster activation, exact standard Runtime materialization,
+  Workspace reconciliation, and child handoff as distinct canonical
+  checkpoints. A later failure retains every earlier confirmed result and emits
+  one causal Next action.
 - `runtime build` is the explicit exception to the no-implicit-pull rule. It
   runs a host Docker build using only the immutable snapshot of the selected
   installation Runtime source tree as build context; Docker may obtain a
@@ -866,7 +870,7 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Cluster activation result | `cluster_up` | 3 |
 | Cluster status | `cluster` | 3 |
 | Cluster denial window | `denials` | 4 |
-| Cluster stop result | `cluster_down` | 2 |
+| Cluster stop result | `cluster_down` | 3 |
 | Policy candidates | `policy_candidates` | 2 |
 | Policy review | `policy_review` | 2 |
 | Policy rules | `policy_rules` | 2 |

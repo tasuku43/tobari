@@ -80,7 +80,8 @@ func runFinalClusterDown(ctx context.Context, c *CLI, command CommandSpec, inten
 	}
 	intent.Target = operation.TargetRef{Kind: tobari.ClusterTargetKind, ID: tobari.ClusterTargetID}
 	intent.Impact = command.Agent.Mutation.Impact
-	result, err := c.finalClusterLifecycle.Down(ctx, intent)
+	purge, _ := inputs.Boolean("--purge")
+	result, err := c.finalClusterLifecycle.Down(ctx, intent, purge)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -279,16 +280,17 @@ func renderFinalClusterDown(path string, result workspaceauthoritycmd.FinalClust
 	}
 	if format == successFormatJSON {
 		return finalClusterJSON(path, "cluster_down", tobari.FinalClusterDownSchemaVersion, finalClusterDownPublicResult{
-			Task: result.Task, Stopped: result.Stopped, Generation: result.Generation,
+			Task: result.Task, Stopped: result.Stopped, Purged: result.Purged, Generation: result.Generation,
 			CollectionRevision: result.CollectionRevision, EnvelopeChanged: result.EnvelopeChanged,
 		})
 	}
-	return []byte(fmt.Sprintf("Cluster stopped\nCollection generation %d · %s\nActive Context receipts cleared: %t\n", result.Generation, result.CollectionRevision, result.EnvelopeChanged)), nil
+	return []byte(fmt.Sprintf("Cluster stopped\nShared volumes purged: %t\nCollection generation %d · %s\nActive Context receipts cleared: %t\n", result.Purged, result.Generation, result.CollectionRevision, result.EnvelopeChanged)), nil
 }
 
 type finalClusterDownPublicResult struct {
 	Task               string                `json:"task"`
 	Stopped            bool                  `json:"stopped"`
+	Purged             bool                  `json:"purged"`
 	Generation         uint64                `json:"generation"`
 	CollectionRevision tobari.SemanticDigest `json:"collection_revision"`
 	EnvelopeChanged    bool                  `json:"envelope_changed"`

@@ -44,13 +44,18 @@ tasks:
     cmds:
       - ./scripts/check.sh authbroker
 
+  first-use:test:
+    desc: Run the release-surface cold first-use Docker scenario from absent XDG roots and Tobari images.
+    cmds:
+      - ./scripts/check.sh first-use
+
   authbroker:source:sync:
     desc: Synchronize the canonical Auth Broker source into the embedded snapshot.
     cmds:
       - ./scripts/sync-authbroker-source.sh
 
   integration:test:
-    desc: Run the research-surface Auth Broker network, TLS, policy, credential, and lifecycle tests.
+    desc: Run cold first use plus the research-surface Auth Broker network, TLS, policy, credential, and lifecycle tests.
     cmds:
       - ./scripts/check.sh integration
 
@@ -65,7 +70,7 @@ tasks:
       - ./scripts/check.sh runtime
 
   runtime:release:
-    desc: Run the release-surface container gate; deferred research runtime tests are excluded.
+    desc: Run policy, Gateway, and cold first-use release-surface container gates; deferred research tests are excluded.
     cmds:
       - ./scripts/check.sh runtime-release
 

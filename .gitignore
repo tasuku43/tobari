@@ -7,6 +7,8 @@
 # Test output
 /coverage.out
 *.test
+__pycache__/
+*.py[cod]
 
 # Local configuration and credentials
 .env

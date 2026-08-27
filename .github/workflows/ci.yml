@@ -70,8 +70,8 @@ jobs:
       - name: Run the canonical public boundary gate
         run: ./scripts/check.sh public
 
-  runtime:
-    name: Container release-surface gate
+  runtime-components:
+    name: Container policy and Gateway gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -86,11 +86,31 @@ jobs:
       - name: Create isolated Docker context
         run: docker context create tobari-ci --docker "host=unix:///var/run/docker.sock"
 
-      - name: Run the container runtime gate
+      - name: Run the container component gate
         env:
           DOCKER_CONTEXT: tobari-ci
-        run: |
-          ./scripts/check.sh runtime-release
+        run: ./scripts/check.sh runtime-release-components
+
+  first-use:
+    name: Cold first-use release-surface gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Create isolated Docker context
+        run: docker context create tobari-first-use-ci --docker "host=unix:///var/run/docker.sock"
+
+      - name: Run cold first use
+        env:
+          DOCKER_CONTEXT: tobari-first-use-ci
+        run: ./scripts/check.sh first-use
 
   release:
     name: Release packaging and workflow gate

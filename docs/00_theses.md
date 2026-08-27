@@ -206,8 +206,11 @@ through exact ownership checks.
   boundary, creates this Project's Context, composes canonical `cluster up`,
   reconciles the Workspace through explicit entry, and hands off once.
   Customize changes the same complete Template draft before publication; it is
-  not Template copy and creates no lineage. Runtime preparation remains an
-  independent host workflow performed before Template selection.
+  not Template copy and creates no lineage. After selection, that same entry
+  mutation owns exact local materialization of the canonical built-in standard
+  Runtime when its source-addressed image is absent. Custom Runtime
+  preparation remains an independent explicit host workflow and is never
+  inferred from entry.
   After review and before the first mutation, Start performs the closed generic
   Docker CLI/Engine/selected-context/Compose readiness profile required for the
   promised Workspace outcome. Failure creates no Template, Context, cluster,
@@ -801,7 +804,10 @@ test, lint, policy test, or integration scenario.
   build missing images on the user's Docker host, and validate them before
   mutation. The standard Runtime uses `tobari-runtime:base-<source-id>` in
   both resolver channels: equal exact checked source identity selects equal
-  local material, while the channel still owns preparation and recovery.
+  local material. Bare and explicit Context entry invoke that closed standard
+  preparation boundary before immutable Workspace planning; custom Runtime
+  material remains explicit. The resolver channel still owns preparation and
+  recovery.
   Auth Broker remains local to research builds.
 - `task check` is the implementation completion gate; security and public
   changes also run their named profiles.

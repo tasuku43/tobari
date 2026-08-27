@@ -18,6 +18,20 @@ import (
 
 type finalWorkspacePlanningRunner struct{}
 
+type finalWorkspacePreparationRunner struct {
+	*lifecycleObservationRunner
+	builds   [][]string
+	buildErr error
+}
+
+func (r *finalWorkspacePreparationRunner) Run(ctx context.Context, args, environment []string, in io.Reader, out, errOut io.Writer) error {
+	if len(args) >= 2 && args[0] == "buildx" && args[1] == "build" {
+		r.builds = append(r.builds, append([]string{}, args...))
+		return r.buildErr
+	}
+	return r.lifecycleObservationRunner.Run(ctx, args, environment, in, out, errOut)
+}
+
 func (finalWorkspacePlanningRunner) Run(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error {
 	return nil
 }
@@ -157,6 +171,81 @@ func (finalWorkspacePlanningRunner) Output(_ context.Context, args, _ []string) 
 		return []byte("Error: No such network"), errors.New("not found")
 	}
 	return nil, errors.New("unexpected Docker observation")
+}
+
+func TestFinalWorkspacePreparationBuildsOnlyCanonicalStandardRuntime(t *testing.T) {
+	root := t.TempDir()
+	observations := &lifecycleObservationRunner{images: map[string]lifecycleImageFixture{}, containers: map[string]runtimeContainerObservation{}}
+	runner := &finalWorkspacePreparationRunner{lifecycleObservationRunner: observations}
+	runtime, err := newRuntimeWithData(filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindEmptyFinalRuntimeProtection(t, runtime)
+	image, err := runtimeassets.StandardRuntimeImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.images = testImageResolver{runtimeImage: image, buildRuntime: true}
+	manifest, err := runtime.standardRuntimeManifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := manifest.Binding(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.PrepareWorkspaceRuntimeMaterial(context.Background(), binding); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.builds) != 1 || !containsArgs(runner.builds[0], image) || !slices.Equal(runner.builds[0][:4], []string{"buildx", "build", "--progress=plain", "--load"}) {
+		t.Fatalf("standard Runtime build calls=%v", runner.builds)
+	}
+
+	managedID := "018bcfe5-687b-7000-8000-000000000077"
+	managed := installRuntimeLifecycleRevision(t, runtime, managedID, "custom", "sha256:"+strings.Repeat("b", 64), "FROM example.invalid/runtime\n")
+	managedRevision := managed.Revisions[0]
+	observations.images[managedRevision.Image] = lifecycleImageFixture{observation: managedLifecycleImage(managedID, managedRevision.Revision, managedRevision.Image)}
+	managedBinding, err := managed.Binding(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.PrepareWorkspaceRuntimeMaterial(context.Background(), managedBinding); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.builds) != 1 {
+		t.Fatalf("custom Runtime triggered implicit build: %v", runner.builds)
+	}
+}
+
+func TestFinalWorkspacePreparationClassifiesOnlyAttemptedStandardBuildAsUncertain(t *testing.T) {
+	root := t.TempDir()
+	observations := &lifecycleObservationRunner{images: map[string]lifecycleImageFixture{}, containers: map[string]runtimeContainerObservation{}}
+	runner := &finalWorkspacePreparationRunner{lifecycleObservationRunner: observations, buildErr: errors.New("synthetic BuildKit failure")}
+	runtime, err := newRuntimeWithData(filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindEmptyFinalRuntimeProtection(t, runtime)
+	image, err := runtimeassets.StandardRuntimeImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.images = testImageResolver{runtimeImage: image, buildRuntime: true}
+	manifest, err := runtime.standardRuntimeManifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := manifest.Binding(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.PrepareWorkspaceRuntimeMaterial(context.Background(), binding); !errors.Is(err, tobari.ErrWorkspaceRuntimePreparationUncertain) {
+		t.Fatalf("standard Runtime build classification=%v", err)
+	}
+	if len(runner.builds) != 1 {
+		t.Fatalf("standard Runtime build calls=%v", runner.builds)
+	}
 }
 
 func finalWorkspaceRuntimeFixture(t *testing.T) (*Runtime, tobari.ContextAuthoritySnapshot, tobari.WorkspaceEntryReconciliationPlan) {

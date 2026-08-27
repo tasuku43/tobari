@@ -560,6 +560,65 @@ type finalGatewaySettlementRunner struct {
 	events               []string
 }
 
+func TestFinalComponentNetworkConnectUsesDockerAllocationOnlyForSharedNetworks(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		network   string
+		address   string
+		wantExact bool
+	}{
+		{name: "control", network: "tobari-control", address: "172.28.0.2"},
+		{name: "egress", network: "tobari-egress", address: "172.29.0.2"},
+		{name: "Workspace", network: "tobari-ws-example", address: "10.64.0.2", wantExact: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			args := finalComponentNetworkConnectArgs(gatewayContainer, "gateway", FinalGatewayNetworkAddress{Name: test.network, Address: test.address})
+			wantPrefix := []string{"network", "connect", "--alias", "gateway"}
+			if !slices.Equal(args[:len(wantPrefix)], wantPrefix) || args[len(args)-2] != test.network || args[len(args)-1] != gatewayContainer {
+				t.Fatalf("connect args=%v", args)
+			}
+			hasIP := slices.Contains(args, "--ip")
+			if hasIP != test.wantExact || hasIP && !slices.Contains(args, test.address) {
+				t.Fatalf("connect args=%v exact=%t", args, test.wantExact)
+			}
+		})
+	}
+}
+
+type finalComponentNetworkObservationRunner struct {
+	recordingRunner
+	networks string
+}
+
+func (r *finalComponentNetworkObservationRunner) Run(_ context.Context, args, _ []string, _ io.Reader, out, _ io.Writer) error {
+	if len(args) >= 2 && args[0] == "inspect" {
+		_, _ = io.WriteString(out, r.networks)
+		return nil
+	}
+	return fmt.Errorf("unexpected network confirmation call: %v", args)
+}
+
+func TestFinalComponentNetworkConfirmationAcceptsFreshSharedAddressesOnly(t *testing.T) {
+	runner := &finalComponentNetworkObservationRunner{networks: `{
+  "tobari-control":{"IPAddress":"172.40.0.9","Aliases":["gateway"]},
+  "tobari-egress":{"IPAddress":"172.41.0.8","Aliases":["gateway"]},
+  "tobari-work-example":{"IPAddress":"10.64.0.2","Aliases":["gateway"]}
+}`}
+	runtime := &Runtime{runner: runner}
+	expected := []FinalGatewayNetworkAddress{
+		{Name: "tobari-control", Address: "172.28.0.2"},
+		{Name: "tobari-egress", Address: "172.29.0.2"},
+		{Name: "tobari-work-example", Address: "10.64.0.2"},
+	}
+	if err := runtime.confirmFinalComponentTopology(context.Background(), gatewayContainer, "gateway", expected); err != nil {
+		t.Fatalf("Docker-assigned shared address was treated as stale authority: %v", err)
+	}
+	runner.networks = strings.Replace(runner.networks, "10.64.0.2", "10.64.0.9", 1)
+	if err := runtime.confirmFinalComponentTopology(context.Background(), gatewayContainer, "gateway", expected); err == nil {
+		t.Fatal("Workspace network address drift was accepted")
+	}
+}
+
 func (r *finalGatewaySettlementRunner) workspaceResource(name string) (*tobari.WorkspacePolicyPrincipalAuthority, string) {
 	for id, authority := range r.workspaces {
 		container, network, err := tobari.ProjectResourceNames(string(id))
@@ -917,6 +976,47 @@ func finalGatewayCoordinatorPlanFixture(
 		t.Fatal(err)
 	}
 	return runtime, runner, journal
+}
+
+func TestFinalSharedNetworkRefreshPersistsReplacementAddressesInRecoveryJournal(t *testing.T) {
+	runtime, runner, journal := finalGatewayCoordinatorFixture(t)
+	runner.candidate.GatewayNetworks = append([]FinalGatewayNetworkAddress{}, journal.Candidate.GatewayNetworks...)
+	runner.candidate.OPANetworks = append([]FinalGatewayNetworkAddress{}, journal.Candidate.OPANetworks...)
+	for index := range runner.candidate.GatewayNetworks {
+		switch runner.candidate.GatewayNetworks[index].Name {
+		case "tobari-control":
+			runner.candidate.GatewayNetworks[index].Address = "172.40.0.9"
+		case "tobari-egress":
+			runner.candidate.GatewayNetworks[index].Address = "172.41.0.8"
+		}
+	}
+	runner.candidate.OPANetworks[0].Address = "172.40.0.10"
+	if brokerRuntimeEnabled {
+		runner.candidate.AuthBrokerNetworks = append([]FinalGatewayNetworkAddress{}, journal.Candidate.AuthBrokerNetworks...)
+		for index := range runner.candidate.AuthBrokerNetworks {
+			if runner.candidate.AuthBrokerNetworks[index].Name == "tobari-control" {
+				runner.candidate.AuthBrokerNetworks[index].Address = "172.40.0.11"
+			} else {
+				runner.candidate.AuthBrokerNetworks[index].Address = "172.41.0.11"
+			}
+		}
+	}
+	refreshed, err := runtime.refreshFinalSharedNetworkAddresses(context.Background(), journal.Candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshed.GatewayNetworks[0].Address != "172.40.0.9" || refreshed.GatewayNetworks[1].Address != "172.41.0.8" {
+		t.Fatalf("shared addresses were not refreshed: before=%+v/%+v after=%+v/%+v", journal.Candidate.GatewayNetworks, journal.Candidate.OPANetworks, refreshed.GatewayNetworks, refreshed.OPANetworks)
+	}
+	journal.Candidate = refreshed
+	journal.Phase = finalGatewayPhasePrincipals
+	if err := runtime.writeFinalGatewaySettlementJournal(journal); err != nil {
+		t.Fatal(err)
+	}
+	persisted, present, err := runtime.readFinalGatewaySettlementJournal()
+	if err != nil || !present || !slices.Equal(persisted.Candidate.GatewayNetworks, refreshed.GatewayNetworks) || !slices.Equal(persisted.Candidate.OPANetworks, refreshed.OPANetworks) || !slices.Equal(persisted.Candidate.AuthBrokerNetworks, refreshed.AuthBrokerNetworks) {
+		t.Fatalf("persisted=%+v present=%t err=%v refreshed=%+v", persisted.Candidate, present, err, refreshed)
+	}
 }
 
 func finalReviewedMultiContextFixture(

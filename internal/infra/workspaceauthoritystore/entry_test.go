@@ -16,6 +16,7 @@ import (
 )
 
 type entryRuntimeFixture struct {
+	prepareCalls   int
 	planCalls      int
 	reconcileCalls int
 	confirmCalls   int
@@ -29,6 +30,8 @@ type entryRuntimeFixture struct {
 	resolvedSpec   tobari.SemanticDigest
 	containerID    string
 	homes          map[tobari.WorkspaceID]string
+	prepareErr     error
+	prepared       []tobari.RuntimeBinding
 }
 
 func (r *entryRuntimeFixture) WorkspaceHomeForID(_ context.Context, id tobari.WorkspaceID) (string, error) {
@@ -36,6 +39,12 @@ func (r *entryRuntimeFixture) WorkspaceHomeForID(_ context.Context, id tobari.Wo
 		return home, nil
 	}
 	return "/workspace/home-" + string(id), nil
+}
+
+func (r *entryRuntimeFixture) PrepareWorkspaceRuntimeMaterial(_ context.Context, binding tobari.RuntimeBinding) error {
+	r.prepareCalls++
+	r.prepared = append(r.prepared, binding)
+	return r.prepareErr
 }
 
 func (r *entryRuntimeFixture) PlanWorkspaceEntry(_ context.Context, snapshot tobari.ContextAuthoritySnapshot, authority tobari.WorkspaceTemplateEntryAuthority, workspaceID tobari.WorkspaceID, reconciledAt time.Time) (tobari.WorkspaceEntryReconciliationPlan, error) {
@@ -227,11 +236,76 @@ func TestContextEntryConfirmsIndependentAxesBeforePublishingAppliedEntryAndRunsO
 	if err != nil || !present || current.Generation != previous.Generation+1 || current.Workspaces[0].LastSuccessfulEntry == nil || current.Workspaces[0].LastSuccessfulEntry.ReconciledAt != adapter.mutator.clock().UTC() {
 		t.Fatalf("current=%#v present=%t err=%v", current, present, err)
 	}
-	if runtime.planCalls != 1 || runtime.reconcileCalls != 1 || runtime.confirmCalls != 1 || templatePolicy.calls != 1 || memory.confirmCalls != 1 {
-		t.Fatalf("runtime=%d/%d/%d activation=%d/%d", runtime.planCalls, runtime.reconcileCalls, runtime.confirmCalls, templatePolicy.calls, memory.confirmCalls)
+	if runtime.prepareCalls != 1 || runtime.planCalls != 1 || runtime.reconcileCalls != 1 || runtime.confirmCalls != 1 || templatePolicy.calls != 1 || memory.confirmCalls != 1 {
+		t.Fatalf("runtime=%d/%d/%d/%d activation=%d/%d", runtime.prepareCalls, runtime.planCalls, runtime.reconcileCalls, runtime.confirmCalls, templatePolicy.calls, memory.confirmCalls)
 	}
 	if sessions.begin != 1 || sessions.run != 1 || sessions.close != 1 || lifecycle.held.Load() {
 		t.Fatalf("session=%d/%d/%d lifecycle-held=%t", sessions.begin, sessions.run, sessions.close, lifecycle.held.Load())
+	}
+}
+
+func TestContextEntryPreparesExactSelectedRuntimeBeforeReadOnlyPlan(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+	}{
+		{name: "build failure", err: errors.New("synthetic standard Runtime preparation failure")},
+		{name: "canceled build", err: context.Canceled},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			previous := storeCollectionFixture(t)
+			_, mutator, adapter, _, runtime, _, _, sessions := newEntryFixture(t, previous)
+			runtime.prepareErr = errors.Join(tobari.ErrWorkspaceRuntimePreparationUncertain, test.err)
+			contextRef, _ := tobari.ContextRef(storeContextID)
+			if _, err := adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); !errors.Is(err, tobari.ErrWorkspaceRuntimePreparationUncertain) {
+				t.Fatalf("Runtime preparation failure classification=%v", err)
+			}
+			if runtime.prepareCalls != 1 || len(runtime.prepared) != 1 || runtime.prepared[0].RuntimeID != tobari.StandardRuntimeID || runtime.planCalls != 0 || runtime.reconcileCalls != 0 || sessions.begin != 0 {
+				t.Fatalf("prepare=%d bindings=%+v plan=%d reconcile=%d session=%d", runtime.prepareCalls, runtime.prepared, runtime.planCalls, runtime.reconcileCalls, sessions.begin)
+			}
+			if _, active, err := mutator.readEffectDecision(); err != nil || active {
+				t.Fatalf("preparation failure published decision: active=%t err=%v", active, err)
+			}
+		})
+	}
+}
+
+func TestContextEntryKeepsCustomRuntimePreparationObservationReadOnly(t *testing.T) {
+	previous := storeCollectionFixture(t)
+	template := previous.Templates[0].Clone()
+	body := template.Current.Body.Clone()
+	body.EntryDefaults.Runtime = tobari.RuntimeBinding{
+		RuntimeID: "018bcfe5-687b-7000-8000-000000000077",
+		Name:      "custom",
+		Revision:  "sha256:" + strings.Repeat("c", 64),
+		Ordinal:   1,
+		Image:     "custom-runtime:test",
+	}
+	nextRevision, changed, err := tobari.AdvanceWorkspaceTemplateRevision(template.Current, body)
+	if err != nil || !changed {
+		t.Fatalf("advance custom Runtime Template: changed=%t err=%v", changed, err)
+	}
+	template.Current = nextRevision
+	template.Retained = append(template.Retained, nextRevision.Clone())
+	custom, _, err := tobari.PublishWorkspaceAuthorityCollection(
+		[]tobari.WorkspaceTemplate{template}, previous.Contexts, previous.Workspaces,
+		previous.PendingCandidates, previous.DefaultTemplateID, nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, mutator, adapter, _, runtime, _, _, sessions := newEntryFixture(t, custom)
+	runtime.prepareErr = errors.New("synthetic custom Runtime observation failure")
+	contextRef, _ := tobari.ContextRef(storeContextID)
+	_, err = adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard)
+	if !errors.Is(err, tobari.ErrWorkspaceEntryObservationUnavailable) || errors.Is(err, tobari.ErrWorkspaceRuntimePreparationUncertain) {
+		t.Fatalf("custom Runtime preparation classification=%v", err)
+	}
+	if runtime.prepareCalls != 1 || len(runtime.prepared) != 1 || runtime.prepared[0].RuntimeID != body.EntryDefaults.Runtime.RuntimeID || runtime.planCalls != 0 || sessions.begin != 0 {
+		t.Fatalf("prepare=%d bindings=%+v plan=%d session=%d", runtime.prepareCalls, runtime.prepared, runtime.planCalls, sessions.begin)
+	}
+	if _, active, err := mutator.readEffectDecision(); err != nil || active {
+		t.Fatalf("custom Runtime observation published decision: active=%t err=%v", active, err)
 	}
 }
 

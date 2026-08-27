@@ -17,7 +17,7 @@ type FinalClusterStatusPort interface {
 }
 
 type FinalClusterDownPort interface {
-	Down(context.Context) (tobari.WorkspaceAuthorityClusterDownPlan, error)
+	Down(context.Context, bool) (tobari.WorkspaceAuthorityClusterDownPlan, error)
 }
 
 type FinalClusterLifecycleService struct {
@@ -60,6 +60,7 @@ type FinalClusterDownResult struct {
 	SchemaVersion      int                                      `json:"schema_version"`
 	Task               string                                   `json:"task"`
 	Stopped            bool                                     `json:"stopped"`
+	Purged             bool                                     `json:"purged"`
 	Generation         uint64                                   `json:"generation"`
 	CollectionRevision tobari.SemanticDigest                    `json:"collection_revision"`
 	EnvelopeChanged    bool                                     `json:"envelope_changed"`
@@ -67,12 +68,12 @@ type FinalClusterDownResult struct {
 }
 
 func newFinalClusterDownResult(plan tobari.WorkspaceAuthorityClusterDownPlan) (FinalClusterDownResult, error) {
-	result := FinalClusterDownResult{SchemaVersion: tobari.FinalClusterDownSchemaVersion, Task: tobari.TaskClusterDown, Stopped: true, Generation: plan.NextGeneration, CollectionRevision: plan.NextRevision, EnvelopeChanged: plan.EnvelopeChanged, Plan: plan}
+	result := FinalClusterDownResult{SchemaVersion: tobari.FinalClusterDownSchemaVersion, Task: tobari.TaskClusterDown, Stopped: true, Purged: plan.Purge, Generation: plan.NextGeneration, CollectionRevision: plan.NextRevision, EnvelopeChanged: plan.EnvelopeChanged, Plan: plan}
 	return result, result.Validate()
 }
 
 func (r FinalClusterDownResult) Validate() error {
-	if r.SchemaVersion != tobari.FinalClusterDownSchemaVersion || r.Task != tobari.TaskClusterDown || !r.Stopped || r.Plan.Validate() != nil || r.Generation != r.Plan.NextGeneration || r.CollectionRevision != r.Plan.NextRevision || r.EnvelopeChanged != r.Plan.EnvelopeChanged {
+	if r.SchemaVersion != tobari.FinalClusterDownSchemaVersion || r.Task != tobari.TaskClusterDown || !r.Stopped || r.Plan.Validate() != nil || r.Purged != r.Plan.Purge || r.Generation != r.Plan.NextGeneration || r.CollectionRevision != r.Plan.NextRevision || r.EnvelopeChanged != r.Plan.EnvelopeChanged {
 		return fmt.Errorf("final cluster down result is invalid")
 	}
 	return nil
@@ -91,14 +92,14 @@ func FinalClusterDownImpact() operation.Impact {
 	return operation.Impact{Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationYes}
 }
 
-func (s *FinalClusterLifecycleService) Down(ctx context.Context, intent operation.Intent) (FinalClusterDownResult, error) {
+func (s *FinalClusterLifecycleService) Down(ctx context.Context, intent operation.Intent, purge bool) (FinalClusterDownResult, error) {
 	if s == nil || portcheck.IsNil(s.down) {
 		return FinalClusterDownResult{}, missingPort("final cluster down")
 	}
 	request := execution.Request{Intent: intent, ExpectedCommand: TaskClusterDown, ExpectedEffect: operation.EffectWrite, ExpectedTarget: operation.TargetRef{Kind: tobari.ClusterTargetKind, ID: tobari.ClusterTargetID}, ExpectedImpact: FinalClusterDownImpact()}
 	var result FinalClusterDownResult
 	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		plan, err := s.down.Down(actionContext)
+		plan, err := s.down.Down(actionContext, purge)
 		if err != nil {
 			if classified, ok := preReleaseLegacyMutationFault(err); ok {
 				return classified

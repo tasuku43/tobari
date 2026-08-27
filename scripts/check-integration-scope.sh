@@ -13,18 +13,18 @@ runtime_image_cleanup_helper=test/integration/runtime_image_cleanup.sh
 permission_resume_helper=test/integration/permission_resume.sh
 
 first_use_line_count=$(wc -l <"$first_use_scenario" | tr -d ' ')
-if ((first_use_line_count > 180)); then
-  echo "integration scope: first-use scenario grew to $first_use_line_count lines (limit 180)" >&2
+if ((first_use_line_count > 320)); then
+  echo "integration scope: first-use scenario grew to $first_use_line_count lines (limit 320)" >&2
   exit 1
 fi
 for claim in \
   '[[ ! -e $test_root/config/tobari && ! -e $test_root/state/tobari ]]' \
-  'template plan --id "$template_ref"' \
-  'value["runtime_id"] == "builtin/standard"' \
-  'context plan --id "$context_ref"' \
-  'run_tobari cluster up --format=json' \
-  'context enter --id "$context_ref"' \
-  'DOCKER_CONTEXT="$host_docker_context" ./scripts/build-dev-images.sh' \
+  'go build -buildvcs=false -trimpath' \
+  'run_first_use_pty_at "$test_root/user/project" -- /bin/true' \
+  'items[0]["runtime_id"] == "builtin/standard"' \
+  'run_tobari_at "$test_root/user/project" -- /bin/true' \
+  'Tobari image $image must be absent' \
+  'Context source root was not created' \
   'docker volume inspect --format' \
   'tobari-policy-bundle'; do
   if ! grep -F "$claim" "$first_use_scenario" >/dev/null; then
@@ -254,21 +254,29 @@ if ! awk '
   echo "integration scope: runtime no longer includes the integration boundary" >&2
   exit 1
 fi
-if ! grep -F './scripts/check.sh runtime-release' .github/workflows/ci.yml >/dev/null; then
-  echo "integration scope: CI does not use the explicit release runtime profile" >&2
+if ! grep -F './scripts/check.sh runtime-release-components' .github/workflows/ci.yml >/dev/null ||
+  ! grep -F './scripts/check.sh first-use' .github/workflows/ci.yml >/dev/null; then
+  echo "integration scope: CI does not run both release component and cold first-use profiles" >&2
   exit 1
 fi
+runtime_release_components_body=$(awk '
+  /^run_runtime_release_components\(\)/ { in_runtime_release_components=1 }
+  in_runtime_release_components { print }
+  in_runtime_release_components && /^}/ { exit }
+' scripts/check.sh)
 runtime_release_body=$(awk '
   /^run_runtime_release\(\)/ { in_runtime_release=1 }
   in_runtime_release { print }
   in_runtime_release && /^}/ { exit }
 ' scripts/check.sh)
-if ! grep -F 'run_policy' <<<"$runtime_release_body" >/dev/null ||
-  ! grep -F 'run_gateway' <<<"$runtime_release_body" >/dev/null; then
-  echo "integration scope: release runtime profile lost policy or Gateway coverage" >&2
+if ! grep -F 'run_policy' <<<"$runtime_release_components_body" >/dev/null ||
+  ! grep -F 'run_gateway' <<<"$runtime_release_components_body" >/dev/null ||
+  ! grep -F 'run_runtime_release_components' <<<"$runtime_release_body" >/dev/null ||
+  ! grep -F 'run_first_use' <<<"$runtime_release_body" >/dev/null; then
+  echo "integration scope: release runtime profile lost policy, Gateway, or cold first-use coverage" >&2
   exit 1
 fi
-if grep -Eq 'run_authbroker|run_integration' <<<"$runtime_release_body"; then
+if grep -Eq 'run_authbroker|run_integration' <<<"$runtime_release_components_body$runtime_release_body"; then
   echo "integration scope: release runtime profile re-enabled deferred research tests" >&2
   exit 1
 fi

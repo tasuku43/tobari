@@ -14,7 +14,7 @@ type finalClusterRuntimeObserver interface {
 }
 
 type finalClusterDownSettlementAuthority interface {
-	SettleFinalClusterDown(context.Context, tobari.WorkspaceAuthorityCollection, tobari.WorkspaceAuthorityCollection, string, string) error
+	SettleFinalClusterDown(context.Context, tobari.WorkspaceAuthorityCollection, tobari.WorkspaceAuthorityCollection, string, string, bool) error
 	ConfirmFinalClusterDownSettled(context.Context, tobari.WorkspaceAuthorityCollection) error
 }
 
@@ -61,14 +61,14 @@ func (a *ClusterLifecycleAdapter) Observe(ctx context.Context) (tobari.FinalClus
 	return status, nil
 }
 
-func (a *ClusterLifecycleAdapter) Down(ctx context.Context) (tobari.WorkspaceAuthorityClusterDownPlan, error) {
+func (a *ClusterLifecycleAdapter) Down(ctx context.Context, purge bool) (tobari.WorkspaceAuthorityClusterDownPlan, error) {
 	if a == nil || a.mutator == nil || a.settlement == nil {
 		return tobari.WorkspaceAuthorityClusterDownPlan{}, fmt.Errorf("final cluster down adapter is unavailable")
 	}
 	committed, err := a.mutator.effectfulMutate(ctx, finalClusterDownOperation, finalClusterAuthorityTarget,
-		func(d effectDecision) bool { return d.ClusterDownPlan != nil },
+		func(d effectDecision) bool { return d.ClusterDownPlan != nil && d.ClusterDownPlan.Purge == purge },
 		func(current tobari.WorkspaceAuthorityCollection, _ bool) (effectPlan, error) {
-			transition, err := tobari.PlanWorkspaceAuthorityClusterDown(current)
+			transition, err := tobari.PlanWorkspaceAuthorityClusterDownWithPurge(current, purge)
 			if err != nil {
 				return effectPlan{}, err
 			}
@@ -77,7 +77,7 @@ func (a *ClusterLifecycleAdapter) Down(ctx context.Context) (tobari.WorkspaceAut
 				if err := plan.ValidateTransition(current, transition.Next); err != nil {
 					return err
 				}
-				return a.settlement.SettleFinalClusterDown(effectContext, current.Clone(), transition.Next.Clone(), finalClusterDownOperation, clusterDownDecisionRef(transition.Next.Revision))
+				return a.settlement.SettleFinalClusterDown(effectContext, current.Clone(), transition.Next.Clone(), finalClusterDownOperation, clusterDownDecisionRef(transition.Next.Revision, purge), purge)
 			}}, nil
 		})
 	if err != nil {
@@ -89,6 +89,10 @@ func (a *ClusterLifecycleAdapter) Down(ctx context.Context) (tobari.WorkspaceAut
 	return *committed.ClusterDownPlan, nil
 }
 
-func clusterDownDecisionRef(revision tobari.SemanticDigest) string {
-	return "cluster-down:" + string(revision)
+func clusterDownDecisionRef(revision tobari.SemanticDigest, purge bool) string {
+	mode := "retain"
+	if purge {
+		mode = "purge"
+	}
+	return "cluster-down:" + mode + ":" + string(revision)
 }

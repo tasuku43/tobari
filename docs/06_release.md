@@ -176,8 +176,9 @@ independent proof of builder identity.
 ## Publication approval checkpoint
 
 Artifact preparation is a non-publishing, unprivileged operation. Main/pull-
-request CI runs `full`, `security`, `public`, `release`, and `runtime` as five
-independent parallel jobs. Before the first public-distribution mutation, the
+request CI runs `full`, `security`, `public`, `release`, `runtime-components`,
+and `first-use` as six independent parallel jobs. Before the first
+public-distribution mutation, the
 maintainer selects one reviewed main revision whose main-push CI run completed successfully, validates
 the Gateway and local base construction, reviews the two independent archive
 matrices produced by the release profile, completes manual review, and invokes
@@ -242,13 +243,18 @@ task release:check
 task public:check
 task policy:test
 task gateway:test
+TOBARI_INTEGRATION_DOCKER_CONTEXT=<isolated-context> task first-use:test
 task runtime:release
 ```
 
-CI invokes `task runtime:release`, which closes the policy and Gateway rows
-above once. The `authbroker`, `integration`, and complete `runtime` profiles
-remain explicit research validation interfaces and are deferred; they are not
-standard release evidence until that boundary is deliberately re-enabled.
+CI closes the same `task runtime:release` aggregate through parallel
+`runtime-release-components` and `first-use` jobs, so policy/Gateway validation
+does not serialize the cold image build. The first-use row uses a
+release-surface binary with absent Tobari XDG roots and exact local image tags;
+it is not research integration. The `authbroker`, broader `integration`, and
+complete `runtime` profiles remain explicit research validation interfaces and
+are deferred; they are not standard release evidence until that boundary is
+deliberately re-enabled.
 Preparation additionally requires its own exact artifact and metadata
 verification before tagging.
 

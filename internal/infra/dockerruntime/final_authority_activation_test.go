@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -195,6 +196,39 @@ func TestFinalPolicyActivationPersistsExactReceiptAndSurvivesUnrelatedCollection
 	}
 	if err := runtime.ConfirmPolicyMemoryActive(context.Background(), contentDrift, finalProjectionContextID, receipt); err == nil {
 		t.Fatal("confirmation accepted actual selected Policy Memory drift")
+	}
+}
+
+func TestFinalPolicyActivationDoesNotRelabelEqualContentAsAnotherPlan(t *testing.T) {
+	runtime, _, collection := finalPolicyActivationFixture(t)
+	hot, err := tobari.BuildHotWorkspacePolicyProjection(collection, finalProjectionContextID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hotRecord, err := runtime.prepareFinalPolicyActivation(context.Background(), hot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.resumeFinalPolicyActivation(context.Background(), hotRecord); err != nil {
+		t.Fatal(err)
+	}
+	cluster, err := tobari.BuildClusterWorkspacePolicyProjection(collection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clusterRecord, err := runtime.prepareFinalPolicyActivation(context.Background(), cluster)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(hotRecord.Receipt, clusterRecord.Receipt) || reflect.DeepEqual(hotRecord.Material.Plan, clusterRecord.Material.Plan) {
+		t.Fatalf("fixture does not isolate equal content with distinct Plan: hot=%+v cluster=%+v", hotRecord.Material.Plan, clusterRecord.Material.Plan)
+	}
+	if err := runtime.resumeFinalPolicyActivation(context.Background(), clusterRecord); err != nil {
+		t.Fatal(err)
+	}
+	active, err := runtime.readFinalPolicyActivation(runtime.finalPolicyActiveReceiptPath())
+	if err != nil || !reflect.DeepEqual(active, clusterRecord) {
+		t.Fatalf("active Plan was relabeled by receipt-only equality: active=%+v cluster=%+v err=%v", active.Material.Plan, clusterRecord.Material.Plan, err)
 	}
 }
 

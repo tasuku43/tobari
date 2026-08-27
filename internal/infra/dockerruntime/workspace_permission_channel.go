@@ -539,11 +539,13 @@ func (c *workspacePermissionChannel) Close() error {
 		c.writeMu.Unlock()
 
 		var runErr error
+		forced := false
 		timer := time.NewTimer(workspacePermissionCloseTimeout)
 		select {
 		case runErr = <-c.execDone:
 			timer.Stop()
 		case <-timer.C:
+			forced = true
 			c.cancel()
 			select {
 			case runErr = <-c.execDone:
@@ -552,9 +554,7 @@ func (c *workspacePermissionChannel) Close() error {
 			}
 		}
 		c.cancel()
-		if runErr != nil && !errors.Is(runErr, context.Canceled) {
-			result = errors.Join(result, fmt.Errorf("Workspace permission control failed: %w", runErr))
-		}
+		result = errors.Join(result, workspacePermissionControlCloseError(runErr, forced))
 		select {
 		case <-c.done:
 		case <-time.After(workspacePermissionCloseTimeout):
@@ -568,6 +568,13 @@ func (c *workspacePermissionChannel) Close() error {
 		c.mu.Unlock()
 	})
 	return result
+}
+
+func workspacePermissionControlCloseError(runErr error, forced bool) error {
+	if runErr == nil || errors.Is(runErr, context.Canceled) || forced {
+		return nil
+	}
+	return fmt.Errorf("Workspace permission control failed: %w", runErr)
 }
 
 // PermissionWaitClient is the attachment-local helper adapter. It has no

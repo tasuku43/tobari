@@ -46,6 +46,7 @@ var (
 	ErrWorkspaceEntryTemplatePolicyInactive   = errors.New("Workspace entry requires current Template policy activation")
 	ErrWorkspaceEntryPolicyMemoryInactive     = errors.New("Workspace entry requires current Policy Memory activation")
 	ErrWorkspaceEntryObservationUnavailable   = errors.New("Workspace entry precondition observation is unavailable")
+	ErrWorkspaceRuntimePreparationUncertain   = errors.New("Workspace Runtime preparation may have changed local Docker state")
 	ErrWorkspaceEntryInterrupted              = errors.New("Workspace entry reconciliation requires exact recovery")
 	ErrWorkspaceEntryCanceledBeforeDecision   = errors.New("Workspace entry was canceled before a durable reconciliation decision")
 	ErrWorkspaceEntryRuntimeNotCurrent        = errors.New("Workspace entry runtime is confirmed missing or mismatched")

@@ -20,6 +20,19 @@ type fakeFinalClusterPort struct {
 	calls    int
 }
 
+type fakeFinalClusterDownPort struct {
+	plan  tobari.WorkspaceAuthorityClusterDownPlan
+	purge bool
+	err   error
+	calls int
+}
+
+func (f *fakeFinalClusterDownPort) Down(_ context.Context, purge bool) (tobari.WorkspaceAuthorityClusterDownPlan, error) {
+	f.calls++
+	f.purge = purge
+	return f.plan, f.err
+}
+
 func (f *fakeFinalClusterPort) Reconcile(context.Context) (tobari.WorkspaceAuthorityClusterReconciliationPlan, tobari.PolicyProjectionIdentity, error) {
 	f.calls++
 	return f.plan, f.identity, f.err
@@ -56,6 +69,40 @@ func finalClusterIdentityFixture() tobari.PolicyProjectionIdentity {
 		AggregateRevision:  strings.TrimPrefix(string(digest("7")), "sha256:"),
 		EvaluatorIdentity:  tobari.PolicyEvaluatorIdentity{SchemaVersion: 1, Version: "test-evaluator", Digest: digest("6")},
 		PolicyDataIdentity: tobari.PolicyDataIdentity{SchemaVersion: 1, Digest: digest("5")},
+	}
+}
+
+func finalClusterDownPlanFixture(t *testing.T, purge bool) tobari.WorkspaceAuthorityClusterDownPlan {
+	t.Helper()
+	snapshot := snapshotFixture(t, false, false)
+	previous, changed, err := tobari.PublishWorkspaceAuthorityCollection(
+		[]tobari.WorkspaceTemplate{snapshot.Template},
+		[]tobari.WorkspaceAuthorityContextRecord{{Context: snapshot.Context, PolicyMemory: snapshot.PolicyMemory}},
+		[]tobari.WorkspaceBinding{}, []tobari.PolicyCandidateAuthority{}, nil, nil,
+	)
+	if err != nil || !changed {
+		t.Fatalf("publish final down authority: changed=%t err=%v", changed, err)
+	}
+	transition, err := tobari.PlanWorkspaceAuthorityClusterDownWithPurge(previous, purge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return transition.Plan
+}
+
+func TestFinalClusterDownServiceForwardsAndConfirmsExactPurgeIntent(t *testing.T) {
+	port := &fakeFinalClusterDownPort{plan: finalClusterDownPlanFixture(t, true)}
+	intent := operation.Intent{
+		Command: TaskClusterDown, Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.ClusterTargetKind, ID: tobari.ClusterTargetID},
+		Impact: FinalClusterDownImpact(),
+	}
+	result, err := NewFinalClusterLifecycleService(port).Down(context.Background(), intent, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if port.calls != 1 || !port.purge || !result.Purged || !result.Plan.Purge || result.Validate() != nil {
+		t.Fatalf("down result=%#v calls=%d purge=%t", result, port.calls, port.purge)
 	}
 }
 

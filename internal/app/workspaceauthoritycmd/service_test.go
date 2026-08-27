@@ -326,6 +326,7 @@ func TestContextEntryClassifiesSupportedAuthorityBoundariesWithoutUnknownMutatio
 	}{
 		{name: "Template policy stale", err: tobari.ErrWorkspaceEntryTemplatePolicyInactive, code: "workspace_entry_template_policy_inactive", phase: fault.PhasePrecondition, change: fault.ChangeNone},
 		{name: "Policy Memory stale", err: tobari.ErrWorkspaceEntryPolicyMemoryInactive, code: "workspace_entry_policy_memory_inactive", phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{name: "standard Runtime preparation uncertain", err: errors.Join(tobari.ErrWorkspaceRuntimePreparationUncertain, errors.New("synthetic BuildKit failure")), code: "workspace_runtime_preparation_uncertain", phase: fault.PhaseMutation, change: fault.ChangeUnknown},
 		{name: "observation unavailable", err: errors.Join(tobari.ErrWorkspaceEntryObservationUnavailable, errors.New("synthetic private observation")), code: "workspace_entry_observation_unavailable", phase: fault.PhaseObservation, change: fault.ChangeNotApplicable},
 		{name: "mutation recovery required", err: errors.Join(tobari.ErrFinalAuthorityMutationRecoveryRequired, errors.New("active decision")), code: "final_authority_mutation_recovery_required", phase: fault.PhasePrecondition, change: fault.ChangeNone},
 		{name: "durable decision interrupted", err: errors.Join(tobari.ErrWorkspaceEntryInterrupted, context.DeadlineExceeded), code: "workspace_entry_interrupted", phase: fault.PhaseMutation, change: fault.ChangePartial},

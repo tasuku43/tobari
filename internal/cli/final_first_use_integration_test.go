@@ -159,6 +159,7 @@ func firstUseIntegrationDigest(value string) tobari.SemanticDigest {
 }
 
 type firstUseIntegrationEntryRuntime struct {
+	prepareCalls   int
 	planCalls      int
 	reconcileCalls int
 	confirmCalls   int
@@ -166,6 +167,14 @@ type firstUseIntegrationEntryRuntime struct {
 
 func (r *firstUseIntegrationEntryRuntime) WorkspaceHomeForID(_ context.Context, id tobari.WorkspaceID) (string, error) {
 	return "/workspace/home-" + string(id), nil
+}
+
+func (r *firstUseIntegrationEntryRuntime) PrepareWorkspaceRuntimeMaterial(_ context.Context, binding tobari.RuntimeBinding) error {
+	if binding.RuntimeID != tobari.StandardRuntimeID {
+		return fmt.Errorf("first-use prepared Runtime ID = %q, want %q", binding.RuntimeID, tobari.StandardRuntimeID)
+	}
+	r.prepareCalls++
+	return nil
 }
 
 func (r *firstUseIntegrationEntryRuntime) PlanWorkspaceEntry(_ context.Context, snapshot tobari.ContextAuthoritySnapshot, authority tobari.WorkspaceTemplateEntryAuthority, workspaceID tobari.WorkspaceID, reconciledAt time.Time) (tobari.WorkspaceEntryReconciliationPlan, error) {
@@ -407,7 +416,7 @@ func TestFinalRootFreshStartBootstrapsAuthorityClusterAndWorkspaceFromEmptyXDG(t
 			t.Fatalf("first-use Runtime reference=%q want=%q", ref, expectedRuntimeRef)
 		}
 	}
-	if settlement.clusterCalls != 1 || settlement.entryCalls != 1 || entryRuntime.planCalls != 1 || entryRuntime.reconcileCalls != 1 || entryRuntime.confirmCalls != 1 || sessions.begin != 1 || sessions.run != 1 || sessions.close != 1 || activation.confirmCalls != 1 {
+	if settlement.clusterCalls != 1 || settlement.entryCalls != 1 || entryRuntime.prepareCalls != 1 || entryRuntime.planCalls != 1 || entryRuntime.reconcileCalls != 1 || entryRuntime.confirmCalls != 1 || sessions.begin != 1 || sessions.run != 1 || sessions.close != 1 || activation.confirmCalls != 1 {
 		t.Fatalf("bootstrap calls cluster=%d entry=%d plan=%d reconcile=%d confirm=%d session=%d/%d/%d activation=%d", settlement.clusterCalls, settlement.entryCalls, entryRuntime.planCalls, entryRuntime.reconcileCalls, entryRuntime.confirmCalls, sessions.begin, sessions.run, sessions.close, activation.confirmCalls)
 	}
 

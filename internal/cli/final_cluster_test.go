@@ -15,6 +15,19 @@ import (
 
 type finalClusterErrorFixture struct{ err error }
 
+type finalClusterDownCLIFixture struct {
+	purge bool
+}
+
+func (f *finalClusterDownCLIFixture) Down(_ context.Context, purge bool) (tobari.WorkspaceAuthorityClusterDownPlan, error) {
+	f.purge = purge
+	digest := tobari.SemanticDigest("sha256:" + strings.Repeat("a", 64))
+	return tobari.WorkspaceAuthorityClusterDownPlan{
+		SchemaVersion: 1, Purge: purge, PreviousGeneration: 1, PreviousRevision: digest,
+		NextGeneration: 1, NextRevision: digest, EnvelopeChanged: false,
+	}, nil
+}
+
 func (f finalClusterErrorFixture) Reconcile(context.Context, operation.Intent) (workspaceauthoritycmd.FinalClusterReconciliation, error) {
 	return workspaceauthoritycmd.FinalClusterReconciliation{}, f.err
 }
@@ -60,7 +73,7 @@ func TestFinalClusterUpPublicResultOwnsOnlyTheCatalogEnvelopeVersion(t *testing.
 }
 
 func TestFinalClusterDownPublicResultOwnsOnlyTheCatalogEnvelopeVersion(t *testing.T) {
-	encoded, err := finalClusterJSON("cluster down", "cluster_down", tobari.FinalClusterDownSchemaVersion, finalClusterDownPublicResult{Task: workspaceauthoritycmd.TaskClusterDown, Stopped: true})
+	encoded, err := finalClusterJSON("cluster down", "cluster_down", tobari.FinalClusterDownSchemaVersion, finalClusterDownPublicResult{Task: workspaceauthoritycmd.TaskClusterDown, Stopped: true, Purged: true})
 	if err != nil {
 		t.Fatalf("encode final cluster-down result: %v", err)
 	}
@@ -73,6 +86,19 @@ func TestFinalClusterDownPublicResultOwnsOnlyTheCatalogEnvelopeVersion(t *testin
 	}
 	if envelope["schema_version"] != float64(tobari.FinalClusterDownSchemaVersion) {
 		t.Fatalf("cluster-down outer schema version=%v", envelope["schema_version"])
+	}
+}
+
+func TestFinalClusterDownCatalogForwardsPurgeAndConfirmsItInJSON(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	port := &finalClusterDownCLIFixture{}
+	command.finalClusterLifecycle = workspaceauthoritycmd.NewFinalClusterLifecycleService(port)
+	if code := command.RunContext(context.Background(), []string{"cluster", "down", "--purge", "--format=json"}); code != ExitOK {
+		t.Fatalf("cluster down exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !port.purge || !strings.Contains(stdout.String(), `"purged":true`) {
+		t.Fatalf("cluster down purge=%t output=%q", port.purge, stdout.String())
 	}
 }
 

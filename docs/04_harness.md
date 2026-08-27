@@ -72,13 +72,20 @@ identity. Normal exit, failure, and interruption restore that exact identity,
 or remove only the run-owned tag when no predecessor existed. Tag drift fails
 closed rather than overwriting concurrent contributor state. Executable checks
 prove the fresh authority is both byte-embedded and trusted by the wrapper.
-The integration script owns only the canonical standard Runtime prerequisite:
-when that source-addressed image is absent, it builds the canonical base
-locally. An explicitly selected custom base must already exist and is never
-rebuilt under an arbitrary name. The canonical image is a reusable cache and
-is not deleted by the scenario. `check-integration-scope.sh` mechanically
-guards both the canonical equality condition and the explicit-custom-image
-failure path.
+The cold first-use integration scenario owns no Runtime prerequisite. It builds
+a release-surface binary, starts from absent Tobari XDG roots and absent exact
+standard Runtime/Gateway tags, drives the reviewed bare `tobari` entry through a
+PTY, and requires that entry to materialize the canonical standard image and
+reach Workspace re-entry. The scenario refuses a Docker context that already
+contains either exact tag and retains successfully built images as reusable
+cache; it never masks, retags, or deletes an ambient image. An explicitly
+selected custom base must already exist and is never rebuilt under an arbitrary
+name.
+`check-integration-scope.sh` mechanically guards these cold-start claims and
+requires the release runtime CI profile to execute this scenario while keeping
+the research Auth Broker integration deferred. CI runs the cold scenario and
+the policy/Gateway component profile as parallel jobs; the aggregate local
+`runtime-release` profile retains both.
 
 Both repository build tasks embed only `git rev-parse --verify HEAD` as the
 source commit while retaining the fixed `dev` version; `-buildvcs=false` and
@@ -246,8 +253,11 @@ Direct invocation is supported for automation:
 ./scripts/check.sh policy
 ./scripts/check.sh gateway
 ./scripts/check.sh authbroker
+./scripts/check.sh first-use
 ./scripts/check.sh integration
 ./scripts/check.sh runtime
+./scripts/check.sh runtime-release-components
+./scripts/check.sh runtime-release
 ```
 
 Every profile starts with a local-toolchain preflight after the gate sanitizes its Go environment. The preflight requires the exact Go version declared by `go.mod` under `GOTOOLCHAIN=local` and verifies the selected binary, its reported version, `GOVERSION`, `GOROOT`, `GOTOOLDIR`, and the compiler in that tool directory as one installation. A mismatch fails once with those values and remediation guidance before formatting, tests, downloads, or release builds begin.
@@ -372,7 +382,8 @@ and child handoff in order. Customize changes the same complete draft.
 Negative fixtures prove invalid root/direct-child rejection, non-TTY zero
 setup, cancellation/EOF/render failure zero later calls, concurrent authority
 drift rejection, confirmed Template/Context retention after cluster failure,
-missing Runtime-material refusal, and retry without a second Runtime choice.
+missing custom Runtime-material refusal, canonical standard materialization,
+and retry without a second Runtime choice.
 
 The same semantic fixtures drive line-oriented stderr, failure, cancellation,
 status, help, narrow/NO_COLOR projections, and agent-readiness answers. They fix
@@ -1053,7 +1064,7 @@ Every strong statement should identify its enforcement path.
 | Workspace Template Git identity boundary | Closed pair/source domain tests, planned whole-Template source publication and direct-writer absence, exact two-key global Git argv with an absolute executable and exact `HOME`/optional `XDG_CONFIG_HOME` plus fixed-control environment allowlist, project-owned config-directory and `PATH`/loader/shell-startup canaries, timeout/output/framing/unsafe-value bounds, malicious local-include exclusion, private atomic Workspace projection encoding, symlink and existing-file size checks, read-only directory mount and system-scope precedence, excluded helper/signing/auth/path keys, absent/incomplete-pair behavior, and secret-/personal-data-free faults and fixtures |
 | Workspace Template Workspace bootstrap boundary | Closed AWS IAM Identity Center plus dependent EKS schemas, AWS-only revision compatibility, composed semantic digest/generation/diff tests, fixed host AWS and Kubernetes configuration-file regular-file/size bounds, shared parse/resolve paths for exact preparation and typed discovery, available/unavailable candidate invariants, shared-session and matching-profile fixtures, malformed/duplicate/unsafe whole-file zero-partial-result canaries, selected-reference and exact `aws eks get-token` validation, unknown/helper/credential/cache/proxy/TLS/file-reference/arbitrary-exec/alternate-path/symlink rejection, secret-free reports, selected-semantic drift rejection with unrelated-profile tolerance, atomic Workspace Template replacement, exact private `.aws/config` plus canonical `.kube/config` bytes, create-before-publication rollback, no credentials/cache projection, predecessor-schema rejection, existing-Workspace byte preservation, dependency-aware removal, and `not_configured`/`not_applied`/`current`/`older` status coverage |
 | Template create and copy remain distinct | Fixed-target `template create --name` with closed source-access and bounded exact GraphQL endpoint inputs; reference-bound `template copy --from ... --name`; fresh unpublished ID/source with null base revision; exact source revision revalidation; no lineage or lower-lifetime state; zero active authority/reconciliation before Plan/Apply; and invalid/incomplete/cancellation/drift/collision zero-publication canaries |
-| Guided first Workspace entry | No-authority draft transcript; exact Template publication/default selection/Context creation/cluster/entry checkpoints; five stages and seven states; partial-success recovery; noninteractive fresh zero-mutation; default shell; exact positional-only child argv/status; cancellation settlement; idempotent repeat convergence; exact `builtin/standard` revision parsing through the real legacy guard; and one real-Docker public-command scenario from absent Tobari config/state roots through confirmed Workspace entry |
+| Guided first Workspace entry | No-authority draft transcript; exact Template publication/default selection/Context creation/cluster/standard-Runtime preparation/entry checkpoints; five stages and seven states; partial-success recovery; noninteractive fresh zero-mutation; default shell; exact positional-only child argv/status; cancellation settlement; idempotent repeat convergence; exact `builtin/standard` revision parsing through the real legacy guard; and one release-CI real-Docker public-command scenario from absent Tobari config/state roots and absent exact Tobari images through confirmed Workspace entry and re-entry |
 | Shared Runtime revision boundary | Fixed Runtime-catalog target contracts; typed `--copy-source-from standard|NAME`; no reference/lineage binding or `--base` alias; fresh-ID/empty-history atomic creation; bounded owner-only source copying; snapshot-before-BuildKit ordering; compatibility/image-digest validation; failed/no-op history preservation; zero Template/Context/Workspace writes during create/build; RuntimeID+digest references; and explicit-entry reconciliation with home preservation |
 | Managed Runtime lifecycle closure | Exact Runtime/revision/prune-plan reference graph; strict closed `runtime.yaml` plus editable `source/` config and separate immutable state; complete coherent catalog/protection/journal/snapshot/material observation; current/retained Template plus Workspace applied/pending/observed protection; standard and cross-Runtime active-lifecycle rejection; canonical selector, content correlation, shared/foreign-use preservation, bounded Docker output/calls, and zero-create reads; immutable-source restore; non-forced prune; phase-aware two-root create/delete quarantine journals with restart settlement at every rename/sync boundary; monotonic terminal receipts, same-name and interruption replay; one-confirmation review recovery; nullable reclaimable bytes and unknown last-used; exact human/JSON/fault/help contracts; no revision delete, global prune, Docker-ID authority, or Runtime-specific produced-reference walker |
 | Gateway source and image boundary | Canonical-source/snapshot byte comparison, pinned mitmproxy parent, signed nftables/iproute dependency inventory, canonical-source unit tests, source API-1/role labels, transparent-only listener and fixed network-guard entrypoint, explicit rejection of non-transparent ingress, absence of proxy environment/port exceptions, content-addressed development selection, Gateway-only lock validation, immutable digest/platform/entrypoint release preflight, non-root resident process, and validation/release workflow permission separation |
@@ -1091,7 +1102,7 @@ Every strong statement should identify its enforcement path.
 | Transparent attached-child terminal ownership | Direct-stream coverage plus Unix PTY literal-`0x1d`, delayed-input, resize, exact-status, output-failure, and terminal-restoration tests; root human-help rejects any `Ctrl+]` or Trusted Host Review shortcut; excluded capability/catalog absence; and independent Permission Inbox raw-terminal tests |
 | Atomic multi-Template policy activation | Source and projection locks, Workspace Template namespace rejection, complete all-Context OPA validation, content-addressed atomic publication, stale-revision rejection, known-good rollback, and invalid/concurrent mutation tests |
 | File-backed desired resources | Stable-ID path and directory/document identity tests; exact Template/Context V1 plus transitional policy V1alpha1 round trip; numeric/unknown/reserved-final-policy-token rejection; strict unknown-field/duplicate-key/alias/tag/bounds/mode/owner/symlink/hard-link/unknown-child canaries; whole-directory staged Template pair publication and rollback; Template pair fingerprint, final pre-publication fence, stale-base and idempotent settlement tests; comment-preserving base bookkeeping; Context identity immutability and final fingerprint fence; exact `in_sync`/`modified`/`invalid`/`missing` output; missing-source last-known-good behavior; tombstone admission and interrupted deletion settlement; reflection/Catalog proof that only draft/plan/apply can reach ordinary Template semantic publication; narrow source Runtime ID+revision; ID-based strict Runtime layout; and no-Rego whole-tree regression |
-| Causal failure recovery | Closed phase/change-state validation, Catalog/runtime agreement, text/JSON equivalence, pre-action-none and post-action-unknown cancellation, confirmed-output preservation, lifecycle unknown/confirmed classifications, provider-neutral first-use readiness with Engine 23/24 boundaries, and a machine-checked release Catalog graph that rejects self-loops, closed reference cycles, nonexistent paths, unchecked required inputs, action rediscovery, output-encoding replay, and mutation retry after unknown state while permitting only causally terminating read-only classifiers |
+| Causal failure recovery | Closed phase/change-state validation, Catalog/runtime agreement, text/JSON equivalence, pre-action-none and post-action-unknown cancellation, standard-Runtime preparation failure/cancellation as mutation-unknown with read-only status recovery, confirmed-output preservation, lifecycle unknown/confirmed classifications, provider-neutral first-use readiness with Engine 23/24 boundaries, and a machine-checked release Catalog graph that rejects self-loops, closed reference cycles, nonexistent paths, unchecked required inputs, action rediscovery, output-encoding replay, and mutation retry after unknown state while permitting only causally terminating read-only classifiers |
 | Confirmed mutation output | One effect-aware finalizer, late-cancellation regression, non-retryable mutation short-write fault, and read-only recovery validation |
 | Pagination completeness | Cursor loop/budget/cancellation tests, retryability/catalog agreement, and no-partial-result assertion |
 | Public paged continuation | Catalog validation of one exact same-kind optional input/top-level output binding, non-`not_applicable` coverage, JSON-only presentation, and agent-help/reference-workflow projection |

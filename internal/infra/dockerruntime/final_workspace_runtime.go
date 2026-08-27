@@ -447,6 +447,47 @@ func finalWorkspaceNetworkAuthorityFromObservation(id tobari.WorkspaceID, networ
 	return authority, nil
 }
 
+// PrepareWorkspaceRuntimeMaterial performs the entry mutation's bounded
+// preparation step before the read-only Workspace plan binds an immutable
+// image identity. Only the canonical builtin standard Runtime is owned by the
+// embedded resolver; custom Runtime material remains explicit owner state.
+func (r *Runtime) PrepareWorkspaceRuntimeMaterial(ctx context.Context, expected tobari.RuntimeBinding) error {
+	if err := expected.Validate(); err != nil {
+		return err
+	}
+	snapshot, _, err := r.readRuntimeLifecycleSnapshotLocked(ctx)
+	if err != nil {
+		return err
+	}
+	binding, err := runtimeBindingFromLifecycle(snapshot, expected.RuntimeID, expected.Revision)
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(binding, expected) {
+		return fmt.Errorf("Runtime binding changed or is not canonical")
+	}
+	if binding.RuntimeID != tobari.StandardRuntimeID {
+		return nil
+	}
+	image, err := r.resolveBuiltinImageSelector(binding.Image)
+	if err != nil {
+		return err
+	}
+	canonical, err := r.defaultRuntimeImage()
+	if err != nil {
+		return err
+	}
+	if image != canonical {
+		return fmt.Errorf("builtin standard Runtime selected non-canonical material")
+	}
+	if r.imageResolver().ShouldBuildRuntimeImage(image) {
+		if err := r.ensureLocalBaseRuntimeImage(ctx, image); err != nil {
+			return errors.Join(tobari.ErrWorkspaceRuntimePreparationUncertain, err)
+		}
+	}
+	return nil
+}
+
 func (r *Runtime) resolveFinalWorkspaceRuntimeMaterial(ctx context.Context, expected tobari.RuntimeBinding) (tobari.RuntimeBinding, string, string, error) {
 	if err := expected.Validate(); err != nil {
 		return tobari.RuntimeBinding{}, "", "", err

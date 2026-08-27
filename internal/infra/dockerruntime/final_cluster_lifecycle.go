@@ -30,6 +30,7 @@ type finalClusterStoppedReceipt struct {
 	Operation          string                              `json:"operation"`
 	DecisionRef        string                              `json:"decision_ref"`
 	Phase              string                              `json:"phase"`
+	Purge              bool                                `json:"purge"`
 	PreviousGeneration uint64                              `json:"previous_generation"`
 	PreviousRevision   tobari.SemanticDigest               `json:"previous_revision"`
 	NextGeneration     uint64                              `json:"next_generation"`
@@ -491,8 +492,8 @@ func (r *Runtime) ObserveFinalCluster(ctx context.Context, collection tobari.Wor
 	return status, nil
 }
 
-func (r *Runtime) SettleFinalClusterDown(ctx context.Context, previous, next tobari.WorkspaceAuthorityCollection, operation, decisionRef string) error {
-	transition, err := tobari.PlanWorkspaceAuthorityClusterDown(previous)
+func (r *Runtime) SettleFinalClusterDown(ctx context.Context, previous, next tobari.WorkspaceAuthorityCollection, operation, decisionRef string, purge bool) error {
+	transition, err := tobari.PlanWorkspaceAuthorityClusterDownWithPurge(previous, purge)
 	if err != nil || transition.Plan.ValidateTransition(previous, next) != nil || operation == "" || decisionRef == "" {
 		return fmt.Errorf("final cluster down request is invalid: %w", err)
 	}
@@ -509,7 +510,7 @@ func (r *Runtime) SettleFinalClusterDown(ctx context.Context, previous, next tob
 		return err
 	}
 	if present {
-		if journal.Operation != operation || journal.DecisionRef != decisionRef || journal.PreviousRevision != previous.Revision || journal.NextRevision != next.Revision {
+		if journal.Operation != operation || journal.DecisionRef != decisionRef || journal.Purge != purge || journal.PreviousRevision != previous.Revision || journal.NextRevision != next.Revision {
 			return fmt.Errorf("another final cluster down requires exact same-action recovery")
 		}
 		return r.resumeFinalClusterDown(ctx, journal)
@@ -517,19 +518,40 @@ func (r *Runtime) SettleFinalClusterDown(ctx context.Context, previous, next tob
 	if stopped, stoppedPresent, stoppedErr := r.readFinalClusterStopped(r.finalClusterStoppedReceiptPath()); stoppedErr != nil {
 		return stoppedErr
 	} else if stoppedPresent {
-		if stopped.Operation != operation || stopped.DecisionRef != decisionRef || stopped.PreviousRevision != previous.Revision || stopped.NextRevision != next.Revision {
+		if stopped.Operation == operation && purge && !stopped.Purge && stopped.NextGeneration == previous.Generation && stopped.NextRevision == previous.Revision &&
+			previous.Generation == next.Generation && previous.Revision == next.Revision {
+			if err := r.ConfirmNoFinalWorkspaceSessions(ctx); err != nil {
+				return err
+			}
+			if err := r.confirmFinalClusterStoppedRuntime(ctx); err != nil {
+				return err
+			}
+			journal = stopped
+			journal.DecisionRef = decisionRef
+			journal.Phase = finalClusterDownRuntime
+			journal.Purge = true
+			journal.PreviousGeneration = previous.Generation
+			journal.PreviousRevision = previous.Revision
+			journal.NextGeneration = next.Generation
+			journal.NextRevision = next.Revision
+			if err := r.writeFinalClusterStopped(r.finalClusterDownJournalPath(), journal); err != nil {
+				return err
+			}
+			return r.resumeFinalClusterDown(ctx, journal)
+		}
+		exactCompletedAction := stopped.Operation == operation && stopped.DecisionRef == decisionRef && stopped.Purge == purge &&
+			stopped.NextGeneration == next.Generation && stopped.NextRevision == next.Revision &&
+			(stopped.PreviousGeneration == previous.Generation && stopped.PreviousRevision == previous.Revision ||
+				stopped.NextGeneration == previous.Generation && stopped.NextRevision == previous.Revision && previous.Revision == next.Revision)
+		if !exactCompletedAction {
 			return fmt.Errorf("completed final cluster down belongs to another durable decision")
 		}
-		if _, activePresent, activeErr := r.readOptionalFinalPolicyActivation(r.finalPolicyActiveReceiptPath()); activeErr != nil || activePresent {
-			return fmt.Errorf("completed final cluster down retained active authority: %w", activeErr)
+		if err := r.confirmFinalClusterStoppedRuntime(ctx); err != nil {
+			return err
 		}
-		components := []struct{ component, name string }{{"gateway", gatewayContainer}, {"opa", opaContainer}}
-		if brokerRuntimeEnabled {
-			components = append(components, struct{ component, name string }{"auth-broker", authBrokerContainer})
-		}
-		for _, item := range components {
-			if _, missing, observeErr := r.observeFinalClusterComponentRaw(ctx, item.component, item.name); observeErr != nil || !missing {
-				return fmt.Errorf("completed final cluster down has live or unknown %s: %w", item.component, observeErr)
+		if purge {
+			if err := r.confirmFinalPurgedVolumesAbsent(ctx); err != nil {
+				return err
 			}
 		}
 		return nil
@@ -560,7 +582,7 @@ func (r *Runtime) SettleFinalClusterDown(ctx context.Context, previous, next tob
 	if err != nil || opa.ImageID != expectedOPA {
 		return fmt.Errorf("final OPA differs from selected image authority: %w", err)
 	}
-	journal = finalClusterStoppedReceipt{SchemaVersion: finalClusterStoppedSchema, Operation: operation, DecisionRef: decisionRef, Phase: finalClusterDownPrepared, PreviousGeneration: previous.Generation, PreviousRevision: previous.Revision, NextGeneration: next.Generation, NextRevision: next.Revision, Active: active, Gateway: gateway, OPA: opa}
+	journal = finalClusterStoppedReceipt{SchemaVersion: finalClusterStoppedSchema, Operation: operation, DecisionRef: decisionRef, Phase: finalClusterDownPrepared, Purge: purge, PreviousGeneration: previous.Generation, PreviousRevision: previous.Revision, NextGeneration: next.Generation, NextRevision: next.Revision, Active: active, Gateway: gateway, OPA: opa}
 	if brokerRuntimeEnabled {
 		broker, brokerMissing, brokerErr := r.observeFinalClusterComponentRaw(ctx, "auth-broker", authBrokerContainer)
 		companion, _, companionErr := r.credentialCompanionStatus(ctx)
@@ -596,6 +618,43 @@ func (r *Runtime) removeExactFinalClusterContainer(ctx context.Context, name str
 	output, err := r.runner.Output(ctx, []string{"container", "rm", "-f", expected.ContainerID}, os.Environ())
 	if err != nil {
 		return fmt.Errorf("remove exact final %s: %w: %s", expected.Component, err, boundedDiagnostic(output))
+	}
+	return nil
+}
+
+func (r *Runtime) confirmFinalClusterStoppedRuntime(ctx context.Context) error {
+	if _, present, err := r.readOptionalFinalPolicyActivation(r.finalPolicyActiveReceiptPath()); err != nil {
+		return fmt.Errorf("observe final active authority after cluster down: %w", err)
+	} else if present {
+		return fmt.Errorf("completed final cluster down retained active authority")
+	}
+	components := []struct{ component, name string }{{"gateway", gatewayContainer}, {"opa", opaContainer}}
+	if brokerRuntimeEnabled {
+		components = append(components, struct{ component, name string }{"auth-broker", authBrokerContainer})
+	}
+	for _, item := range components {
+		if _, missing, err := r.observeFinalClusterComponentRaw(ctx, item.component, item.name); err != nil {
+			return fmt.Errorf("observe completed final cluster down %s: %w", item.component, err)
+		} else if !missing {
+			return fmt.Errorf("completed final cluster down has live %s", item.component)
+		}
+	}
+	for _, network := range []string{"tobari-control", "tobari-egress"} {
+		if err := r.requireDockerResourceAbsent(ctx, "network", network); err != nil {
+			return fmt.Errorf("completed final cluster down retained shared network %s: %w", network, err)
+		}
+	}
+	return nil
+}
+
+func (r *Runtime) confirmFinalPurgedVolumesAbsent(ctx context.Context) error {
+	for _, volume := range []string{"tobari-gateway-ca", "tobari-public-ca", policyBundleVolume} {
+		if err := r.verifyOwned(ctx, "volume", volume); errors.Is(err, errOwnedResourceMissing) {
+			continue
+		} else if err != nil {
+			return fmt.Errorf("observe purged final shared volume %s: %w", volume, err)
+		}
+		return fmt.Errorf("completed purge retained final shared volume %s", volume)
 	}
 	return nil
 }
@@ -638,6 +697,18 @@ func (r *Runtime) resumeFinalClusterDown(ctx context.Context, journal finalClust
 		}
 	}
 	if journal.Phase == finalClusterDownRuntime {
+		if journal.Purge {
+			for _, volume := range []string{"tobari-gateway-ca", "tobari-public-ca", policyBundleVolume} {
+				if err := r.verifyOwned(ctx, "volume", volume); errors.Is(err, errOwnedResourceMissing) {
+					continue
+				} else if err != nil {
+					return err
+				}
+				if output, err := r.runner.Output(ctx, []string{"volume", "rm", volume}, os.Environ()); err != nil {
+					return fmt.Errorf("remove exact final shared volume %s: %w: %s", volume, err, boundedDiagnostic(output))
+				}
+			}
+		}
 		if err := r.replaceProjectPrincipalRegistry(ctx, []projectPrincipalBinding{}); err != nil {
 			return err
 		}
@@ -669,17 +740,17 @@ func (r *Runtime) ConfirmFinalClusterDownSettled(ctx context.Context, current to
 	if _, present, err := r.readOptionalFinalPolicyActivation(r.finalPolicyActiveReceiptPath()); err != nil || present {
 		return fmt.Errorf("final active receipt remains after down: %w", err)
 	}
-	if _, present, err := r.readFinalClusterStopped(r.finalClusterStoppedReceiptPath()); err != nil || !present {
+	stopped, present, err := r.readFinalClusterStopped(r.finalClusterStoppedReceiptPath())
+	if err != nil || !present {
 		return fmt.Errorf("final stopped receipt is unavailable: %w", err)
 	}
-	components := []struct{ component, name string }{{"gateway", gatewayContainer}, {"opa", opaContainer}}
-	if brokerRuntimeEnabled {
-		components = append(components, struct{ component, name string }{"auth-broker", authBrokerContainer})
-	}
-	for _, item := range components {
-		if _, missing, err := r.observeFinalClusterComponentRaw(ctx, item.component, item.name); err != nil || !missing {
-			return fmt.Errorf("final %s is not absent after down: %w", item.component, err)
+	if stopped.Purge {
+		if err := r.confirmFinalPurgedVolumesAbsent(ctx); err != nil {
+			return err
 		}
+	}
+	if err := r.confirmFinalClusterStoppedRuntime(ctx); err != nil {
+		return err
 	}
 	return nil
 }

@@ -218,7 +218,8 @@ if grep -qF './scripts/check.sh' .github/workflows/release.yml; then
 fi
 for required in \
   './scripts/check.sh full' './scripts/check.sh security' './scripts/check.sh release' \
-  './scripts/check.sh public' './scripts/check.sh runtime'; do
+  './scripts/check.sh public' './scripts/check.sh runtime-release-components' \
+  './scripts/check.sh first-use'; do
   grep -qF "$required" .github/workflows/ci.yml || {
     echo "parallel CI is missing required release evidence: $required" >&2
     exit 1
@@ -236,7 +237,8 @@ for binding in \
   'full:./scripts/check.sh full' \
   'security:./scripts/check.sh security' \
   'public:./scripts/check.sh public' \
-  'runtime:./scripts/check.sh runtime' \
+  'runtime-components:./scripts/check.sh runtime-release-components' \
+  'first-use:./scripts/check.sh first-use' \
   'release:./scripts/check.sh release'; do
   job_name=${binding%%:*}
   profile_call=${binding#*:}

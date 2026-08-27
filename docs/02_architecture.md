@@ -1008,9 +1008,22 @@ Project/default-Template/Context desired authority and selected Context
 activation receipts before entry. This prevents cluster activation A→B from
 being mistaken for caller drift while still stopping on real post-mutation
 drift. The Context-entry application boundary alone reconciles the Workspace
-AppliedEntry and establishes child ownership. Root has no nested Runtime
-builder, restorer, pruner, deleter, provider repairer, or parallel status
-recovery model.
+AppliedEntry and establishes child ownership. Its infrastructure port first
+prepares the exact Runtime binding selected by final authority, but only when
+that binding is the canonical built-in standard Runtime and its source-addressed
+local image is absent. The subsequent `PlanWorkspaceEntry` call remains
+read-only and immutable. Custom managed Runtime material is never built by
+entry. Root has no second Runtime selector, restorer, pruner, deleter, provider
+repairer, or parallel status recovery model.
+
+Shared Compose networks use Docker-assigned addresses and stable service
+aliases; they carry no static-IP authority because their Compose definitions do
+not declare user-configured subnets. Per-Workspace networks retain the exact
+address authority required by transparent routing. Reconciliation therefore
+uses alias-only connects for `tobari-control` and `tobari-egress`, and `--ip`
+only for a Workspace-owned network. After replacement, the adapter observes the
+new Docker-assigned shared addresses and durably replaces them in the active
+settlement candidate journal before exact policy and recovery confirmation.
 
 Invocation progress is a domain-validated ordered sequence of five stage/state
 events projected by a line-oriented CLI renderer. It is process-local,

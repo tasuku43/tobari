@@ -984,7 +984,14 @@ func (r *Runtime) resumeFinalGatewaySettlement(ctx context.Context, journal fina
 	if journal.Phase == finalGatewayPhasePrincipals {
 		applied, err := r.observeExactSettledGateway(ctx, journal.Candidate)
 		if err != nil {
-			if err := r.replaceFinalGateway(ctx, journal.Candidate); err != nil {
+			if err := r.replaceFinalGateway(ctx, &journal.Candidate); err != nil {
+				return err
+			}
+			// Compose owns shared-network address allocation. Persist the newly
+			// observed addresses before they participate in exact policy and
+			// recovery authority; a crash before this write safely repeats the
+			// replacement from the prior journal phase.
+			if err := r.writeFinalGatewaySettlementJournal(journal); err != nil {
 				return err
 			}
 			applied, err = r.observeExactSettledGateway(ctx, journal.Candidate)
@@ -1174,9 +1181,12 @@ func (r *Runtime) publishFinalSettlementPrincipals(ctx context.Context, journal 
 	return nil
 }
 
-func (r *Runtime) replaceFinalGateway(ctx context.Context, candidate finalGatewaySettlementCandidate) error {
+func (r *Runtime) replaceFinalGateway(ctx context.Context, candidate *finalGatewaySettlementCandidate) error {
+	if candidate == nil {
+		return fmt.Errorf("final Gateway replacement candidate is absent")
+	}
 	if r.finalGatewayReplaceComponents != nil {
-		return r.finalGatewayReplaceComponents(ctx, candidate)
+		return r.finalGatewayReplaceComponents(ctx, *candidate)
 	}
 	state := tobari.State{
 		SchemaVersion: 1, RuntimeDirectory: candidate.Compose.RuntimeDirectory,
@@ -1199,7 +1209,7 @@ func (r *Runtime) replaceFinalGateway(ctx context.Context, candidate finalGatewa
 	if err != nil {
 		return err
 	}
-	environment = finalGatewayReplacementEnvironment(environment, candidate)
+	environment = finalGatewayReplacementEnvironment(environment, *candidate)
 	args := []string{"compose", "--project-directory", state.RuntimeDirectory}
 	args = append(args, composeFileArgs(state.RuntimeDirectory)...)
 	profileArgs, err := permissionSessionComposeFileArgsForTransport(state.RuntimeDirectory, transport)
@@ -1234,13 +1244,18 @@ func (r *Runtime) replaceFinalGateway(ctx context.Context, candidate finalGatewa
 			return err
 		}
 	}
+	refreshed, err := r.refreshFinalSharedNetworkAddresses(ctx, *candidate)
+	if err != nil {
+		return err
+	}
+	*candidate = refreshed
 	// Compose starts Gateway before the exact post-effect aliases and, on the
 	// research surface, the companion are restored. Restart only the replaced
 	// Gateway after those dependencies are exact; the selected OPA stays live.
 	if err := r.restartFinalReplacementComponents(ctx, []string{gatewayContainer}); err != nil {
 		return err
 	}
-	if err := r.waitForFinalSelectedComponents(ctx, candidate); err != nil {
+	if err := r.waitForFinalSelectedComponents(ctx, *candidate); err != nil {
 		return err
 	}
 	if brokerRuntimeEnabled {
@@ -1251,6 +1266,56 @@ func (r *Runtime) replaceFinalGateway(ctx context.Context, candidate finalGatewa
 		}
 	}
 	return nil
+}
+
+func (r *Runtime) refreshFinalSharedNetworkAddresses(ctx context.Context, candidate finalGatewaySettlementCandidate) (finalGatewaySettlementCandidate, error) {
+	candidate.GatewayNetworks = append([]FinalGatewayNetworkAddress{}, candidate.GatewayNetworks...)
+	candidate.OPANetworks = append([]FinalGatewayNetworkAddress{}, candidate.OPANetworks...)
+	candidate.AuthBrokerNetworks = append([]FinalGatewayNetworkAddress{}, candidate.AuthBrokerNetworks...)
+	components := []struct {
+		label     string
+		container string
+		networks  *[]FinalGatewayNetworkAddress
+	}{
+		{label: "Gateway", container: gatewayContainer, networks: &candidate.GatewayNetworks},
+		{label: "OPA", container: opaContainer, networks: &candidate.OPANetworks},
+	}
+	if brokerRuntimeEnabled {
+		components = append(components, struct {
+			label     string
+			container string
+			networks  *[]FinalGatewayNetworkAddress
+		}{label: "Auth Broker", container: authBrokerContainer, networks: &candidate.AuthBrokerNetworks})
+	}
+	for _, component := range components {
+		observed, err := r.observeClusterContainerNetworks(ctx, component.container)
+		if err != nil {
+			return candidate, fmt.Errorf("observe replaced final %s shared-network addresses: %w", component.label, err)
+		}
+		for index := range *component.networks {
+			network := &(*component.networks)[index]
+			if !isFinalSharedNetwork(network.Name) {
+				continue
+			}
+			var endpoint struct {
+				IPAddress string `json:"IPAddress"`
+			}
+			raw, present := observed[network.Name]
+			if !present || json.Unmarshal(raw, &endpoint) != nil {
+				return candidate, fmt.Errorf("replaced final %s shared-network endpoint is invalid", component.label)
+			}
+			address := endpoint.IPAddress
+			parsed, parseErr := netip.ParseAddr(address)
+			if parseErr != nil || !parsed.Is4() || !parsed.IsGlobalUnicast() {
+				return candidate, fmt.Errorf("replaced final %s shared-network address is invalid", component.label)
+			}
+			network.Address = address
+		}
+	}
+	if err := candidate.validate(r); err != nil {
+		return candidate, err
+	}
+	return candidate, nil
 }
 
 func finalGatewayReplacementEnvironment(environment []string, candidate finalGatewaySettlementCandidate) []string {
@@ -1296,7 +1361,7 @@ func (r *Runtime) reconcileFinalComponentTopology(ctx context.Context, container
 		return err
 	}
 	for network, address := range current {
-		if wanted, exists := want[network]; exists && wanted == address {
+		if wanted, exists := want[network]; exists && finalComponentNetworkAddressMatches(network, address, wanted) {
 			continue
 		}
 		if err := r.runBoundedNetworkMutation(ctx, []string{"network", "disconnect", "-f", network, container}); err != nil {
@@ -1308,14 +1373,38 @@ func (r *Runtime) reconcileFinalComponentTopology(ctx context.Context, container
 		return err
 	}
 	for _, network := range expected {
-		if current[network.Name] == network.Address {
+		if finalComponentNetworkAddressMatches(network.Name, current[network.Name], network.Address) {
 			continue
 		}
-		if err := r.runBoundedNetworkMutation(ctx, []string{"network", "connect", "--alias", alias, "--ip", network.Address, network.Name, container}); err != nil {
+		if err := r.runBoundedNetworkMutation(ctx, finalComponentNetworkConnectArgs(container, alias, network)); err != nil {
 			return fmt.Errorf("connect exact final %s network: %w", alias, err)
 		}
 	}
 	return r.confirmFinalComponentTopology(ctx, container, alias, expected)
+}
+
+func isFinalSharedNetwork(network string) bool {
+	return network == "tobari-control" || network == "tobari-egress"
+}
+
+func finalComponentNetworkAddressMatches(network, observed, expected string) bool {
+	if isFinalSharedNetwork(network) {
+		return observed != ""
+	}
+	return observed == expected
+}
+
+func finalComponentNetworkConnectArgs(container, alias string, network FinalGatewayNetworkAddress) []string {
+	args := []string{"network", "connect", "--alias", alias}
+	// Compose owns the shared control/egress subnets and lets Docker allocate
+	// their endpoints. Docker rejects --ip on those networks because their
+	// subnets were not user-configured. Per-Workspace networks are different:
+	// Tobari creates them with explicit IPAM and their Gateway address is durable
+	// policy-principal authority, so those reconnects retain the exact --ip.
+	if !isFinalSharedNetwork(network.Name) {
+		args = append(args, "--ip", network.Address)
+	}
+	return append(args, network.Name, container)
 }
 
 func (r *Runtime) confirmFinalComponentTopology(ctx context.Context, container, alias string, expected []FinalGatewayNetworkAddress) error {
@@ -1332,7 +1421,7 @@ func (r *Runtime) confirmFinalComponentTopology(ctx context.Context, container, 
 			IPAddress string   `json:"IPAddress"`
 			Aliases   []string `json:"Aliases"`
 		}
-		if !present || json.Unmarshal(raw, &endpoint) != nil || endpoint.IPAddress != want.Address || !slices.Contains(endpoint.Aliases, alias) {
+		if !present || json.Unmarshal(raw, &endpoint) != nil || !finalComponentNetworkAddressMatches(want.Name, endpoint.IPAddress, want.Address) || !slices.Contains(endpoint.Aliases, alias) {
 			return fmt.Errorf("final %s network attachment or alias differs from selected authority", alias)
 		}
 	}

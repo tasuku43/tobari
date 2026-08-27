@@ -190,9 +190,20 @@ task check
 task security
 task release:check
 task public:check
+TOBARI_INTEGRATION_DOCKER_CONTEXT=<isolated-context> task first-use:test
 ```
 
 The underlying interface is `./scripts/check.sh fast|full|security|release|public`. Optional local automation must call that interface and must not claim equivalence to a profile it did not run.
+
+Any change to root first use, final Template/Context initialization, standard
+Runtime preparation, shared-cluster bootstrap, Gateway topology, or Workspace
+entry/re-entry must finish with `task first-use:test` against an explicit
+non-default Docker context after the ordinary repository gates. The scenario
+must start with absent Tobari XDG roots and absent exact Tobari image tags and
+must use the release-surface binary and bare reviewed `tobari` entry. Unit or
+fake-backed first-use tests do not replace this evidence. The release runtime
+CI profile enforces the same cold scenario; research Auth Broker integration
+remains separately selectable.
 
 Do not weaken a check merely to make a change pass. If a check encodes the wrong policy, update the governing document and test the new policy as part of the same reviewed change.
 

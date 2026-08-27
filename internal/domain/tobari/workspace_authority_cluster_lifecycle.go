@@ -8,7 +8,7 @@ import (
 const (
 	FinalClusterStatusSchemaVersion = 3
 	FinalClusterUpSchemaVersion     = 3
-	FinalClusterDownSchemaVersion   = 2
+	FinalClusterDownSchemaVersion   = 3
 )
 
 type FinalClusterAuthorityState string
@@ -196,9 +196,11 @@ func (s FinalClusterStatus) Validate() error {
 }
 
 // WorkspaceAuthorityClusterDownPlan clears active axes in one exact envelope
-// transition. It cannot authorize removal while a Workspace remains.
+// transition and binds whether exact shared volumes are purged. It cannot
+// authorize removal while a Workspace remains.
 type WorkspaceAuthorityClusterDownPlan struct {
 	SchemaVersion      int            `json:"schema_version"`
+	Purge              bool           `json:"purge"`
 	PreviousGeneration uint64         `json:"previous_generation"`
 	PreviousRevision   SemanticDigest `json:"previous_revision"`
 	NextGeneration     uint64         `json:"next_generation"`
@@ -226,6 +228,12 @@ type WorkspaceAuthorityClusterDownTransition struct {
 }
 
 func PlanWorkspaceAuthorityClusterDown(previous WorkspaceAuthorityCollection) (WorkspaceAuthorityClusterDownTransition, error) {
+	return PlanWorkspaceAuthorityClusterDownWithPurge(previous, false)
+}
+
+// PlanWorkspaceAuthorityClusterDownWithPurge binds the caller's exact volume
+// retention choice into the durable effect plan.
+func PlanWorkspaceAuthorityClusterDownWithPurge(previous WorkspaceAuthorityCollection, purge bool) (WorkspaceAuthorityClusterDownTransition, error) {
 	if err := previous.Validate(); err != nil {
 		return WorkspaceAuthorityClusterDownTransition{}, err
 	}
@@ -243,7 +251,7 @@ func PlanWorkspaceAuthorityClusterDown(previous WorkspaceAuthorityCollection) (W
 	if err != nil {
 		return WorkspaceAuthorityClusterDownTransition{}, err
 	}
-	plan := WorkspaceAuthorityClusterDownPlan{SchemaVersion: 1, PreviousGeneration: previous.Generation, PreviousRevision: previous.Revision, NextGeneration: next.Generation, NextRevision: next.Revision, EnvelopeChanged: changed}
+	plan := WorkspaceAuthorityClusterDownPlan{SchemaVersion: 1, Purge: purge, PreviousGeneration: previous.Generation, PreviousRevision: previous.Revision, NextGeneration: next.Generation, NextRevision: next.Revision, EnvelopeChanged: changed}
 	if err := plan.ValidateTransition(previous, next); err != nil {
 		return WorkspaceAuthorityClusterDownTransition{}, err
 	}

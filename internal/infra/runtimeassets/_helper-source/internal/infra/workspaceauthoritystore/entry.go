@@ -19,6 +19,7 @@ import (
 // can precede an interrupted final-envelope publication.
 type WorkspaceEntryRuntimeAuthority interface {
 	WorkspaceHomeForID(context.Context, tobari.WorkspaceID) (string, error)
+	PrepareWorkspaceRuntimeMaterial(context.Context, tobari.RuntimeBinding) error
 	PlanWorkspaceEntry(context.Context, tobari.ContextAuthoritySnapshot, tobari.WorkspaceTemplateEntryAuthority, tobari.WorkspaceID, time.Time) (tobari.WorkspaceEntryReconciliationPlan, error)
 	ReconcileWorkspaceEntry(context.Context, tobari.WorkspaceEntryReconciliationPlan, string) (tobari.WorkspaceEntryReconciliationReceipt, error)
 	ConfirmWorkspaceEntry(context.Context, tobari.WorkspaceEntryReconciliationPlan, string) (tobari.WorkspaceEntryReconciliationReceipt, error)
@@ -187,6 +188,9 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 			resultErr = errors.Join(tobari.ErrWorkspaceEntryInterrupted, resultErr)
 			return
 		}
+		if errors.Is(resultErr, tobari.ErrWorkspaceRuntimePreparationUncertain) {
+			return
+		}
 		if errors.Is(resultErr, tobari.ErrWorkspaceEntryTemplatePolicyInactive) || errors.Is(resultErr, tobari.ErrWorkspaceEntryPolicyMemoryInactive) || errors.Is(resultErr, tobari.ErrWorkspaceEntryObservationUnavailable) {
 			return
 		}
@@ -290,12 +294,19 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 	if err != nil {
 		return tobari.ContextAuthoritySnapshot{}, nil, err
 	}
+	entryAuthority, err := tobari.DeriveWorkspaceTemplateEntryAuthority(desired.Template.Current)
+	if err != nil {
+		return tobari.ContextAuthoritySnapshot{}, nil, err
+	}
 	var plan tobari.WorkspaceEntryReconciliationPlan
 	var next tobari.WorkspaceAuthorityCollection
 	var changed bool
 	if active {
 		plan = decision.EntryPlan.Clone()
 		if err := plan.ValidateFor(desired); err != nil {
+			return tobari.ContextAuthoritySnapshot{}, nil, err
+		}
+		if err := a.runtime.PrepareWorkspaceRuntimeMaterial(ctx, plan.Authority.Runtime); err != nil {
 			return tobari.ContextAuthoritySnapshot{}, nil, err
 		}
 		next, changed, err = tobari.PublishWorkspaceEntryAuthority(current, plan)
@@ -322,8 +333,7 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 				return tobari.ContextAuthoritySnapshot{}, nil, err
 			}
 		}
-		entryAuthority, err := tobari.DeriveWorkspaceTemplateEntryAuthority(desired.Template.Current)
-		if err != nil {
+		if err := a.runtime.PrepareWorkspaceRuntimeMaterial(ctx, entryAuthority.Runtime); err != nil {
 			return tobari.ContextAuthoritySnapshot{}, nil, err
 		}
 		reconciledAt := m.clock().UTC()

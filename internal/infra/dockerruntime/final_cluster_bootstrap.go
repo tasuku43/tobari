@@ -103,11 +103,6 @@ func (r *Runtime) ensureFinalClusterBaseComponents(ctx context.Context, plan tob
 		}
 		return nil
 	}
-	if stoppedReceipt, stopped, err := r.readFinalClusterStopped(r.finalClusterStoppedReceiptPath()); err != nil {
-		return err
-	} else if stopped && gatewayMissing && opaMissing {
-		return r.confirmFinalStoppedRestartPrerequisites(ctx, stoppedReceipt)
-	}
 	journal, present, err := r.readFinalClusterBootstrap()
 	if err != nil {
 		return err
@@ -117,6 +112,16 @@ func (r *Runtime) ensureFinalClusterBaseComponents(ctx context.Context, plan tob
 			return fmt.Errorf("another final cluster bootstrap requires exact same-action recovery")
 		}
 		return r.resumeFinalClusterBootstrap(ctx, journal)
+	}
+	if stoppedReceipt, stopped, err := r.readFinalClusterStopped(r.finalClusterStoppedReceiptPath()); err != nil {
+		return err
+	} else if stopped && gatewayMissing && opaMissing {
+		if err := r.confirmFinalStoppedRestartPrerequisites(ctx, stoppedReceipt); err != nil {
+			return err
+		}
+		if !stoppedReceipt.Purge {
+			return nil
+		}
 	}
 	if gatewayErr != nil || opaErr != nil || !gatewayMissing || !opaMissing {
 		return fmt.Errorf("final cluster base resources are partial, unhealthy, or ambiguous")
@@ -185,19 +190,11 @@ func (r *Runtime) confirmFinalStoppedRestartPrerequisites(ctx context.Context, r
 	if err := receipt.validate(r); err != nil {
 		return err
 	}
-	components := []struct{ component, name string }{{"gateway", gatewayContainer}, {"opa", opaContainer}}
-	if brokerRuntimeEnabled {
-		components = append(components, struct{ component, name string }{"auth-broker", authBrokerContainer})
+	if err := r.confirmFinalClusterStoppedRuntime(ctx); err != nil {
+		return err
 	}
-	for _, item := range components {
-		if _, missing, err := r.observeFinalClusterComponentRaw(ctx, item.component, item.name); err != nil || !missing {
-			return fmt.Errorf("stopped final %s absence is unknown: %w", item.component, err)
-		}
-	}
-	for _, network := range []string{"tobari-control", "tobari-egress"} {
-		if err := r.requireDockerResourceAbsent(ctx, "network", network); err != nil {
-			return fmt.Errorf("stopped final shared network absence: %w", err)
-		}
+	if receipt.Purge {
+		return r.confirmFinalPurgedVolumesAbsent(ctx)
 	}
 	for _, volume := range []string{"tobari-gateway-ca", policyBundleVolume, "tobari-public-ca"} {
 		if err := r.verifyOwned(ctx, "volume", volume); err != nil {

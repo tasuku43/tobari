@@ -210,7 +210,7 @@ func (r *Runtime) prepareFinalPolicyActivation(
 	if err := record.validate(r); err != nil {
 		return finalPolicyActivationRecord{}, err
 	}
-	if active, activeErr := r.readFinalPolicyActivation(r.finalPolicyActiveReceiptPath()); activeErr == nil && reflect.DeepEqual(active.Receipt, record.Receipt) {
+	if active, activeErr := r.readFinalPolicyActivation(r.finalPolicyActiveReceiptPath()); activeErr == nil && reflect.DeepEqual(active, record) {
 		if err := r.confirmFinalPolicyRecord(ctx, record); err == nil {
 			return record, nil
 		}
@@ -227,7 +227,7 @@ func (r *Runtime) resumeFinalPolicyActivation(ctx context.Context, record finalP
 	if err := record.validate(r); err != nil {
 		return err
 	}
-	if active, err := r.readFinalPolicyActivation(r.finalPolicyActiveReceiptPath()); err == nil && reflect.DeepEqual(active.Receipt, record.Receipt) {
+	if active, err := r.readFinalPolicyActivation(r.finalPolicyActiveReceiptPath()); err == nil && reflect.DeepEqual(active, record) {
 		if err := r.confirmFinalPolicyRecord(ctx, record); err != nil {
 			return err
 		}

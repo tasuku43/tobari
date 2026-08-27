@@ -46,6 +46,21 @@ func TestPlanWorkspaceAuthorityClusterDownRejectsRemainingWorkspace(t *testing.T
 	}
 }
 
+func TestPlanWorkspaceAuthorityClusterDownBindsExactPurgeIntent(t *testing.T) {
+	previous := zeroWorkspaceClusterFixture(t)
+	retained, err := PlanWorkspaceAuthorityClusterDownWithPurge(previous, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	purged, err := PlanWorkspaceAuthorityClusterDownWithPurge(previous, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retained.Plan.Purge || !purged.Plan.Purge || !reflect.DeepEqual(retained.Next, purged.Next) {
+		t.Fatalf("retained=%#v purged=%#v", retained.Plan, purged.Plan)
+	}
+}
+
 func TestFinalClusterStatusKeepsUnknownDistinctFromAbsence(t *testing.T) {
 	status := FinalClusterStatus{SchemaVersion: FinalClusterStatusSchemaVersion, Task: TaskClusterStatus, Authority: FinalClusterAuthorityAbsent, Runtime: FinalClusterRuntimeUnknown, Receipt: FinalClusterReceiptAbsent, Contexts: []FinalClusterContextReceiptObservation{}, Components: []FinalClusterComponentObservation{{Name: "gateway", State: FinalClusterRuntimeUnknown, Identity: FinalClusterEvidenceUnknown, Topology: FinalClusterEvidenceUnknown}, {Name: "opa", State: FinalClusterRuntimeAbsent, Identity: FinalClusterEvidenceAbsent, Topology: FinalClusterEvidenceAbsent}}}
 	if err := status.Validate(); err != nil {

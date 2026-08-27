@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -128,6 +129,19 @@ func (r *permissionChannelRunner) RunWorkspacePermissionControl(
 
 func errorsIsPipeClosure(err error) bool {
 	return err == io.ErrClosedPipe || strings.Contains(err.Error(), "closed pipe")
+}
+
+func TestWorkspacePermissionControlCloseClassification(t *testing.T) {
+	failed := errors.New("signal: killed")
+	if err := workspacePermissionControlCloseError(failed, true); err != nil {
+		t.Fatalf("forced Docker transport shutdown became cleanup drift: %v", err)
+	}
+	if err := workspacePermissionControlCloseError(context.Canceled, false); err != nil {
+		t.Fatalf("context cancellation became cleanup drift: %v", err)
+	}
+	if err := workspacePermissionControlCloseError(failed, false); err == nil {
+		t.Fatal("unexpected permission bridge failure was hidden")
+	}
 }
 
 func newSignedTestChannel(t *testing.T, observer *permissionChannelObserverStub) (*workspacePermissionChannel, *bufio.Reader, *io.PipeWriter) {

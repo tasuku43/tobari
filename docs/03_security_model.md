@@ -411,6 +411,13 @@ files cannot introduce a second image or execution-boundary authority. The
 stored project image is diagnostic last-success state rather than an image
 authority.
 
+Entry may build only the source-addressed image for the exact canonical
+`builtin/standard` binding already selected by final Template authority. Build
+inputs are the embedded, pinned, byte-checked Runtime and helper-source closure;
+project data, environment selectors, and arbitrary image names cannot widen
+that mutation. A custom Runtime must already have explicit authoritative
+material and is never implicitly built by entry.
+
 Project runtime readiness is an explicit healthcheck boundary. Enter waits for
 healthy rather than treating a running or healthcheck-less container as ready;
 unhealthy, exited, and timeout outcomes remain distinct diagnostics. Desired
@@ -1103,8 +1110,10 @@ cycles, and replay after unknown mutation outcome. Status PrimaryNext/Attention
 remain the sole CWD recovery model; root binds to them rather than persisting a
 second progress or retry authority.
 
-A missing Runtime image routes first to `review runtimes`, which alone may
-produce the exact revision reference for restore. An unavailable engine yields
+A missing custom Runtime image routes first to `review runtimes`, which alone
+may produce the exact revision reference for restore. A missing canonical
+standard image is prepared by the selected Context-entry mutation. An
+unavailable engine yields
 provider-neutral external-start guidance and then `tobari`; Tobari does not
 start Docker Desktop, Colima, Podman, or another provider. Output-encoding
 failure routes away from the command that failed encoding and retains
