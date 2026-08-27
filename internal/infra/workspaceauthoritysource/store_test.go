@@ -86,6 +86,43 @@ func sourceMigrationCollectionFixture(t *testing.T) tobari.WorkspaceAuthorityCol
 	return collection
 }
 
+func TestPublishTemplateCreatesAbsentXDGConfigParent(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "absent-xdg-config", "tobari")
+	store, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Dir(root)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("XDG config parent unexpectedly exists before publication: %v", err)
+	}
+
+	want := sourceTemplateFixture(t)
+	if err := store.PublishTemplate(context.Background(), want); err != nil {
+		t.Fatalf("publish into absent XDG config parent: %v", err)
+	}
+	parentInfo, err := os.Lstat(filepath.Dir(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validatePrivateDirectory(parentInfo); err != nil {
+		t.Fatalf("created XDG config parent is not private: %v", err)
+	}
+	info, err := os.Lstat(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validatePrivateDirectory(info); err != nil {
+		t.Fatalf("created source root is not private: %v", err)
+	}
+	got, _, present, err := store.ReadTemplateSnapshot(context.Background(), sourceTemplateID)
+	if err != nil || !present {
+		t.Fatalf("read published Template: present=%t err=%v", present, err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("published Template mismatch\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
 func writeAlphaTemplateSourceFixture(t *testing.T, store *Store) tobari.WorkspaceTemplate {
 	t.Helper()
 	v1 := sourceTemplateFixture(t)

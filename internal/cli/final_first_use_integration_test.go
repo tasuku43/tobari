@@ -323,12 +323,6 @@ func TestFinalRootFreshStartBootstrapsAuthorityClusterAndWorkspaceFromEmptyXDG(t
 			t.Fatalf("fresh XDG path %s already exists: %v", path, err)
 		}
 	}
-	for _, path := range []string{filepath.Dir(configRoot), filepath.Dir(stateRoot)} {
-		if err := os.MkdirAll(path, 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-
 	lifetime := context.Background()
 	lifecycle := &firstUseIntegrationLifecycle{parent: stateRoot}
 	guard, err := dockerruntime.New(lifetime)

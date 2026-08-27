@@ -37,9 +37,9 @@ run_tobari_at() {
   (cd "$root" && run_tobari "$@")
 }
 
-run_first_use_pty_at() {
-  local root=$1
-  shift
+run_bare_tobari_pty_at() {
+  local mode=$1
+  local root=$2
   (
     cd "$root"
     env \
@@ -56,13 +56,15 @@ import errno
 import fcntl
 import os
 import pty
+import re
 import select
 import struct
 import sys
 import termios
 import time
 
-argv = sys.argv[1:]
+mode = sys.argv[1]
+argv = sys.argv[2:]
 pid, master = pty.fork()
 if pid == 0:
     os.execvpe(argv[0], argv, os.environ)
@@ -71,6 +73,8 @@ os.set_blocking(master, False)
 deadline = time.monotonic() + 1200
 review = bytearray()
 started = False
+entered = False
+sent_exit = False
 status = None
 while status is None:
     if time.monotonic() >= deadline:
@@ -87,22 +91,29 @@ while status is None:
                 raise
         if data:
             os.write(1, data)
-            if not started:
-                review.extend(data)
-                if b"Start Workspace" in review:
-                    os.write(master, b"\r")
-                    started = True
-        elif not started:
+            review.extend(data)
+            if mode == "fresh" and not started and b"Start Workspace" in review:
+                os.write(master, b"\r")
+                started = True
+            if not sent_exit and re.search(rb"tobari-[a-z0-9-]+-work:[^\r\n]*[$#] ", review):
+                entered = True
+                sent_exit = True
+                os.write(master, b"exit\r")
+            if len(review) > 131072:
+                del review[:-65536]
+        elif mode == "fresh" and not started:
             raise SystemExit("first-use review closed before Start")
     waited, value = os.waitpid(pid, os.WNOHANG)
     if waited != 0:
         status = value
-if not started:
+if mode == "fresh" and not started:
     raise SystemExit("first-use review was not observed")
+if not entered:
+    raise SystemExit("bare Tobari did not hand off to a Workspace shell")
 if os.WIFEXITED(status):
     raise SystemExit(os.WEXITSTATUS(status))
 raise SystemExit(128 + os.WTERMSIG(status))
-' "$binary" "$@"
+' "$mode" "$binary"
   )
 }
 
@@ -178,9 +189,9 @@ done
 # Keep bind-mounted fixtures under the checkout: remote Linux Docker engines
 # such as Colima do not necessarily share the host's platform TMPDIR.
 test_root=$(mktemp -d "$PWD/.tobari-final-first-use.XXXXXX")
-mkdir -p "$test_root/user/project" "$test_root/config" "$test_root/state" "$test_root/data"
-[[ ! -e $test_root/config/tobari && ! -e $test_root/state/tobari ]] || {
-  echo "first-use integration: Tobari XDG roots must not exist before the first command" >&2
+mkdir -p "$test_root/user/project"
+[[ ! -e $test_root/config && ! -e $test_root/state && ! -e $test_root/data ]] || {
+  echo "first-use integration: XDG parent directories must not exist before the first command" >&2
   exit 1
 }
 if [[ -z $binary ]]; then
@@ -191,7 +202,7 @@ fi
 [[ -x $binary ]] || { echo "first-use integration: binary is unavailable" >&2; exit 1; }
 
 first_entry_log=$test_root/first-entry.log
-if ! run_first_use_pty_at "$test_root/user/project" -- /bin/true >"$first_entry_log" 2>&1; then
+if ! run_bare_tobari_pty_at fresh "$test_root/user/project" >"$first_entry_log" 2>&1; then
   sed -n '1,240p' "$first_entry_log" >&2
   echo "first-use integration: bare cold entry failed" >&2
   exit 1
@@ -234,7 +245,11 @@ status=$(run_tobari_at "$test_root/user/project" status --format=json)
 python3 -c 'import json,sys; value=json.load(sys.stdin)["status"]; assert value["authority_state"] == "initialized"; assert value["workspace"]["presence"] == "present"; assert value["cluster"]["runtime"] == "running"' <<<"$status"
 
 reentry_log=$test_root/reentry.log
-run_tobari_at "$test_root/user/project" -- /bin/true >"$reentry_log" 2>&1
+if ! run_bare_tobari_pty_at reentry "$test_root/user/project" >"$reentry_log" 2>&1; then
+	cat "$reentry_log" >&2
+	echo "first-use integration: bare Workspace re-entry failed" >&2
+	exit 1
+fi
 if grep -F 'cleanup needs attention' "$reentry_log" >/dev/null; then
 	cat "$reentry_log" >&2
 	echo "first-use integration: successful re-entry reported cleanup drift" >&2

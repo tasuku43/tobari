@@ -73,10 +73,11 @@ or remove only the run-owned tag when no predecessor existed. Tag drift fails
 closed rather than overwriting concurrent contributor state. Executable checks
 prove the fresh authority is both byte-embedded and trusted by the wrapper.
 The cold first-use integration scenario owns no Runtime prerequisite. It builds
-a release-surface binary, starts from absent Tobari XDG roots and absent exact
-standard Runtime/Gateway tags, drives the reviewed bare `tobari` entry through a
-PTY, and requires that entry to materialize the canonical standard image and
-reach Workspace re-entry. The scenario refuses a Docker context that already
+a release-surface binary, starts before the XDG config/state/data parent
+directories themselves exist and with absent exact standard Runtime/Gateway
+tags, drives the reviewed bare `tobari` entry through a PTY, requires a real
+Workspace shell handoff and bounded `exit`, then repeats the bare entry to prove
+re-entry. The scenario refuses a Docker context that already
 contains either exact tag and retains successfully built images as reusable
 cache; it never masks, retags, or deletes an ambient image. An explicitly
 selected custom base must already exist and is never rebuilt under an arbitrary

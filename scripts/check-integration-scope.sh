@@ -18,11 +18,12 @@ if ((first_use_line_count > 320)); then
   exit 1
 fi
 for claim in \
-  '[[ ! -e $test_root/config/tobari && ! -e $test_root/state/tobari ]]' \
+  '[[ ! -e $test_root/config && ! -e $test_root/state && ! -e $test_root/data ]]' \
   'go build -buildvcs=false -trimpath' \
-  'run_first_use_pty_at "$test_root/user/project" -- /bin/true' \
+  'run_bare_tobari_pty_at fresh "$test_root/user/project"' \
   'items[0]["runtime_id"] == "builtin/standard"' \
-  'run_tobari_at "$test_root/user/project" -- /bin/true' \
+  'run_bare_tobari_pty_at reentry "$test_root/user/project"' \
+  'os.write(master, b"exit\r")' \
   'Tobari image $image must be absent' \
   'Context source root was not created' \
   'docker volume inspect --format' \

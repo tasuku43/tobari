@@ -505,7 +505,7 @@ func (s *Store) publishNewResourceDirectory(ctx context.Context, concept, id str
 			return fmt.Errorf("encoded resource source exceeds closed-set bounds")
 		}
 	}
-	if err := ensurePrivateDirectory(s.configRoot); err != nil {
+	if err := ensurePrivateDirectoryTree(s.configRoot); err != nil {
 		return err
 	}
 	conceptPath := filepath.Join(s.configRoot, concept)
@@ -1500,6 +1500,21 @@ func ensurePrivateDirectory(path string) error {
 		}
 		info, err = os.Lstat(path) // #nosec G703 -- rechecks the exact directory just created before returning authority over it.
 	}
+	if err != nil {
+		return err
+	}
+	return validatePrivateDirectory(info)
+}
+
+// ensurePrivateDirectoryTree owns initial creation of the configured source
+// root. Its XDG parent may legitimately be absent on a user's first command;
+// concept and resource children remain single-level creations through
+// ensurePrivateDirectory.
+func ensurePrivateDirectoryTree(path string) error {
+	if err := os.MkdirAll(path, 0o700); err != nil { // #nosec G703 -- path is the installation-owned canonical config root, not a request-derived resource path.
+		return err
+	}
+	info, err := os.Lstat(path) // #nosec G703 -- validates the exact root after recursive first-use creation before authority is published beneath it.
 	if err != nil {
 		return err
 	}
