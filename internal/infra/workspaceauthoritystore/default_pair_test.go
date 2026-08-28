@@ -12,14 +12,16 @@ import (
 )
 
 type defaultPairRootFixture struct {
-	cwd  string
-	root string
+	cwd    string
+	root   string
+	inside bool
 }
 
 func (f defaultPairRootFixture) CurrentDirectory(context.Context) (string, error) { return f.cwd, nil }
 func (f defaultPairRootFixture) ResolveProjectRoot(context.Context, string) (string, error) {
 	return f.root, nil
 }
+func (f defaultPairRootFixture) InsideProject(context.Context) bool { return f.inside }
 
 func TestDefaultPairAdapterRequiresGuardedFinalStoreAndFreshReadCreatesNothing(t *testing.T) {
 	authorityRoot := filepath.Join(t.TempDir(), "final-authority")
@@ -76,6 +78,52 @@ func TestDefaultPairAdapterReadsOnlyCompleteFinalAuthority(t *testing.T) {
 	}
 	if !observation.CollectionPresent || observation.CollectionGeneration != collection.Generation || observation.CollectionRevision != collection.Revision || observation.DefaultTemplate == nil || observation.DefaultTemplate.ID != *collection.DefaultTemplateID || observation.Context == nil || observation.Context.Context.ID != collection.Contexts[0].Context.ID || guard.calls != 2 {
 		t.Fatalf("final-only observation=%+v guard_calls=%d", observation, guard.calls)
+	}
+}
+
+func TestDefaultPairAdapterObservesAncestorCandidatesWithoutSelectingOrCreating(t *testing.T) {
+	collection := storeCollectionFixture(t)
+	authorityRoot := filepath.Join(t.TempDir(), "final-authority")
+	materializeCollection(t, authorityRoot, collection)
+	guard := &legacyGuardFake{}
+	store, err := NewFinalOnly(authorityRoot, guard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ancestor := collection.Contexts[0].Context.ProjectRoot
+	cwd := filepath.Join(ancestor, "src", "pkg")
+	adapter, err := NewDefaultPairAdapter(store, defaultPairRootFixture{cwd: cwd, root: cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := adapter.ObserveFinalDefaultPairSelection(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.CanonicalCWD != cwd || !selection.RequiresChoice() || len(selection.Candidates) != 1 || selection.Candidates[0].Snapshot.Context.ProjectRoot != ancestor {
+		t.Fatalf("ancestor selection=%+v", selection)
+	}
+	after, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present || !reflect.DeepEqual(after, collection) {
+		t.Fatalf("selection changed final authority: present=%t err=%v", present, err)
+	}
+}
+
+func TestDefaultPairAdapterReportsWorkspacePresenceWithoutStateRead(t *testing.T) {
+	authorityRoot := filepath.Join(t.TempDir(), "final-authority")
+	store, err := NewFinalOnly(authorityRoot, &legacyGuardFake{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter, err := NewDefaultPairAdapter(store, defaultPairRootFixture{cwd: "/workspace/example", root: "/workspace/example", inside: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !adapter.InsideFinalWorkspace(context.Background()) {
+		t.Fatal("Workspace process presence was lost")
+	}
+	if _, err := os.Lstat(authorityRoot); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("presence observation touched final authority: %v", err)
 	}
 }
 

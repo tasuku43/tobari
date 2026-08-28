@@ -77,7 +77,11 @@ a release-surface binary, starts before the XDG config/state/data parent
 directories themselves exist and with absent exact standard Runtime/Gateway
 tags, drives the reviewed bare `tobari` entry through a PTY, requires a real
 Workspace shell handoff and bounded `exit`, then repeats the bare entry to prove
-re-entry. The scenario refuses a Docker context that already
+re-entry. It then invokes the same release binary from a descendant, proves
+that the nearest containing root is offered and reused without new authority,
+proves that explicit create-here produces a distinct nested Context/Workspace,
+and verifies both attachments start at the invocation's descendant directory.
+The scenario refuses a Docker context that already
 contains either exact tag and retains successfully built images as reusable
 cache; it never masks, retags, or deletes an ambient image. An explicitly
 selected custom base must already exist and is never rebuilt under an arbitrary
@@ -603,6 +607,12 @@ The test suite has complementary levels:
   invocation, and zero external processing. Catalog
   validation rejects every text-producing command that omits the shared
   semantic-token presentation declaration. The
+  deterministic CLI-experience evaluator additionally fixes the terminal-owned
+  named palette, reviewed marker vocabulary, shared spinner ownership and
+  timing, source-level ANSI ownership, color-independent semantic document,
+  first-use raw interaction continuity, main public-handler reachability, and
+  absence of predecessor presentation owners. Violations are sorted by
+  rule/target/detail so the gate is stable and reviewable. The
   Workspace selector tests cover the dependency-free raw key state machine,
   bounded scrolling, no redraw during repeated idle VTIME polls, exactly-once
   alternate-screen restoration, wrap-independent home-and-clear repaint with
@@ -874,42 +884,20 @@ The test suite has complementary levels:
   preserving the complete filesystem tree and every Docker/OPA/Gateway/Broker
   call count. No predecessor identity, policy, Runtime, Workspace home,
   principal/session, or credential becomes a final result or protection edge.
-- The human permission path is exercised through `review permissions`; its TTY
-  Permission Inbox covers bounded selection, exact and `{id}` template detail
-  inspection, raw-list exact Allow/Deny/clear with no-wrap advance, staged
-  template/observed-exact/pending-deny choices, manual refresh, raw-terminal
-  watch empty-to-arrival and post-Apply continuation, one final typed review and confirmed
-  Apply, and pre-Apply discard. PTY tests prove
-  list quick keys never mutate before final Apply, template authority remains
-  detail-only, several same-Workspace Template choices produce exactly one activation
-  without a second yes/no prompt, a Workspace Template
-  switch requires Apply or discard, a narrow terminal with wrapping rows
-  remains one alternate-screen frame, and cancellation delegates nothing. Its
-  presentation tests group by stable Context/Workspace IDs, keep same-label
-  different-ID scopes separate, preserve selection and staged order by
-  candidate ID across refresh/reorder and new arrival, remove stale choices
-  without transfer, retain the last valid screen across refresh failure with
-  bounded backoff, retain exactly one alternate-screen frame across unchanged
-  timer refreshes, emit no unchanged repaint, redraw a changed typed snapshot
-  inside that frame, and restore terminal state exactly once when watch stops,
-  align every visible HTTP effect behind fixed marker and `Allow exact`-width
-  columns across exact/template staging combinations, keep compact list labels
-  distinct from full detail/Apply wording, lead rows with the exact HTTP effect, and keep
-  selected observation evidence visible before inspection. The
-  watch notification matrix covers `auto`, `osc9`, `bel`, and `off`, excludes
-  the initial snapshot, coalesces multiple new IDs per successful refresh,
-  suppresses failure/stale/known-reappearance and post-Apply-known cues, and
-  proves hostile evidence cannot enter OSC framing, selects OSC 9 only for exact
-  iTerm2 or complete protected cmux workspace/surface identity, and retains BEL
-  for incomplete or unknown identity. A cue writer failure
-  preserves zero pre-Apply mutation and terminal restoration while watch
-  remains stoppable. The
-  TTY `policy rules` path separately covers exhaustive current-decision
-  inventory, explicit reset confirmation, refresh, and re-review of the
-  retained denial. Neither path exposes or requires hand-editing the evaluator.
-  Redirected
-  review and inventory stay read-only; exact reference-bound allow, deny, and
-  reset actions are the routine policy mutations.
+- The human permission path is exercised through the actual public
+  \`review permissions\` handler. Raw-terminal tests cover list, typed detail,
+  exact Allow/Deny, path-template Allow-only choices, clear, final staged
+  review, explicit Apply, manual refresh with staged-set discard, and
+  pre-Apply cancellation. They prove zero mutation before final confirmation,
+  unchanged opaque review-item IDs, separate attachment/persistent lifetimes,
+  alternate-screen restoration before mutation, and an outcome-first receipt
+  with authoritative revision and ordered rule identities. Redirected and JSON
+  review remain read-only. A handler-reachability canary proves the public
+  Catalog reaches \`runFinalPolicyReview\`; source ownership checks reject the
+  retired predecessor handler, selector, catalog declaration, and their
+  presentation-only corpus. The release contract has no watch or notification
+  input. TTY \`policy rules\` separately covers current-decision inventory and
+  explicit reset.
 - Catalog retirement canaries prove bare `review` is a generic namespace with
   exactly `permissions`, `runtimes`, and `services`, performs zero task calls, and is not a
   registered command. Exact-path tests reject the retired `policy review` and
@@ -917,12 +905,6 @@ The test suite has complementary levels:
   contracts retain their distinct staged versus immediate workflows, output
   schemas, reference kinds, collection coverage, and redirected read-only
   behavior.
-- The resumable-permission corpus pins a typed inbox, scoped empty queue, zero
-  staged set, mixed HTTP/GraphQL final review, stale refresh, activation fault,
-  authoritative revision receipt, and stable Workspace/OPA identities. Its
-  answer key records zero routine external processing. Container integration
-  separately keeps the OPA and Workspace processes stable while one reviewed
-  effect becomes active and retries through the same running Workspace.
 - Research-surface Operator Console tests pin one valid typed snapshot before listen, exact
   `127.0.0.1:0` ownership, 256-bit bearer generation, loopback peer and exact
   Host/Origin/authentication gates, closed routes and methods, strict bounded
@@ -966,7 +948,9 @@ The test suite has complementary levels:
   OPA or upstream I/O.
 - Auth Broker runtime integration inspects exactly one broker beside one
   Gateway and one OPA, verifies the separate control/runtime socket mounts and
-  fixed resource/log bounds, unlocks through a synthetic host root key, issues
+  fixed resource/log bounds, proves the runtime socket crosses the exact
+  owner-labeled Docker local/tmpfs volume read-write in Broker and read-only in
+  Gateway (never a host bind mount), unlocks through a synthetic host root key, issues
   different handles to Workspace Template-bound projects, proves an OPA denial performs no
   resolution, rejects copied handles across real Workspaces, and confirms that
   primary-secret canaries never appear in Workspace files, environment, host
@@ -979,7 +963,15 @@ The test suite has complementary levels:
   cross ports or schemes.
 - Gateway boundary tests resolve and pin an upstream address, reject unsafe
   resolved addresses for dotted hosts, and preserve the explicit single-label
-  private-service exception used by the local integration shape.
+  private-service exception only in its focused fixture. Broad Docker
+  integration uses a reserved synthetic FQDN on an isolated test-only subnet
+  whose addresses are classified as globally routable; it does not relax the
+  production resolver to reach a private address. Final reconciliation must
+  remove the unmanaged fixture network, after which the harness explicitly
+  restores it before the next synthetic upstream assertion. During a live
+  attachment, the harness removes that fixture network after recording the
+  denial so Policy Allow proves the supported OPA-only settlement path rather
+  than requesting the physically fenced Gateway replacement path.
 - Gateway boundary tests prove ordinary body content is absent from policy
   input, a request stream is enabled only after allow, and local denial
   responses are not treated as authorized upstream responses. Declared
@@ -1035,14 +1027,15 @@ Every strong statement should identify its enforcement path.
 | Finite domain state | Types, constructors, and table-driven negative tests |
 | Domain-owned Catalog vocabulary | Caller-immutable canonical ordered sets consumed by domain validation and every inventoried exact Catalog field path, plus ledger-pinned constructor/output fixtures for semantic branches and explicit-empty correlations |
 | Catalog completeness | Whole-catalog contract tests |
-| Semantic terminal presentation | Ledger-pinned typed fixture and answer key across colored TTY, `NO_COLOR` TTY, redirected text, scoped empty, warning, failure, and neutral pre-action cancellation; exact six-token rendering tests; catalog-wide text-presentation declarations; idle-selector redraw/restoration plus narrow-terminal wrap-independent alternate-screen tests; bounded catalog-derived namespace/suggestion tests; and AST lint that rejects style-dependent structure or direct ANSI SGR outside the shared style layer |
+| Public executable composition | Exact whole-public-catalog Program/path-to-production-handler mapping across the release and attachment helpers; targeted nonzero Go execution evidence for each exact release/helper handler (never a global coverage percentage); focused CLI behavior assertions for public mutation projections; and an explicit release-binary scenario for root-owned environment, terminal, or adapter-composition journeys that cannot be proved by ordinary handler dispatch |
+| Semantic terminal presentation | Zero-violation deterministic CLI-experience evaluation covering terminal-owned named colors, six semantic tokens, reviewed markers, shared spinner ownership, `NO_COLOR` document parity, raw-journey continuity, public-handler reachability, and predecessor-owner absence; ledger-pinned typed fixtures across colored TTY, redirected text, scoped empty, warning, failure, and neutral cancellation; alternate-screen restoration; bounded namespace/suggestion tests; and AST lint rejecting style-dependent structure or direct ANSI SGR outside the shared style layer |
 | Output delivery versus collection coverage | Independent finite enums and catalog tests, including complete bounded/differential windows and paged exhaustive traversal |
 | Operationally closed supported outcome | Reviewed agent-readiness transcript with zero undeclared external reconstruction, plus task-owned deterministic-composition tests and declared field extraction |
 | Request-bound semantic result | Per-capability domain/application tests for declared task identity and every applicable request dimension, including scope, state, contextual-kind, empty-result, no-partial-result, and negative-inference fixtures where applicable |
 | Action target composition | Reachable reference-graph validation and byte-preserving round trips for reference-bound acts; complete and exclusive declarations for command-bound fixed targets; reference-free fixed reads/writes; and fixed-create canaries that allow only distinct confirmed child-resource refs while rejecting consumed refs and escaped scope refs |
 | Recursive produced references | One bounded `OutputField.Fields`/`Items` traversal with deterministic dot/`[]` paths; forcing-shape, duplicate/cursor-collision, reachability, scoped-help, and workflow tests; typed inputs remain the consumed-reference authority |
 | Side-effect ordering | Fake adapter counters and failure-before-I/O tests |
-| Ancestor Workspace choice | Typed nearest-first candidate fixtures, selector key/fallback tests, locked stale-choice checks, and zero-downstream-call cancellation tests |
+| Ancestor Workspace choice | Typed nearest-first candidate fixtures, selector key/fallback tests, locked stale-choice checks, zero-downstream-call cancellation tests, and a release-binary real-Docker PTY canary proving descendant-CWD ancestor reuse versus explicit nested creation |
 | Session-versus-Workspace lifecycle | Child exit-status preservation, host stderr guidance, stdout/stderr ownership, logical-state-after-exit, and explicit delete tests |
 | Attached-session deletion guard | Docker Exec ID observation, guard-before-delete negative tests, force override, and stable structured fault/help contract |
 | Context/Workspace lifecycle target safety | Exact opaque-reference round trips, duplicate/empty parser rejection, unknown/stale zero-I/O counters, immutable Context binding, explicit attachment states, typed `end_active_session`, and frozen presentation evidence |
@@ -1065,12 +1058,13 @@ Every strong statement should identify its enforcement path.
 | Workspace Template Git identity boundary | Closed pair/source domain tests, planned whole-Template source publication and direct-writer absence, exact two-key global Git argv with an absolute executable and exact `HOME`/optional `XDG_CONFIG_HOME` plus fixed-control environment allowlist, project-owned config-directory and `PATH`/loader/shell-startup canaries, timeout/output/framing/unsafe-value bounds, malicious local-include exclusion, private atomic Workspace projection encoding, symlink and existing-file size checks, read-only directory mount and system-scope precedence, excluded helper/signing/auth/path keys, absent/incomplete-pair behavior, and secret-/personal-data-free faults and fixtures |
 | Workspace Template Workspace bootstrap boundary | Closed AWS IAM Identity Center plus dependent EKS schemas, AWS-only revision compatibility, composed semantic digest/generation/diff tests, fixed host AWS and Kubernetes configuration-file regular-file/size bounds, shared parse/resolve paths for exact preparation and typed discovery, available/unavailable candidate invariants, shared-session and matching-profile fixtures, malformed/duplicate/unsafe whole-file zero-partial-result canaries, selected-reference and exact `aws eks get-token` validation, unknown/helper/credential/cache/proxy/TLS/file-reference/arbitrary-exec/alternate-path/symlink rejection, secret-free reports, selected-semantic drift rejection with unrelated-profile tolerance, atomic Workspace Template replacement, exact private `.aws/config` plus canonical `.kube/config` bytes, create-before-publication rollback, no credentials/cache projection, predecessor-schema rejection, existing-Workspace byte preservation, dependency-aware removal, and `not_configured`/`not_applied`/`current`/`older` status coverage |
 | Template create and copy remain distinct | Fixed-target `template create --name` with closed source-access and bounded exact GraphQL endpoint inputs; reference-bound `template copy --from ... --name`; fresh unpublished ID/source with null base revision; exact source revision revalidation; no lineage or lower-lifetime state; zero active authority/reconciliation before Plan/Apply; and invalid/incomplete/cancellation/drift/collision zero-publication canaries |
-| Guided first Workspace entry | No-authority draft transcript; exact Template publication/default selection/Context creation/cluster/standard-Runtime preparation/entry checkpoints; five stages and seven states; partial-success recovery; noninteractive fresh zero-mutation; default shell; exact positional-only child argv/status; cancellation settlement; idempotent repeat convergence; exact `builtin/standard` revision parsing through the real legacy guard; and one release-CI real-Docker public-command scenario from absent Tobari config/state roots and absent exact Tobari images through confirmed Workspace entry and re-entry |
+| Guided first Workspace entry | No-authority draft transcript; exact Template publication/default selection/Context creation/cluster/standard-Runtime preparation/entry checkpoints; five stages and seven states; partial-success recovery; noninteractive fresh zero-mutation; default shell; exact positional-only child argv/status; cancellation settlement; idempotent repeat convergence; exact `builtin/standard` revision parsing through the real legacy guard; and one release-CI real-Docker public-command scenario from absent Tobari config/state roots and absent exact Tobari images through confirmed Workspace entry, exact-root re-entry, descendant ancestor reuse, and explicit nested creation |
 | Shared Runtime revision boundary | Fixed Runtime-catalog target contracts; typed `--copy-source-from standard|NAME`; no reference/lineage binding or `--base` alias; fresh-ID/empty-history atomic creation; bounded owner-only source copying; snapshot-before-BuildKit ordering; compatibility/image-digest validation; failed/no-op history preservation; zero Template/Context/Workspace writes during create/build; RuntimeID+digest references; and explicit-entry reconciliation with home preservation |
 | Managed Runtime lifecycle closure | Exact Runtime/revision/prune-plan reference graph; strict closed `runtime.yaml` plus editable `source/` config and separate immutable state; complete coherent catalog/protection/journal/snapshot/material observation; current/retained Template plus Workspace applied/pending/observed protection; standard and cross-Runtime active-lifecycle rejection; canonical selector, content correlation, shared/foreign-use preservation, bounded Docker output/calls, and zero-create reads; immutable-source restore; non-forced prune; phase-aware two-root create/delete quarantine journals with restart settlement at every rename/sync boundary; monotonic terminal receipts, same-name and interruption replay; one-confirmation review recovery; nullable reclaimable bytes and unknown last-used; exact human/JSON/fault/help contracts; no revision delete, global prune, Docker-ID authority, or Runtime-specific produced-reference walker |
 | Gateway source and image boundary | Canonical-source/snapshot byte comparison, pinned mitmproxy parent, signed nftables/iproute dependency inventory, canonical-source unit tests, source API-1/role labels, transparent-only listener and fixed network-guard entrypoint, explicit rejection of non-transparent ingress, absence of proxy environment/port exceptions, content-addressed development selection, Gateway-only lock validation, immutable digest/platform/entrypoint release preflight, non-root resident process, and validation/release workflow permission separation |
 | Research Auth Broker source and image boundary | Canonical-source/snapshot byte comparison, canonical Python tests in the pinned image environment, provider-CLI absence including Codex/Claude, source API-1/role labels, content-addressed development selection, absence from the release lock/publication workflow, non-root Dockerfile, and validation workflow permission separation |
 | Context-owned encrypted research credentials | Root-key backend tests, strict owner/mode/symlink checks, AES-GCM schema/ContextID AAD canaries, atomic vault replacement, missing-key-with-vault rejection, and secret-free outputs |
+| Cluster teardown mode recovery | Exact-mode active-journal rejection; retained-down-to-purge explicit upgrade; completed-purge-to-retained dominance only after stopped-runtime and purged-volume revalidation; recreated-volume negative canary; repeat-completion zero-removal assertions; and a real-Docker lifecycle sequence covering purge followed by ordinary down |
 | Authentication state survives cluster teardown | Exact down/purge resource assertions, preserved vault/key canaries, and subsequent cluster-up unlock/status proof |
 | Doctor remains observational | Fixed dependency-matrix, direct-blocker, complete-report, schema-1 renderer/agent-contract, fail/warn exit, cancellation, Docker-argv allowlist, host-only policy-source validation, content-aware fresh/unsupported-version snapshots, and zero-create/zero-repair canaries across root-key, vault, provider, broker, and project-auth state |
 | Every declared read remains observational | Dynamic public-catalog handler coverage, per-command fresh-XDG before/after snapshots, zero Docker-mutation argv, lockless fresh lifecycle reads, read-only/concurrent fixtures, unsupported-version fail-closed state, and bounded cleanup of only a pre-existing validated journal |
@@ -1089,7 +1083,7 @@ Every strong statement should identify its enforcement path.
 | Ordinary HTTP authority order | Aggregate-router and OPA tests prove principal/schema/Workspace Template validity, terminal destination/method decisions, one combined trusted-baseline plus remembered exact-Deny tier with no internal order, Template static positive authority, remembered reviewed Allow, and unresolved fail-closed/default-review completion; exact-Deny-over-baseline and terminal-ceiling zero-candidate/DNS/Broker/upstream canaries prevent lower-tier bypass |
 | Attachment-scoped Host Loopback authority | Exact `host.tobari.internal` hostname/URL-template, public capability schema V1, private route/grant schema V2, hostname-bound opaque IDs, bounded port, and destination/lifetime domain tests; terminal non-learnable `host.tobari.test` plus sibling/suffix/private-ceiling canaries; host-derived epoch and Workspace-wide audience assertions; negative retired `--host-http` parsing; owner-only strict route registry and secret-free capability projection; aggregate-router cross-branch canaries prove ordinary authority cannot decide Host Loopback and attachment authority cannot decide ordinary traffic; random-port 256-bit-authenticated host relay that revalidates the reviewed IPv4-loopback target port while preserving exact Host; Gateway principal/epoch/port derivation and one-shot stream tests; OPA exact Attachment Deny/Allow/review order and lifetime/port-confusion canaries; zero external-DNS/upstream/Broker/relay/retry work for retired, malformed, unauthenticated, unreviewed, stale, mismatched, denied, unavailable, and post-detach requests; pre-leaf TLS rejection and CA/cache non-authority; final lifecycle-to-interactive-to-host-loopback lock ordering, legacy-registry zero-mutation rejection, and deterministic competing-entry fences; route-first teardown removes both route and grants, borrower non-ownership preserves both only until owner exit, and crash reconciliation removes stale final state; standard Runtime curl/libc, Python, applicable Go pure/cgo, and Node resolver/HTTP canaries; policy-review lifetime presentation; and supported Linux/macOS Colima Docker integration |
 | Attachment-owned Workspace service exposure | Recursive Catalog reference closure and Program-filtered dispatch/help for pending-only review, host status/actions, and JSON-only helper create/status/stop; fixed-create child-reference and mutation-complete canaries; one-key/raw and one-token/line confirmation with redirected/JSON read-only and pre-read watch/notify rejection; generic evidence-free notifications; final Context/Workspace plus distinct Service AttachmentID authority; bounded owner anchor with complete/partial/unavailable counts, unsafe/duplicate/contradictory fail-closed state, no read cleanup, and fresh exact-action re-resolution; `tcp4 127.0.0.1:0`, independent 128-bit lowercase `.localhost` origins, exact Host/absolute-form/framing validation before Workspace I/O, no numeric fallback, unchanged accepted headers/cookies/Origin/content, fixed 502, HTTP/1.1/WebSocket/backpressure, and listener-first bounded cleanup receipts; pinned Playwright Chromium cross-origin cookie and `Domain=localhost` contamination canaries; purpose-limited reference-only browser opener with not-dispatched/requested/unknown outcomes; dedicated hardcoded helper, checked source/snapshot equality, engine architecture packaging/mount evidence, and isolated Engine/Desktop/Colima integration; public guard positive/negative exact-origin exception; capability/catalog/public-boundary coverage |
-| Attachment-owned permission resume | Dedicated hardcoded `tobari-permission wait` Program with plain bounded correlation input and no reference producer, completion, discovery, or local output walker; one canonical interactive owner and shared borrower epoch with service-controller exclusion; exact frozen-v1 principal to schema-2 denial/wait projection and byte/schema canaries for every frozen sibling wire; owner acknowledgment plus exact post-ACK authority re-read before resume publication; CSPRNG IDs; closed host-platform selection of Linux `unix` or Darwin `loopback_tcp` with exact Gateway profile match, no Docker-provider/context parsing, and zero probe/fallback/downgrade; Colima-only Darwin release evidence and explicit unsupported/unvalidated-provider omission; loopback-only bind and exact `host.docker.internal`, nonce-first constant-time authentication, owner-only regular/no-symlink registry shape, atomic replacement and three-renewal visibility, invalid replacement with zero stale fallback, registry/mount/environment absence from OPA/Workspace/guards, and log/public-output coordinate absence; bounded private registry, ingestion frames, rate, lease, live-record count, attempts, concurrency, teardown, stale/replaced/symlink rejection, and non-enumerating faults; strictly advancing lease issue time with rollback/non-advance/expiry rejection; canonical live-OPA exact/template Allow, explicit Deny, default-deny pending, revision-lag, and ambiguity tests; helper packaging/read-only mount and cancellation/re-entry canaries; zero proposal, policy mutation, reconciliation, TTY injection, and automatic retry; explicit owned-environment integration from denial through separate trusted-host Apply, wait result, and deliberate fresh Gateway-authorized retry |
+| Attachment-owned permission resume | Dedicated hardcoded `tobari-permission wait` Program with plain bounded correlation input and no reference producer, completion, discovery, or local output walker; one canonical interactive owner and shared borrower epoch with service-controller exclusion; exact frozen-v1 principal to schema-3 denial plus schema-2 wait projection and byte/schema canaries for every frozen sibling wire; owner acknowledgment plus exact post-ACK authority re-read before resume publication; CSPRNG IDs; closed host-platform selection of Linux `unix` or Darwin `loopback_tcp` with exact Gateway profile match, no Docker-provider/context parsing, and zero probe/fallback/downgrade; Colima-only Darwin release evidence and explicit unsupported/unvalidated-provider omission; loopback-only bind and exact `host.docker.internal`, nonce-first constant-time authentication, owner-only regular/no-symlink registry shape, atomic replacement and three-renewal visibility, invalid replacement with zero stale fallback, registry/mount/environment absence from OPA/Workspace/guards, and log/public-output coordinate absence; bounded private registry, ingestion frames, rate, lease, live-record count, attempts, concurrency, teardown, stale/replaced/symlink rejection, and non-enumerating faults; strictly advancing lease issue time with rollback/non-advance/expiry rejection; canonical live-OPA exact/template Allow, explicit Deny, default-deny pending, revision-lag, ambiguity, strict final-active-receipt revision binding, and legacy-state-only rejection tests; helper packaging/read-only mount and cancellation/re-entry canaries; zero proposal, policy mutation, reconciliation, TTY injection, and automatic retry; prompt-anchored PTY plus explicit fixture-network restoration integration from denial through separate trusted-host Apply, wait result, and deliberate fresh Gateway-authorized retry |
 | Declared GraphQL policy identity | Exact trusted endpoint projection, hash-pinned parser and license checks, strict bounded POST-envelope and body-free GET-parameter fixtures, query-only GET with URL-source redaction, persisted-query/extension diagnostics, absent-length acceptance under fixed transport and semantic caps, positive/duplicate/mismatched length plus transfer/content encoding canaries, conservative root-fragment expansion, all-roots OPA matching, HTTP-rule non-matching canaries, per-root audit/candidate/allow/deny/reset round trips, deterministic review-only state-change projection, prefix-rule rejection, raw-body/query privacy canaries, and zero-upstream integration |
 | Kubernetes API policy identity | Validated EKS-origin projection, schema-free core/CRD and non-resource path fixtures, exact get/list/watch/create/update/patch/delete/deletecollection/connect plus dry-run identity, HTTP-rule non-matching and exact-rule OPA canaries, impersonation/ambiguous-mode local rejection, opaque object bodies, deterministic state-change projection, and zero-upstream denial |
 | Git Smart HTTP policy identity | Exact discovery query and RPC path/media-type fixtures, repository plus upload/receive identity, HTTP-rule non-matching and exact-rule OPA canaries, malformed/ambiguous local rejection, opaque pack bodies and credentials, deterministic state-change projection, and zero-upstream denial |
@@ -1104,7 +1098,7 @@ Every strong statement should identify its enforcement path.
 | Atomic multi-Template policy activation | Source and projection locks, Workspace Template namespace rejection, complete all-Context OPA validation, content-addressed atomic publication, stale-revision rejection, known-good rollback, and invalid/concurrent mutation tests |
 | File-backed desired resources | Stable-ID path and directory/document identity tests; exact Template/Context/policy V1 round trip; ordinary-reader alpha rejection; explicit content-addressed alpha-to-V1 source migration with active/source/target fences, no activation, idempotent replay, and crash-boundary recovery; numeric/unknown/relabelled-alpha/unknown-module rejection; strict unknown-field/duplicate-key/alias/tag/bounds/mode/owner/symlink/hard-link/unknown-child canaries; whole-directory staged Template pair publication and rollback; Template pair fingerprint, final pre-publication fence, stale-base and idempotent settlement tests; comment-preserving base bookkeeping; Context identity immutability and final fingerprint fence; exact `in_sync`/`modified`/`invalid`/`missing` output; missing-source last-known-good behavior; tombstone admission and interrupted deletion settlement; reflection/Catalog proof that only draft/plan/apply can reach ordinary Template semantic publication and schema migration cannot activate it; narrow source Runtime ID+revision; ID-based strict Runtime layout; and no-Rego whole-tree regression |
 | Closed semantic policy modules | Exact sealed registry for generic HTTP, GraphQL, MCP, AWS, Kubernetes, Git Smart HTTP, and OCI Distribution; module-owned validation/matching/state-change projection; static and Policy Memory parity; semantic-set normalization and duplicate/shadow rejection; classified-traffic generic-HTTP exclusion; strict bounded parsers and privacy canaries; request-time sibling collision rejection before OPA/upstream with no falsely selected audit module; complete static Allow/Deny OPA execution and evidence; and final V1 source compiler round trips |
-| Causal failure recovery | Closed phase/change-state validation, Catalog/runtime agreement, text/JSON equivalence, pre-action-none and post-action-unknown cancellation, standard-Runtime preparation failure/cancellation as mutation-unknown with read-only status recovery, confirmed-output preservation, lifecycle unknown/confirmed classifications, provider-neutral first-use readiness with Engine 23/24 boundaries, and a machine-checked release Catalog graph that rejects self-loops, closed reference cycles, nonexistent paths, unchecked required inputs, action rediscovery, output-encoding replay, and mutation retry after unknown state while permitting only causally terminating read-only classifiers |
+| Causal failure recovery | Closed phase/change-state validation, Catalog/runtime agreement including final Template/Context/Workspace CRUD emitted-fault matrices and stale-reference dispatch canaries, text/JSON equivalence, pre-action-none and post-action-unknown cancellation, standard-Runtime preparation failure/cancellation as mutation-unknown with read-only status recovery, confirmed-output preservation, lifecycle unknown/confirmed classifications, provider-neutral first-use readiness with Engine 23/24 boundaries, and a machine-checked release Catalog graph that rejects self-loops, closed reference cycles, nonexistent paths, unchecked required inputs, action rediscovery, output-encoding replay, and mutation retry after unknown state while permitting only causally terminating read-only classifiers |
 | Confirmed mutation output | One effect-aware finalizer, late-cancellation regression, non-retryable mutation short-write fault, and read-only recovery validation |
 | Pagination completeness | Cursor loop/budget/cancellation tests, retryability/catalog agreement, and no-partial-result assertion |
 | Public paged continuation | Catalog validation of one exact same-kind optional input/top-level output binding, non-`not_applicable` coverage, JSON-only presentation, and agent-help/reference-workflow projection |

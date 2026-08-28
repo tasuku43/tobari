@@ -256,7 +256,7 @@ func renderPolicyRulesListRaw(
 		rule := report.Items[index]
 		prefix := "  "
 		if index == selected {
-			prefix = applyStyleToken(style, styleText, "❯ ")
+			prefix = applyStyleToken(style, styleText, "> ")
 		}
 		lines = append(
 			lines,

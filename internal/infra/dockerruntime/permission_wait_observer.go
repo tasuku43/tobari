@@ -30,12 +30,12 @@ func (r *Runtime) ObservePermissionDisposition(
 	if err := record.Validate(); err != nil {
 		return "", false, fmt.Errorf("validate permission wait record: %w", err)
 	}
-	state, configured, err := r.LoadState(ctx)
+	active, present, err := r.readOptionalFinalPolicyActivation(r.finalPolicyActiveReceiptPath())
 	if err != nil {
-		return "", false, fmt.Errorf("load active policy state: %w", err)
+		return "", false, fmt.Errorf("read active final policy authority: %w", err)
 	}
-	if !configured || state.AggregateRevision == "" {
-		return "", false, nil
+	if !present {
+		return "", false, fmt.Errorf("active final policy authority is unavailable")
 	}
 	input, err := permissionPolicyInput(record)
 	if err != nil {
@@ -56,7 +56,7 @@ func (r *Runtime) ObservePermissionDisposition(
 	if err != nil {
 		return "", false, err
 	}
-	if observation.Revision != state.AggregateRevision {
+	if observation.Revision != active.Aggregate.AggregateRevision {
 		return "", false, nil
 	}
 	if observation.Decision.Allow {
@@ -76,7 +76,7 @@ func permissionPolicyInput(record tobari.PermissionWaitRecord) (map[string]any, 
 		return nil, fmt.Errorf("validate permission policy input: %w", err)
 	}
 	return map[string]any{
-		"schema_version": 1,
+		"schema_version": 2,
 		"principal": map[string]any{
 			"cluster": "default", "context_id": record.WorkspaceManifestID,
 			"project_id": record.WorkspaceID,

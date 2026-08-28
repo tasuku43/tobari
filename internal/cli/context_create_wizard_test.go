@@ -655,7 +655,7 @@ func TestContextCreateWizardMethodRowsRemainAlignedWhenStyled(t *testing.T) {
 	}
 	visible := stripANSIStyles(output.String())
 	for _, want := range []string{
-		fmt.Sprintf("❯ %-25s %-15s %s", "GET", "allow", "override"),
+		fmt.Sprintf("> %-25s %-15s %s", "GET", "allow", "override"),
 		fmt.Sprintf("  %-25s %-15s %s", "HEAD", "exact review", "inherited"),
 	} {
 		if !strings.Contains(visible, want) {

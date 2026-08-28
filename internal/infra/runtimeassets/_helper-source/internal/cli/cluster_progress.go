@@ -10,11 +10,9 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
-const (
-	clusterUpSpinnerInterval = 100 * time.Millisecond
-)
+const clusterUpSpinnerInterval = interactiveSpinnerInterval
 
-var clusterUpSpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+var clusterUpSpinnerFrames = interactiveSpinnerFrames
 
 type clusterUpProgressPhase string
 
@@ -134,7 +132,7 @@ func (p *clusterUpProgress) Report(event tobari.ClusterUpProgress) {
 		if p.current != phase {
 			p.current = phase
 		}
-		p.finishLocked(phase, "✗", styleDanger, true)
+		p.finishLocked(phase, "×", styleDanger, true)
 	}
 }
 
@@ -148,10 +146,10 @@ func (p *clusterUpProgress) Fail() {
 		return
 	}
 	if p.current != "" {
-		p.finishLocked(p.current, "✗", styleDanger, true)
+		p.finishLocked(p.current, "×", styleDanger, true)
 		return
 	}
-	p.writeLineLocked("✗", "cluster startup failed", true, styleDanger)
+	p.writeLineLocked("×", "cluster startup failed", true, styleDanger)
 	p.failed = true
 }
 
@@ -165,7 +163,7 @@ func (p *clusterUpProgress) Close() {
 		return
 	}
 	if p.current != "" && !p.failed {
-		p.finishLocked(p.current, "✗", styleDanger, true)
+		p.finishLocked(p.current, "×", styleDanger, true)
 	}
 	p.closed = true
 	stop, done := p.stop, p.done
@@ -196,7 +194,7 @@ func (p *clusterUpProgress) finishLocked(label clusterUpProgressPhase, marker st
 }
 
 func (p *clusterUpProgress) spinner() string {
-	return clusterUpSpinnerFrames[p.frame%len(clusterUpSpinnerFrames)]
+	return interactiveSpinnerFrame(p.frame)
 }
 
 func (p *clusterUpProgress) writeLineLocked(marker, label string, newline bool, token styleToken) {

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
@@ -196,7 +197,7 @@ func (r *Runtime) confirmFinalStoppedRestartPrerequisites(ctx context.Context, r
 	if receipt.Purge {
 		return r.confirmFinalPurgedVolumesAbsent(ctx)
 	}
-	for _, volume := range []string{"tobari-gateway-ca", policyBundleVolume, "tobari-public-ca"} {
+	for _, volume := range finalRetainedVolumeNames() {
 		if err := r.verifyOwned(ctx, "volume", volume); err != nil {
 			return fmt.Errorf("stopped final retained volume closure: %w", err)
 		}
@@ -256,7 +257,12 @@ func (r *Runtime) resumeFinalClusterBootstrap(ctx context.Context, journal final
 	}
 	var output bytes.Buffer
 	if err := r.runner.Run(ctx, args, environment, nil, &output, &output); err != nil {
-		return fmt.Errorf("activate fresh final cluster base: %w: %s", err, boundedDiagnostic(output.Bytes()))
+		cause := fmt.Errorf("activate fresh final cluster base: %w: %s", err, boundedDiagnostic(output.Bytes()))
+		return fault.WithClassification(fault.Wrap(
+			fault.KindUnavailable, "cluster_start_failed",
+			"Shared-cluster startup did not complete; inspect status before retrying.", false, cause,
+			fault.NextAction{Command: "cluster status", Reason: "Reconcile partial Docker state before another startup."},
+		), fault.PhaseMutation, fault.ChangeUnknown)
 	}
 	if err := r.ensureFinalClusterBootstrapTopology(ctx); err != nil {
 		return err

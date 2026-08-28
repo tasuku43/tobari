@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestPermissionInboxNotificationMethodsUseOnlyFixedTrustedPayload(t *testing.T) {
+func TestServiceReviewNotificationMethodsUseOnlyFixedTrustedPayload(t *testing.T) {
 	t.Parallel()
 	lookup := func(name string) (string, bool) {
 		if name == "TERM_PROGRAM" {
@@ -19,14 +19,14 @@ func TestPermissionInboxNotificationMethodsUseOnlyFixedTrustedPayload(t *testing
 		method string
 		want   string
 	}{
-		{method: NotificationAuto, want: permissionInboxOSC9},
-		{method: NotificationOSC9, want: permissionInboxOSC9},
-		{method: NotificationBEL, want: permissionInboxBEL},
+		{method: NotificationAuto, want: serviceReviewOSC9},
+		{method: NotificationOSC9, want: serviceReviewOSC9},
+		{method: NotificationBEL, want: notificationBEL},
 		{method: NotificationOff, want: ""},
 	} {
 		t.Run(test.method, func(t *testing.T) {
 			var output bytes.Buffer
-			if err := writePermissionInboxNotification(&output, test.method, lookup); err != nil {
+			if err := writeServiceReviewNotification(&output, test.method, lookup); err != nil {
 				t.Fatal(err)
 			}
 			if output.String() != test.want {
@@ -41,10 +41,10 @@ func TestPermissionInboxNotificationMethodsUseOnlyFixedTrustedPayload(t *testing
 	}
 }
 
-func TestPermissionInboxNotificationAutoFallsBackToBEL(t *testing.T) {
+func TestServiceReviewNotificationAutoFallsBackToBEL(t *testing.T) {
 	t.Parallel()
 	var output bytes.Buffer
-	if err := writePermissionInboxNotification(&output, NotificationAuto, func(name string) (string, bool) {
+	if err := writeServiceReviewNotification(&output, NotificationAuto, func(name string) (string, bool) {
 		if name == "TERM_PROGRAM" {
 			return "unknown-terminal", true
 		}
@@ -52,12 +52,12 @@ func TestPermissionInboxNotificationAutoFallsBackToBEL(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if output.String() != permissionInboxBEL {
+	if output.String() != notificationBEL {
 		t.Fatalf("auto fallback = %q", output.String())
 	}
 }
 
-func TestPermissionInboxNotificationAutoUsesOSC9InCmuxTerminal(t *testing.T) {
+func TestServiceReviewNotificationAutoUsesOSC9InCmuxTerminal(t *testing.T) {
 	t.Parallel()
 	lookup := func(name string) (string, bool) {
 		values := map[string]string{
@@ -69,21 +69,21 @@ func TestPermissionInboxNotificationAutoUsesOSC9InCmuxTerminal(t *testing.T) {
 		return value, found
 	}
 	var output bytes.Buffer
-	if err := writePermissionInboxNotification(&output, NotificationAuto, lookup); err != nil {
+	if err := writeServiceReviewNotification(&output, NotificationAuto, lookup); err != nil {
 		t.Fatal(err)
 	}
-	if output.String() != permissionInboxOSC9 {
-		t.Fatalf("cmux auto notification = %q, want %q", output.String(), permissionInboxOSC9)
+	if output.String() != serviceReviewOSC9 {
+		t.Fatalf("cmux auto notification = %q, want %q", output.String(), serviceReviewOSC9)
 	}
 }
 
-func TestPermissionInboxNotificationAutoRequiresCompleteCmuxIdentity(t *testing.T) {
+func TestServiceReviewNotificationAutoRequiresCompleteCmuxIdentity(t *testing.T) {
 	t.Parallel()
 	for _, present := range []string{"CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID"} {
 		present := present
 		t.Run(present, func(t *testing.T) {
 			var output bytes.Buffer
-			if err := writePermissionInboxNotification(&output, NotificationAuto, func(name string) (string, bool) {
+			if err := writeServiceReviewNotification(&output, NotificationAuto, func(name string) (string, bool) {
 				if name == present {
 					return "example", true
 				}
@@ -91,7 +91,7 @@ func TestPermissionInboxNotificationAutoRequiresCompleteCmuxIdentity(t *testing.
 			}); err != nil {
 				t.Fatal(err)
 			}
-			if output.String() != permissionInboxBEL {
+			if output.String() != notificationBEL {
 				t.Fatalf("partial cmux identity %s selected %q", present, output.String())
 			}
 		})
@@ -104,9 +104,9 @@ func (notificationFailureWriter) Write([]byte) (int, error) {
 	return 0, errors.New("synthetic write failure")
 }
 
-func TestPermissionInboxNotificationReportsWriterFailure(t *testing.T) {
+func TestServiceReviewNotificationReportsWriterFailure(t *testing.T) {
 	t.Parallel()
-	if err := writePermissionInboxNotification(notificationFailureWriter{}, NotificationBEL, nil); err == nil {
+	if err := writeServiceReviewNotification(notificationFailureWriter{}, NotificationBEL, nil); err == nil {
 		t.Fatal("notification writer failure was hidden")
 	}
 }

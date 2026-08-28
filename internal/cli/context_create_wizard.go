@@ -519,7 +519,7 @@ func editContextCreateChoiceRaw(
 			marker := "  "
 			labelToken := styleText
 			if index == selected {
-				marker = "❯ "
+				marker = "> "
 				labelToken = styleAccent
 			}
 			line := marker + applyStyleToken(style, labelToken, option.label)
@@ -601,7 +601,7 @@ func editContextCreateMethodPolicyRaw(
 			marker := "  "
 			labelToken := styleText
 			if index == draft.methodSelected {
-				marker = "❯ "
+				marker = "> "
 				labelToken = styleAccent
 			}
 			decision := draft.methodDefault
@@ -700,7 +700,7 @@ func reviewContextCreateNetworkRaw(
 			marker := "  "
 			token := styleText
 			if index == selected {
-				marker, token = "❯ ", styleAccent
+				marker, token = "> ", styleAccent
 			}
 			lines = append(lines, marker+applyStyleToken(style, token, option))
 		}
@@ -830,7 +830,7 @@ func (w *terminalContextCreateWizard) reviewContextCreateRaw(
 		for index, action := range actions {
 			marker, token := "  ", styleText
 			if index == draft.reviewAction {
-				marker, token = "❯ ", styleAccent
+				marker, token = "> ", styleAccent
 			}
 			lines = append(lines, marker+applyStyleToken(w.style, token, action))
 		}

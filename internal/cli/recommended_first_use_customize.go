@@ -42,10 +42,10 @@ func (c *CLI) customizeRecommendedTemplateBody(ctx context.Context, draft tobari
 		nativeReadiness: draft.NativeReadiness,
 		runtimeRef:      ready[0].RuntimeRef, runtimeName: ready[0].Name, runtimeOrdinal: ready[0].Head,
 	}
-	chooser := &terminalContextConfigurationWizard{mode: nil, style: !c.noColor}
+	chooser := newContextConfigurationWizardWithStyle(!c.noColor)
 	for {
 		selected, chooseErr := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{
-			title: "Customize Workspace setup", current: string(selection.sourceAccess), prompt: "Project files",
+			title: "Tobari · Customize Workspace", current: string(selection.sourceAccess), prompt: "Project files",
 			options: []configurationWizardOption{
 				{label: "Read-write", description: "Workspace tools can change Project files directly.", value: string(tobari.ManifestSourceAccessReadWrite)},
 				{label: "Read-only", description: "Workspace tools can inspect but not change Project files.", value: string(tobari.ManifestSourceAccessReadOnly)},
@@ -57,7 +57,7 @@ func (c *CLI) customizeRecommendedTemplateBody(ctx context.Context, draft tobari
 		selection.sourceAccess = tobari.ManifestSourceAccess([]string{string(tobari.ManifestSourceAccessReadWrite), string(tobari.ManifestSourceAccessReadOnly)}[selected])
 
 		selected, chooseErr = chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{
-			title: "Customize Workspace setup", current: string(selection.methodPolicy.Default), prompt: "Other network requests",
+			title: "Tobari · Customize Workspace", current: string(selection.methodPolicy.Default), prompt: "Other network requests",
 			options: []configurationWizardOption{
 				{label: "Exact review", description: "Ask for an exact decision when no reviewed rule applies.", value: string(tobari.ManifestMethodExactReview)},
 				{label: "Deny", description: "Deny requests that have no reviewed rule.", value: string(tobari.ManifestMethodDeny)},
@@ -69,7 +69,7 @@ func (c *CLI) customizeRecommendedTemplateBody(ctx context.Context, draft tobari
 		selection.methodPolicy.Default = []tobari.ManifestMethodDecision{tobari.ManifestMethodExactReview, tobari.ManifestMethodDeny}[selected]
 
 		selected, chooseErr = chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{
-			title: "Customize Workspace setup", current: string(selection.nativeReadiness), prompt: "Native client sign-in",
+			title: "Tobari · Customize Workspace", current: string(selection.nativeReadiness), prompt: "Native client sign-in",
 			options: []configurationWizardOption{
 				{label: "Enabled", description: "Native clients can keep their own credentials in this Workspace.", value: string(tobari.ManifestNativeReadinessEnabled)},
 				{label: "Disabled", description: "Do not prepare native client sign-in paths.", value: string(tobari.ManifestNativeReadinessDisabled)},
@@ -88,7 +88,7 @@ func (c *CLI) customizeRecommendedTemplateBody(ctx context.Context, draft tobari
 			}
 		}
 		selected, chooseErr = chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{
-			title: "Customize Workspace setup", current: fmt.Sprintf("%s@%d", selection.runtimeName, selection.runtimeOrdinal),
+			title: "Tobari · Customize Workspace", current: fmt.Sprintf("%s@%d", selection.runtimeName, selection.runtimeOrdinal),
 			prompt: "Runtime", options: runtimeOptions,
 		})
 		if chooseErr != nil {
@@ -97,17 +97,11 @@ func (c *CLI) customizeRecommendedTemplateBody(ctx context.Context, draft tobari
 		selection.runtimeRef, selection.runtimeName, selection.runtimeOrdinal = ready[selected].RuntimeRef, ready[selected].Name, ready[selected].Head
 
 		review, reviewErr := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{
-			title: "Review Workspace setup",
-			information: []string{
-				"  " + safeExternalText(draft.ProjectRoot), "",
-				"Project files", "  " + string(selection.sourceAccess), "",
-				"Other network requests", "  " + string(selection.methodPolicy.Default), "",
-				"Native client sign-in", "  " + string(selection.nativeReadiness), "",
-				"Runtime", fmt.Sprintf("  %s@%d", safeExternalText(selection.runtimeName), selection.runtimeOrdinal),
-			},
-			prompt: "Action", options: []configurationWizardOption{
-				{label: "Use this setup", value: "use"},
-				{label: "Edit again", value: "edit"},
+			title:            "Tobari · Review Workspace",
+			informationLines: recommendedCustomizedFirstUseSummary(draft, selection),
+			prompt:           "Action", options: []configurationWizardOption{
+				{label: "Create and enter Workspace", value: "use"},
+				{label: "Edit settings", value: "edit"},
 				{label: "Cancel", value: "cancel"},
 			},
 		})
@@ -142,4 +136,30 @@ func (c *CLI) customizeRecommendedTemplateBody(ctx context.Context, draft tobari
 		), fault.PhasePrecondition, fault.ChangeNone)
 	}
 	return body, nil
+}
+
+func recommendedCustomizedFirstUseSummary(
+	draft tobari.RecommendedFirstUseDraft, selection recommendedTemplateCustomization,
+) []configurationWizardLine {
+	otherNetwork := "review when needed"
+	if selection.methodPolicy.Default == tobari.ManifestMethodDeny {
+		otherNetwork = "denied"
+	}
+	return []configurationWizardLine{
+		{{value: "", token: styleText}},
+		{{value: "Project", token: styleText}},
+		{{value: "  " + safeExternalText(draft.ProjectRoot), token: styleText}},
+		{{value: "", token: styleText}},
+		{{value: "Boundary", token: styleText}},
+		recommendedFirstUseSummaryRow("Project files", string(selection.sourceAccess), styleText),
+		recommendedFirstUseSummaryRow("Routine network", "allowed", styleSuccess),
+		recommendedFirstUseSummaryRow("Other network", otherNetwork, methodDecisionStyle(selection.methodPolicy.Default)),
+		recommendedFirstUseSummaryRow("Private network", "denied", styleDanger),
+		{{value: "", token: styleText}},
+		{{value: "Environment", token: styleText}},
+		recommendedFirstUseSummaryRow("Runtime", fmt.Sprintf("%s@%d", safeExternalText(selection.runtimeName), selection.runtimeOrdinal), styleText),
+		recommendedFirstUseSummaryRow("Native sign-in", string(selection.nativeReadiness), styleText),
+		recommendedFirstUseSummaryRow("Host configuration", "not imported", styleText),
+		recommendedFirstUseSummaryRow("Session", safeExternalText(recommendedFirstUseSession(draft)), styleText),
+	}
 }

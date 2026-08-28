@@ -23,7 +23,10 @@ for claim in \
   'run_bare_tobari_pty_at fresh "$test_root/user/project"' \
   'items[0]["runtime_id"] == "builtin/standard"' \
   'run_bare_tobari_pty_at reentry "$test_root/user/project"' \
-  'os.write(master, b"exit\r")' \
+  'run_bare_tobari_pty_at ancestor-use "$test_root/user/project/child"' \
+  'run_bare_tobari_pty_at nested-create "$test_root/user/project/child"' \
+  'E2E_CWD=/var/lib/tobari/project/child' \
+  'echo E2E_CWD=$PWD; exit' \
   'Tobari image $image must be absent' \
   'Context source root was not created' \
   'docker volume inspect --format' \
@@ -43,8 +46,8 @@ if [[ $actual_phases != "$expected_phases" ]]; then
 fi
 
 line_count=$(wc -l <"$scenario" | tr -d ' ')
-if ((line_count > 2048)); then
-  echo "integration scope: scenario grew to $line_count lines (limit 2048)" >&2
+if ((line_count > 2140)); then
+  echo "integration scope: scenario grew to $line_count lines (limit 2140)" >&2
   exit 1
 fi
 runtime_image_cleanup_line_count=$(wc -l <"$runtime_image_cleanup_helper" | tr -d ' ')
@@ -63,8 +66,8 @@ if ((gateway_fixture_helper_line_count > 100)); then
   exit 1
 fi
 permission_resume_helper_line_count=$(wc -l <"$permission_resume_helper" | tr -d ' ')
-if ((permission_resume_helper_line_count > 90)); then
-  echo "integration scope: Permission resume helper grew to $permission_resume_helper_line_count lines (limit 90)" >&2
+if ((permission_resume_helper_line_count > 151)); then
+  echo "integration scope: Permission resume helper grew to $permission_resume_helper_line_count lines (limit 151)" >&2
   exit 1
 fi
 ./test/integration/gateway_fixture_test.sh
@@ -97,9 +100,11 @@ done
 # The claim intentionally matches the literal shell variable in the sourced helper.
 # shellcheck disable=SC2016
 for claim in \
-  'schema_version") != 2' \
+  'policy_input='\''{"schema_version":2' \
+  'schema_version") != 3' \
   'tobari-permission wait --id pwt_' \
-  'allow_exact_effect "$work_id" mock-upstream GET /permission-resume' \
+  'allow_exact_effect "$work_id" "$mock_host" GET /permission-resume' \
+  'permission-network-restored' \
   'fresh independently authorized permission-resume retry'; do
   if ! grep -F "$claim" "$permission_resume_helper" >/dev/null; then
     echo "integration scope: missing permission resume boundary canary: $claim" >&2
@@ -110,6 +115,10 @@ done
 cli_reference_count=$(grep -Ehoc 'run_tobari(_at|_pty_at)?' "$scenario" "$workspace_service_helper" "$permission_resume_helper" | awk '{sum += $1} END {print sum}')
 if ((cli_reference_count > 80)); then
   echo "integration scope: scenario grew to $cli_reference_count CLI references (limit 80)" >&2
+  exit 1
+fi
+if grep -E 'review permissions([^[:alnum:]]|$).*--tail' "$scenario" "$permission_resume_helper" >&2; then
+  echo "integration scope: complete Permission Inbox E2E still uses removed --tail input" >&2
   exit 1
 fi
 
@@ -143,7 +152,7 @@ fi
 # them while the guard runs would stop matching the harness source itself.
 # shellcheck disable=SC2016
 provider_fixture_line=$(grep -nF 'cat >"$config_directory/auth/providers/$synthetic_provider.json"' "$scenario" | cut -d: -f1)
-final_publication_line=$(grep -nF 'run_tobari "${template_create_args[@]}" >/dev/null' "$scenario" | cut -d: -f1)
+final_publication_line=$(grep -nF 'default_template_ref=$(apply_template_ref "$default_template_ref")' "$scenario" | cut -d: -f1)
 if [[ -z $provider_fixture_line || -z $final_publication_line || $provider_fixture_line -le $final_publication_line ]]; then
   echo "integration scope: research provider fixture was installed before first final-authority publication" >&2
   exit 1
@@ -152,11 +161,16 @@ for claim in \
   'template create --name default --source-access read-write' \
   'template_create_args+=(--graphql-endpoint https://graphql.tobari.dev:8080/graphql)' \
   'template create --name restricted --source-access read-only' \
-  'template runtime set --id "$default_template_ref" --runtime "$runtime_revision_ref"' \
+	  'rewrite_template_runtime_source "$default_template_source" "$runtime_id" "$runtime_source_digest"' \
+	  'default_template_ref=$(apply_template_ref "$default_template_ref")' \
+	  'apply_context_ref "$default_context_ref"' \
   'context create --template "$default_template_ref"' \
   'context enter --id "$default_context_ref"' \
   'workspace list --format json' \
   'workspace delete --id "$work_ref" --confirm=delete --force' \
+  'volume|tobari-auth-runtime|/run/tobari-auth/runtime|false' \
+  'restore_gateway_auth_fixture_network' \
+  'wait_network_connection tobari-gateway "$mock_host" 8080' \
   'auth import "$synthetic_provider" --context "$default_context_ref"' \
   '["runtime"]["runtime"]["runtime_ref"]' \
   'revision["availability"]["state"] == "available"' \

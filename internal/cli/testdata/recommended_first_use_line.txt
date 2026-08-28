@@ -1,25 +1,21 @@
-Tobari will create an isolated Workspace for:
+Tobari · New Workspace
+
+Project
   /workspace/example
 
-Project files
-  Read-write · changes are made directly
+Boundary
+  Project files       read-write
+  Routine network     allowed
+  Other network       review when needed
+  Private network     denied
 
-Network
-  Claude Code and Codex routine traffic   allowed
-  Other requests                          exact review
-  Private and unsafe destinations         denied
-
-Tools
-  standard@1
-
-Host configuration
-  Not imported
-
-Session
-  Run claude\nagent directly
+Environment
+  Runtime             standard@1
+  Host configuration  not imported
+  Session             Run claude\nagent directly
 
 Action:
-  1. Start Workspace
+  1. Create and enter Workspace
   2. Customize
   3. Cancel
 Choose a number, or q to cancel [1]:

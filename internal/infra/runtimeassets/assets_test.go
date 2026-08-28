@@ -3,6 +3,7 @@ package runtimeassets
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -261,10 +262,56 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 		t.Fatal(err)
 	}
 	experimental := string(experimentalData)
-	for _, required := range []string{"auth-broker:", "image: ${TOBARI_AUTH_BROKER_IMAGE}", "TOBARI_AUTH_PROVIDER_PROJECTION: /run/tobari/auth/providers.json", "TOBARI_AUTH_BROKER_SOCKET: /run/tobari-auth/runtime/broker.sock", "      egress: {}"} {
+	for _, required := range []string{"auth-broker:", "image: ${TOBARI_AUTH_BROKER_IMAGE}", "TOBARI_AUTH_PROVIDER_PROJECTION: /run/tobari/auth/providers.json", "TOBARI_AUTH_BROKER_SOCKET: /run/tobari-auth/runtime/broker.sock", "auth-runtime:/run/tobari-auth/runtime", "auth-runtime:/run/tobari-auth/runtime:ro", "name: tobari-auth-runtime", "type: tmpfs", "o: \"uid=${TOBARI_UID},gid=${TOBARI_GID},mode=0700\"", "      egress: {}"} {
 		if !strings.Contains(experimental, required) {
 			t.Errorf("experimental compose spec is missing %q", required)
 		}
+	}
+	if strings.Contains(experimental, "TOBARI_AUTH_RUNTIME_DIR") {
+		t.Fatal("experimental compose retained a host-bound Auth Broker runtime directory")
+	}
+}
+
+func TestExperimentalComposeOwnsEphemeralBrokerSocketTransport(t *testing.T) {
+	t.Parallel()
+	type service struct {
+		Volumes []string `yaml:"volumes"`
+	}
+	type volume struct {
+		Name       string            `yaml:"name"`
+		Driver     string            `yaml:"driver"`
+		DriverOpts map[string]string `yaml:"driver_opts"`
+		Labels     map[string]string `yaml:"labels"`
+	}
+	var document struct {
+		Services map[string]service `yaml:"services"`
+		Volumes  map[string]volume  `yaml:"volumes"`
+	}
+	data, err := Read("compose.experimental.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	runtimeVolume, ok := document.Volumes["auth-runtime"]
+	if !ok || runtimeVolume.Name != "tobari-auth-runtime" || runtimeVolume.Driver != "local" ||
+		runtimeVolume.DriverOpts["type"] != "tmpfs" || runtimeVolume.DriverOpts["device"] != "tmpfs" ||
+		runtimeVolume.DriverOpts["o"] != "uid=${TOBARI_UID},gid=${TOBARI_GID},mode=0700" ||
+		runtimeVolume.Labels["io.tobari.owner"] != "default" {
+		t.Fatalf("Auth Broker runtime volume contract = %#v", runtimeVolume)
+	}
+	if !slices.Equal(document.Services["auth-broker"].Volumes, []string{
+		"${TOBARI_AUTH_CONTEXTS_DIR}:/var/lib/tobari-auth/contexts",
+		"auth-runtime:/run/tobari-auth/runtime",
+	}) {
+		t.Fatalf("Auth Broker mount boundary = %v", document.Services["auth-broker"].Volumes)
+	}
+	if !slices.Equal(document.Services["gateway"].Volumes, []string{
+		"${TOBARI_AUTH_PROVIDER_DIR}:/run/tobari/auth:ro",
+		"auth-runtime:/run/tobari-auth/runtime:ro",
+	}) {
+		t.Fatalf("Gateway Auth Broker mount boundary = %v", document.Services["gateway"].Volumes)
 	}
 }
 

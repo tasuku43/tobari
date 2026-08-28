@@ -1008,7 +1008,6 @@ func (r *Runtime) composeEnvironmentForTransport(
 		environment = append(environment,
 			"TOBARI_AUTH_PROVIDER_DIR="+r.authProviderProjectionDirectory(),
 			"TOBARI_AUTH_CONTEXTS_DIR="+r.authContextsDirectory(),
-			"TOBARI_AUTH_RUNTIME_DIR="+r.authRuntimeDirectory(),
 			"TOBARI_AUTH_BROKER_IMAGE=unselected",
 		)
 	}

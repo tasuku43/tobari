@@ -1000,6 +1000,23 @@ func containsRoot(root, candidate string) bool {
 	return strings.HasPrefix(candidate, root+string(filepath.Separator))
 }
 
+// ValidateRootContains proves that one canonical selected Project root owns
+// the canonical invocation directory. Root entry keeps these as distinct
+// dimensions so an ancestor Workspace can open at the caller's descendant
+// working directory without widening its mount.
+func ValidateRootContains(root, candidate string) error {
+	if err := ValidateCanonicalRoot(root); err != nil {
+		return fmt.Errorf("selected root is invalid: %w", err)
+	}
+	if err := ValidateCanonicalRoot(candidate); err != nil {
+		return fmt.Errorf("invocation root is invalid: %w", err)
+	}
+	if !containsRoot(root, candidate) {
+		return fmt.Errorf("invocation root is outside the selected Project root")
+	}
+	return nil
+}
+
 func unsafeStateRune(r rune) bool {
 	return r < ' ' || r == '\u007f' || r == '\u2028' || r == '\u2029'
 }

@@ -33,6 +33,62 @@ type defaultPairFixture struct {
 	revisionDigit   byte
 }
 
+type finalSelectionAuthorityFixture struct {
+	*defaultPairFixture
+	selection tobari.FinalDefaultPairSelection
+	inside    bool
+	reads     int
+	driftAt   int
+}
+
+func (f *finalSelectionAuthorityFixture) ObserveFinalDefaultPairSelection(context.Context) (tobari.FinalDefaultPairSelection, error) {
+	f.reads++
+	result := f.selection.Clone()
+	if f.driftAt > 0 && f.reads >= f.driftAt {
+		result.CollectionGeneration++
+		result.CollectionRevision = digest("e")
+	}
+	return result, nil
+}
+
+func (f *finalSelectionAuthorityFixture) InsideFinalWorkspace(context.Context) bool { return f.inside }
+
+type finalSelectionChoiceFixture struct {
+	choice tobari.FinalDefaultPairSelectionChoice
+	calls  int
+}
+
+func (f *finalSelectionChoiceFixture) Select(context.Context, tobari.FinalDefaultPairSelection, io.Reader, io.Writer) (tobari.FinalDefaultPairSelectionChoice, error) {
+	f.calls++
+	return f.choice, nil
+}
+
+func finalAncestorSelectionFixture(t *testing.T) (*finalSelectionAuthorityFixture, tobari.ContextID) {
+	t.Helper()
+	base := &defaultPairFixture{root: "/workspace/example", revisionDigit: 'a'}
+	if _, err := base.InitializeFinalDefaultPair(context.Background(), base.root, bodyFixture("/first-use")); err != nil {
+		t.Fatal(err)
+	}
+	base.initializeCalls = 0
+	base.templateCreates = 0
+	base.defaultWrites = 0
+	base.contextCreates = 0
+	observation, err := base.ObserveFinalDefaultPair(context.Background(), base.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection := tobari.FinalDefaultPairSelection{
+		SchemaVersion: tobari.FinalDefaultPairSelectionSchemaVersion, CollectionPresent: true,
+		CollectionGeneration: observation.CollectionGeneration, CollectionRevision: observation.CollectionRevision,
+		CanonicalCWD: "/workspace/example/src/pkg", DefaultTemplate: observation.DefaultTemplate,
+		Candidates: []tobari.FinalDefaultPairCandidate{{Snapshot: observation.Context.Clone()}},
+	}
+	if err := selection.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	return &finalSelectionAuthorityFixture{defaultPairFixture: base, selection: selection}, observation.Context.Context.ID
+}
+
 func (f *defaultPairFixture) ObserveFinalCanonicalProjectRoot(context.Context) (string, error) {
 	f.rootCalls++
 	if f.secondRoot != "" && f.rootCalls%2 == 0 {
@@ -193,7 +249,10 @@ func (f *defaultPairFixture) EnterContextByReference(context.Context, string, to
 	return tobari.ContextEntryPublication{Snapshot: value.Clone(), Outcome: tobari.WorkspaceSessionOutcome{ExitCode: 0, CleanupIssues: []tobari.WorkspaceAttachmentCleanupIssue{}}}, nil
 }
 
-func (f *defaultPairFixture) EnterFinalDefaultPair(ctx context.Context, expected tobari.FinalDefaultPairObservation, session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer) (tobari.ContextEntryPublication, error) {
+func (f *defaultPairFixture) EnterFinalDefaultPair(ctx context.Context, expected tobari.FinalDefaultPairObservation, invocationRoot string, session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer) (tobari.ContextEntryPublication, error) {
+	if err := tobari.ValidateRootContains(expected.ProjectRoot, invocationRoot); err != nil {
+		return tobari.ContextEntryPublication{}, err
+	}
 	observed, err := f.ObserveFinalDefaultPair(ctx, expected.ProjectRoot)
 	if err != nil {
 		return tobari.ContextEntryPublication{}, err
@@ -217,6 +276,52 @@ func TestDefaultPairConfirmedInitializationIsPartialWhenEntryDoesNotStart(t *tes
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Code != "default_pair_initialized" || public.ChangeState != fault.ChangePartial || fixture.initializeCalls != 1 || fixture.entries != 1 {
 		t.Fatalf("confirmed initialization was not retained as partial: err=%v public=%+v fixture=%+v", err, public, fixture)
+	}
+}
+
+func TestDefaultPairAncestorSelectionPreservesInvocationRootAndNeverInitializesNestedContext(t *testing.T) {
+	fixture, contextID := finalAncestorSelectionFixture(t)
+	selector := &finalSelectionChoiceFixture{choice: tobari.FinalDefaultPairSelectionChoice{Kind: tobari.FinalDefaultPairSelectionUse, ContextID: contextID}}
+	service := NewDefaultPairService(fixture, fixture, NewContextService(fixture), selector)
+	selected, err := service.Select(context.Background(), strings.NewReader(""), io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent := operation.Intent{Command: TaskDefaultPairEnter, Effect: operation.EffectCreate, Target: operation.TargetRef{Kind: tobari.CurrentDirectoryTargetKind, ParentID: tobari.CurrentDirectoryTargetID}, Impact: DefaultPairEnterImpact()}
+	resolution, err := service.ResolveSelected(context.Background(), intent, nil, selected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selector.calls != 1 || resolution.InvocationRoot != fixture.selection.CanonicalCWD || resolution.Observation.ProjectRoot != fixture.root || resolution.AuthorityChanged || fixture.initializeCalls != 0 || fixture.contextCreates != 0 {
+		t.Fatalf("selection=%+v selector=%d init=%d contexts=%d", resolution, selector.calls, fixture.initializeCalls, fixture.contextCreates)
+	}
+}
+
+func TestDefaultPairSelectionDriftFailsBeforeNestedInitialization(t *testing.T) {
+	fixture, contextID := finalAncestorSelectionFixture(t)
+	fixture.driftAt = 3
+	selector := &finalSelectionChoiceFixture{choice: tobari.FinalDefaultPairSelectionChoice{Kind: tobari.FinalDefaultPairSelectionUse, ContextID: contextID}}
+	service := NewDefaultPairService(fixture, fixture, NewContextService(fixture), selector)
+	selected, err := service.Select(context.Background(), strings.NewReader(""), io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent := operation.Intent{Command: TaskDefaultPairEnter, Effect: operation.EffectCreate, Target: operation.TargetRef{Kind: tobari.CurrentDirectoryTargetKind, ParentID: tobari.CurrentDirectoryTargetID}, Impact: DefaultPairEnterImpact()}
+	_, err = service.ResolveSelected(context.Background(), intent, nil, selected)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "default_pair_changed" || fixture.initializeCalls != 0 || fixture.contextCreates != 0 {
+		t.Fatalf("drift fault=%+v err=%v init=%d contexts=%d", public, err, fixture.initializeCalls, fixture.contextCreates)
+	}
+}
+
+func TestDefaultPairRejectsWorkspaceRecursionBeforeAuthorityObservation(t *testing.T) {
+	fixture, _ := finalAncestorSelectionFixture(t)
+	fixture.inside = true
+	service := NewDefaultPairService(fixture, fixture, NewContextService(fixture), &finalSelectionChoiceFixture{})
+	_, err := service.Select(context.Background(), strings.NewReader(""), io.Discard)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "already_inside" || fixture.reads != 0 || fixture.initializeCalls != 0 || fixture.entries != 0 {
+		t.Fatalf("inside fault=%+v err=%v reads=%d init=%d entries=%d", public, err, fixture.reads, fixture.initializeCalls, fixture.entries)
 	}
 }
 

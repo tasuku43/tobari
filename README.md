@@ -232,42 +232,28 @@ On the host:
 
 ```sh
 tobari review permissions
-# Or keep a trusted-host raw terminal waiting for new denials:
-tobari review permissions --watch
-# Disable or explicitly choose its terminal-emulator cue:
-tobari review permissions --watch --notify=off
 ```
 
 The attached Workspace reserves no Tobari key prefix. `Ctrl+]` and all other
 input remain child-owned, so Permission Inbox stays in this separate trusted-host
 terminal rather than replacing a shell or full-screen child's presentation.
 
-The Permission Inbox groups by validated Context/Workspace identity. One distinct
-path remains exact. After a second compatible distinct HTTP path, Inbox proposes
-a single-segment `/path/{id}` template. Inspect its examples and explicit future
-scope. Exact Allow or Deny can be staged and cleared directly from the raw list;
-template Allow remains detail-only. Stage Allow template, Allow observed exact, or Deny pending exact
-and confirm one final Apply. Staging grants nothing. Refresh preserves decisions
-only by opaque typed review-item ID; labels, order, or indentation never create
-authority. Confirmed Apply returns the active revision and stored-rule receipts.
+The Permission Inbox presents one validated final snapshot as a list, typed
+detail, and final staged review. Exact requests can stage Allow or Deny; a
+typed single-segment `/path/{id}` proposal can stage only its matching-path
+Allow. Choices can be cleared before one explicit Apply. Staging grants
+nothing. Manual refresh discards the staged set and reads fresh authority;
+labels, order, color, or indentation never transfer a decision. Confirmed Apply
+returns the active revision and stored-rule receipts.
 The waiting helper then returns only `Allow`, `Deny`, or `Expired`. `Allow`
 means the exact effect is retry-ready; the agent must deliberately issue a
 fresh request, which Gateway authorizes independently. The helper never
 proposes, approves, mutates policy, or retries the original request. Unsupported
 denials omit the wait handoff and retain the same host-review workflow.
 
-Watch refreshes the same bounded Inbox snapshot, preserves staging and focus by
-opaque typed ID, backs off after refresh failures, and stays open after Apply.
-It keeps one alternate-screen frame between Apply operations and does not
-repaint an unchanged successful timer refresh.
-It never retries the denied request or gives the Workspace a policy-mutation
-channel. Redirected and JSON review remain one read-only snapshot.
-By default, a successful refresh that adds at least one previously unseen typed
-review item emits one fixed terminal-emulator cue. `--notify=osc9`, `bel`, or
-`off` selects it explicitly; `auto` uses OSC 9 in an identified iTerm2 or cmux
-terminal and conservatively falls back to BEL elsewhere. Tobari
-never puts denial evidence in the control payload or configures OS, tmux, or SSH
-notification passthrough.
+The Permission Inbox never retries the denied request or gives the Workspace a
+policy-mutation channel. Redirected and JSON review remain one read-only
+snapshot. The release command has no watch or notification option.
 
 The research surface also offers the same trusted-host workflow
 in a foreground browser Operator Console. Build and invoke that profile

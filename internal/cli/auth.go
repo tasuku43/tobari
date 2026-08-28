@@ -221,7 +221,7 @@ func renderFinalAuthStatus(result authbroker.ContextStatusResult, format success
 		return append(output, '\n'), nil
 	}
 	view := newHumanOutput(color)
-	view.heading("○", "Final Context authentication status", styleText)
+	view.heading("·", "Final Context authentication status", styleText)
 	view.row("Context", safeExternalText(result.ContextRef), styleText)
 	view.row("Storage", string(result.StorageBackend), styleText)
 	view.row("Broker", string(result.BrokerState), humanStatusToken(string(result.BrokerState)))

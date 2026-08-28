@@ -47,7 +47,7 @@ type workspaceSessionHandoffOwner interface {
 }
 
 type WorkspaceSessionAuthority interface {
-	BeginWorkspaceSession(context.Context, tobari.WorkspaceSessionBinding) (WorkspaceSessionOwner, error)
+	BeginWorkspaceSession(context.Context, tobari.WorkspaceSessionBinding, string) (WorkspaceSessionOwner, error)
 }
 
 // ContextEntryAdapter is dormant until the atomic WP11 composition cutover.
@@ -80,32 +80,35 @@ func NewContextEntryAdapter(mutator *Mutator, runtime WorkspaceEntryRuntimeAutho
 }
 
 func (a *ContextEntryAdapter) EnterContextByReference(ctx context.Context, contextRef string, session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer) (publication tobari.ContextEntryPublication, resultErr error) {
-	return a.enterContext(ctx, contextRef, nil, session, nil, in, out, errOut)
+	return a.enterContext(ctx, contextRef, nil, "", session, nil, in, out, errOut)
 }
 
 // EnterFinalDefaultPair keeps the bare command's already-reviewed default
 // Template, canonical Project, and Context receipt intact through the same
 // lifecycle lock that owns entry planning and effects.
-func (a *ContextEntryAdapter) EnterFinalDefaultPair(ctx context.Context, expected tobari.FinalDefaultPairObservation, session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer) (publication tobari.ContextEntryPublication, resultErr error) {
-	return a.EnterFinalDefaultPairWithProgress(ctx, expected, session, nil, in, out, errOut)
+func (a *ContextEntryAdapter) EnterFinalDefaultPair(ctx context.Context, expected tobari.FinalDefaultPairObservation, invocationRoot string, session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer) (publication tobari.ContextEntryPublication, resultErr error) {
+	return a.EnterFinalDefaultPairWithProgress(ctx, expected, invocationRoot, session, nil, in, out, errOut)
 }
 
-func (a *ContextEntryAdapter) EnterFinalDefaultPairWithProgress(ctx context.Context, expected tobari.FinalDefaultPairObservation, session tobari.WorkspaceSessionRequest, progress tobari.FirstEntryProgressSink, in io.Reader, out, errOut io.Writer) (publication tobari.ContextEntryPublication, resultErr error) {
+func (a *ContextEntryAdapter) EnterFinalDefaultPairWithProgress(ctx context.Context, expected tobari.FinalDefaultPairObservation, invocationRoot string, session tobari.WorkspaceSessionRequest, progress tobari.FirstEntryProgressSink, in io.Reader, out, errOut io.Writer) (publication tobari.ContextEntryPublication, resultErr error) {
 	if err := expected.Validate(); err != nil {
 		return publication, err
 	}
 	if expected.DefaultTemplate == nil || expected.Context == nil {
 		return publication, fmt.Errorf("final default pair is incomplete")
 	}
+	if err := tobari.ValidateRootContains(expected.ProjectRoot, invocationRoot); err != nil {
+		return publication, err
+	}
 	contextRef, err := tobari.ContextRef(expected.Context.Context.ID)
 	if err != nil {
 		return publication, err
 	}
 	value := expected.Clone()
-	return a.enterContext(ctx, contextRef, &value, session, progress, in, out, errOut)
+	return a.enterContext(ctx, contextRef, &value, invocationRoot, session, progress, in, out, errOut)
 }
 
-func (a *ContextEntryAdapter) enterContext(ctx context.Context, contextRef string, expected *tobari.FinalDefaultPairObservation, session tobari.WorkspaceSessionRequest, progress tobari.FirstEntryProgressSink, in io.Reader, out, errOut io.Writer) (publication tobari.ContextEntryPublication, resultErr error) {
+func (a *ContextEntryAdapter) enterContext(ctx context.Context, contextRef string, expected *tobari.FinalDefaultPairObservation, invocationRoot string, session tobari.WorkspaceSessionRequest, progress tobari.FirstEntryProgressSink, in io.Reader, out, errOut io.Writer) (publication tobari.ContextEntryPublication, resultErr error) {
 	if a == nil || a.mutator == nil || a.runtime == nil || a.templatePolicy == nil || a.sessions == nil {
 		return publication, fmt.Errorf("Context entry adapter is unavailable")
 	}
@@ -129,7 +132,7 @@ func (a *ContextEntryAdapter) enterContext(ctx context.Context, contextRef strin
 	var owner WorkspaceSessionOwner
 	resultErr = a.mutator.lifecycle.WithLifecycleLock(ctx, func(lockedContext context.Context) error {
 		var err error
-		publication.Snapshot, owner, err = a.reconcileAndBegin(lockedContext, contextRef, contextID, expected)
+		publication.Snapshot, owner, err = a.reconcileAndBegin(lockedContext, contextRef, contextID, expected, invocationRoot)
 		return err
 	})
 	if resultErr != nil {
@@ -172,7 +175,7 @@ func emitFirstEntryProgress(sink tobari.FirstEntryProgressSink, stage tobari.Fir
 	}
 }
 
-func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef string, contextID tobari.ContextID, expected *tobari.FinalDefaultPairObservation) (snapshotResult tobari.ContextAuthoritySnapshot, ownerResult WorkspaceSessionOwner, resultErr error) {
+func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef string, contextID tobari.ContextID, expected *tobari.FinalDefaultPairObservation, invocationRoot string) (snapshotResult tobari.ContextAuthoritySnapshot, ownerResult WorkspaceSessionOwner, resultErr error) {
 	m := a.mutator
 	decisionDurable := false
 	publicationConfirmed := false
@@ -245,7 +248,7 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 				if err := m.removeTerminalEntryStage(terminal); err != nil {
 					return snapshot, nil, err
 				}
-				owner, beginErr := a.beginSession(ctx, snapshot, receipt)
+				owner, beginErr := a.beginSession(ctx, snapshot, receipt, invocationRoot)
 				if beginErr != nil {
 					return snapshot, nil, confirmedEntryAttachmentError(beginErr)
 				}
@@ -279,7 +282,7 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 			if err := m.clearEffectDecision(); err != nil {
 				return tobari.ContextAuthoritySnapshot{}, nil, err
 			}
-			owner, err := a.beginSession(ctx, snapshot, receipt)
+			owner, err := a.beginSession(ctx, snapshot, receipt, invocationRoot)
 			if err != nil {
 				return snapshot, nil, confirmedEntryAttachmentError(err)
 			}
@@ -435,7 +438,7 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 	if err := ctx.Err(); err != nil {
 		return confirmed, nil, confirmedEntryAttachmentError(err)
 	}
-	owner, err := a.beginSession(ctx, confirmed, confirmedReceipt)
+	owner, err := a.beginSession(ctx, confirmed, confirmedReceipt, invocationRoot)
 	if err != nil {
 		return confirmed, nil, confirmedEntryAttachmentError(err)
 	}
@@ -541,12 +544,18 @@ func (a *ContextEntryAdapter) confirmEntry(ctx context.Context, collection tobar
 	return receipt, nil
 }
 
-func (a *ContextEntryAdapter) beginSession(ctx context.Context, snapshot tobari.ContextAuthoritySnapshot, receipt tobari.WorkspaceEntryReconciliationReceipt) (WorkspaceSessionOwner, error) {
+func (a *ContextEntryAdapter) beginSession(ctx context.Context, snapshot tobari.ContextAuthoritySnapshot, receipt tobari.WorkspaceEntryReconciliationReceipt, invocationRoot string) (WorkspaceSessionOwner, error) {
 	binding, err := tobari.NewWorkspaceSessionBinding(snapshot, receipt)
 	if err != nil {
 		return nil, fmt.Errorf("derive final Workspace session authority: %w", err)
 	}
-	return a.sessions.BeginWorkspaceSession(ctx, binding)
+	if invocationRoot == "" {
+		invocationRoot = binding.ProjectRoot
+	}
+	if err := tobari.ValidateRootContains(binding.ProjectRoot, invocationRoot); err != nil {
+		return nil, fmt.Errorf("validate final Workspace invocation root: %w", err)
+	}
+	return a.sessions.BeginWorkspaceSession(ctx, binding, invocationRoot)
 }
 
 func entryCollection(current tobari.WorkspaceAuthorityCollection, plan tobari.WorkspaceEntryReconciliationPlan) (tobari.WorkspaceAuthorityCollection, bool, error) {

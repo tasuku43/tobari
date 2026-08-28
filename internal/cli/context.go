@@ -1003,7 +1003,7 @@ func renderContextList(result tobari.ManifestListResult, format successFormat, c
 	}
 	if result.ManifestState == tobari.ManifestObservationAbsent {
 		output := newHumanOutput(color)
-		output.heading("○", "No saved Workspace Manifests", styleMuted)
+		output.heading("·", "No saved Workspace Manifests", styleMuted)
 		output.row("Defaults", "Recommended · not saved", styleWarning)
 		output.next(ProgramName, "Review and save a Workspace Manifest, then enter a Workspace.")
 		return output.bytes(), nil
@@ -1543,14 +1543,14 @@ func contextRuntimeDisplay(runtime tobari.ManifestRuntimeReport) string {
 func contextShowMarker(result tobari.ManifestReport) (string, styleToken) {
 	summary, err := result.RoutineSummary()
 	if err != nil {
-		return "○", styleMuted
+		return "·", styleMuted
 	}
 	return contextShowMarkerFromSummary(result, summary)
 }
 
 func contextShowMarkerFromSummary(result tobari.ManifestReport, summary tobari.ManifestRoutineSummary) (string, styleToken) {
 	if result.ManifestState == tobari.ManifestObservationAbsent {
-		return "○", styleMuted
+		return "·", styleMuted
 	}
 	switch summary.Action {
 	case tobari.ManifestRoutineActionEnterCurrent, tobari.ManifestRoutineActionEnterNamed:
@@ -1558,7 +1558,7 @@ func contextShowMarkerFromSummary(result tobari.ManifestReport, summary tobari.M
 	case tobari.ManifestRoutineActionBuildRuntime, tobari.ManifestRoutineActionSelectThenBuild:
 		return "!", styleWarning
 	default:
-		return "○", styleMuted
+		return "·", styleMuted
 	}
 }
 

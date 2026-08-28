@@ -89,7 +89,23 @@ func finalPolicyRuleFields() []OutputField {
 }
 
 func finalPolicyReadErrors(path string) []CommandError {
-	return finalAuthorityReadErrors(path, "doctor")
+	errors := finalAuthorityReadErrors(path, "doctor")
+	switch path {
+	case "policy candidates":
+		errors = append(errors,
+			declaredCommandError(fault.KindUnavailable, "policy_candidate_read_failed", false, "cluster status", "Reconcile final authority and cluster topology before reading candidates again."),
+			finalReadVerificationError("invalid_policy_candidate_list", "doctor", "Repair contradictory Policy candidate authority."))
+	case "review permissions":
+		errors = append(errors,
+			declaredCommandError(fault.KindUnavailable, "policy_review_read_failed", false, "cluster status", "Reconcile final authority and cluster topology before reading the Permission Inbox again."),
+			finalReadVerificationError("invalid_policy_review_snapshot", "doctor", "Repair contradictory Permission Inbox authority."))
+	case "policy rules":
+		errors = append(errors,
+			declaredCommandError(fault.KindUnavailable, "policy_rule_read_failed", false, "cluster status", "Reconcile final authority and cluster topology before reading Policy Memory again."),
+			finalReadVerificationError("invalid_policy_rule_list", "doctor", "Repair contradictory Policy Memory authority."))
+	}
+	return append(errors,
+		declaredCommandError(fault.KindContract, "output_encoding_failed", false, "version", "Report the exact build identity without repeating Policy Memory JSON encoding."))
 }
 
 func finalPolicyMutationErrors(path, recovery string) []CommandError {

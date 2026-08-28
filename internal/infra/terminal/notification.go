@@ -12,43 +12,19 @@ const (
 	NotificationBEL  = "bel"
 	NotificationOff  = "off"
 
-	// The notification payload is deliberately fixed trusted ASCII. Denial
-	// evidence is untrusted terminal data and must never enter a control string.
-	permissionInboxOSC9 = "\x1b]9;Tobari permission review needed\x07"
-	permissionInboxBEL  = "\x07"
-	serviceReviewOSC9   = "\x1b]9;Tobari review needed\x07"
+	// The Service notification payload is deliberately fixed trusted ASCII.
+	// External evidence must never enter a control string.
+	serviceReviewOSC9 = "\x1b]9;Tobari review needed\x07"
+	notificationBEL   = "\x07"
 )
-
-// WritePermissionInboxNotification delegates one attention cue to the current
-// terminal emulator. It configures no OS, multiplexer, or SSH passthrough.
-func WritePermissionInboxNotification(out io.Writer, preference string) error {
-	return writePermissionInboxNotification(out, preference, os.LookupEnv)
-}
 
 // WriteServiceReviewNotification emits only a fixed generic attention cue.
 // It never carries Service roots, ports, URLs, references, IDs, or owner text.
 func WriteServiceReviewNotification(out io.Writer, preference string) error {
-	method := preference
-	if method == NotificationAuto {
-		method = autoNotificationMethod(os.LookupEnv)
-	}
-	switch method {
-	case NotificationOff:
-		return nil
-	case NotificationOSC9:
-		_, err := io.WriteString(out, serviceReviewOSC9)
-		return err
-	case NotificationBEL:
-		_, err := io.WriteString(out, permissionInboxBEL)
-		return err
-	default:
-		return fmt.Errorf("unsupported terminal notification method")
-	}
+	return writeServiceReviewNotification(out, preference, os.LookupEnv)
 }
 
-func writePermissionInboxNotification(
-	out io.Writer, preference string, lookup func(string) (string, bool),
-) error {
+func writeServiceReviewNotification(out io.Writer, preference string, lookup func(string) (string, bool)) error {
 	method := preference
 	if method == NotificationAuto {
 		method = autoNotificationMethod(lookup)
@@ -57,10 +33,10 @@ func writePermissionInboxNotification(
 	case NotificationOff:
 		return nil
 	case NotificationOSC9:
-		_, err := io.WriteString(out, permissionInboxOSC9)
+		_, err := io.WriteString(out, serviceReviewOSC9)
 		return err
 	case NotificationBEL:
-		_, err := io.WriteString(out, permissionInboxBEL)
+		_, err := io.WriteString(out, notificationBEL)
 		return err
 	default:
 		return fmt.Errorf("unsupported terminal notification method")

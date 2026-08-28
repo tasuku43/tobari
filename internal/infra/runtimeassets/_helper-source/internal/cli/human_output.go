@@ -91,7 +91,7 @@ func writeStyledCommandLine(output io.Writer, enabled bool, label, before, comma
 }
 
 func (o *humanOutput) empty(title, detail, command, reason string) {
-	o.heading("○", title, styleMuted)
+	o.heading("·", title, styleMuted)
 	if detail != "" {
 		o.row("Details", detail, styleText)
 	}

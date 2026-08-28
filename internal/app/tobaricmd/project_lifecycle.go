@@ -64,7 +64,7 @@ func (s *Service) EnterProjectSessionInContext(
 		return empty, fault.New(
 			fault.KindRejected, "already_inside",
 			"This process is already inside a Workspace; nested entry is not supported", false,
-			fault.NextAction{Command: "exit", Reason: "Leave the current Workspace before entering another session."},
+			fault.NextAction{Command: "help tobari", Reason: "Exit the current Workspace session before entering another."},
 		)
 	}
 	if !project.IsTerminal(out) || !project.IsTerminal(errOut) || !project.IsInputTerminal(in) {

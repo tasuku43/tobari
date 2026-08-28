@@ -69,7 +69,7 @@ func TestClusterUpProgressRendersFailureWithoutRuntimeDiagnostics(t *testing.T) 
 	progress.Close()
 
 	got := output.String()
-	if !strings.Contains(got, applyStyleToken(true, styleDanger, "✗")+" start services") {
+	if !strings.Contains(got, applyStyleToken(true, styleDanger, "×")+" start services") {
 		t.Fatalf("failure output = %q", got)
 	}
 	if strings.Contains(got, "docker") || strings.Contains(got, "secret") {

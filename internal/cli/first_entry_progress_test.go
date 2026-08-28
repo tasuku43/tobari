@@ -11,7 +11,7 @@ import (
 
 func TestFirstEntryProgressUsesFiveCheckpointLabelsWithoutAuthorityClaims(t *testing.T) {
 	var output bytes.Buffer
-	progress := newFirstEntryProgressWithTiming(&output, false, firstEntryProgressTiming{
+	progress := newFirstEntryProgressWithTiming(&output, false, false, false, firstEntryProgressTiming{
 		antiFlicker: time.Hour, elapsed: 2 * time.Hour, waitReason: 3 * time.Hour, heartbeat: time.Hour,
 	})
 	for _, stage := range tobari.FirstEntryStages() {
@@ -37,7 +37,7 @@ func TestFirstEntryProgressUsesFiveCheckpointLabelsWithoutAuthorityClaims(t *tes
 
 func TestFirstEntryProgressUsesExistingContextLabelWithoutClaimingMutation(t *testing.T) {
 	var output bytes.Buffer
-	progress := newFirstEntryProgressWithTiming(&output, true, firstEntryProgressTiming{
+	progress := newFirstEntryProgressWithTiming(&output, true, false, false, firstEntryProgressTiming{
 		antiFlicker: time.Hour, elapsed: 2 * time.Hour, waitReason: 3 * time.Hour, heartbeat: time.Hour,
 	})
 	if err := progress.Start(tobari.FirstEntryResolveContext); err != nil {
@@ -46,14 +46,14 @@ func TestFirstEntryProgressUsesExistingContextLabelWithoutClaimingMutation(t *te
 	if err := progress.Finish(tobari.FirstEntryStageSucceeded); err != nil {
 		t.Fatal(err)
 	}
-	if got := output.String(); got != "✓ Use Context\n" {
+	if got := output.String(); got != "Tobari · Starting Workspace\n\n✓ Use Context\n" {
 		t.Fatalf("existing Context checkpoint = %q", got)
 	}
 }
 
 func TestFirstEntryProgressAntiFlickerElapsedWaitAndHeartbeatAreBounded(t *testing.T) {
 	var output bytes.Buffer
-	progress := newFirstEntryProgressWithTiming(&output, false, firstEntryProgressTiming{
+	progress := newFirstEntryProgressWithTiming(&output, false, false, false, firstEntryProgressTiming{
 		antiFlicker: 10 * time.Millisecond,
 		elapsed:     20 * time.Millisecond,
 		waitReason:  30 * time.Millisecond,
@@ -67,9 +67,9 @@ func TestFirstEntryProgressAntiFlickerElapsedWaitAndHeartbeatAreBounded(t *testi
 		t.Fatal(err)
 	}
 	got := output.String()
-	if !strings.Contains(got, "… Prepare protection") ||
+	if !strings.Contains(got, "... Prepare protection") ||
 		!strings.Contains(got, "waiting for Gateway and OPA readiness") ||
-		!strings.HasSuffix(got, "✗ Prepare protection\n") {
+		!strings.HasSuffix(got, "× Prepare protection\n") {
 		t.Fatalf("bounded progress = %q", got)
 	}
 	if count := strings.Count(got, "waiting for Gateway and OPA readiness"); count < 2 || count > 3 {
@@ -83,7 +83,7 @@ func TestFirstEntryProgressAntiFlickerElapsedWaitAndHeartbeatAreBounded(t *testi
 }
 
 func TestFirstEntryProgressRejectsReorderingAndNonterminalFinish(t *testing.T) {
-	progress := newFirstEntryProgressWithTiming(&bytes.Buffer{}, false, firstEntryProgressTiming{
+	progress := newFirstEntryProgressWithTiming(&bytes.Buffer{}, false, false, false, firstEntryProgressTiming{
 		antiFlicker: time.Hour, elapsed: 2 * time.Hour, waitReason: 3 * time.Hour, heartbeat: time.Hour,
 	})
 	if err := progress.Start(tobari.FirstEntryPrepareWorkspace); err != nil {
@@ -102,7 +102,7 @@ func TestFirstEntryProgressRejectsReorderingAndNonterminalFinish(t *testing.T) {
 
 func TestFirstEntryProgressAppliesTypedSinkEvents(t *testing.T) {
 	var output bytes.Buffer
-	progress := newFirstEntryProgressWithTiming(&output, false, firstEntryProgressTiming{
+	progress := newFirstEntryProgressWithTiming(&output, false, false, false, firstEntryProgressTiming{
 		antiFlicker: time.Hour, elapsed: 2 * time.Hour, waitReason: 3 * time.Hour, heartbeat: time.Hour,
 	})
 	sink := tobari.FirstEntryProgressSink(func(event tobari.FirstEntryProgress) {
@@ -114,7 +114,33 @@ func TestFirstEntryProgressAppliesTypedSinkEvents(t *testing.T) {
 	sink(tobari.FirstEntryProgress{Stage: tobari.FirstEntryPrepareWorkspace, State: tobari.FirstEntryStageSucceeded})
 	sink(tobari.FirstEntryProgress{Stage: tobari.FirstEntryEnterWorkspace, State: tobari.FirstEntryStageRunning})
 	sink(tobari.FirstEntryProgress{Stage: tobari.FirstEntryEnterWorkspace, State: tobari.FirstEntryStageSucceeded})
-	if got := output.String(); got != "✓ Prepare Workspace\n✓ Enter Workspace\n" {
+	if got := output.String(); got != "Tobari · Starting Workspace\n\n✓ Prepare Workspace\n✓ Enter Workspace\n" {
 		t.Fatalf("sink progress = %q", got)
+	}
+}
+
+func TestFirstEntryProgressUsesSharedAnimatedSpinnerOnTTY(t *testing.T) {
+	output := &lockedProgressBuffer{}
+	progress := newFirstEntryProgressWithTiming(output, false, true, true, firstEntryProgressTiming{
+		antiFlicker: time.Millisecond, elapsed: time.Hour, waitReason: 2 * time.Hour, heartbeat: time.Hour,
+	})
+	if err := progress.Start(tobari.FirstEntryPrepareWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(130 * time.Millisecond)
+	if err := progress.Finish(tobari.FirstEntryStageSucceeded); err != nil {
+		t.Fatal(err)
+	}
+	got := output.String()
+	for _, want := range []string{
+		applyStyleToken(true, styleAccent, "Tobari · Starting Workspace"),
+		applyStyleToken(true, styleAccent, interactiveSpinnerFrames[0]),
+		applyStyleToken(true, styleAccent, interactiveSpinnerFrames[1]),
+		applyStyleToken(true, styleSuccess, "✓"),
+		"\r\x1b[2K",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("interactive first-entry progress %q lacks %q", got, want)
+		}
 	}
 }

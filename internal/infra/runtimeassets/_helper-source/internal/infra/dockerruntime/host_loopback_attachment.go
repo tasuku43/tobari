@@ -1,6 +1,7 @@
 package dockerruntime
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -22,7 +23,11 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
-const hostLoopbackHealthHandshakeBytes = 65
+const (
+	hostLoopbackHealthHandshakeBytes        = 65
+	hostLoopbackGrantVisibilityTimeout      = 5 * time.Second
+	hostLoopbackGrantVisibilityPollInterval = 100 * time.Millisecond
+)
 
 type hostLoopbackAttachment struct {
 	runtime   *Runtime
@@ -448,9 +453,38 @@ func (r *Runtime) ApplyAttachmentGrantDecisionSet(
 		if err := writeAtomicJSON(r.attachmentGrantRegistryPath(), registry); err != nil {
 			return err
 		}
+		persisted := append(append([]byte{}, encoded...), '\n')
+		if r.attachmentGrantVisibility != nil {
+			err = r.attachmentGrantVisibility(ctx, persisted)
+		} else {
+			err = r.waitForGatewayAttachmentGrantRegistry(ctx, persisted)
+		}
+		if err != nil {
+			return err
+		}
 		digest := sha256.Sum256(encoded)
 		receipt = tobari.PolicyActivationReceipt{ActiveRevision: hex.EncodeToString(digest[:])}
 		return receipt.ValidateAttachment()
 	})
 	return receipt, err
+}
+
+func (r *Runtime) waitForGatewayAttachmentGrantRegistry(ctx context.Context, expected []byte) error {
+	confirmationContext, cancel := context.WithTimeout(ctx, hostLoopbackGrantVisibilityTimeout)
+	defer cancel()
+	ticker := time.NewTicker(hostLoopbackGrantVisibilityPollInterval)
+	defer ticker.Stop()
+	for {
+		observed, err := r.runner.Output(confirmationContext, []string{
+			"exec", gatewayContainer, "cat", "/run/tobari/host-loopback/grants.json",
+		}, os.Environ())
+		if err == nil && bytes.Equal(observed, expected) {
+			return nil
+		}
+		select {
+		case <-confirmationContext.Done():
+			return fmt.Errorf("confirm Gateway attachment grant visibility: %w", confirmationContext.Err())
+		case <-ticker.C:
+		}
+	}
 }

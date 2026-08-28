@@ -992,54 +992,27 @@ When a learnable network request is denied, the Gateway's 403 response carries
 fixed secret-free host-review navigation for the agent, and an interactive
 session close may summarize the pending queue on host stderr. These are
 advisory only; the interactive `review permissions` queue is the human entry point.
-It stages unchanged opaque review-item references only from typed detail screens and uses
-one final `policy apply-reviewed` fixed-target action to revalidate and activate
-one Workspace Template's set. Apply or discard is required before switching Workspace Template so the
-source change remains one atomic domain-generation replacement. `policy rules` is the
-current learned-decision inventory; its TTY reset flow delegates one explicit
-opaque reference to `policy reset`. Redirected and machine-readable review and
-inventory remain read-only. The Permission Inbox groups candidates by their
-validated stable Workspace Template and Workspace identities, renders the Context-root scope
-once per group, and leads each selectable row with the exact HTTP effect or
-typed `{id}` template and its evidence count. A compact selected-effect preview exposes the latest retained
-observation and denial reason before detail inspection. Matching display names,
-paths, order, or indentation do not merge distinct typed identities. The raw
-list stages exact Allow or Deny by unchanged typed ID, clears one staged row,
-and advances only to a later undecided row without wrapping. Its selection
-marker has a fixed column, and its visible decision-state column uses only the
-width of `Allow exact` so every HTTP effect starts at the same column and never
-moves as staging or refresh changes the visible states. Template rows use the
-compact list-only labels `Review {id}` and `Allow {id}`; detail and final Apply
-retain the full template explanation. An exact detail
-offers the same exact decisions; a template
-detail states that unseen values are included and offers Allow template, Allow
-observed exact, and Deny pending exact. The chosen action is staged without a
-second yes/no prompt. Only the final Apply delegates
-the reviewed set to the mutation boundary. Apply is advertised only for a
-non-empty staged set, shows one final ordered typed review, and requires an
-explicit confirmation. Refresh preserves choices by candidate ID and drops
-stale IDs rather than matching labels. `--watch` requires human text on an
-interactive raw terminal, automatically repeats the same bounded read with a
-one-second interval and exponential backoff capped at eight seconds, preserves
-the last valid snapshot on refresh failure, and continues with a fresh snapshot
-after confirmed Apply. Between Apply operations it owns one alternate-screen
-frame; an unchanged successful timer refresh performs the read but emits no
-repaint. Stopping watch is a successful monitor stop. It never
-retries an HTTP request or creates an agent-side authority channel. The optional
-`--notify` value defaults to `auto`, requires `--watch`, and selects a fixed
-trusted ASCII cue: explicit `osc9`, `bel`, or `off`, while `auto` uses OSC 9
-for exact iTerm2 identity or for the conjunction of non-empty protected cmux
-workspace and surface identities, and otherwise falls back to BEL. The
-initial snapshot, refresh failures, stale-only changes, and previously seen ID
-reappearance do not notify; one successful refresh coalesces every new ID into
-at most one cue. Tobari configures no OS, tmux, SSH, or terminal passthrough,
-and no Workspace Template, host, path, reason, or other denial evidence enters the control
-payload. A failed cue leaves watch active. Confirmed
-output carries the active OPA
-revision plus each ordered Context/effect/stored-rule decision and
-directs the caller to retry in the current running Workspace. The public
-read-only JSON review schema remains version 1 and does not expose this
-internal TTY Apply receipt.
+It stages unchanged opaque review-item references from one validated final
+snapshot and uses one final \`policy apply-reviewed\` fixed-target action to
+revalidate and activate the non-empty reviewed set. The interactive
+raw-terminal flow has three screens: Permission Inbox list, typed request
+detail, and final staged review. Exact candidates offer Allow and Deny;
+path-template candidates offer only the domain-valid matching-path Allow.
+Attachment-scoped candidates retain their separate lifetime and cannot be
+mixed with persistent Policy Memory decisions in one Apply. Staging grants no
+authority. Cancellation discards staging, while manual refresh reads a fresh
+snapshot and discards stale staging instead of transferring choices by display
+label. Apply stops owning raw terminal mode before mutation, uses the shared
+active-work spinner only while the mutation is running, and then emits an
+outcome-first receipt containing the authoritative active revision and ordered
+review-item/rule identities. It never retries the denied request.
+
+\`policy rules\` is the current learned-decision inventory; its TTY reset
+flow delegates one explicit opaque reference to \`policy reset\`. Redirected and
+machine-readable review and inventory remain read-only. The release
+\`review permissions\` contract has no watch or notification option. Matching
+names, paths, order, color, or indentation never merge or authorize distinct
+typed identities.
 Research `bin/tobari-research serve` exposes the same human task in one foreground
 Operator Console and is absent from the standard and release catalogs.
 It binds only a random IPv4 loopback port, issues one process-memory 256-bit
@@ -1066,6 +1039,12 @@ operation use `accent`. The `success`, `warning`, and `danger` tokens are
 reserved for state. A path or opaque ID is not accented merely because it is a
 path or ID. Concrete colors and emphasis belong only to the shared
 presentation layer, never to an individual command renderer.
+The ANSI projection uses terminal-owned named colors rather than fixed
+256-color or truecolor palette coordinates: default text, bright-black muted,
+bold cyan accent, green success, yellow warning, and red danger. The reviewed
+marker vocabulary is `>` for selection, `✓` for success, `!` for attention,
+`×` for failure, and `·` for neutral state. Decorative emoji and competing
+arrow, circle, cross, or diamond markers are outside the public vocabulary.
 
 Terminal styling is applied only when the corresponding output stream is an
 interactive terminal and `NO_COLOR` is absent. Redirected text and any
@@ -1101,8 +1080,10 @@ catalog-derived namespace help. Unknown commands may show at most three stable
 edit-distance suggestions derived only from exact catalog paths and canonical
 namespaces; recovery remains one exact catalog help selector and never appends
 unchecked argv. A deliberate pre-action cancellation is a neutral `Canceled`
-outcome on stderr with exit 11 and no success or danger treatment. It performs
-no mutation; a confirmed mutation keeps its existing reconciliation contract.
+outcome on stderr with exit 11 and no success or danger treatment. Its compact
+human view retains message, stable code, change state, and exact Next;
+structured JSON retains the complete classification. It performs no mutation;
+a confirmed mutation keeps its existing reconciliation contract.
 Raw selectors render once initially and only after an input or selection-state
 change, not for an idle terminal-read poll. They use a bounded alternate screen
 and repaint from terminal home instead of moving by logical row counts, so a
@@ -1129,6 +1110,19 @@ bounded sanitized wait reason appears after ten seconds; redirected stderr may
 emit a bounded heartbeat no more often than every 30 seconds. Progress exposes
 no percent, ETA, raw external log, public flag, preference, schema, event
 resource, or live details control.
+Interactive active work uses the one shared ten-frame Braille sequence
+`⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏` at 100 ms. A task that settles within 250 ms emits
+no transient spinner. Motion denotes only that foreground work is currently
+running; completion and authority still come from typed results and stable
+markers. `NO_COLOR` removes spinner styling, not the motion or label.
+
+The human CLI is eligible for public composition only when the deterministic
+experience evaluator reports zero violations. It checks the exact token map,
+terminal-owned palette form, marker and spinner ownership, color-independent
+documents, first-use raw-interaction continuity, actual public Catalog handler
+reachability, and absence of retired experience owners. A renderer or selector
+that exists only in tests or an unregistered predecessor declaration is not a
+supported interface.
 
 Before handoff, caller interruption cancels the current canonical operation,
 waits for its bounded settlement/classification, preserves any confirmed
@@ -1455,7 +1449,10 @@ confirming that no session is attached; `--force` overrides that one guard.
 `cluster down` rejects while any
 Workspace remains
 and removes only exact shared resources; its `--purge` also removes shared CA
-and active policy-bundle volumes. Both forms preserve every encrypted Context vault and the installation
+and active policy-bundle volumes. A completed purge idempotently satisfies a
+later ordinary `cluster down` after Tobari revalidates the stopped runtime and
+purged volumes; an interrupted purge cannot be adopted by a different down
+mode. Both forms preserve every encrypted Context vault and the installation
 root key; cluster cleanup is not credential logout or revocation. No command
 removes a mounted root or files inside it. Each project
 work container is created with fixed CPU, memory, PID-count, and container-log

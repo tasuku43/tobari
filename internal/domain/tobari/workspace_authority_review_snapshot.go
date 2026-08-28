@@ -53,18 +53,19 @@ func (s PolicyMemoryReviewChoiceSet) Validate() error {
 // Complete candidate and source-rule authority stays private; public fields
 // contain only final owner facts needed to review the effect.
 type PolicyMemoryReviewItem struct {
-	ID                   string                     `json:"id"`
-	Match                string                     `json:"match"`
-	Context              string                     `json:"context"`
-	Template             string                     `json:"template"`
-	ProjectRoot          string                     `json:"project_root"`
-	ObservingWorkspace   string                     `json:"observing_workspace"`
-	ContextID            ContextID                  `json:"context_id"`
-	TemplateID           WorkspaceTemplateID        `json:"workspace_template_id"`
-	ObservingWorkspaceID WorkspaceID                `json:"observing_workspace_id"`
-	Rule                 PolicyMemoryRuleBody       `json:"rule"`
-	Candidates           []PolicyCandidateAuthority `json:"-"`
-	SourceRules          []PolicyMemoryRule         `json:"-"`
+	ID                   string                        `json:"id"`
+	Match                string                        `json:"match"`
+	Context              string                        `json:"context"`
+	Template             string                        `json:"template"`
+	ProjectRoot          string                        `json:"project_root"`
+	ObservingWorkspace   string                        `json:"observing_workspace"`
+	ContextID            ContextID                     `json:"context_id"`
+	TemplateID           WorkspaceTemplateID           `json:"workspace_template_id"`
+	ObservingWorkspaceID WorkspaceID                   `json:"observing_workspace_id"`
+	Rule                 PolicyMemoryRuleBody          `json:"rule"`
+	Candidates           []PolicyCandidateAuthority    `json:"-"`
+	SourceRules          []PolicyMemoryRule            `json:"-"`
+	AttachmentCandidate  *PolicyCandidateAuthorityView `json:"-"`
 }
 
 func (i PolicyMemoryReviewItem) Clone() PolicyMemoryReviewItem {
@@ -72,6 +73,10 @@ func (i PolicyMemoryReviewItem) Clone() PolicyMemoryReviewItem {
 	result.Rule = i.Rule.Clone()
 	result.Candidates = clonePolicyCandidateAuthorities(i.Candidates)
 	result.SourceRules = clonePolicyMemoryRules(i.SourceRules)
+	if i.AttachmentCandidate != nil {
+		attachment := i.AttachmentCandidate.Clone()
+		result.AttachmentCandidate = &attachment
+	}
 	return result
 }
 
@@ -79,7 +84,21 @@ func (i PolicyMemoryReviewItem) Validate() error {
 	if ValidatePolicyReviewItemID(i.ID) != nil || (i.Match != PolicyMatchExact && i.Match != PolicyMatchPathTemplate) ||
 		i.ContextID.Validate() != nil || i.TemplateID.Validate() != nil || i.ObservingWorkspaceID.Validate() != nil ||
 		ValidateName(i.Template) != nil || i.Context != i.Template || ValidateCanonicalRoot(i.ProjectRoot) != nil ||
-		ValidateCanonicalRoot(i.ObservingWorkspace) != nil || len(i.Candidates) == 0 {
+		ValidateCanonicalRoot(i.ObservingWorkspace) != nil {
+		return fmt.Errorf("Policy Memory review item metadata is invalid")
+	}
+	if i.AttachmentCandidate != nil {
+		candidate := *i.AttachmentCandidate
+		if err := candidate.Validate(); err != nil || candidate.AttachmentAuthority == nil || i.Match != PolicyMatchExact ||
+			len(i.Candidates) != 0 || len(i.SourceRules) != 0 || i.ID != candidate.ID || i.ContextID != candidate.ContextID ||
+			i.TemplateID != candidate.TemplateID || i.ObservingWorkspaceID != candidate.ObservingWorkspaceID ||
+			i.Context != candidate.Context || i.Template != candidate.Template || i.ProjectRoot != candidate.ProjectRoot ||
+			i.ObservingWorkspace != candidate.ObservingWorkspace || !reflect.DeepEqual(i.Rule, candidate.Effect.RuleBody(candidate.ID)) {
+			return fmt.Errorf("attachment Permission Inbox item is inconsistent")
+		}
+		return nil
+	}
+	if len(i.Candidates) == 0 {
 		return fmt.Errorf("Policy Memory review item metadata is invalid")
 	}
 	for _, candidate := range i.Candidates {
@@ -113,10 +132,56 @@ func (i PolicyMemoryReviewItem) ReviewedDecision(decision PolicyMemoryDecision) 
 	if err := i.Validate(); err != nil {
 		return PolicyMemoryReviewedDecision{}, err
 	}
+	if i.AttachmentCandidate != nil {
+		return PolicyMemoryReviewedDecision{}, fmt.Errorf("attachment Permission Inbox item requires attachment-local Apply")
+	}
 	if i.Match == PolicyMatchPathTemplate && decision != PolicyMemoryAllow {
 		return PolicyMemoryReviewedDecision{}, fmt.Errorf("path-template Permission Inbox items can only be allowed")
 	}
 	return NewPolicyMemoryReviewedDecision(i.ID, i.Candidates, i.SourceRules, decision, i.Rule)
+}
+
+// JoinPolicyMemoryReviewCandidates adds current bounded denial observations to
+// one final-authority Permission Inbox receipt. Receipt mismatch fails closed;
+// attachment candidates remain private attachment authority and never enter
+// the persistent collection retained by the snapshot.
+func JoinPolicyMemoryReviewCandidates(snapshot PolicyMemoryReviewSnapshot, candidates PolicyCandidateAuthorityList) (PolicyMemoryReviewSnapshot, error) {
+	if err := snapshot.Validate(); err != nil {
+		return PolicyMemoryReviewSnapshot{}, err
+	}
+	if err := candidates.Validate(); err != nil {
+		return PolicyMemoryReviewSnapshot{}, err
+	}
+	if snapshot.CollectionPresent != candidates.CollectionPresent || snapshot.CollectionGeneration != candidates.CollectionGeneration || snapshot.CollectionRevision != candidates.CollectionRevision {
+		return PolicyMemoryReviewSnapshot{}, fmt.Errorf("Permission Inbox observations cross final authority receipts")
+	}
+	result := snapshot.Clone()
+	seen := make(map[string]struct{}, len(result.Items))
+	for _, item := range result.Items {
+		seen[item.ID] = struct{}{}
+	}
+	for index := range candidates.Items {
+		candidate := candidates.Items[index]
+		if _, duplicate := seen[candidate.ID]; duplicate {
+			continue
+		}
+		item := PolicyMemoryReviewItem{
+			ID: candidate.ID, Match: PolicyMatchExact, Context: candidate.Context, Template: candidate.Template,
+			ProjectRoot: candidate.ProjectRoot, ObservingWorkspace: candidate.ObservingWorkspace,
+			ContextID: candidate.ContextID, TemplateID: candidate.TemplateID, ObservingWorkspaceID: candidate.ObservingWorkspaceID,
+			Rule: candidate.Effect.RuleBody(candidate.ID), Candidates: []PolicyCandidateAuthority{}, SourceRules: []PolicyMemoryRule{},
+		}
+		if candidate.AttachmentAuthority != nil {
+			attachment := candidate.Clone()
+			item.AttachmentCandidate = &attachment
+		} else {
+			item.Candidates = []PolicyCandidateAuthority{candidate.Authority.Clone()}
+		}
+		result.Items = append(result.Items, item)
+		seen[candidate.ID] = struct{}{}
+	}
+	sort.Slice(result.Items, func(i, j int) bool { return result.Items[i].ID < result.Items[j].ID })
+	return result, result.Validate()
 }
 
 func (s PolicyMemoryReviewSnapshot) Clone() PolicyMemoryReviewSnapshot {
@@ -177,6 +242,37 @@ func (s PolicyMemoryReviewSnapshot) ValidateFor(collection WorkspaceAuthorityCol
 		return fmt.Errorf("Permission Inbox snapshot does not match its complete final collection")
 	}
 	return nil
+}
+
+// CandidateList returns the exact actionable candidate projection retained by
+// this coherent review snapshot. In particular, it preserves bounded live
+// observations and attachment-local candidates that are intentionally absent
+// from the persistent final collection.
+func (s PolicyMemoryReviewSnapshot) CandidateList() (PolicyCandidateAuthorityList, error) {
+	if err := s.Validate(); err != nil {
+		return PolicyCandidateAuthorityList{}, err
+	}
+	if !s.CollectionPresent {
+		return NewPolicyCandidateAuthorityList(WorkspaceAuthorityCollection{}, false)
+	}
+	persisted := make(map[string]struct{}, len(s.Collection.PendingCandidates))
+	for _, candidate := range s.Collection.PendingCandidates {
+		persisted[candidate.ID] = struct{}{}
+	}
+	observed := []PolicyCandidateAuthority{}
+	attachments := []PolicyCandidate{}
+	for _, item := range s.Items {
+		if item.AttachmentCandidate != nil {
+			attachments = append(attachments, *item.AttachmentCandidate.AttachmentAuthority)
+			continue
+		}
+		for _, candidate := range item.Candidates {
+			if _, found := persisted[candidate.ID]; !found {
+				observed = append(observed, candidate.Clone())
+			}
+		}
+	}
+	return NewPolicyCandidateAuthorityListWithObservations(s.Collection, true, observed, attachments)
 }
 
 func (s PolicyMemoryReviewSnapshot) ReviewedSet(choices map[string]PolicyMemoryDecision) (PolicyMemoryReviewedDecisionSet, error) {

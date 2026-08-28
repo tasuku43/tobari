@@ -361,22 +361,18 @@ unchecked argv is embedded in the response. Keep the Workspace terminal
 attached, but use a separate trusted-host terminal for Permission Inbox;
 Tobari reserves no `Ctrl+]` or other child-input shortcut. In that terminal:
 
-1. Open `review permissions --watch`; prove an empty raw-terminal Inbox receives a
-   new bounded candidate without restart and emits at most one fixed trusted
-   terminal cue. Prove `--notify=off`, explicit OSC 9/BEL, conservative auto,
-   identified cmux auto-selection, and hostile evidence isolation. Prove two
-   unchanged timer refreshes keep one alternate-screen frame and emit no
-   repaint, while a changed typed snapshot redraws. One distinct path remains exact,
-   while a second
-   compatible distinct HTTP path produces one typed `/path/{id}` proposal.
-2. Stage exact Allow and Deny directly from the list, clear or overwrite one,
-   and prove no mutation occurs. Inspect the Context/effect detail. Prove the proposal states that
-   future single-segment values are included and offers Allow template, Allow
-   observed exact, and Deny pending exact. Staging grants nothing.
-3. Refresh and prove decisions remain bound by typed review-item ID, never by label,
-   order, or indentation.
-4. Confirm one final ordered Apply and observe the authoritative active
-   revision, then prove watch returns to a fresh waiting snapshot.
+1. Open `review permissions` after the denial. Prove the raw-terminal list
+   contains the bounded candidate and that one distinct path remains exact,
+   while a second compatible path produces one typed `/path/{id}` proposal.
+2. Stage exact Allow and Deny, clear or overwrite one, and prove no mutation
+   occurs. Inspect the typed detail. Prove a path-template proposal offers only
+   its domain-valid matching-path Allow. Staging grants nothing.
+3. Refresh and prove the staged set is discarded before the new bounded
+   snapshot; no choice transfers by label, order, color, or indentation.
+4. Confirm one final ordered Apply, prove raw terminal ownership is restored
+   before mutation, and observe the authoritative active revision and stored
+   rule receipts. Prove the release command rejects retired watch/notification
+   inputs through its catalog grammar.
 5. Retry in the same running Workspace.
 6. Inspect `policy rules`, reset the exact or template rule, and prove the request returns
    to default deny and becomes reviewable again.

@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"strings"
 )
 
 const (
@@ -36,4 +37,46 @@ func renderSelectorScreen(out io.Writer, lines []string, previousLines int) (int
 
 func finishSelectorScreen(out io.Writer, _ int) {
 	_, _ = io.WriteString(out, selectorAlternateScreenExit+selectorCursorShow)
+}
+
+func renderPolicyReviewScreen(out io.Writer, lines []string, previousLines int) int {
+	lineCount, err := renderSelectorScreen(out, lines, previousLines)
+	if err != nil {
+		return -1
+	}
+	return lineCount
+}
+
+func finishPolicyReviewSelector(out io.Writer, lines int) {
+	finishSelectorScreen(out, lines)
+}
+
+func pluralSuffix(count int) string {
+	if count == 1 {
+		return ""
+	}
+	return "s"
+}
+
+const selectorDetailLabelWidth = 9
+
+func selectorTitle(enabled bool, value string) string {
+	return applyStyleToken(enabled, styleAccent, value)
+}
+
+func selectorHelp(enabled bool, value string) string {
+	return applyStyleToken(enabled, styleMuted, value)
+}
+
+func selectorDetail(enabled bool, label, value string, token styleToken) string {
+	return applyStyleToken(enabled, styleMuted, fmt.Sprintf("%-*s", selectorDetailLabelWidth, label)) +
+		" " + applyStyleToken(enabled, token, value)
+}
+
+func styleAction(enabled bool, value string, token styleToken) string {
+	return applyStyleToken(enabled, token, value)
+}
+
+func selectorActions(actions ...string) string {
+	return strings.Join(actions, "   ")
 }

@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
+	"github.com/tasuku43/tobari/internal/infra/terminal"
 )
 
 const ExitInterrupted = 130
@@ -33,21 +33,21 @@ func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, 
 		}
 	}
 
-	observed, err := c.finalDefaultPair.Observe(ctx)
+	selected, err := c.finalDefaultPair.Select(ctx, c.In, c.Err)
 	if err != nil {
 		return c.failRootBeforeHandoff(ctx, err)
 	}
-	fresh := !observed.CollectionPresent
+	fresh := !selected.Selection.CollectionPresent
 	var customized *tobari.WorkspaceTemplateBody
 	if fresh {
-		if c.firstUseInteractive == nil || !c.firstUseInteractive(c.In, c.Out, c.Err) {
+		if c.interactive == nil || !c.interactive(c.In, c.Out, c.Err) {
 			return c.failRootBeforeHandoff(ctx, fault.WithClassification(fault.New(
 				fault.KindRejected, "first_use_interactive_required",
 				"Fresh first use requires one interactive review before Tobari creates authority or uses Docker.", false,
 				fault.NextAction{Command: "help tobari", Reason: "Open an interactive terminal in the Project, then run tobari."},
 			), fault.PhasePrecondition, fault.ChangeNone))
 		}
-		draft, draftErr := tobari.NewRecommendedFirstUseDraft(observed.ProjectRoot, session)
+		draft, draftErr := tobari.NewRecommendedFirstUseDraft(selected.Selection.CanonicalCWD, session)
 		if draftErr != nil {
 			return c.failRootBeforeHandoff(ctx, fault.WithClassification(fault.Wrap(
 				fault.KindContract, "invalid_first_use_draft", "The recommended first-use draft is invalid.", false, draftErr,
@@ -80,7 +80,9 @@ func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, 
 		}
 	}
 
-	progress := newFirstEntryProgress(c.Err, !fresh)
+	progress := newFirstEntryProgress(
+		c.Err, !fresh, terminal.IsTerminal(c.Err), humanStyleAllowed(ctx, c, c.Err),
+	)
 	if err := progress.Start(tobari.FirstEntryCheckRequirements); err != nil {
 		return c.failRootBeforeHandoff(ctx, err)
 	}
@@ -111,7 +113,7 @@ func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, 
 	}
 	intent.Target = operation.TargetRef{Kind: tobari.CurrentDirectoryTargetKind, ParentID: tobari.CurrentDirectoryTargetID}
 	intent.Impact = command.Agent.Mutation.Impact
-	resolution, err := c.finalDefaultPair.Resolve(ctx, intent, freshBody)
+	resolution, err := c.finalDefaultPair.ResolveSelected(ctx, intent, freshBody, selected)
 	if err != nil {
 		_ = progress.Finish(firstEntryFailureState(err))
 		return c.failRootBeforeHandoff(ctx, err)
@@ -323,39 +325,44 @@ func runFinalDefaultPairStatus(ctx context.Context, c *CLI, command CommandSpec,
 		}
 		return c.emitResult(ctx, append(encoded, '\n'))
 	}
-	return c.emitResult(ctx, renderStatusHome(status))
+	return c.emitResult(ctx, renderStatusHomeWithColor(status, humanStyleAllowed(ctx, c, c.Out)))
 }
 
 func renderStatusHome(status tobari.StatusHomeSnapshot) []byte {
-	var text strings.Builder
-	fmt.Fprintf(&text, "Project   %s\n", safeExternalText(status.ProjectRoot))
+	return renderStatusHomeWithColor(status, false)
+}
+
+func renderStatusHomeWithColor(status tobari.StatusHomeSnapshot, color bool) []byte {
+	output := newHumanOutput(color)
+	output.section("Tobari · Project Status")
+	output.row("Project", safeExternalText(status.ProjectRoot), styleText)
 	if status.Template == nil {
-		text.WriteString("Template  no default Template\nCurrent   no Context or Workspace\n")
+		output.row("Template", "no default Template", styleWarning)
+		output.row("Current", "no Context or Workspace", styleWarning)
 	} else {
-		fmt.Fprintf(&text, "Template  %s · generation %d\n", safeExternalText(status.Template.Name), status.Template.Generation)
+		output.row("Template", fmt.Sprintf("%s · generation %d", safeExternalText(status.Template.Name), status.Template.Generation), styleText)
 		if status.Context == nil {
-			text.WriteString("Current   Context absent\n")
+			output.row("Current", "Context absent", styleWarning)
 		} else {
-			fmt.Fprintf(&text, "Current   Context selected · Workspace %s\n", status.Workspace.Presence)
-			fmt.Fprintf(&text, "Policy    Template %s · Memory %s\n", status.Context.TemplatePolicyActivation, status.Context.PolicyMemoryActivation)
-			fmt.Fprintf(&text, "Workspace %s · entry %s · runtime %s · %s\n", status.Workspace.Presence, status.Workspace.EntryState, status.Workspace.ObservedRuntimeState, status.Workspace.AttachmentState)
-			fmt.Fprintf(&text, "Runtime   %s · %s · native %s\n", status.Runtime.Authority, status.Runtime.Availability, status.Runtime.Compatibility)
-			fmt.Fprintf(&text, "Cluster   %s · receipt %s\n", status.Cluster.Runtime, status.Cluster.Receipt)
-			fmt.Fprintf(&text, "Review    %d permissions · %d services pending · %d active\n", status.Permissions.PendingCount, status.Services.PendingCount, status.Services.ActiveCount)
+			output.row("Current", "Context selected · Workspace "+string(status.Workspace.Presence), humanStatusToken(string(status.Workspace.Presence)))
+			output.row("Policy", "Template "+string(status.Context.TemplatePolicyActivation)+" · Memory "+string(status.Context.PolicyMemoryActivation), humanStatusToken(string(status.Context.PolicyMemoryActivation)))
+			output.row("Workspace", string(status.Workspace.Presence)+" · entry "+string(status.Workspace.EntryState)+" · runtime "+string(status.Workspace.ObservedRuntimeState)+" · "+string(status.Workspace.AttachmentState), humanStatusToken(string(status.Workspace.EntryState)))
+			output.row("Runtime", string(status.Runtime.Authority)+" · "+string(status.Runtime.Availability)+" · native "+string(status.Runtime.Compatibility), humanStatusToken(string(status.Runtime.Availability)))
+			output.row("Cluster", string(status.Cluster.Runtime)+" · receipt "+string(status.Cluster.Receipt), humanStatusToken(string(status.Cluster.Runtime)))
+			reviewToken := styleMuted
+			if status.Permissions.PendingCount > 0 || status.Services.PendingCount > 0 {
+				reviewToken = styleWarning
+			}
+			output.row("Review", fmt.Sprintf("%d permissions · %d services pending · %d active", status.Permissions.PendingCount, status.Services.PendingCount, status.Services.ActiveCount), reviewToken)
 		}
 	}
 	if len(status.Siblings) > 0 {
-		fmt.Fprintf(&text, "Other     %d same-root Contexts\n", len(status.Siblings))
+		output.row("Other", fmt.Sprintf("%d same-root Contexts", len(status.Siblings)), styleWarning)
 	}
 	if status.Next.Path != nil {
-		path := *status.Next.Path
-		if path == WorkspaceEntryCommandPath {
-			fmt.Fprintf(&text, "Next      tobari — %s\n", status.Next.Reason)
-		} else {
-			fmt.Fprintf(&text, "Next      tobari %s — %s\n", path, status.Next.Reason)
-		}
+		output.next(*status.Next.Path, status.Next.Reason)
 	} else if status.Next.Guidance != nil {
-		fmt.Fprintf(&text, "Next      %s — %s\n", *status.Next.Guidance, status.Next.Reason)
+		output.row("Next", safeExternalText(*status.Next.Guidance)+" — "+safeExternalText(status.Next.Reason), styleAccent)
 	}
-	return []byte(text.String())
+	return output.bytes()
 }

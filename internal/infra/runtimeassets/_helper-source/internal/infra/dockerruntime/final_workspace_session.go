@@ -260,12 +260,13 @@ func (r *Runtime) waitFinalWorkspaceSessionOwnerAbsent(ctx context.Context, cont
 // Run reuses it and therefore cannot create a second registry record, epoch,
 // nonce, lease, heartbeat, or wait registry.
 type FinalWorkspaceSessionOwner struct {
-	runtime    *Runtime
-	binding    tobari.WorkspaceSessionBinding
-	principal  interactiveWorkspacePrincipal
-	attachment *interactiveWorkspaceAttachment
-	runMu      sync.Mutex
-	runStarted bool
+	runtime        *Runtime
+	binding        tobari.WorkspaceSessionBinding
+	invocationRoot string
+	principal      interactiveWorkspacePrincipal
+	attachment     *interactiveWorkspaceAttachment
+	runMu          sync.Mutex
+	runStarted     bool
 }
 
 type finalWorkspaceContainerObservation struct {
@@ -312,9 +313,19 @@ func (r *Runtime) confirmFinalWorkspaceContainer(ctx context.Context, binding to
 // owned Docker observation before borrowing or issuing the canonical WP07
 // owner. TemplateID and resolved-spec authority stop here and never enter the
 // frozen private wire or become session selectors.
-func (r *Runtime) BeginFinalWorkspaceSession(ctx context.Context, binding tobari.WorkspaceSessionBinding) (*FinalWorkspaceSessionOwner, error) {
+func (r *Runtime) BeginFinalWorkspaceSession(ctx context.Context, binding tobari.WorkspaceSessionBinding, invocationRoots ...string) (*FinalWorkspaceSessionOwner, error) {
 	if r == nil {
 		return nil, fmt.Errorf("Docker runtime is unavailable")
+	}
+	invocationRoot := binding.ProjectRoot
+	if len(invocationRoots) > 0 {
+		invocationRoot = invocationRoots[0]
+	}
+	if len(invocationRoots) > 1 {
+		return nil, fmt.Errorf("final Workspace session received multiple invocation roots")
+	}
+	if err := tobari.ValidateRootContains(binding.ProjectRoot, invocationRoot); err != nil {
+		return nil, err
 	}
 	principal, err := finalInteractiveWorkspacePrincipal(binding)
 	if err != nil {
@@ -328,7 +339,7 @@ func (r *Runtime) BeginFinalWorkspaceSession(ctx context.Context, binding tobari
 		return nil, err
 	}
 	return &FinalWorkspaceSessionOwner{
-		runtime: r, binding: binding.Clone(), principal: principal, attachment: attachment,
+		runtime: r, binding: binding.Clone(), invocationRoot: invocationRoot, principal: principal, attachment: attachment,
 	}, nil
 }
 
@@ -373,7 +384,7 @@ func (o *FinalWorkspaceSessionOwner) run(
 	}
 	return o.runtime.runWorkspaceSessionWithHandoff(
 		ctx, o.principal, o.binding.SessionDefaults.ShellEnvironment,
-		o.binding.ProjectRoot, o.binding.ContainerID, request,
+		o.invocationRoot, o.binding.ContainerID, request,
 		o.attachment, in, out, errOut, handoff,
 	)
 }

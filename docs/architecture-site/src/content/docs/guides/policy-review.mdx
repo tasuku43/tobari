@@ -1,12 +1,12 @@
 ---
 title: Policy review
-description: Review retained denial evidence, stage exact choices, and activate one Workspace Template's set once.
+description: Review retained denial evidence, stage typed choices, and activate one confirmed set once.
 ---
 
 import PolicyLoopMap from "../../../components/PolicyLoopMap.astro";
 import SequenceExplorer from "../../../components/SequenceExplorer.astro";
 
-Policy review turns retained denial evidence into an explicit host-owned decision. Leave the Workspace, inspect the bounded secret-free Permission Inbox on the trusted host, stage exact choices from its raw list or inspect template scope in detail, and Apply one Workspace Template's reviewed set once. Approval changes policy; it never retries the denied traffic.
+Policy review turns retained denial evidence into an explicit host-owned decision. Leave the Workspace, inspect the bounded secret-free Permission Inbox on the trusted host, stage domain-valid choices from its raw list and typed detail, and Apply the reviewed set once. Approval changes policy; it never retries the denied traffic.
 
 Keep the Workspace attached and open Permission Inbox in a separate trusted-host terminal. Tobari reserves no `Ctrl+]` or other child-input shortcut and does not replace a shell or full-screen program's terminal presentation.
 
@@ -23,26 +23,20 @@ Exit the Workspace before review. Repeated retries do not increase authority; th
 ## 2. Open the human review flow
 
 ```sh
-tobari review permissions --tail 100
-tobari review permissions --watch
-# Disable or explicitly choose its terminal-emulator cue:
-tobari review permissions --watch --notify=off
+tobari review permissions
 ```
 
 The installation-wide TTY queue displays pending effects from its bounded Gateway-log window. Select one item, then inspect:
 
-- Workspace Template and stable Workspace Template identity;
-- Context/project root and host-issued Context/Workspace principal;
+- Workspace Template and Project root;
 - scheme, host, and port;
 - method and normalized path;
-- denial reason, timestamp, and retained observation count; and
-- the proposed exact allow and deny outcomes.
+- exact or typed path-template match; and
+- the domain-valid Allow or Deny outcomes.
 
-Press **a** or **d** on the raw list to stage **Allow exact** or **Deny exact**, and **x** to clear one row. Exact staging advances only to a later undecided row and never wraps from the end. Open detail to inspect evidence or approve a proposed template's examples and future scope. Every choice remains staged and grants no authority. Continue reviewing candidates from the same Workspace Template, then press **p** and confirm **Apply** to revalidate and activate the complete set once. Canceling before Apply discards every staged choice. Apply or discard before switching Workspace Template; this keeps the source update within one journaled domain-generation replacement.
+Press **a** or **d** on an exact row to stage **Allow** or **Remember deny**, and **x** to clear it. Open detail to inspect the typed effect. A path-template item offers only **Allow matching paths** because Deny is not valid for that shape. Every choice remains staged and grants no authority. Press **p** to inspect the final ordered review, then confirm **Apply** to revalidate and activate the set once. Canceling before Apply discards every staged choice. Manual refresh also discards the staged set before reading a fresh snapshot, so a replacement item never inherits authority by label.
 
-`--watch` requires text output and an interactive raw terminal. It refreshes the same bounded snapshot automatically, preserves focus and staging by opaque typed ID, reports stale decisions, backs off after read failures, and stays open after confirmed Apply. Between Apply operations it keeps one alternate-screen frame and does not repaint an unchanged successful timer refresh. It does not retry the denied request.
-
-`--notify=auto|osc9|bel|off` chooses the attention cue for a successful refresh with at least one previously unseen typed review item. The initial snapshot and known reappearance do not notify, and one refresh emits at most one cue. `auto` uses OSC 9 for exact iTerm2 identity or a cmux terminal with both protected workspace and surface identities, and otherwise falls back to BEL. The payload is fixed trusted ASCII and never includes denial evidence; Tobari configures no OS, tmux, or SSH passthrough.
+The release command has no watch or notification mode. Reopen it after a new denial. It does not retry the denied request.
 
 <SequenceExplorer
   title="Host-side policy review and activation"
@@ -55,7 +49,7 @@ Press **a** or **d** on the raw list to stage **Allow exact** or **Deny exact**,
 Redirected review is read-only:
 
 ```sh
-tobari review permissions --tail 100 --format json
+tobari review permissions --format json
 ```
 
 Copy the emitted opaque `pcy_...` ID unchanged into one action:
@@ -128,14 +122,14 @@ Routine learning cannot silently create wildcard rules or authorize from observa
 ## Source evidence
 
 - [Policy-learning product contract](https://github.com/tasuku43/tobari/blob/47e951d7136ea5c6a58e82fbf171d28edc8bf65f/docs/01_product_contract.md)
-- [Policy Catalog and mutation contracts](https://github.com/tasuku43/tobari/blob/47e951d7136ea5c6a58e82fbf171d28edc8bf65f/internal/cli/runtime_catalog.go)
+- [Final Policy Catalog and mutation contracts](https://github.com/tasuku43/tobari/blob/47e951d7136ea5c6a58e82fbf171d28edc8bf65f/internal/cli/final_policy_catalog.go)
 - [Policy candidate/domain semantics](https://github.com/tasuku43/tobari/tree/47e951d7136ea5c6a58e82fbf171d28edc8bf65f/internal/domain/tobari)
 - [Atomic policy implementation](https://github.com/tasuku43/tobari/blob/47e951d7136ea5c6a58e82fbf171d28edc8bf65f/internal/infra/dockerruntime/policydata.go)
-- [Interactive review and reference tests](https://github.com/tasuku43/tobari/blob/47e951d7136ea5c6a58e82fbf171d28edc8bf65f/internal/cli/tobari_test.go)
+- [Final interactive review and reference tests](https://github.com/tasuku43/tobari/blob/47e951d7136ea5c6a58e82fbf171d28edc8bf65f/internal/cli/final_policy_test.go)
 
 ## Summary
 
-Review is trusted-host discovery plus explicit staged exact decisions. References remain opaque, one Workspace Template's set activates as a whole, and every retry is a new request initiated by the user or agent after confirmation.
+Review is trusted-host discovery plus explicit staged typed decisions. References remain opaque, the confirmed set activates once, and every retry is a new request initiated by the user or agent after confirmation.
 
 ## Check your understanding
 

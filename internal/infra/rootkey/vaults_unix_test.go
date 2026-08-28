@@ -123,11 +123,14 @@ func TestPrepareBrokerDirectoriesCreatesMissingChildrenAndRejectsSymlinkParent(t
 	if err := PrepareBrokerDirectories(state); err != nil {
 		t.Fatal(err)
 	}
-	for _, relative := range []string{"auth", "auth/contexts", "auth/runtime", "auth/projection"} {
+	for _, relative := range []string{"auth", "auth/contexts", "auth/projection"} {
 		info, err := os.Lstat(filepath.Join(state, filepath.FromSlash(relative)))
 		if err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
 			t.Fatalf("prepared directory %s: info=%v err=%v", relative, info, err)
 		}
+	}
+	if _, err := os.Lstat(filepath.Join(state, "auth", "runtime")); !os.IsNotExist(err) {
+		t.Fatalf("ephemeral Broker runtime host directory was created: %v", err)
 	}
 	if _, err := os.Lstat(filepath.Join(state, "auth", "projects")); !os.IsNotExist(err) {
 		t.Fatalf("lazy Workspace auth registry was created: %v", err)

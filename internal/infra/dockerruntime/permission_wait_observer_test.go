@@ -29,20 +29,20 @@ func (r *permissionObserverRunner) Output(_ context.Context, args, _ []string) (
 	return append([]byte{}, r.output...), r.err
 }
 
-func permissionObserverRuntime(t *testing.T, output string) (*Runtime, *permissionObserverRunner, tobari.PermissionWaitRecord) {
+func permissionObserverRuntime(t *testing.T) (*Runtime, *permissionObserverRunner, tobari.PermissionWaitRecord, string) {
 	t.Helper()
-	root := t.TempDir()
-	runner := &permissionObserverRunner{output: []byte(output)}
-	runtime, err := newRuntime(root+"/config", root+"/state", runner)
+	runtime, _, collection := finalPolicyActivationFixture(t)
+	if _, err := runtime.ActivatePolicyMemory(context.Background(), collection, finalProjectionContextID); err != nil {
+		t.Fatal(err)
+	}
+	active, err := runtime.readFinalPolicyActivation(runtime.finalPolicyActiveReceiptPath())
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := runtimeState(root)
-	if err := runtime.writeState(state); err != nil {
-		t.Fatal(err)
-	}
+	runner := &permissionObserverRunner{}
+	runtime.runner = runner
 	record := permissionWaitRecordFixtureForInfra()
-	return runtime, runner, record
+	return runtime, runner, record, active.Aggregate.AggregateRevision
 }
 
 func permissionWaitRecordFixtureForInfra() tobari.PermissionWaitRecord {
@@ -64,8 +64,8 @@ func TestPermissionObserverReusesCanonicalLiveOPAForTerminalResults(t *testing.T
 		"explicit exact deny":     `{"allow":false,"reason":"denied by exact policy","status_code":403,"learnable":false}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			revision := strings.Repeat("a", 64)
-			runtime, runner, record := permissionObserverRuntime(t, `{"revision":"`+revision+`","decision":`+document+`}`)
+			runtime, runner, record, revision := permissionObserverRuntime(t)
+			runner.output = []byte(`{"revision":"` + revision + `","decision":` + document + `}`)
 			result, terminal, err := runtime.ObservePermissionDisposition(context.Background(), record)
 			if err != nil || !terminal {
 				t.Fatalf("observation = %q, %t, %v", result, terminal, err)
@@ -78,7 +78,7 @@ func TestPermissionObserverReusesCanonicalLiveOPAForTerminalResults(t *testing.T
 				t.Fatalf("result = %q, want %q", result, want)
 			}
 			query := strings.Join(runner.args, " ")
-			for _, required := range []string{"/v1/data/tobari/http/permission_wait_observation", `"context_id":"` + record.WorkspaceManifestID, `"project_id":"` + record.WorkspaceID, `"segments":["items","a b"]`, `result := observation.body.result`} {
+			for _, required := range []string{"/v1/data/tobari/http/permission_wait_observation", `"schema_version":2`, `"context_id":"` + record.WorkspaceManifestID, `"project_id":"` + record.WorkspaceID, `"segments":["items","a b"]`, `result := observation.body.result`} {
 				if !strings.Contains(query, required) {
 					t.Fatalf("OPA query omitted %q: %s", required, query)
 				}
@@ -95,14 +95,21 @@ func TestPermissionObserverReusesCanonicalLiveOPAForTerminalResults(t *testing.T
 }
 
 func TestPermissionObserverKeepsDefaultDenyAndStaleRevisionNonterminal(t *testing.T) {
-	tests := map[string]string{
-		"default deny":   `{"revision":"` + strings.Repeat("a", 64) + `","decision":{"allow":false,"reason":"request did not match an allow rule","status_code":403,"learnable":true}}`,
-		"method ceiling": `{"revision":"` + strings.Repeat("a", 64) + `","decision":{"allow":false,"reason":"denied by Context policy ceiling","status_code":403,"learnable":false}}`,
-		"stale revision": `{"revision":"` + strings.Repeat("c", 64) + `","decision":{"allow":true,"reason":"allowed by Context policy","status_code":403,"learnable":false}}`,
+	tests := map[string]struct {
+		decision string
+		stale    bool
+	}{
+		"default deny":   {decision: `{"allow":false,"reason":"request did not match an allow rule","status_code":403,"learnable":true}`},
+		"method ceiling": {decision: `{"allow":false,"reason":"denied by Context policy ceiling","status_code":403,"learnable":false}`},
+		"stale revision": {decision: `{"allow":true,"reason":"allowed by Context policy","status_code":403,"learnable":false}`, stale: true},
 	}
-	for name, document := range tests {
+	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			runtime, _, record := permissionObserverRuntime(t, document)
+			runtime, runner, record, revision := permissionObserverRuntime(t)
+			if test.stale {
+				revision = strings.Repeat("c", 64)
+			}
+			runner.output = []byte(`{"revision":"` + revision + `","decision":` + test.decision + `}`)
 			result, terminal, err := runtime.ObservePermissionDisposition(context.Background(), record)
 			if err != nil || terminal || result != "" {
 				t.Fatalf("nonterminal observation = %q, %t, %v", result, terminal, err)
@@ -112,9 +119,11 @@ func TestPermissionObserverKeepsDefaultDenyAndStaleRevisionNonterminal(t *testin
 }
 
 func TestPermissionObserverHotReloadCannotMixRevisionAndDecisionSnapshots(t *testing.T) {
-	runtime, runner, record := permissionObserverRuntime(t, "")
-	revisionA := strings.Repeat("a", 64)
+	runtime, runner, record, revisionA := permissionObserverRuntime(t)
 	revisionB := strings.Repeat("b", 64)
+	if revisionB == revisionA {
+		revisionB = strings.Repeat("c", 64)
+	}
 	allow := `{"allow":true,"reason":"allowed by Context policy","status_code":403,"learnable":false}`
 	defaultDeny := `{"allow":false,"reason":"request did not match an allow rule","status_code":403,"learnable":true}`
 
@@ -136,14 +145,6 @@ func TestPermissionObserverHotReloadCannotMixRevisionAndDecisionSnapshots(t *tes
 		t.Fatalf("failed Apply observation = %q, %t, %v", result, terminal, err)
 	}
 
-	state, configured, err := runtime.LoadState(context.Background())
-	if err != nil || !configured {
-		t.Fatalf("load state = configured %t, %v", configured, err)
-	}
-	state.AggregateRevision = revisionB
-	if err := runtime.writeState(state); err != nil {
-		t.Fatal(err)
-	}
 	for name, terminalDecision := range map[string]struct {
 		document string
 		result   tobari.PermissionWaitResult
@@ -152,21 +153,17 @@ func TestPermissionObserverHotReloadCannotMixRevisionAndDecisionSnapshots(t *tes
 		"deny":  {document: `{"allow":false,"reason":"denied by exact policy","status_code":403,"learnable":false}`, result: tobari.PermissionWaitResultDeny},
 	} {
 		t.Run(name, func(t *testing.T) {
-			runner.output = []byte(`{"revision":"` + revisionB + `","decision":` + terminalDecision.document + `}`)
+			runner.output = []byte(`{"revision":"` + revisionA + `","decision":` + terminalDecision.document + `}`)
 			if result, terminal, err := runtime.ObservePermissionDisposition(context.Background(), record); err != nil || !terminal || result != terminalDecision.result {
-				t.Fatalf("published B observation = %q, %t, %v", result, terminal, err)
+				t.Fatalf("published active observation = %q, %t, %v", result, terminal, err)
 			}
 		})
 	}
 }
 
 func TestPolicyTransitionFencePublishesAtomicPermissionWaitObservation(t *testing.T) {
-	runtime, _, _ := permissionObserverRuntime(t, "")
-	state, configured, err := runtime.LoadState(context.Background())
-	if err != nil || !configured {
-		t.Fatalf("load state = configured %t, %v", configured, err)
-	}
-	archive, _, err := policyFenceArchive(state.AggregateRevision)
+	_, _, _, revision := permissionObserverRuntime(t)
+	archive, _, err := policyFinalFenceArchive(revision)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +195,8 @@ func TestPolicyTransitionFencePublishesAtomicPermissionWaitObservation(t *testin
 }
 
 func TestPermissionObserverFailsOnUnavailableOrMalformedOPA(t *testing.T) {
-	runtime, runner, record := permissionObserverRuntime(t, `{}`)
+	runtime, runner, record, _ := permissionObserverRuntime(t)
+	runner.output = []byte(`{}`)
 	if _, _, err := runtime.ObservePermissionDisposition(context.Background(), record); err == nil {
 		t.Fatal("malformed OPA output passed")
 	}
@@ -206,6 +204,21 @@ func TestPermissionObserverFailsOnUnavailableOrMalformedOPA(t *testing.T) {
 	runner.err = os.ErrDeadlineExceeded
 	if _, _, err := runtime.ObservePermissionDisposition(context.Background(), record); err == nil || strings.Contains(err.Error(), "canary-private-output") {
 		t.Fatalf("OPA failure = %v", err)
+	}
+}
+
+func TestPermissionObserverFailsWhenActivePolicyStateIsUnavailable(t *testing.T) {
+	runtime, _, record, _ := permissionObserverRuntime(t)
+	if err := os.Remove(runtime.finalPolicyActiveReceiptPath()); err != nil {
+		t.Fatal(err)
+	}
+	legacy := runtimeState(t.TempDir())
+	if err := runtime.writeState(legacy); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := runtime.ObservePermissionDisposition(context.Background(), record); err == nil ||
+		!strings.Contains(err.Error(), "active final policy authority is unavailable") {
+		t.Fatalf("absent final authority with legacy state present = %v", err)
 	}
 }
 
@@ -237,7 +250,7 @@ func TestPermissionObserverUsesBoundGatewaySegmentsWithoutSiblingReconstruction(
 		t.Fatal(err)
 	}
 	encoded, _ := json.Marshal(input)
-	if !strings.Contains(string(encoded), `"raw":"/a%2Fb//./../%E3%81%82"`) || !strings.Contains(string(encoded), `"segments":["a/b",".","..","あ"]`) {
+	if !strings.Contains(string(encoded), `"schema_version":2`) || !strings.Contains(string(encoded), `"raw":"/a%2Fb//./../%E3%81%82"`) || !strings.Contains(string(encoded), `"segments":["a/b",".","..","あ"]`) {
 		t.Fatalf("policy input diverged from bound effect: %s", encoded)
 	}
 	for _, path := range []string{"/bad%", "/bad%ff"} {

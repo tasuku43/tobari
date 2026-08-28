@@ -100,10 +100,6 @@ func (r *Runtime) authContextsDirectory() string {
 	return filepath.Join(r.stateDirectory, "auth", "contexts")
 }
 
-func (r *Runtime) authRuntimeDirectory() string {
-	return filepath.Join(r.stateDirectory, "auth", "runtime")
-}
-
 func (r *Runtime) loadAuthProviders() (authbroker.Projection, error) {
 	loader, err := authproviders.New(r.authProviderDirectory())
 	if err != nil {

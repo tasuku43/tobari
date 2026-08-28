@@ -205,7 +205,11 @@ internal control network. Gateway has separate interfaces for every Workspace
 proxy network, control, and egress. Auth Broker joins control and egress, has
 no TCP listener, uses egress only for compiled Datadog/OpenAI/Anthropic refresh, and never
 joins a Workspace network. Only Gateway mounts its runtime Unix socket; host
-control uses a separate socket through fixed in-container operations. Provider
+control uses a separate socket through fixed in-container operations. The
+Broker-to-Gateway socket transport is one owner-labeled Docker local volume
+backed by mode-`0700` tmpfs: Broker mounts it read-write, Gateway mounts it
+read-only, and cluster retirement removes it rather than retaining a live or
+stale socket inode in host state. Provider
 acquisition runs from the trusted host rather than through Broker egress.
 
 Each Workspace namespace has a verified output guard and default route through
@@ -737,14 +741,12 @@ symlinks, hardlinks, owner drift, unsafe permissions, and same-read byte drift
 fail closed. Per-destination method data is projected only into that authority,
 and explicit deny retains precedence. Display position cannot create authority, staging
 writes nothing, cancellation discards the set, wildcard creation is impossible,
-and redirected or machine-readable review is read-only. `--watch` is accepted
-only with human text and raw terminal ownership; it repeats the bounded read,
-never grants or retries, retains the last valid snapshot on failure, and uses
-bounded backoff. The alternate-screen presentation remains open across watch
-reads but closes on stop, error, and before confirmed mutation output; raw input
-mode restoration remains paired at every selector boundary. Refresh retains staged
-authority only for an identical candidate ID; stale and same-label replacement
-IDs remain undecided. Confirmed Apply returns an authoritative active revision
+and redirected or machine-readable review is read-only. The release command
+has no watch or terminal-notification input. Manual refresh crosses the bounded
+read boundary again only after discarding the staged map; stale and same-label
+replacement IDs remain undecided. The alternate-screen presentation closes
+before confirmed mutation and raw input restoration remains paired at every
+selector boundary. Confirmed Apply returns an authoritative active revision
 and exact typed receipt, after which the original running Workspace may issue a
 new request. Neither Workspace nor OPA is recreated by this activation.
 
@@ -753,17 +755,6 @@ Catalog-derived namespace read with no application call. `review permissions`
 can reach only the existing durable reviewed-set authority; `review services`
 can reach only the existing live-owner, attachment-local service authority.
 Neither leaf can consume the other branch's references or lifetime.
-The watch attention cue is not a desktop/OS integration or policy signal. Its
-OSC 9 payload is one compile-time fixed printable-ASCII message framed by fixed
-control bytes, and BEL has no payload. The notifier never receives or
-interpolates Workspace Template names, project roots, hosts, paths, reasons, counts, or
-other external evidence, so hostile denial text cannot inject terminal control
-data. `auto` selects OSC 9 only for a reviewed terminal identity: exact iTerm2
-identity or the conjunction of protected non-empty cmux workspace and surface
-identities. Every other identity falls back to BEL. Those environment values
-are tested only for presence and never enter the
-payload. Tobari never changes tmux or SSH passthrough. Cue failure is
-non-authoritative and leaves watch active.
 The research-only Operator Console is a session-scoped trusted-host presentation,
 not a network control plane. `bin/tobari-research serve` binds TCP4 only to
 `127.0.0.1:0`, accepts no remote/fixed-port option, and exits with its owning

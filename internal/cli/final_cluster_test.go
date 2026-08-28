@@ -129,6 +129,16 @@ func TestFinalClusterStatusJSONMatchesCatalogForActiveStoppedAndAbsent(t *testin
 			value.Authority, value.Generation, value.CollectionRevision = tobari.FinalClusterAuthorityPresent, 1, digest
 			value.Runtime, value.Receipt = tobari.FinalClusterRuntimeRunning, tobari.FinalClusterReceiptActive
 			value.AggregateRevision, value.EvaluatorIdentity, value.PolicyDataIdentity = &aggregate, &evaluator, &policyData
+			contextID := tobari.ContextID("01912345-6789-7abc-8def-0123456789a2")
+			templateID := tobari.WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789a1")
+			value.ContextCount = 1
+			value.Contexts = []tobari.FinalClusterContextReceiptObservation{{
+				ContextID: contextID,
+				TemplatePolicy: &tobari.TemplatePolicyActivationReceipt{
+					ContextID: contextID, TemplateID: templateID, PolicySliceDigest: digest,
+				},
+				PolicyMemory: &tobari.PolicyMemoryActivationReceipt{ContextID: contextID, Revision: digest},
+			}}
 			value.Components = []tobari.FinalClusterComponentObservation{{Name: "gateway", State: tobari.FinalClusterRuntimeRunning, Identity: tobari.FinalClusterEvidenceExact, Topology: tobari.FinalClusterEvidenceExact}}
 			return value
 		}(),
@@ -152,6 +162,16 @@ func TestFinalClusterStatusJSONMatchesCatalogForActiveStoppedAndAbsent(t *testin
 			}
 			if _, exists := cluster["schema_version"]; exists {
 				t.Fatalf("status exposed its private validation schema: %s", encoded)
+			}
+			if name == "active" {
+				context := cluster["contexts"].([]any)[0].(map[string]any)
+				memory := context["policy_memory"].(map[string]any)
+				if memory["revision"] != string(digest) {
+					t.Fatalf("status policy-memory public revision = %v", memory)
+				}
+				if _, leaked := memory["policy_memory_revision"]; leaked {
+					t.Fatalf("status leaked private receipt key: %s", encoded)
+				}
 			}
 		})
 	}

@@ -424,16 +424,6 @@ func TestRawSelectorsDoNotRedrawDuringIdlePollsAndRestoreTerminal(t *testing.T) 
 			},
 		},
 		{
-			name: "permission review", title: "Tobari · Permission Inbox",
-			run: func(input *idlePollThenInput, output *bytes.Buffer) error {
-				decision, err := selectPolicyReviewRaw(context.Background(), testPolicyReviewReport(), input, output, false, nil, nil, "")
-				if err == nil && !decision.Canceled {
-					return errors.New("permission review did not cancel")
-				}
-				return err
-			},
-		},
-		{
 			name: "policy rules", title: "Tobari · Policy decisions",
 			run: func(input *idlePollThenInput, output *bytes.Buffer) error {
 				report := tobari.PolicyRuleReport{Task: tobari.TaskPolicyRules, PolicyProjectionIdentity: testCLIProjectionIdentity(strings.Repeat("a", 64)), Items: []tobari.PolicyRule{{

@@ -52,6 +52,10 @@ func (a *finalPolicyAuthorityAdapter) ListPolicyCandidatesIncludingAttachments(c
 	return a.FinalPolicyCandidateAdapter.ListPolicyCandidatesIncludingAttachments(ctx)
 }
 
+func (a *finalPolicyAuthorityAdapter) ReadPolicyMemoryReviewSnapshot(ctx context.Context) (tobari.PolicyMemoryReviewSnapshot, error) {
+	return a.FinalPolicyCandidateAdapter.ReadPolicyMemoryReviewSnapshot(ctx)
+}
+
 func (a *finalPolicyAuthorityAdapter) ApplyAttachmentPolicyCandidate(ctx context.Context, ref string, decision tobari.PolicyMemoryDecision) (tobari.AttachmentGrantPublication, bool, error) {
 	return a.FinalPolicyCandidateAdapter.ApplyAttachmentPolicyCandidate(ctx, ref, decision)
 }
@@ -65,8 +69,8 @@ func (a *finalPolicyAuthorityAdapter) DenyPolicyCandidateByReference(ctx context
 }
 
 type finalDefaultPairEntry interface {
-	Observe(context.Context) (tobari.FinalDefaultPairObservation, error)
-	Resolve(context.Context, operation.Intent, *tobari.WorkspaceTemplateBody) (workspaceauthoritycmd.DefaultPairResolution, error)
+	Select(context.Context, io.Reader, io.Writer) (workspaceauthoritycmd.SelectedDefaultPair, error)
+	ResolveSelected(context.Context, operation.Intent, *tobari.WorkspaceTemplateBody, workspaceauthoritycmd.SelectedDefaultPair) (workspaceauthoritycmd.DefaultPairResolution, error)
 	RefreshAfterCluster(context.Context, workspaceauthoritycmd.DefaultPairResolution, workspaceauthoritycmd.FinalClusterReconciliation) (workspaceauthoritycmd.DefaultPairResolution, error)
 	EnterResolved(context.Context, workspaceauthoritycmd.DefaultPairResolution, tobari.WorkspaceSessionRequest, tobari.FirstEntryProgressSink, io.Reader, io.Writer, io.Writer) (workspaceauthoritycmd.ContextEntryResult, error)
 }
@@ -137,10 +141,8 @@ type CLI struct {
 	firstUse             recommendedFirstUseReviewer
 	runtimeChoice        runtimeChoiceWizard
 	authLogin            authLoginProviderSelector
-	policyReview         func(bool) *policyReviewSelector
-	policyNotify         func(io.Writer, string) error
 	serviceNotify        func(io.Writer, string) error
-	firstUseInteractive  func(io.Reader, io.Writer, io.Writer) bool
+	interactive          func(io.Reader, io.Writer, io.Writer) bool
 	firstUseTemplateBody func(context.Context) (tobari.WorkspaceTemplateBody, error)
 	firstUseCustomize    func(context.Context, tobari.RecommendedFirstUseDraft) (tobari.WorkspaceTemplateBody, error)
 	noColor              bool
@@ -156,8 +158,6 @@ func New(lifetime context.Context, in io.Reader, out, errOut io.Writer) *CLI {
 	command.firstUse = newRecommendedFirstUseReviewerWithStyle(!command.noColor)
 	command.runtimeChoice = newRuntimeChoiceWizardWithStyle(!command.noColor)
 	command.authLogin = newAuthLoginProviderSelectorWithStyle(!command.noColor)
-	command.policyReview = newPolicyReviewSelectorWithStyle
-	command.policyNotify = terminal.WritePermissionInboxNotification
 	command.serviceNotify = terminal.WriteServiceReviewNotification
 	configureResearchCLI(command)
 	runtime, err := dockerruntime.New(lifetime)
@@ -268,7 +268,7 @@ func New(lifetime context.Context, in io.Reader, out, errOut io.Writer) *CLI {
 		command.doctor = doctorcmd.New(systemdoctor.New(err))
 		return command
 	}
-	command.finalDefaultPair = workspaceauthoritycmd.NewDefaultPairService(defaultPair, resources, command.finalContexts)
+	command.finalDefaultPair = workspaceauthoritycmd.NewDefaultPairService(defaultPair, resources, command.finalContexts, newFinalDefaultPairSelectorWithStyle(!command.noColor))
 	statusHome, err := workspaceauthoritystore.NewStatusHomeAdapter(authorityStore, runtime, runtime)
 	if err != nil {
 		command.doctor = doctorcmd.New(systemdoctor.New(err))
@@ -333,10 +333,8 @@ func newCLI(in io.Reader, out, errOut io.Writer, catalog Catalog, inspector doct
 		contextCreate: newContextCreateWizardWithStyle(true),
 		runtimeChoice: newRuntimeChoiceWizardWithStyle(true),
 		authLogin:     newAuthLoginProviderSelector(),
-		policyReview:  newPolicyReviewSelectorWithStyle,
-		policyNotify:  terminal.WritePermissionInboxNotification,
 		serviceNotify: terminal.WriteServiceReviewNotification,
-		firstUseInteractive: func(in io.Reader, out, errOut io.Writer) bool {
+		interactive: func(in io.Reader, out, errOut io.Writer) bool {
 			return terminal.IsTerminal(in) && terminal.IsTerminal(out) && terminal.IsTerminal(errOut)
 		},
 	}

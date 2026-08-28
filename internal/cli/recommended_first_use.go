@@ -51,28 +51,49 @@ func (r *terminalRecommendedFirstUseReviewer) Review(
 }
 
 func recommendedFirstUseMenu(draft tobari.RecommendedFirstUseDraft) configurationWizardMenu {
-	session := "Open Bash"
-	if draft.Session.Kind == tobari.RecommendedFirstUseSessionDirect {
-		session = "Run " + draft.Session.Executable + " directly"
-	}
+	session := recommendedFirstUseSession(draft)
 	return configurationWizardMenu{
-		title: "Tobari will create an isolated Workspace for:",
-		information: []string{
-			"  " + draft.ProjectRoot, "",
-			"Project files", "  Read-write · changes are made directly", "",
-			"Network", "  Claude Code and Codex routine traffic   allowed",
-			"  Other requests                          exact review",
-			"  Private and unsafe destinations         denied", "",
-			"Tools", "  " + draft.RuntimeSelection, "",
-			"Host configuration", "  Not imported", "",
-			"Session", "  " + session,
-		},
-		prompt: "Action",
+		title:            "Tobari · New Workspace",
+		informationLines: recommendedFirstUseSummary(draft.ProjectRoot, draft.RuntimeSelection, session),
+		prompt:           "Action",
 		options: []configurationWizardOption{
-			{label: "Start Workspace", value: "start"},
+			{label: "Create and enter Workspace", value: "start"},
 			{label: "Customize", value: "customize"},
 			{label: "Cancel", value: "cancel"},
 		},
+	}
+}
+
+func recommendedFirstUseSession(draft tobari.RecommendedFirstUseDraft) string {
+	if draft.Session.Kind == tobari.RecommendedFirstUseSessionDirect {
+		return "Run " + draft.Session.Executable + " directly"
+	}
+	return "Open Bash"
+}
+
+func recommendedFirstUseSummaryRow(label, value string, token styleToken) configurationWizardLine {
+	return configurationWizardLine{
+		{value: fmt.Sprintf("  %-20s", label), token: styleMuted},
+		{value: value, token: token},
+	}
+}
+
+func recommendedFirstUseSummary(projectRoot, runtimeSelection, session string) []configurationWizardLine {
+	return []configurationWizardLine{
+		{{value: "", token: styleText}},
+		{{value: "Project", token: styleText}},
+		{{value: "  " + safeExternalText(projectRoot), token: styleText}},
+		{{value: "", token: styleText}},
+		{{value: "Boundary", token: styleText}},
+		recommendedFirstUseSummaryRow("Project files", "read-write", styleText),
+		recommendedFirstUseSummaryRow("Routine network", "allowed", styleSuccess),
+		recommendedFirstUseSummaryRow("Other network", "review when needed", styleWarning),
+		recommendedFirstUseSummaryRow("Private network", "denied", styleDanger),
+		{{value: "", token: styleText}},
+		{{value: "Environment", token: styleText}},
+		recommendedFirstUseSummaryRow("Runtime", safeExternalText(runtimeSelection), styleText),
+		recommendedFirstUseSummaryRow("Host configuration", "not imported", styleText),
+		recommendedFirstUseSummaryRow("Session", safeExternalText(session), styleText),
 	}
 }
 

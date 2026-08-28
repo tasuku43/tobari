@@ -337,7 +337,7 @@ func (s *TemplateService) CreateDraft(ctx context.Context, intent operation.Inte
 		return TemplateDraftView{}, invalidFault("invalid_template_name", "Workspace Template name is invalid", err, "template list")
 	}
 	if err := body.Validate(); err != nil {
-		return TemplateDraftView{}, invalidFault("invalid_template_body", "Workspace Template definition is invalid", err, "template create")
+		return TemplateDraftView{}, invalidFault("invalid_template_body", "Workspace Template definition is invalid", err, "help template create")
 	}
 	target := operation.TargetRef{Kind: tobari.WorkspaceTemplateCatalogTargetKind, ParentID: tobari.WorkspaceTemplateCatalogTargetID}
 	request := execution.Request{Intent: intent, ExpectedCommand: TaskTemplateCreate, ExpectedEffect: operation.EffectCreate, ExpectedTarget: target, ExpectedImpact: TemplateCreateImpact()}

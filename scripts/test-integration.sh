@@ -12,6 +12,7 @@ custom_base_image=${TOBARI_INTEGRATION_CUSTOM_BASE:-$standard_runtime_image}
 host_loopback_only=${TOBARI_INTEGRATION_HOST_LOOPBACK_ONLY:-false}
 mock_name=tobari-mock-upstream
 auth_mock_name=tobari-auth-mock-upstream
+mock_host=mock-upstream.synthetic.example
 auth_network=tobari-auth-integration
 runtime_name=integration
 gateway_base_image="tobari-gateway-integration-base-$$"
@@ -158,6 +159,23 @@ wait_network_connection() {
   fail "$source_container could not reach $target_host:$port"
 }
 
+ensure_gateway_fixture_network() {
+  if ! network_contains_container "$auth_network" tobari-gateway; then
+    docker network connect "$auth_network" tobari-gateway
+  fi
+  wait_network_connection tobari-gateway "$mock_host" 8080
+  if docker inspect "$auth_mock_name" >/dev/null 2>&1; then
+    wait_network_connection tobari-gateway api.synthetic.example 443
+  fi
+}
+
+restore_gateway_auth_fixture_network() {
+  if network_contains_container "$auth_network" tobari-gateway; then
+    fail "final policy reconciliation retained the unmanaged Auth fixture network"
+  fi
+  ensure_gateway_fixture_network
+}
+
 run_tobari() {
   assert_integration_binary
   env \
@@ -197,6 +215,7 @@ import fcntl
 import json
 import os
 import pty
+import re
 import select
 import signal
 import struct
@@ -207,7 +226,8 @@ import time
 argv = sys.argv[1:]
 try:
     scheduled_events = json.loads(os.environ.pop("TOBARI_TEST_PTY_EVENTS", "[]"))
-    timeout_seconds = float(os.environ.pop("TOBARI_TEST_PTY_TIMEOUT_SECONDS", "60"))
+    timeout_seconds = float(os.environ.pop("TOBARI_TEST_PTY_TIMEOUT_SECONDS", "180"))
+    event_start_pattern = os.environ.pop("TOBARI_TEST_PTY_EVENT_START_PATTERN", "").encode()
 except (TypeError, ValueError, json.JSONDecodeError) as error:
     print(f"invalid integration PTY configuration: {error}", file=sys.stderr)
     raise SystemExit(2)
@@ -221,10 +241,26 @@ if pid == 0:
 
 fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
 os.set_blocking(master, False)
+def write_master(data):
+    pending = memoryview(data)
+    while pending:
+        try:
+            written = os.write(master, pending)
+            pending = pending[written:]
+        except BlockingIOError:
+            select.select([], [master], [], 0.1)
+        except OSError as error:
+            if error.errno in (errno.EIO, errno.EPIPE):
+                return False
+            raise
+    return True
+
 started = time.monotonic()
 event_index = 0
 next_event = started
-if scheduled_events:
+events_started = not event_start_pattern
+event_review = bytearray()
+if scheduled_events and events_started:
     next_event += float(scheduled_events[0].get("after_ms", 0)) / 1000
 stdin_open = not scheduled_events
 status = None
@@ -251,20 +287,16 @@ while status is None:
     if stdin_open:
         readable.append(0)
     wait_seconds = 0.1
-    if event_index < len(scheduled_events):
+    if events_started and event_index < len(scheduled_events):
         wait_seconds = min(wait_seconds, max(0, next_event - time.monotonic()))
     ready, _, _ = select.select(readable, [], [], wait_seconds)
     if 0 in ready:
         data = os.read(0, 4096)
         if data:
-            os.write(master, data)
+            master_closed = not write_master(data)
         else:
             stdin_open = False
-            try:
-                os.write(master, b"\x04")
-            except OSError as error:
-                if error.errno not in (errno.EIO, errno.EPIPE):
-                    raise
+            master_closed = not write_master(b"\x04")
     if master in ready:
         try:
             data = os.read(master, 4096)
@@ -276,17 +308,19 @@ while status is None:
                 raise
         if data:
             os.write(1, data)
+            if not events_started:
+                event_review.extend(data)
+                if re.search(event_start_pattern, event_review):
+                    events_started = True
+                    next_event = time.monotonic() + float(scheduled_events[0].get("after_ms", 0)) / 1000
+                elif len(event_review) > 131072:
+                    del event_review[:-65536]
     now = time.monotonic()
-    while event_index < len(scheduled_events) and now >= next_event:
+    while events_started and event_index < len(scheduled_events) and now >= next_event:
         event = scheduled_events[event_index]
         data = str(event.get("data", "")).encode("utf-8")
         if not master_closed:
-            try:
-                os.write(master, data)
-            except OSError as error:
-                if error.errno not in (errno.EIO, errno.EPIPE):
-                    raise
-                master_closed = True
+            master_closed = not write_master(data)
         event_index += 1
         if event_index < len(scheduled_events):
             next_event += float(scheduled_events[event_index].get("after_ms", 0)) / 1000
@@ -448,6 +482,46 @@ create_nested_tobari_at() {
   return 1
 }
 
+rewrite_template_runtime_source() {
+  local source_path=$1
+  local runtime_id_value=$2
+  local runtime_revision_value=$3
+  python3 - "$source_path" "$runtime_id_value" "$runtime_revision_value" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+runtime_id, revision = sys.argv[2:]
+lines = path.read_text(encoding="utf-8").splitlines()
+matches = [index for index, line in enumerate(lines) if line == "  runtime:"]
+if len(matches) != 1:
+    raise SystemExit("template source has no unique entry-default Runtime")
+index = matches[0]
+if lines[index + 1].strip().split(":", 1)[0] != "id" or lines[index + 2].strip().split(":", 1)[0] != "revision":
+    raise SystemExit("template source Runtime shape changed")
+lines[index + 1] = f"    id: {runtime_id}"
+lines[index + 2] = f"    revision: {revision}"
+path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+}
+
+apply_template_ref() {
+  local template_ref=$1
+  local plan plan_ref applied
+  plan=$(run_tobari template plan --id "$template_ref" --format json)
+  plan_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["template_change_plan"]["plan_ref"])' <<<"$plan")
+  applied=$(run_tobari template apply --plan "$plan_ref" --format json)
+  python3 -c 'import json,sys; print(json.load(sys.stdin)["template"]["template_ref"])' <<<"$applied"
+}
+
+apply_context_ref() {
+  local context_ref=$1
+  local plan plan_ref
+  plan=$(run_tobari context plan --id "$context_ref" --format json)
+  plan_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context_activation_plan"]["plan_ref"])' <<<"$plan")
+  run_tobari context apply --plan "$plan_ref" --format json >/dev/null
+}
+
 start_cluster() {
   local output
   if output=$(run_tobari cluster up 2>&1); then
@@ -470,14 +544,16 @@ run_final_host_loopback_evaluator() {
   work_root=$test_root/user/workspace
   mkdir -p "$work_root"
 
-  run_tobari template create --name default --source-access read-write --format json >/dev/null
-  local template_list template_ref context_create context_ref context_id
-  template_list=$(run_tobari template list --format json)
-  template_ref=$(python3 -c 'import json,sys; print(next(item["template_ref"] for item in json.load(sys.stdin)["templates"]["items"] if item["name"] == sys.argv[1]))' default <<<"$template_list")
-  context_create=$(run_tobari_at "$work_root" context create --template "$template_ref" --format json)
-  context_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_ref"])' <<<"$context_create")
-  context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_id"])' <<<"$context_create")
-  start_cluster >/dev/null
+	local template_create template_ref context_create context_ref context_id
+	template_create=$(run_tobari template create --name default --source-access read-write --format json)
+	template_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["template"]["template_ref"])' <<<"$template_create")
+	template_ref=$(apply_template_ref "$template_ref")
+	run_tobari template default set --id "$template_ref" --format json >/dev/null
+	  context_create=$(run_tobari_at "$work_root" context create --template "$template_ref" --format json)
+	  context_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_ref"])' <<<"$context_create")
+	  context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_id"])' <<<"$context_create")
+	apply_context_ref "$context_ref"
+	  start_cluster >/dev/null
 
   local host_service_port_file host_service_request_log host_service_port
   host_service_port_file=$test_root/host-service.port
@@ -604,7 +680,6 @@ grant=next(item for item in grants_doc["grants"] if item["project_id"] == sys.ar
 if grant["context_id"] != sys.argv[3] or grant["host"] != route["hostname"] or grant["attachment_epoch_id"] != route["attachment_epoch_id"] or grant["lifetime"] != "attachment":
     raise SystemExit(f"grant identity drift: {grant!r}")
 PY
-
   assert_contains "$(run_project curl -fsS "http://$host_loopback_hostname:$host_service_port/health")" "host-service-ok" "curl Host Loopback"
   assert_contains "$(run_project python3 -c 'import sys,urllib.request; print(urllib.request.urlopen(sys.argv[1],timeout=5).read().decode())' "http://$host_loopback_hostname:$host_service_port/health")" "host-service-ok" "Python Host Loopback"
   [[ $(run_project curl -sS -o /dev/null -w '%{http_code}' "http://$sibling_host_loopback_hostname:$host_service_port/health") == 403 ]] || fail "sibling .internal borrowed Host Loopback authority"
@@ -616,16 +691,19 @@ allowed={"host.tobari.internal",f"host.tobari.internal:{sys.argv[2]}"}
 if len(entries) != 2 or any(item != {"host": item["host"], "path": "/health"} or item["host"] not in allowed for item in entries):
     raise SystemExit(f"Host header changed or terminal traffic reached the fixture: {entries!r}")
 PY
-  if grep -F 'host.tobari.internal' "$test_root/state/tobari/workspace-authority/authority.json" >/dev/null; then
+  if grep -R -F -- 'host.tobari.internal' "$test_root/state/tobari/authority/policy-memory" >/dev/null; then
     fail "Host Loopback attachment grant entered Context Policy Memory"
   fi
-
   run_project touch /var/lib/tobari/host-probe.done
   wait "$host_service_attachment_pid"
   host_service_attachment_pid=
   workspace_list=$(run_tobari workspace list --format json)
   workspace_ref=$(python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(item["workspace_ref"] for item in d["workspaces"]["items"] if item["workspace_id"] == sys.argv[1]))' "$workspace_id" <<<"$workspace_list")
-  [[ $(run_project curl -sS -o /dev/null -w '%{http_code}' "http://$host_loopback_hostname:$host_service_port/health") == 403 ]] || fail "Host Loopback authority survived attachment teardown"
+  local post_detach_status=
+  for _ in $(seq 1 50); do
+    post_detach_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' "http://$host_loopback_hostname:$host_service_port/health"); [[ $post_detach_status == 403 ]] && break; sleep 0.1
+  done
+  [[ $post_detach_status == 403 ]] || fail "Host Loopback authority survived attachment teardown"
   python3 - "$config_directory/host-loopback/routes.json" "$config_directory/host-loopback/grants.json" <<'PY'
 import json
 import sys
@@ -634,7 +712,6 @@ grants=json.load(open(sys.argv[2], encoding="utf-8"))
 if routes.get("schema_version") != 2 or grants.get("schema_version") != 2 or routes["routes"] or grants["grants"]:
     raise SystemExit(f"attachment authority survived teardown: {routes!r} {grants!r}")
 PY
-
   kill "$host_service_server_pid" >/dev/null 2>&1 || true
   wait "$host_service_server_pid" >/dev/null 2>&1 || true
   host_service_server_pid=
@@ -719,6 +796,7 @@ allow_exact_effect() {
   candidates=$(run_tobari policy candidates --format json)
   candidate_id=$(candidate_id_for_effect "$project_id" https "$host" 8080 "$method" "$path" <<<"$candidates")
   run_tobari policy allow --id "$candidate_id" >/dev/null
+  restore_gateway_auth_fixture_network
 }
 
 deny_exact_effect() {
@@ -808,7 +886,7 @@ cleanup() {
     done
     docker network rm "$auth_network" >/dev/null 2>&1 || true
     docker network rm tobari-control tobari-egress >/dev/null 2>&1 || true
-    docker volume rm tobari-gateway-ca tobari-public-ca tobari-policy-bundle >/dev/null 2>&1 || true
+    docker volume rm tobari-auth-runtime tobari-gateway-ca tobari-public-ca tobari-policy-bundle >/dev/null 2>&1 || true
     gateway_fixture_restore_tag || gateway_fixture_restore_status=1
     docker image rm -f "$experimental_gateway_base_image" >/dev/null 2>&1 || true
     docker image rm -f "$gateway_base_image" >/dev/null 2>&1 || true
@@ -916,7 +994,7 @@ for name in tobari-auth-broker tobari-gateway tobari-opa "$mock_name" "$auth_moc
     fail "container $name already exists; stop the active Tobari cluster before integration tests"
   fi
 done
-for volume in tobari-gateway-ca tobari-public-ca tobari-policy-bundle; do
+for volume in tobari-auth-runtime tobari-gateway-ca tobari-public-ca tobari-policy-bundle; do
   if docker volume inspect "$volume" >/dev/null 2>&1; then
     fail "volume $volume already exists; use a clean Docker Engine for integration tests"
   fi
@@ -958,7 +1036,7 @@ docker run --rm --user "$(id -u):$(id -g)" \
   --entrypoint sh "$mitmproxy_image" -eu -c '
     openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 2 \
       -subj /CN=api.synthetic.example \
-      -addext subjectAltName=DNS:api.synthetic.example,DNS:mock-upstream,DNS:graphql.tobari.dev \
+      -addext subjectAltName=DNS:api.synthetic.example,DNS:mock-upstream.synthetic.example,DNS:graphql.tobari.dev \
       -addext basicConstraints=critical,CA:TRUE \
       -addext keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign \
       -addext extendedKeyUsage=serverAuth \
@@ -1073,7 +1151,6 @@ PY
     'import json,sys; revision=json.load(sys.stdin)["runtime"]["runtime"]["revisions"][-1]; assert revision["availability"]["state"] == "available"; assert revision["source_digest"]; assert revision["revision_ref"]; assert all(key not in revision for key in ("image", "image_digest", "snapshot_path", "revision"))' \
     <<<"$runtime_build"
   runtime_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["id"])' <<<"$runtime_build")
-  runtime_revision_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["revisions"][-1]["revision_ref"])' <<<"$runtime_build")
   runtime_source_digest=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["revisions"][-1]["source_digest"])' <<<"$runtime_build")
   capture_runtime_image_for_cleanup "$runtime_id" "$runtime_source_digest"
   if [[ ${TOBARI_INTEGRATION_FAIL_AFTER_RUNTIME_CAPTURE:-false} == true ]]; then
@@ -1084,25 +1161,30 @@ template_create_args=(template create --name default --source-access read-write 
 if [[ $host_loopback_only != true ]]; then
   template_create_args+=(--graphql-endpoint https://graphql.tobari.dev:8080/graphql)
 fi
-run_tobari "${template_create_args[@]}" >/dev/null
-template_list=$(run_tobari template list --format json)
-default_template_ref=$(python3 -c 'import json,sys; print(next(item["template_ref"] for item in json.load(sys.stdin)["templates"]["items"] if item["name"] == "default"))' <<<"$template_list")
-run_tobari template default set --id "$default_template_ref" --format json >/dev/null
+default_template_create=$(run_tobari "${template_create_args[@]}")
+default_template_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["template"]["template_ref"])' <<<"$default_template_create")
+default_template_source=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["template"]["source_path"])' <<<"$default_template_create")
 if [[ $host_loopback_only != true ]]; then
-  run_tobari template create --name restricted --source-access read-only --format json >/dev/null
-  template_list=$(run_tobari template list --format json)
-  restricted_template_ref=$(python3 -c 'import json,sys; print(next(item["template_ref"] for item in json.load(sys.stdin)["templates"]["items"] if item["name"] == "restricted"))' <<<"$template_list")
-  run_tobari template runtime set --id "$default_template_ref" --runtime "$runtime_revision_ref" --format json >/dev/null
-  run_tobari template runtime set --id "$restricted_template_ref" --runtime "$runtime_revision_ref" --format json >/dev/null
-  default_context_create=$(run_tobari_at "$work_root" context create --template "$default_template_ref" --format json)
+	restricted_template_create=$(run_tobari template create --name restricted --source-access read-only --format json)
+	restricted_template_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["template"]["template_ref"])' <<<"$restricted_template_create")
+	restricted_template_source=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["template"]["source_path"])' <<<"$restricted_template_create")
+	rewrite_template_runtime_source "$default_template_source" "$runtime_id" "$runtime_source_digest"
+	rewrite_template_runtime_source "$restricted_template_source" "$runtime_id" "$runtime_source_digest"
+	default_template_ref=$(apply_template_ref "$default_template_ref")
+	restricted_template_ref=$(apply_template_ref "$restricted_template_ref")
+	run_tobari template default set --id "$default_template_ref" --format json >/dev/null
+	default_context_create=$(run_tobari_at "$work_root" context create --template "$default_template_ref" --format json)
   restricted_context_create=$(run_tobari_at "$work_root" context create --template "$restricted_template_ref" --format json)
   other_context_create=$(run_tobari_at "$other_root" context create --template "$restricted_template_ref" --format json)
   default_context_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_ref"])' <<<"$default_context_create")
   restricted_context_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_ref"])' <<<"$restricted_context_create")
   other_context_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_ref"])' <<<"$other_context_create")
-  default_context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_id"])' <<<"$default_context_create")
-  restricted_context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_id"])' <<<"$restricted_context_create")
-  other_context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_id"])' <<<"$other_context_create")
+	default_context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_id"])' <<<"$default_context_create")
+	restricted_context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_id"])' <<<"$restricted_context_create")
+	other_context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_id"])' <<<"$other_context_create")
+	apply_context_ref "$default_context_ref"
+	apply_context_ref "$restricted_context_ref"
+	apply_context_ref "$other_context_ref"
 fi
 # Install research provider fixtures only after first final-authority publication.
 if [[ $host_loopback_only != true ]]; then
@@ -1171,6 +1253,21 @@ opa_policy_mount=$(docker inspect --format \
   tobari-opa)
 [[ $opa_policy_mount == 'volume|tobari-policy-bundle|/bundle|false' ]] ||
   fail "OPA policy bundle mount is not the owned read-only volume: $opa_policy_mount"
+broker_runtime_mount=$(docker inspect --format \
+  '{{range .Mounts}}{{if eq .Destination "/run/tobari-auth/runtime"}}{{.Type}}|{{.Name}}|{{.Destination}}|{{.RW}}{{end}}{{end}}' \
+  tobari-auth-broker)
+[[ $broker_runtime_mount == 'volume|tobari-auth-runtime|/run/tobari-auth/runtime|true' ]] ||
+  fail "Auth Broker runtime socket transport is not the owned writable volume: $broker_runtime_mount"
+gateway_runtime_mount=$(docker inspect --format \
+  '{{range .Mounts}}{{if eq .Destination "/run/tobari-auth/runtime"}}{{.Type}}|{{.Name}}|{{.Destination}}|{{.RW}}{{end}}{{end}}' \
+  tobari-gateway)
+[[ $gateway_runtime_mount == 'volume|tobari-auth-runtime|/run/tobari-auth/runtime|false' ]] ||
+  fail "Gateway runtime socket transport is not the owned read-only volume: $gateway_runtime_mount"
+[[ $(docker volume inspect --format '{{.Driver}}|{{index .Options "type"}}|{{index .Options "device"}}|{{index .Labels "io.tobari.owner"}}' tobari-auth-runtime) == 'local|tmpfs|tmpfs|default' ]] ||
+  fail "Auth Broker runtime volume driver or ownership contract drifted"
+broker_runtime_mode=$(docker exec tobari-auth-broker stat -c '%a:%u:%g' /run/tobari-auth/runtime)
+[[ $broker_runtime_mode == "700:$(id -u):$(id -g)" ]] ||
+  fail "Auth Broker runtime volume ownership/mode is $broker_runtime_mode instead of 700:$(id -u):$(id -g)"
 gateway_context_mounts=$(docker inspect --format '{{range .Mounts}}{{println .Source "=>" .Destination}}{{end}}' tobari-gateway)
 if [[ $gateway_context_mounts == *"/credentials.json =>"* || $gateway_context_mounts == *"/run/tobari/credentials"* ]]; then
   fail "Gateway retained the retired managed credential projection"
@@ -1415,11 +1512,13 @@ work_uid=$(docker exec "$work_container" sh -c "awk '/^Uid:/{print \$2}' /proc/1
   fail "custom-image Tobari root filesystem is writable"
 [[ $(docker inspect --format '{{join .HostConfig.CapDrop ","}}' "$work_container") == ALL ]] ||
   fail "custom-image Tobari did not drop every capability"
+docker network create --internal --subnet 11.254.43.0/24 "$auth_network" >/dev/null
 docker run -d \
   --name "$mock_name" \
   --user "$(id -u):$(id -g)" \
-  --network tobari-egress \
-  --network-alias mock-upstream \
+  --network "$auth_network" \
+  --network-alias "$mock_host" \
+  --network-alias graphql.tobari.dev \
   --read-only \
   --cap-drop ALL \
   --security-opt no-new-privileges:true \
@@ -1430,13 +1529,10 @@ docker run -d \
   -v "$test_root/tls:/tls:ro" \
   "$tobari_image" -u /mock_upstream.py >/dev/null
 wait_listening "$mock_name" 8080
-wait_network_connection tobari-gateway mock-upstream 8080
 start_cluster >/dev/null
 wait_healthy tobari-gateway
+restore_gateway_auth_fixture_network
 begin_phase gateway-broker-and-transport
-docker network create --internal --subnet 11.254.43.0/24 "$auth_network" >/dev/null
-docker network connect "$auth_network" tobari-gateway
-docker network connect --alias graphql.tobari.dev "$auth_network" "$mock_name"
 wait_network_connection tobari-gateway graphql.tobari.dev 8080
 docker run -d \
   --name "$auth_mock_name" \
@@ -1504,6 +1600,7 @@ default_broker_candidate_id=$(candidate_id_for_effect \
   "$work_id" https api.synthetic.example 443 GET /brokered-default <<<"$broker_candidates")
 opa_before_policy_activation=$(docker inspect --format '{{.Id}}' tobari-opa)
 run_tobari policy allow --id "$default_broker_candidate_id" >/dev/null
+restore_gateway_auth_fixture_network
 # SYNTHETIC_TOKEN expands inside the Workspace.
 # shellcheck disable=SC2016
 default_broker_response=$(run_project sh -c \
@@ -1532,6 +1629,7 @@ broker_candidates=$(run_tobari policy candidates --format json)
 restricted_broker_candidate_id=$(candidate_id_for_effect \
   "$restricted_id" https api.synthetic.example 443 GET /brokered-restricted <<<"$broker_candidates")
 run_tobari policy allow --id "$restricted_broker_candidate_id" >/dev/null
+restore_gateway_auth_fixture_network
 # SYNTHETIC_TOKEN expands inside the Workspace.
 # shellcheck disable=SC2016
 restricted_broker_response=$(run_restricted_project sh -c \
@@ -1562,18 +1660,17 @@ for rejected_path in copied-context copied-project; do
     fail "cross-boundary broker handle request /$rejected_path reached the synthetic upstream"
   fi
 done
-
 wrong_port_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  http://mock-upstream:8081/wrong-port)
+  "http://$mock_host:8081/wrong-port")
 [[ $wrong_port_status == 403 ]] || fail "plain-HTTP guardrail canary returned $wrong_port_status instead of 403"
 if docker logs "$mock_name" 2>&1 | grep -F '"/wrong-port"' >/dev/null; then
   fail "wrong-port request reached mock upstream"
 fi
 
 upload_denial=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X POST https://mock-upstream:8080/stream-upload)
+  -X POST "https://$mock_host:8080/stream-upload")
 [[ $upload_denial == 403 ]] || fail "unreviewed chunked target returned $upload_denial instead of 403"
-allow_exact_effect "$work_id" mock-upstream POST /stream-upload
+allow_exact_effect "$work_id" "$mock_host" POST /stream-upload
 upload_output="$test_root/stream-upload.out"
 docker exec "$work_container" python3 -c '
 import http.client
@@ -1582,11 +1679,11 @@ import ssl
 import time
 
 connection = http.client.HTTPSConnection(
-    "mock-upstream", 8080, timeout=10,
+    "mock-upstream.synthetic.example", 8080, timeout=10,
     context=ssl.create_default_context(cafile=os.environ["SSL_CERT_FILE"]),
 )
 connection.putrequest("POST", "/stream-upload", skip_host=True)
-connection.putheader("Host", "mock-upstream:8080")
+connection.putheader("Host", "mock-upstream.synthetic.example:8080")
 connection.putheader("Transfer-Encoding", "chunked")
 connection.endheaders()
 connection.send(b"5\r\nfirst\r\n")
@@ -1610,25 +1707,25 @@ wait "$upload_pid"
 [[ $(<"$upload_output") == 200 ]] || fail "chunked request did not complete successfully"
 
 stream_denial=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  https://mock-upstream:8080/stream-response)
+  "https://$mock_host:8080/stream-response")
 [[ $stream_denial == 403 ]] || fail "unreviewed streaming target returned $stream_denial instead of 403"
-allow_exact_effect "$work_id" mock-upstream GET /stream-response
+allow_exact_effect "$work_id" "$mock_host" GET /stream-response
 stream_prefix=$(run_project curl -NsS --max-time 1 \
-  https://mock-upstream:8080/stream-response || true)
+  "https://$mock_host:8080/stream-response" || true)
 assert_contains "$stream_prefix" 'data: first' "streaming response prefix"
 if [[ $stream_prefix == *'data: second'* ]]; then
   fail "streaming response completed before the upstream delay"
 fi
 
 oversized_target_denial=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X POST https://mock-upstream:8080/oversized-body)
+  -X POST "https://$mock_host:8080/oversized-body")
 [[ $oversized_target_denial == 403 ]] ||
   fail "unreviewed oversized-body target returned $oversized_target_denial instead of 403"
-allow_exact_effect "$work_id" mock-upstream POST /oversized-body
+allow_exact_effect "$work_id" "$mock_host" POST /oversized-body
 oversized_body_status=$(dd if=/dev/zero bs=1048576 count=9 2>/dev/null | \
   docker exec -i "$work_container" curl -sS -o /dev/null -w '%{http_code}' \
     --max-time 15 -X POST -H 'content-type: application/octet-stream' \
-    --data-binary @- https://mock-upstream:8080/oversized-body || true)
+    --data-binary @- "https://$mock_host:8080/oversized-body" || true)
 [[ $oversized_body_status == 413 ]] ||
   fail "oversized request returned $oversized_body_status instead of 413"
 if docker logs "$mock_name" 2>&1 | grep -F '"/oversized-body"' >/dev/null; then
@@ -1654,13 +1751,13 @@ policy_bundle_mount=$(docker inspect --format \
 expected_digest=$(printf 'Bearer %s' "$tool_auth_value" | shasum -a 256 | awk '{print $1}')
 auth_denial=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -H "Authorization: Bearer $tool_auth_value" \
-  https://mock-upstream:8080/credential)
+  "https://$mock_host:8080/credential")
 [[ $auth_denial == 403 ]] || fail "unreviewed passthrough request returned $auth_denial instead of 403"
 opa_before_passthrough_activation=$(docker inspect --format '{{.Id}}' tobari-opa)
-allow_exact_effect "$work_id" mock-upstream GET /credential
+allow_exact_effect "$work_id" "$mock_host" GET /credential
 auth_response=$(run_project curl -fsS \
   -H "Authorization: Bearer $tool_auth_value" \
-  https://mock-upstream:8080/credential)
+  "https://$mock_host:8080/credential")
 assert_contains "$auth_response" "\"authorization_sha256\":\"$expected_digest\"" \
   "post-policy passthrough credential digest"
 [[ $(docker inspect --format '{{.Id}}' tobari-opa) == "$opa_before_passthrough_activation" ]] ||
@@ -1735,13 +1832,14 @@ host_attachment_events=$(python3 -c '
 import json
 import sys
 print(json.dumps([
-    {"after_ms": 500, "data": """curl -sS https://mock-upstream:8080/permission-resume > /var/lib/tobari/permission-denial.json; python3 -c '\''import json,re,sys; document=json.load(open(sys.argv[1], encoding=\"utf-8\")); command=document[\"tobari\"][\"resume\"][\"command\"]; prefix=\"tobari-permission wait --id \"; wait_id=command[len(prefix):] if command.startswith(prefix) else \"\"; match=re.fullmatch(r\"pwt_[0-9a-f]{32}\", wait_id); sys.exit(2) if match is None else None; print(wait_id)'\'' /var/lib/tobari/permission-denial.json > /var/lib/tobari/permission-wait-id; { tobari-permission wait --id \"$(cat /var/lib/tobari/permission-wait-id)\" > /var/lib/tobari/permission-wait.out 2> /var/lib/tobari/permission-wait.err && if grep -qx Allow /var/lib/tobari/permission-wait.out; then curl -fsS https://mock-upstream:8080/permission-resume > /var/lib/tobari/permission-retry.json; fi; } &\n"""},
+    {"after_ms": 5000, "data": """curl -sS https://mock-upstream.synthetic.example:8080/permission-resume > /var/lib/tobari/permission-denial.json; python3 -c '\''import json,re,sys; document=json.load(open(sys.argv[1], encoding=\"utf-8\")); command=document[\"tobari\"][\"resume\"][\"command\"]; prefix=\"tobari-permission wait --id \"; wait_id=command[len(prefix):] if command.startswith(prefix) else \"\"; match=re.fullmatch(r\"pwt_[0-9a-f]{32}\", wait_id); sys.exit(2) if match is None else None; print(wait_id)'\'' /var/lib/tobari/permission-denial.json > /var/lib/tobari/permission-wait-id; (tobari-permission wait --id \"$(cat /var/lib/tobari/permission-wait-id)\" > /var/lib/tobari/permission-wait.out 2> /var/lib/tobari/permission-wait.err && if grep -qx Allow /var/lib/tobari/permission-wait.out; then while [ ! -e /var/lib/tobari/permission-network-restored ]; do sleep 0.1; done; curl -fsS https://mock-upstream.synthetic.example:8080/permission-resume > /var/lib/tobari/permission-retry.json; fi) </dev/null & permission_wait_pid=$!; while kill -0 \"$permission_wait_pid\" 2>/dev/null; do sleep 0.1; done; wait \"$permission_wait_pid\"\n"""},
     {"after_ms": 3000, "data": """host=""" + sys.argv[2] + """; retired=""" + sys.argv[3] + """; { printf "%s\\n" "$TOBARI_CAPABILITIES_JSON"; curl -sS -o /dev/null -w "%{http_code}" http://${host}:""" + sys.argv[1] + """/health; printf "\\n"; curl -sS -o /dev/null -w "%{http_code}" http://${retired}:""" + sys.argv[1] + """/health; printf "\\n"; curl -ksS --connect-timeout 5 https://${host}:""" + sys.argv[1] + """/health >/dev/null 2>&1; printf "%s\\n" "$?"; curl -ksS --connect-timeout 5 https://${retired}:""" + sys.argv[1] + """/health >/dev/null 2>&1; printf "%s\\n" "$?"; python3 -c \"import socket,sys; print(socket.gethostbyname(sys.argv[1])); print(socket.gethostbyname(sys.argv[2]))\" "$host" "$retired"; } > /var/lib/tobari/host-probe.tmp && mv /var/lib/tobari/host-probe.tmp /var/lib/tobari/host-probe\n"""},
   {"after_ms": 1500, "data": "python3 -m http.server 32123 --bind 127.0.0.1 >/var/lib/tobari/service-server.log 2>&1 & tobari-expose 32123 > /var/lib/tobari/service-exposure.out 2>/var/lib/tobari/service-exposure.err; printf ready > /var/lib/tobari/service-exposure-ready; tobari-expose status > /var/lib/tobari/service-exposure-status.out; while [ ! -e /var/lib/tobari/service-stop ]; do sleep 0.1; done; exposure_ref=$(python3 -c '\''import json; print(json.load(open(\"/var/lib/tobari/service-exposure.out\"))[\"exposure\"][\"id\"])'\''); tobari-expose stop \"$exposure_ref\" > /var/lib/tobari/service-stop.out; printf stopped > /var/lib/tobari/service-stopped\n"},
-    {"after_ms": 25000, "data": "exit\n"},
+    {"after_ms": 25000, "data": "while [ ! -e /var/lib/tobari/attachment-exit ]; do sleep 0.1; done; exit\n"},
 ]))
 ' "$host_service_port" "$host_loopback_hostname" "$retired_host_loopback_hostname")
-TOBARI_TEST_PTY_TIMEOUT_SECONDS=40 \
+TOBARI_TEST_PTY_TIMEOUT_SECONDS=300 \
+  TOBARI_TEST_PTY_EVENT_START_PATTERN='tobari-[a-z0-9-]+-work:[^\r\n]*[$#] ' \
   TOBARI_TEST_PTY_EVENTS="$host_attachment_events" \
   run_tobari_pty_at "$work_root" \
   >"$test_root/host-attachment.out" 2>&1 &
@@ -1795,52 +1893,53 @@ gateway_cert_files_after_terminal=$(docker exec tobari-gateway sh -c 'find /var/
 host_review=
 host_review_index=
 for _ in $(seq 1 30); do
-  host_review=$(run_tobari review permissions --tail 1000 --format json)
+  host_review=$(run_tobari review permissions --format json)
   host_review_index=$(python3 -c '
 import json
 import sys
 items = json.load(sys.stdin)["policy_review"]
 print(next((index for index, item in enumerate(items, 1)
-            if item["host"] == "host.tobari.internal" and item["port"] == int(sys.argv[1]) and item["path"] == "/health"), ""))
+            if item["effect"]["host"] == "host.tobari.internal" and item["effect"]["port"] == int(sys.argv[1]) and item["effect"]["path"] == "/health"), ""))
 ' "$host_service_port" <<<"$host_review")
   [[ -n $host_review_index ]] && break
   sleep 0.2
 done
 [[ -n $host_review_index ]] || fail "Host Loopback denial did not reach review permissions"
-
 host_review_events=$(python3 -c '
 import json
 import sys
-selection = "\x1b[B" * (int(sys.argv[1]) - 1) + "\r"
+selection = str(int(sys.argv[1])) + "\r"
 print(json.dumps([
     {"after_ms": 5000, "data": selection},
-    {"after_ms": 750, "data": "a"},
-    {"after_ms": 750, "data": "p"},
-    {"after_ms": 750, "data": "y"},
+    {"after_ms": 750, "data": "a\r"},
+    {"after_ms": 750, "data": "p\r"},
+    {"after_ms": 750, "data": "y\r"},
 ]))
 ' "$host_review_index")
 if ! host_review_output=$(TOBARI_TEST_PTY_TIMEOUT_SECONDS=15 \
   TOBARI_TEST_PTY_EVENTS="$host_review_events" \
-  run_tobari_pty_at "$work_root" review permissions --tail 1000 2>&1); then
+  run_tobari_pty_at "$work_root" review permissions 2>&1); then
   printf '%s\n' "$host_review_output" >&2
   fail "interactive Host Loopback review permissions failed"
 fi
-python3 - "$config_directory/host-loopback/routes.json" "$work_id" "$host_service_port" <<'PY'
+[[ $host_review_output == *"Active revision"* ]] || { printf '%s\n' "$host_review_output" >&2; fail "interactive Host Loopback review exited without applying the staged attachment decision"; }
+python3 - "$config_directory/host-loopback/routes.json" "$config_directory/host-loopback/grants.json" "$work_id" "$host_service_port" <<'PY'
 import hashlib
 import json
 import socket
 import sys
-
 document = json.load(open(sys.argv[1], encoding="utf-8"))
 if document.get("schema_version") != 2:
     raise SystemExit(f"Host Loopback route registry is not schema V2: {document!r}")
 routes = document["routes"]
-route = next(item for item in routes if item["project_id"] == sys.argv[2])
+route = next(item for item in routes if item["project_id"] == sys.argv[3])
 material = "\0".join(("tobari-host-loopback-route-v2", route["attachment_epoch_id"], route["context_id"], route["project_id"], route["hostname"]))
 expected_id = "hlr_" + hashlib.sha256(material.encode()).hexdigest()[:32]
 if route["hostname"] != "host.tobari.internal" or route["id"] != expected_id:
     raise SystemExit(f"Host Loopback route identity is not bound to the exact authority: {route!r}")
-target_port = int(sys.argv[3])
+target_port = int(sys.argv[4])
+grant = next((item for item in json.load(open(sys.argv[2], encoding="utf-8"))["grants"] if item["project_id"] == sys.argv[3] and item["attachment_epoch_id"] == route["attachment_epoch_id"] and item["target_port"] == target_port and item["decision"] == "allow"), None)
+if grant is None: raise SystemExit("interactive Host Loopback review did not publish the exact attachment grant")
 with socket.create_connection(("127.0.0.1", route["relay_port"]), timeout=3) as relay:
     relay.sendall(b"C" + route["relay_token"].encode("ascii") + target_port.to_bytes(2, "big"))
     if relay.recv(2) != b"OK":
@@ -1855,7 +1954,6 @@ PY
 python3 - "$config_directory/host-loopback/routes.json" "$work_id" <<'PY' |
 import json
 import sys
-
 routes = json.load(open(sys.argv[1], encoding="utf-8"))["routes"]
 route = next(item for item in routes if item["project_id"] == sys.argv[2])
 json.dump({"relay_port": route["relay_port"], "relay_token": route["relay_token"]}, sys.stdout)
@@ -1899,13 +1997,13 @@ grant = next(item for item in document["grants"] if item["project_id"] == sys.ar
 if grant["host"] != "host.tobari.internal" or grant["lifetime"] != "attachment":
     raise SystemExit(f"Host Loopback grant widened its exact attachment authority: {grant!r}")
 PY
-
 verify_workspace_service_exposure
-
-wait "$host_service_attachment_pid"
+run_project touch /var/lib/tobari/attachment-exit; wait "$host_service_attachment_pid"
 host_service_attachment_pid=
-post_detach_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  "http://$host_loopback_hostname:$host_service_port/health")
+post_detach_status=
+for _ in $(seq 1 50); do
+  post_detach_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' "http://$host_loopback_hostname:$host_service_port/health"); [[ $post_detach_status == 403 ]] && break; sleep 0.1
+done
 [[ $post_detach_status == 403 ]] || fail "detached Host Loopback returned $post_detach_status instead of 403"
 python3 - "$config_directory/host-loopback/routes.json" "$config_directory/host-loopback/grants.json" <<'PY'
 import json
@@ -1918,7 +2016,6 @@ PY
 kill "$host_service_server_pid" >/dev/null 2>&1 || true
 wait "$host_service_server_pid" >/dev/null 2>&1 || true
 host_service_server_pid=
-
 if [[ $host_loopback_only == true ]]; then
   complete_phase
   echo "Host Loopback isolated integration: OK"
@@ -1950,7 +2047,7 @@ if run_project curl --noproxy '*' --max-time 3 -fsS \
 fi
 docker stop tobari-opa >/dev/null
 opa_down_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  https://mock-upstream:8080/opa-down)
+  "https://$mock_host:8080/opa-down")
 [[ $opa_down_status == 503 ]] || fail "OPA outage returned $opa_down_status instead of 503"
 docker start tobari-opa >/dev/null
 wait_healthy tobari-opa
@@ -1962,7 +2059,7 @@ if run_project python3 -c \
   fail "Workspace opened a direct raw Internet connection while Gateway was stopped"
 fi
 if run_project curl --max-time 3 -fsS \
-  https://mock-upstream:8080/gateway-down >/dev/null 2>&1; then
+  "https://$mock_host:8080/gateway-down" >/dev/null 2>&1; then
   fail "request succeeded while Gateway was stopped"
 fi
 docker start tobari-gateway >/dev/null

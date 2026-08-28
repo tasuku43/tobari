@@ -185,6 +185,7 @@ run_fast() {
   ./scripts/test-capability-surfaces.sh
   ./scripts/check-site.sh fast
   go test ./...
+	./scripts/check-public-composition.sh
 	go test -tags='tobari_dev tobari_research' ./internal/app/authcmd ./internal/cli ./internal/domain/authbroker ./internal/domain/buildidentity ./internal/domain/capabilitysurface ./internal/infra/authproviders ./internal/infra/dockerruntime
 }
 

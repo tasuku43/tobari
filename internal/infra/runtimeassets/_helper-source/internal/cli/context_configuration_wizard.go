@@ -269,7 +269,7 @@ func renderConfigurationShellRaw(
 		marker := "  "
 		variableToken := styleText
 		if index == selected {
-			marker = "❯ "
+			marker = "> "
 			variableToken = styleAccent
 		}
 		stagedMarker := " "
@@ -544,7 +544,7 @@ func renderConfigurationGitRaw(
 		marker := "  "
 		labelToken := styleText
 		if index == selected {
-			marker = "❯ "
+			marker = "> "
 			labelToken = styleAccent
 		}
 		pendingMarker := " "
@@ -650,15 +650,42 @@ func gitIdentitySourceIndex(source tobari.ManifestGitIdentitySource) int {
 }
 
 type configurationWizardMenu struct {
-	title        string
-	contextName  string
-	contextLabel string
-	current      string
-	details      []configurationWizardDetail
-	information  []string
-	prompt       string
-	options      []configurationWizardOption
-	initial      int
+	title            string
+	contextName      string
+	contextLabel     string
+	current          string
+	details          []configurationWizardDetail
+	information      []string
+	informationLines []configurationWizardLine
+	prompt           string
+	options          []configurationWizardOption
+	initial          int
+}
+
+type configurationWizardPart struct {
+	value string
+	token styleToken
+}
+
+type configurationWizardLine []configurationWizardPart
+
+func configurationWizardInformationLines(menu configurationWizardMenu, style bool) []string {
+	if len(menu.informationLines) == 0 {
+		lines := make([]string, 0, len(menu.information))
+		for _, information := range menu.information {
+			lines = append(lines, applyStyleToken(style, styleMuted, safeExternalText(information)))
+		}
+		return lines
+	}
+	lines := make([]string, 0, len(menu.informationLines))
+	for _, line := range menu.informationLines {
+		var rendered strings.Builder
+		for _, part := range line {
+			rendered.WriteString(applyStyleToken(style, part.token, part.value))
+		}
+		lines = append(lines, rendered.String())
+	}
+	return lines
 }
 
 func (w *terminalContextConfigurationWizard) choose(
@@ -768,15 +795,13 @@ func renderConfigurationWizardRaw(
 	for _, detail := range menu.details {
 		lines = append(lines, selectorDetail(style, safeExternalText(detail.label), safeExternalText(detail.value), styleText))
 	}
-	for _, information := range menu.information {
-		lines = append(lines, selectorHelp(style, safeExternalText(information)))
-	}
+	lines = append(lines, configurationWizardInformationLines(menu, style)...)
 	lines = append(lines, "", applyStyleToken(style, styleText, menu.prompt+":"))
 	for index, option := range menu.options {
 		marker := "  "
 		labelToken := styleText
 		if index == selected {
-			marker = "❯ "
+			marker = "> "
 			labelToken = styleAccent
 		}
 		line := marker + applyStyleToken(style, labelToken, option.label)
@@ -825,8 +850,8 @@ func selectConfigurationWizardLine(
 			return 0, err
 		}
 	}
-	for _, information := range menu.information {
-		if _, err := fmt.Fprintln(out, safeExternalText(information)); err != nil {
+	for _, information := range configurationWizardInformationLines(menu, false) {
+		if _, err := fmt.Fprintln(out, information); err != nil {
 			return 0, err
 		}
 	}

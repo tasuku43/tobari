@@ -130,7 +130,7 @@ func renderDoctorReportWithColor(report doctor.Report, format successFormat, col
 		output := newHumanOutput(color)
 		marker, token := "✓", styleSuccess
 		if !report.Healthy() {
-			marker, token = "✗", styleDanger
+			marker, token = "×", styleDanger
 		}
 		output.heading(marker, "Environment check", token)
 		if len(report.Checks) == 0 {

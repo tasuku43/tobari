@@ -22,7 +22,7 @@ services:
         max-file: "3"
     volumes:
       - ${TOBARI_AUTH_CONTEXTS_DIR}:/var/lib/tobari-auth/contexts
-      - ${TOBARI_AUTH_RUNTIME_DIR}:/run/tobari-auth/runtime
+      - auth-runtime:/run/tobari-auth/runtime
     networks:
       control: {}
       egress: {}
@@ -45,7 +45,7 @@ services:
       TOBARI_AUTH_BROKER_TIMEOUT_SECONDS: ${TOBARI_AUTH_BROKER_TIMEOUT_SECONDS:-70}
     volumes:
       - ${TOBARI_AUTH_PROVIDER_DIR}:/run/tobari/auth:ro
-      - ${TOBARI_AUTH_RUNTIME_DIR}:/run/tobari-auth/runtime:ro
+      - auth-runtime:/run/tobari-auth/runtime:ro
     healthcheck:
       test:
         - CMD
@@ -55,3 +55,14 @@ services:
       interval: 2s
       timeout: 2s
       retries: 30
+
+volumes:
+  auth-runtime:
+    name: tobari-auth-runtime
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "uid=${TOBARI_UID},gid=${TOBARI_GID},mode=0700"
+    labels:
+      io.tobari.owner: default

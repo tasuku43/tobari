@@ -41,11 +41,11 @@ type ContextEnterPort interface {
 }
 
 type DefaultPairContextEnterPort interface {
-	EnterFinalDefaultPair(context.Context, tobari.FinalDefaultPairObservation, tobari.WorkspaceSessionRequest, io.Reader, io.Writer, io.Writer) (tobari.ContextEntryPublication, error)
+	EnterFinalDefaultPair(context.Context, tobari.FinalDefaultPairObservation, string, tobari.WorkspaceSessionRequest, io.Reader, io.Writer, io.Writer) (tobari.ContextEntryPublication, error)
 }
 
 type DefaultPairContextEnterProgressPort interface {
-	EnterFinalDefaultPairWithProgress(context.Context, tobari.FinalDefaultPairObservation, tobari.WorkspaceSessionRequest, tobari.FirstEntryProgressSink, io.Reader, io.Writer, io.Writer) (tobari.ContextEntryPublication, error)
+	EnterFinalDefaultPairWithProgress(context.Context, tobari.FinalDefaultPairObservation, string, tobari.WorkspaceSessionRequest, tobari.FirstEntryProgressSink, io.Reader, io.Writer, io.Writer) (tobari.ContextEntryPublication, error)
 }
 
 type ContextDeletePort interface {
@@ -337,29 +337,32 @@ func (s *ContextService) Enter(ctx context.Context, intent operation.Intent, con
 }
 
 func (s *ContextService) EnterDefaultPair(ctx context.Context, intent operation.Intent, observation tobari.FinalDefaultPairObservation, session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer) (ContextEntryResult, error) {
-	return s.EnterDefaultPairWithProgress(ctx, intent, observation, session, nil, in, out, errOut)
+	return s.EnterDefaultPairWithProgress(ctx, intent, observation, observation.ProjectRoot, session, nil, in, out, errOut)
 }
 
-func (s *ContextService) EnterDefaultPairWithProgress(ctx context.Context, intent operation.Intent, observation tobari.FinalDefaultPairObservation, session tobari.WorkspaceSessionRequest, progress tobari.FirstEntryProgressSink, in io.Reader, out, errOut io.Writer) (ContextEntryResult, error) {
+func (s *ContextService) EnterDefaultPairWithProgress(ctx context.Context, intent operation.Intent, observation tobari.FinalDefaultPairObservation, invocationRoot string, session tobari.WorkspaceSessionRequest, progress tobari.FirstEntryProgressSink, in io.Reader, out, errOut io.Writer) (ContextEntryResult, error) {
 	if err := observation.Validate(); err != nil || observation.Context == nil {
 		if err == nil {
 			err = fmt.Errorf("default-pair Context is absent")
 		}
 		return ContextEntryResult{}, invalidFault("invalid_default_pair", "The final default pair is invalid", err, "status")
 	}
+	if err := tobari.ValidateRootContains(observation.ProjectRoot, invocationRoot); err != nil {
+		return ContextEntryResult{}, invalidFault("invalid_default_pair", "The final default pair invocation root is invalid", err, "status")
+	}
 	contextRef, err := tobari.ContextRef(observation.Context.Context.ID)
 	if err != nil {
 		return ContextEntryResult{}, invalidFault("invalid_context_ref", "Context reference is invalid", err, "status")
 	}
 	value := observation.Clone()
-	return s.runEntryWithProgress(ctx, intent, contextRef, session, in, out, errOut, &value, progress)
+	return s.runEntryWithProgress(ctx, intent, contextRef, session, in, out, errOut, &value, invocationRoot, progress)
 }
 
 func (s *ContextService) runEntry(ctx context.Context, intent operation.Intent, contextRef string, session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer, defaultPair *tobari.FinalDefaultPairObservation) (ContextEntryResult, error) {
-	return s.runEntryWithProgress(ctx, intent, contextRef, session, in, out, errOut, defaultPair, nil)
+	return s.runEntryWithProgress(ctx, intent, contextRef, session, in, out, errOut, defaultPair, "", nil)
 }
 
-func (s *ContextService) runEntryWithProgress(ctx context.Context, intent operation.Intent, contextRef string, session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer, defaultPair *tobari.FinalDefaultPairObservation, progress tobari.FirstEntryProgressSink) (ContextEntryResult, error) {
+func (s *ContextService) runEntryWithProgress(ctx context.Context, intent operation.Intent, contextRef string, session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer, defaultPair *tobari.FinalDefaultPairObservation, invocationRoot string, progress tobari.FirstEntryProgressSink) (ContextEntryResult, error) {
 	if s == nil || portcheck.IsNil(s.enter) {
 		return ContextEntryResult{}, missingPort("Context entry")
 	}
@@ -380,13 +383,13 @@ func (s *ContextService) runEntryWithProgress(ctx context.Context, intent operat
 			publication, err = s.enter.EnterContextByReference(actionContext, contextRef, session, in, out, errOut)
 		} else {
 			if port, ok := s.enter.(DefaultPairContextEnterProgressPort); ok && !portcheck.IsNil(port) {
-				publication, err = port.EnterFinalDefaultPairWithProgress(actionContext, defaultPair.Clone(), session, progress, in, out, errOut)
+				publication, err = port.EnterFinalDefaultPairWithProgress(actionContext, defaultPair.Clone(), invocationRoot, session, progress, in, out, errOut)
 			} else {
 				port, ok := s.enter.(DefaultPairContextEnterPort)
 				if !ok || portcheck.IsNil(port) {
 					return missingPort("final default-pair entry")
 				}
-				publication, err = port.EnterFinalDefaultPair(actionContext, defaultPair.Clone(), session, in, out, errOut)
+				publication, err = port.EnterFinalDefaultPair(actionContext, defaultPair.Clone(), invocationRoot, session, in, out, errOut)
 			}
 		}
 		if err != nil {

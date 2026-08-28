@@ -68,8 +68,13 @@ func TestSemanticStyleTokensRenderWithAndWithoutTerminalStyles(t *testing.T) {
 	if got := ansiStyleTokens[styleMuted]; strings.Contains(got, "[2;") {
 		t.Fatalf("muted token must not use dim/faint styling: %q", got)
 	}
-	if got, want := ansiStyleTokens[styleAccent], "\x1b[1;38;5;38m"; got != want {
-		t.Fatalf("accent token = %q, want calmer emphasized cyan %q", got, want)
+	if got, want := ansiStyleTokens[styleAccent], "\x1b[1;36m"; got != want {
+		t.Fatalf("accent token = %q, want terminal-owned emphasized cyan %q", got, want)
+	}
+	for token, value := range ansiStyleTokens {
+		if strings.Contains(value, "38;5;") || strings.Contains(value, "48;5;") || strings.Contains(value, "38;2;") || strings.Contains(value, "48;2;") {
+			t.Errorf("semantic token %s pins a concrete palette instead of respecting the terminal theme: %q", token, value)
+		}
 	}
 	for _, token := range []styleToken{styleSuccess, styleWarning, styleDanger} {
 		if got := ansiStyleTokens[token]; strings.Contains(got, "[1;") || strings.Contains(got, "[2;") {
@@ -149,14 +154,14 @@ func TestStateMeaningDoesNotDependOnColor(t *testing.T) {
 	output.row("State", "healthy", styleSuccess)
 	output.heading("!", "Needs attention", styleWarning)
 	output.row("State", "pending", styleWarning)
-	output.heading("✗", "Failed", styleDanger)
+	output.heading("×", "Failed", styleDanger)
 	output.row("State", "rejected", styleDanger)
 	value := output.String()
 	if strings.Contains(value, "\x1b[") {
 		t.Fatalf("color-free state output contains ANSI: %q", value)
 	}
 	for _, want := range []string{
-		"✓ Ready", "healthy", "! Needs attention", "pending", "✗ Failed", "rejected",
+		"✓ Ready", "healthy", "! Needs attention", "pending", "× Failed", "rejected",
 	} {
 		if !strings.Contains(value, want) {
 			t.Fatalf("color-free state output %q lacks %q", value, want)
@@ -177,7 +182,7 @@ func TestDoctorStylesOnlyCheckStatesAndFailureMarker(t *testing.T) {
 	}
 	value := string(output)
 	for _, want := range []string{
-		applyStyleToken(true, styleDanger, "✗"),
+		applyStyleToken(true, styleDanger, "×"),
 		applyStyleToken(true, styleSuccess, "pass  "),
 		applyStyleToken(true, styleWarning, "warn  "),
 		applyStyleToken(true, styleDanger, "fail  "),
@@ -205,7 +210,7 @@ func TestHumanErrorUsesSemanticTokensAndExactRecovery(t *testing.T) {
 	}
 	output := string(renderTextErrorWithColor(payload, true))
 	for _, want := range []string{
-		applyStyleToken(true, styleDanger, "✗"),
+		applyStyleToken(true, styleDanger, "×"),
 		applyStyleToken(true, styleDanger, "cluster is not running"),
 		applyStyleToken(true, styleAccent, expectedSurfaceText("tobari cluster up")),
 	} {

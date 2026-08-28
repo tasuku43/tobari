@@ -3,11 +3,13 @@ package dockerruntime
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -76,6 +78,7 @@ func TestHostLoopbackRelayRequiresTokenAndPortGrantBeforeTargetDial(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	runtime.attachmentGrantVisibility = func(context.Context, []byte) error { return nil }
 	epoch, _ := newAttachmentEpochID()
 	attachment, err := runtime.beginHostLoopbackAttachment(context.Background(), projectRuntimeInstance(t, runtime), epoch)
 	if err != nil {
@@ -127,6 +130,37 @@ func TestHostLoopbackRelayRequiresTokenAndPortGrantBeforeTargetDial(t *testing.T
 	_ = connection.Close()
 }
 
+func TestGatewayAttachmentGrantVisibilityWaitsForExactPersistedBytes(t *testing.T) {
+	expected := []byte("{\"schema_version\":2,\"grants\":[]}\n")
+	runner := &recordingRunner{outputQueue: [][]byte{[]byte("stale\n"), expected}}
+	runtime, err := newRuntime(filepath.Join(t.TempDir(), "c"), filepath.Join(t.TempDir(), "s"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.waitForGatewayAttachmentGrantRegistry(context.Background(), expected); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.outputs) != 2 {
+		t.Fatalf("Gateway visibility observations = %d, want 2", len(runner.outputs))
+	}
+	want := []string{"exec", gatewayContainer, "cat", "/run/tobari/host-loopback/grants.json"}
+	if got := runner.outputs[1].args; !slices.Equal(got, want) {
+		t.Fatalf("Gateway visibility argv = %v, want %v", got, want)
+	}
+}
+
+func TestGatewayAttachmentGrantVisibilityFailsClosedOnCancellation(t *testing.T) {
+	runtime, err := newRuntime(filepath.Join(t.TempDir(), "c"), filepath.Join(t.TempDir(), "s"), &recordingRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := runtime.waitForGatewayAttachmentGrantRegistry(ctx, []byte("expected\n")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("visibility error = %v, want cancellation", err)
+	}
+}
+
 func TestHostLoopbackStoreRejectsPredecessorSchemaWithoutMutation(t *testing.T) {
 	root := t.TempDir()
 	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
@@ -159,6 +193,7 @@ func TestHostLoopbackConcurrentAttachmentBorrowsOwnerWithoutExtendingLifetime(t 
 	if err != nil {
 		t.Fatal(err)
 	}
+	runtime.attachmentGrantVisibility = func(context.Context, []byte) error { return nil }
 	project := projectRuntimeInstance(t, runtime)
 	epoch, _ := newAttachmentEpochID()
 	owner, err := runtime.beginHostLoopbackAttachment(context.Background(), project, epoch)

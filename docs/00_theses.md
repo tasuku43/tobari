@@ -175,6 +175,10 @@ through exact ownership checks.
   Access, exact Runtime selection, and one actionable continuation. Stable IDs,
   owner-only paths, immutable revisions, and healthy implementation state stay
   in explicit details or complete machine output.
+- A human-interface implementation counts as product behavior only when the
+  compiled public Catalog reaches it. Presentation code that is reachable only
+  from tests, retired declarations, or predecessor wiring is removed rather
+  than treated as an alternative experience. The public journey has one owner.
 - The ordinary entry path should have one obvious next action, reuse an
   existing Workspace without reconfiguration, and make the first successful
   agent session valuable before policy customization is required. The user
@@ -244,6 +248,10 @@ through exact ownership checks.
   correct.
 - Human CLI help and README lead with the bounded-autonomy outcome and an
   exact next action; scoped agent help retains the complete catalog contract.
+- One deterministic CLI-experience eligibility test rejects concrete palettes,
+  unowned style escapes or spinner frames, unreviewed markers, color-dependent
+  documents, broken first-use interaction continuity, wrong public handlers,
+  and retained predecessor experience owners.
 - Integration tests prove that isolation is opt-in, reusable, recoverable, and
   customizable through the deny-review-allow-retry loop without direct egress;
   they also prove that resetting a learned decision restores default deny and
@@ -694,7 +702,9 @@ name prefix or broad Docker query as authority.
   after partial runtime cleanup and never selects by a Docker name or prefix.
 - `cluster down` refuses to remove shared enforcement while any Workspace remains;
   `--purge` affects only shared CA and active policy-bundle state after the
-  cluster is empty.
+  cluster is empty. A confirmed purge is a stronger stopped state and therefore
+  satisfies a later ordinary down after its exact absence is revalidated; an
+  interrupted purge remains exact-action recovery only.
 - Docker CLI is behind an infrastructure port so another engine can replace it
   later without changing application outcomes.
 - The project runtime spec hash includes the fixed resource contract, so an old
@@ -804,6 +814,12 @@ test, lint, policy test, or integration scenario.
 ### Consequences
 
 - `cli.Catalog` remains the public command source of truth.
+- A focused service or selector test is evidence only for that boundary. Every
+  public Program/path also has an exact production-handler composition canary,
+  and every root-owned journey that can change behavior before or around
+  ordinary command dispatch has a release-binary canary at the real boundary.
+  Tests that reach only a retired or bypassed predecessor path cannot satisfy a
+  final-authority claim.
 - The four-layer dependency direction remains in force.
 - Every executable identifies its source version/commit, compiled runtime-image
   resolver channel, source-required component APIs, and the APIs
@@ -828,6 +844,11 @@ test, lint, policy test, or integration scenario.
 
 - `tools/archlint`, catalog contract tests, Go unit tests, Gateway tests, OPA
   tests, and Docker integration tests cover distinct boundaries.
+- The whole-public-catalog composition test binds every release, exposure-
+  helper, and permission-helper Program/path to its exact production handler.
+  Focused handler tests execute every public CLI mutation projection, while
+  root-only environment and terminal choices retain explicit release-binary
+  scenarios rather than being inferred from handler presence.
 - Embedded-release and development build fixtures prove that equal standard
   Runtime source identities select the same local name across resolver
   channels, unequal identities cannot alias, and cluster preflight rejects an
@@ -856,38 +877,27 @@ administration project.
 - A learnable denial returns a fixed, secret-free host-side review command to
   the agent; a completed session also summarizes the pending queue on host
   stderr. Neither notification can mutate policy or trigger a retry.
-- Interactive `review permissions` is the installation-wide human Permission Inbox
-  over retained queues from every Workspace Template. Its list can stage or clear exact
-  Allow and Deny choices directly and advances only to a later undecided row;
-  template Allow remains available only after detail inspection exposes its
-  examples and future scope. Staging grants no authority and cancellation
-  discards the whole staged set. One final Apply confirmation
-  binds the complete typed snapshot and applies the staged set as one
-  command-owned installation policy decision-set mutation. Every opaque
-  exact candidate or path-template proposal ID is retained unchanged and
-  revalidated against fresh evidence. `review permissions --watch` is a human-text,
-  raw-terminal-only monitor over repeated bounded snapshots. It refreshes
-  automatically with bounded backoff, retains the last valid screen on read
-  failure, retains one alternate-screen frame between Apply operations, skips
-  repaint for an unchanged successful timer refresh, and continues watching
-  after a successful Apply without retrying the denied request. A non-initial successful refresh with at least one previously
-  unseen typed review-item ID may emit one fixed trusted terminal-emulator cue
-  through `auto` recognition of reviewed iTerm2 or protected cmux terminal
-  identity, explicit OSC 9 or BEL, or `off`; denial evidence
-  never enters the control payload. A refresh reconciles staged
-  choices only by typed review-item ID: retained
-  IDs keep their decision and order, stale IDs lose Apply eligibility, and a
-  matching display label never transfers authority to a replacement ID.
-  Its list groups by validated stable Context/Workspace identity, presents that
-  scope once per group, and leads each selectable row with the exact effect or
-  typed template plus bounded observation evidence. Display labels, adjacency, and
-  indentation never create policy identity.
+- Interactive `review permissions` is the installation-wide human Permission
+  Inbox over one validated final-authority snapshot. Its raw-terminal journey
+  has one public owner and three explicit views: list, typed detail, and final
+  staged review. Exact candidates may stage Allow or Deny; a typed path-template
+  candidate may stage only its domain-valid template Allow. Staging grants no
+  authority, cancellation discards the set, and manual refresh obtains a fresh
+  snapshot after discarding stale staging rather than transferring a choice by
+  label. One final Apply confirmation binds unchanged opaque review-item IDs
+  and delegates the complete non-empty staged set to the catalog-owned
+  `policy apply-reviewed` mutation. Attachment-scoped candidates use their
+  separate final attachment boundary and cannot be mixed with persistent
+  Policy Memory decisions in one Apply.
+  The list presents validated Project, Template, match, and exact effect facts;
+  detail wording explains the actual domain-valid authority. Display labels,
+  adjacency, color, and indentation never create identity or scope.
   It owns a separate trusted-host terminal rather than borrowing the attached
   Workspace terminal. No `Ctrl+]` or other child-input prefix is reserved;
   adopting one requires a separate decision to own terminal emulation or
   multiplexing with full-screen compatibility evidence.
-  Redirected and
-  machine-readable `review permissions` remains read-only. `policy candidates`
+  Redirected and machine-readable `review permissions` remains read-only.
+  There is no release `--watch` or notification mode. `policy candidates`
   remains the machine discovery surface. `policy rules` is the exhaustive inventory of
   current CLI-owned learned decisions; `policy reset --id` removes exactly one
   Allow or exact Deny and returns that effect to default deny. The discovery

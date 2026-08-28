@@ -11,11 +11,13 @@ import (
 
 var contextIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
-// PrepareBrokerDirectories creates only the fixed owner-only directories that
-// are mounted into the Auth Broker. Workspace auth registries are created
-// lazily by the legacy project-auth path and must not be established during
-// final cluster initialization. Existing unsafe entries are rejected; their
-// permissions are never silently broadened or repaired.
+// PrepareBrokerDirectories creates only the fixed durable owner-only
+// directories used by the Auth Broker. Its runtime socket is transported in a
+// Docker-owned ephemeral volume and deliberately has no host-state directory.
+// Workspace auth registries are created lazily by the legacy project-auth path
+// and must not be established during final cluster initialization. Existing
+// unsafe entries are rejected; their permissions are never silently broadened
+// or repaired.
 func PrepareBrokerDirectories(stateDirectory string) error {
 	if !filepath.IsAbs(stateDirectory) || filepath.Clean(stateDirectory) != stateDirectory {
 		return fmt.Errorf("%w: auth state path is not canonical and absolute", ErrUnsafe)
@@ -26,7 +28,6 @@ func PrepareBrokerDirectories(stateDirectory string) error {
 	for _, directory := range []string{
 		filepath.Join(stateDirectory, "auth"),
 		filepath.Join(stateDirectory, "auth", "contexts"),
-		filepath.Join(stateDirectory, "auth", "runtime"),
 		filepath.Join(stateDirectory, "auth", "projection"),
 	} {
 		if err := ensureSafeDirectory(directory); err != nil {

@@ -24,11 +24,11 @@ func New(runtime *dockerruntime.Runtime) (*Bridge, error) {
 	return &Bridge{runtime: runtime}, nil
 }
 
-func (b *Bridge) BeginWorkspaceSession(ctx context.Context, binding tobari.WorkspaceSessionBinding) (workspaceauthoritystore.WorkspaceSessionOwner, error) {
+func (b *Bridge) BeginWorkspaceSession(ctx context.Context, binding tobari.WorkspaceSessionBinding, invocationRoot string) (workspaceauthoritystore.WorkspaceSessionOwner, error) {
 	if b == nil || b.runtime == nil {
 		return nil, fmt.Errorf("final Workspace session bridge is unavailable")
 	}
-	return b.runtime.BeginFinalWorkspaceSession(ctx, binding)
+	return b.runtime.BeginFinalWorkspaceSession(ctx, binding, invocationRoot)
 }
 
 var _ workspaceauthoritystore.WorkspaceSessionAuthority = (*Bridge)(nil)

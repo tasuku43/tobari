@@ -24,6 +24,22 @@ type DefaultPairAuthorityPort interface {
 	ObserveFinalDefaultPair(context.Context, string) (tobari.FinalDefaultPairObservation, error)
 }
 
+type defaultPairSelectionAuthorityPort interface {
+	ObserveFinalDefaultPairSelection(context.Context) (tobari.FinalDefaultPairSelection, error)
+}
+
+type defaultPairInsidePort interface {
+	InsideFinalWorkspace(context.Context) bool
+}
+
+// DefaultPairSelector is the presentation boundary for ancestor ambiguity.
+// Application code owns and revalidates the complete typed snapshot; CLI owns
+// only terminal interaction and returns one Context ID from that snapshot or
+// explicit create-here.
+type DefaultPairSelector interface {
+	Select(context.Context, tobari.FinalDefaultPairSelection, io.Reader, io.Writer) (tobari.FinalDefaultPairSelectionChoice, error)
+}
+
 type DefaultPairInitializePort interface {
 	InitializeFinalDefaultPair(context.Context, string, tobari.WorkspaceTemplateBody) (tobari.FinalDefaultPairPublication, error)
 }
@@ -37,6 +53,7 @@ type DefaultPairMutationRecoveryPort interface {
 // create another durable authority or selection.
 type DefaultPairResolution struct {
 	Observation      tobari.FinalDefaultPairObservation
+	InvocationRoot   string
 	AuthorityChanged bool
 }
 
@@ -47,7 +64,21 @@ func (r DefaultPairResolution) Validate() error {
 	if r.Observation.DefaultTemplate == nil || r.Observation.Context == nil {
 		return fmt.Errorf("resolved final default pair is incomplete")
 	}
-	return nil
+	return tobari.ValidateRootContains(r.Observation.ProjectRoot, r.InvocationRoot)
+}
+
+// SelectedDefaultPair preserves the exact selection snapshot and one validated
+// choice until Resolve re-observes both CWD and collection authority.
+type SelectedDefaultPair struct {
+	Selection tobari.FinalDefaultPairSelection
+	Choice    tobari.FinalDefaultPairSelectionChoice
+}
+
+func (s SelectedDefaultPair) Validate() error {
+	if err := s.Selection.Validate(); err != nil {
+		return err
+	}
+	return s.Selection.ValidateChoice(s.Choice)
 }
 
 type DefaultPairStatus struct {
@@ -182,11 +213,15 @@ type DefaultPairService struct {
 	initialize DefaultPairInitializePort
 	recovery   DefaultPairMutationRecoveryPort
 	contexts   *ContextService
+	selector   DefaultPairSelector
 	mutator    *execution.Invoker
 }
 
-func NewDefaultPairService(authority DefaultPairAuthorityPort, initialize DefaultPairInitializePort, contexts *ContextService) *DefaultPairService {
+func NewDefaultPairService(authority DefaultPairAuthorityPort, initialize DefaultPairInitializePort, contexts *ContextService, selectors ...DefaultPairSelector) *DefaultPairService {
 	service := &DefaultPairService{authority: authority, initialize: initialize, contexts: contexts, mutator: execution.New(defaultPairMutationPolicy{})}
+	if len(selectors) > 0 {
+		service.selector = selectors[0]
+	}
 	service.recovery, _ = authority.(DefaultPairMutationRecoveryPort)
 	return service
 }
@@ -217,6 +252,41 @@ func (s *DefaultPairService) Observe(ctx context.Context) (tobari.FinalDefaultPa
 	return observation, nil
 }
 
+// Select observes the complete final-authority candidate set before any root
+// mutation. Exact current roots and candidate-free creation are deterministic;
+// ancestor-only selection always crosses the injected human boundary.
+func (s *DefaultPairService) Select(ctx context.Context, in io.Reader, out io.Writer) (SelectedDefaultPair, error) {
+	if s == nil || portcheck.IsNil(s.authority) {
+		return SelectedDefaultPair{}, missingPort("final default-pair")
+	}
+	if inside, ok := s.authority.(defaultPairInsidePort); ok && !portcheck.IsNil(inside) && inside.InsideFinalWorkspace(ctx) {
+		return SelectedDefaultPair{}, fault.New(
+			fault.KindRejected, "already_inside",
+			"This process is already inside a Workspace; nested entry is not supported", false,
+			fault.NextAction{Command: "help " + TaskDefaultPairEnter, Reason: "Exit the current Workspace session before entering another."},
+		)
+	}
+	selection, err := s.observeSelectionStable(ctx)
+	if err != nil {
+		return SelectedDefaultPair{}, defaultPairMutationFault(err)
+	}
+	choice, automatic := selection.AutomaticChoice()
+	if !automatic {
+		if s.selector == nil || portcheck.IsNil(s.selector) {
+			return SelectedDefaultPair{}, missingPort("final default-pair selector")
+		}
+		choice, err = s.selector.Select(ctx, selection.Clone(), in, out)
+		if err != nil {
+			return SelectedDefaultPair{}, err
+		}
+	}
+	selected := SelectedDefaultPair{Selection: selection.Clone(), Choice: choice}
+	if err := selected.Validate(); err != nil {
+		return SelectedDefaultPair{}, contractFault("invalid_default_pair_selection", "The final default-pair selection is invalid", err)
+	}
+	return selected, nil
+}
+
 // ObserveMutationRecovery is a bounded read-only look at the final mutation
 // journal. Root entry uses it only to resume an exact pending Context entry;
 // it never selects another target or clears the journal.
@@ -231,19 +301,39 @@ func (s *DefaultPairService) ObserveMutationRecovery(ctx context.Context) (tobar
 // the reviewed fresh Template and Context through the canonical initializer.
 // A fresh body is required only for exact empty authority.
 func (s *DefaultPairService) Resolve(ctx context.Context, intent operation.Intent, freshBody *tobari.WorkspaceTemplateBody) (DefaultPairResolution, error) {
+	selected, err := s.Select(ctx, nil, nil)
+	if err != nil {
+		return DefaultPairResolution{}, err
+	}
+	return s.ResolveSelected(ctx, intent, freshBody, selected)
+}
+
+// ResolveSelected revalidates the exact selection receipt before either using
+// one selected ancestor or creating only after an explicit create-here choice.
+func (s *DefaultPairService) ResolveSelected(ctx context.Context, intent operation.Intent, freshBody *tobari.WorkspaceTemplateBody, selected SelectedDefaultPair) (DefaultPairResolution, error) {
 	if s == nil || portcheck.IsNil(s.authority) {
 		return DefaultPairResolution{}, missingPort("final default-pair")
 	}
-	observation, err := s.observeStable(ctx)
+	if err := selected.Validate(); err != nil {
+		return DefaultPairResolution{}, invalidFault("invalid_default_pair_selection", "The final default-pair selection is invalid", err, "status")
+	}
+	currentSelection, err := s.observeSelectionStable(ctx)
 	if err != nil {
 		return DefaultPairResolution{}, defaultPairMutationFault(err)
+	}
+	if !currentSelection.SameReceipt(selected.Selection) || !reflect.DeepEqual(currentSelection, selected.Selection) {
+		return DefaultPairResolution{}, defaultPairMutationFault(fmt.Errorf("final authority changed after selection"))
+	}
+	observation, err := currentSelection.Observation(selected.Choice)
+	if err != nil {
+		return DefaultPairResolution{}, contractFault("invalid_default_pair_selection", "The final default-pair selection is invalid", err)
 	}
 	if observation.CollectionPresent {
 		if observation.DefaultTemplate == nil {
 			return DefaultPairResolution{}, defaultPairInitializationFault(tobari.ErrDefaultTemplateSelectionRequired)
 		}
 		if observation.Context != nil {
-			resolution := DefaultPairResolution{Observation: observation.Clone()}
+			resolution := DefaultPairResolution{Observation: observation.Clone(), InvocationRoot: currentSelection.CanonicalCWD}
 			if err := resolution.Validate(); err != nil {
 				return DefaultPairResolution{}, contractFault("invalid_default_pair", "The final default pair is invalid", err)
 			}
@@ -269,28 +359,40 @@ func (s *DefaultPairService) Resolve(ctx context.Context, intent operation.Inten
 	request := execution.Request{Intent: intent, ExpectedCommand: TaskDefaultPairEnter, ExpectedEffect: operation.EffectCreate, ExpectedTarget: target, ExpectedImpact: DefaultPairEnterImpact()}
 	var resolution DefaultPairResolution
 	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		current, err := s.observeStable(actionContext)
+		current, err := s.observeSelectionStable(actionContext)
 		if err != nil {
 			return defaultPairMutationFault(err)
 		}
-		if !current.SameReceipt(observation) || !reflect.DeepEqual(current, observation) {
+		if !current.SameReceipt(currentSelection) || !reflect.DeepEqual(current, currentSelection) {
 			return defaultPairMutationFault(fmt.Errorf("final authority changed before initialization"))
 		}
-		publication, err := s.initialize.InitializeFinalDefaultPair(actionContext, current.ProjectRoot, body.Clone())
+		currentObservation, err := current.Observation(selected.Choice)
+		if err != nil {
+			return defaultPairMutationFault(err)
+		}
+		publication, err := s.initialize.InitializeFinalDefaultPair(actionContext, currentObservation.ProjectRoot, body.Clone())
 		if err != nil {
 			return defaultPairInitializationFault(err)
 		}
-		if err := publication.ValidateFor(current.ProjectRoot, body); err != nil {
+		if err := publication.ValidateFor(currentObservation.ProjectRoot, body); err != nil {
 			return contractFault("invalid_default_pair_initialization", "The final default-pair initialization publication is invalid", err)
 		}
-		confirmed, err := s.observeStable(actionContext)
+		confirmedSelection, err := s.observeSelectionStable(actionContext)
+		if err != nil {
+			return defaultPairPostInitializationFault(err, publication.Changed)
+		}
+		if publication.Current.Context == nil || confirmedSelection.CanonicalCWD != currentSelection.CanonicalCWD {
+			return defaultPairPostInitializationFault(fmt.Errorf("default-pair authority changed after initialization"), publication.Changed)
+		}
+		confirmedChoice := tobari.FinalDefaultPairSelectionChoice{Kind: tobari.FinalDefaultPairSelectionUse, ContextID: publication.Current.Context.Context.ID}
+		confirmed, err := confirmedSelection.Observation(confirmedChoice)
 		if err != nil {
 			return defaultPairPostInitializationFault(err, publication.Changed)
 		}
 		if !confirmed.SameReceipt(publication.Current) || !reflect.DeepEqual(confirmed, publication.Current) {
 			return defaultPairPostInitializationFault(fmt.Errorf("default-pair authority changed after initialization"), publication.Changed)
 		}
-		resolution = DefaultPairResolution{Observation: confirmed.Clone(), AuthorityChanged: publication.Changed}
+		resolution = DefaultPairResolution{Observation: confirmed.Clone(), InvocationRoot: currentSelection.CanonicalCWD, AuthorityChanged: publication.Changed}
 		if err := resolution.Validate(); err != nil {
 			return defaultPairPostInitializationFault(err, publication.Changed)
 		}
@@ -310,7 +412,7 @@ func (s *DefaultPairService) RefreshAfterCluster(ctx context.Context, resolution
 	if err := cluster.Validate(); err != nil {
 		return DefaultPairResolution{}, contractFault("invalid_cluster_reconciliation_result", "final cluster reconciliation result is invalid", err)
 	}
-	current, err := s.observeStable(ctx)
+	current, err := s.observeResolved(ctx, resolution)
 	if err != nil {
 		return DefaultPairResolution{}, defaultPairPostInitializationFault(err, true)
 	}
@@ -318,7 +420,7 @@ func (s *DefaultPairService) RefreshAfterCluster(ctx context.Context, resolution
 		!sameDefaultPairDesiredAuthority(resolution.Observation, current) || !currentDefaultPairActivationsMatchCluster(current, cluster) {
 		return DefaultPairResolution{}, defaultPairPostInitializationFault(fmt.Errorf("default-pair authority does not match the confirmed cluster receipt"), true)
 	}
-	return DefaultPairResolution{Observation: current.Clone(), AuthorityChanged: resolution.AuthorityChanged}, nil
+	return DefaultPairResolution{Observation: current.Clone(), InvocationRoot: resolution.InvocationRoot, AuthorityChanged: resolution.AuthorityChanged}, nil
 }
 
 func sameDefaultPairDesiredAuthority(previous, current tobari.FinalDefaultPairObservation) bool {
@@ -361,7 +463,7 @@ func (s *DefaultPairService) EnterResolved(ctx context.Context, resolution Defau
 	if err := session.Validate(); err != nil {
 		return ContextEntryResult{}, invalidFault("invalid_arguments", "Workspace session command is invalid", err, "help "+TaskDefaultPairEnter)
 	}
-	confirmed, err := s.observeStable(ctx)
+	confirmed, err := s.observeResolved(ctx, resolution)
 	if err != nil {
 		return ContextEntryResult{}, defaultPairPostInitializationFault(err, resolution.AuthorityChanged)
 	}
@@ -370,7 +472,7 @@ func (s *DefaultPairService) EnterResolved(ctx context.Context, resolution Defau
 	}
 	contextRef, _ := tobari.ContextRef(resolution.Observation.Context.Context.ID)
 	entryIntent := operation.Intent{Command: TaskContextEnter, Effect: operation.EffectCreate, Target: operation.TargetRef{Kind: tobari.WorkspaceReferenceKind, ParentID: contextRef}, Impact: ContextEnterImpact()}
-	result, err := s.contexts.EnterDefaultPairWithProgress(ctx, entryIntent, confirmed.Clone(), session, progress, in, out, errOut)
+	result, err := s.contexts.EnterDefaultPairWithProgress(ctx, entryIntent, confirmed.Clone(), resolution.InvocationRoot, session, progress, in, out, errOut)
 	if err != nil {
 		return ContextEntryResult{}, defaultPairPostInitializationFault(err, resolution.AuthorityChanged)
 	}
@@ -409,6 +511,56 @@ func (s *DefaultPairService) observeStable(ctx context.Context) (tobari.FinalDef
 		return tobari.FinalDefaultPairObservation{}, fmt.Errorf("final default Template or canonical Project changed during observation")
 	}
 	return second.Clone(), nil
+}
+
+func (s *DefaultPairService) observeSelectionStable(ctx context.Context) (tobari.FinalDefaultPairSelection, error) {
+	if s == nil || portcheck.IsNil(s.authority) {
+		return tobari.FinalDefaultPairSelection{}, fmt.Errorf("final default-pair authority is unavailable")
+	}
+	selectionAuthority, ok := s.authority.(defaultPairSelectionAuthorityPort)
+	if !ok || portcheck.IsNil(selectionAuthority) {
+		observation, err := s.observeStable(ctx)
+		if err != nil {
+			return tobari.FinalDefaultPairSelection{}, err
+		}
+		selection := tobari.FinalDefaultPairSelection{
+			SchemaVersion: tobari.FinalDefaultPairSelectionSchemaVersion, CollectionPresent: observation.CollectionPresent,
+			CollectionGeneration: observation.CollectionGeneration, CollectionRevision: observation.CollectionRevision,
+			CanonicalCWD: observation.ProjectRoot, Candidates: []tobari.FinalDefaultPairCandidate{},
+		}
+		if observation.DefaultTemplate != nil {
+			value := observation.DefaultTemplate.Clone()
+			selection.DefaultTemplate = &value
+		}
+		if observation.Context != nil {
+			selection.Candidates = append(selection.Candidates, tobari.FinalDefaultPairCandidate{Snapshot: observation.Context.Clone()})
+		}
+		return selection, selection.Validate()
+	}
+	first, err := selectionAuthority.ObserveFinalDefaultPairSelection(ctx)
+	if err != nil {
+		return tobari.FinalDefaultPairSelection{}, err
+	}
+	second, err := selectionAuthority.ObserveFinalDefaultPairSelection(ctx)
+	if err != nil {
+		return tobari.FinalDefaultPairSelection{}, err
+	}
+	if !first.SameReceipt(second) || !reflect.DeepEqual(first, second) {
+		return tobari.FinalDefaultPairSelection{}, fmt.Errorf("final default Template or canonical Project candidates changed during observation")
+	}
+	return second.Clone(), nil
+}
+
+func (s *DefaultPairService) observeResolved(ctx context.Context, resolution DefaultPairResolution) (tobari.FinalDefaultPairObservation, error) {
+	selection, err := s.observeSelectionStable(ctx)
+	if err != nil {
+		return tobari.FinalDefaultPairObservation{}, err
+	}
+	if selection.CanonicalCWD != resolution.InvocationRoot || resolution.Observation.Context == nil {
+		return tobari.FinalDefaultPairObservation{}, fmt.Errorf("canonical invocation root changed after selection")
+	}
+	choice := tobari.FinalDefaultPairSelectionChoice{Kind: tobari.FinalDefaultPairSelectionUse, ContextID: resolution.Observation.Context.Context.ID}
+	return selection.Observation(choice)
 }
 
 func defaultPairMutationFault(err error) error {

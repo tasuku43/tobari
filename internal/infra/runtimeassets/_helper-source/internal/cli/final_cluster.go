@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
@@ -48,7 +47,7 @@ func runFinalClusterUp(ctx context.Context, c *CLI, command CommandSpec, intent 
 	if !ok {
 		return code
 	}
-	output, err := renderFinalClusterUp(command.Path, result, format)
+	output, err := renderFinalClusterUpWithColor(command.Path, result, format, format == successFormatText && humanStyleAllowed(ctx, c, c.Out))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -67,7 +66,7 @@ func runFinalClusterStatus(ctx context.Context, c *CLI, command CommandSpec, _ o
 	if !ok {
 		return code
 	}
-	output, err := renderFinalClusterStatus(command.Path, result, format)
+	output, err := renderFinalClusterStatusWithColor(command.Path, result, format, format == successFormatText && humanStyleAllowed(ctx, c, c.Out))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -89,7 +88,7 @@ func runFinalClusterDown(ctx context.Context, c *CLI, command CommandSpec, inten
 	if !ok {
 		return code
 	}
-	output, err := renderFinalClusterDown(command.Path, result, format)
+	output, err := renderFinalClusterDownWithColor(command.Path, result, format, format == successFormatText && humanStyleAllowed(ctx, c, c.Out))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -136,14 +135,23 @@ func runFinalClusterDenials(ctx context.Context, c *CLI, command CommandSpec, _ 
 		}
 		return c.emitResult(ctx, append(body, '\n'))
 	}
-	var output strings.Builder
-	fmt.Fprintf(&output, "Cluster denials %d · unparsed %d\n", len(items), result.UnparsedLines)
-	fmt.Fprintf(&output, "Aggregate %s · evaluator %s@%s · policy-data %s\n", result.AggregateRevision, result.EvaluatorIdentity.Version, result.EvaluatorIdentity.Digest, result.PolicyDataIdentity.Digest)
-	for _, item := range result.Items {
-		fmt.Fprintf(&output, "%s  %s  %s %s\n", item.ContextID, item.WorkspaceID, item.Denial.Method, safeExternalText(item.Denial.Path))
+	output := newHumanOutput(humanStyleAllowed(ctx, c, c.Out))
+	if len(items) == 0 {
+		output.heading("·", "No permission denials", styleMuted)
+	} else {
+		output.heading("!", fmt.Sprintf("%d permission denials", len(items)), styleWarning)
 	}
-	fmt.Fprintf(&output, "Review  %s\n", reviewCommand)
-	return c.emitResult(ctx, []byte(output.String()))
+	output.row("Unparsed", fmt.Sprintf("%d lines", result.UnparsedLines), humanStatusToken(fmt.Sprint(result.UnparsedLines)))
+	output.row("Aggregate", string(result.AggregateRevision), styleText)
+	output.row("Evaluator", result.EvaluatorIdentity.Version+"@"+string(result.EvaluatorIdentity.Digest), styleText)
+	output.row("Policy data", string(result.PolicyDataIdentity.Digest), styleText)
+	for _, item := range result.Items {
+		output.row(item.Denial.Method, safeExternalText(item.Denial.Path)+" · "+string(item.ContextID), styleWarning)
+	}
+	if len(items) > 0 {
+		output.next("review permissions", "Inspect and decide the retained requests.")
+	}
+	return c.emitResult(ctx, output.bytes())
 }
 
 func finalClusterDenialValue(item tobari.FinalClusterDenial) map[string]any {
@@ -170,41 +178,66 @@ func finalClusterDenialValue(item tobari.FinalClusterDenial) map[string]any {
 }
 
 func renderFinalClusterStatus(path string, status tobari.FinalClusterStatus, format successFormat) ([]byte, error) {
+	return renderFinalClusterStatusWithColor(path, status, format, false)
+}
+
+func renderFinalClusterStatusWithColor(path string, status tobari.FinalClusterStatus, format successFormat, color bool) ([]byte, error) {
 	if err := status.Validate(); err != nil {
 		return nil, fault.Wrap(fault.KindContract, "invalid_cluster_status_result", "final cluster status is invalid", false, err)
 	}
 	if format == successFormatJSON {
 		return finalClusterJSON(path, "cluster", tobari.FinalClusterStatusSchemaVersion, newFinalClusterStatusPublicResult(status))
 	}
-	var output strings.Builder
-	fmt.Fprintf(&output, "Cluster %s\n", status.Runtime)
-	fmt.Fprintf(&output, "Authority  %s\n", status.Authority)
-	fmt.Fprintf(&output, "Receipt    %s\n", status.Receipt)
+	output := newHumanOutput(color)
+	marker, token, title := "✓", styleSuccess, "Cluster ready"
+	if status.Runtime != tobari.FinalClusterRuntimeRunning || status.Authority != tobari.FinalClusterAuthorityPresent {
+		marker, token, title = "!", styleWarning, "Cluster needs attention"
+	}
+	output.heading(marker, title, token)
+	output.row("Runtime", string(status.Runtime), humanStatusToken(string(status.Runtime)))
+	output.row("Authority", string(status.Authority), humanStatusToken(string(status.Authority)))
+	output.row("Receipt", string(status.Receipt), humanStatusToken(string(status.Receipt)))
 	if status.Authority == tobari.FinalClusterAuthorityPresent {
-		fmt.Fprintf(&output, "Collection generation %d · %s\n", status.Generation, status.CollectionRevision)
+		output.row("Collection", fmt.Sprintf("generation %d · %s", status.Generation, status.CollectionRevision), styleText)
 		if status.AggregateRevision != nil && status.EvaluatorIdentity != nil && status.PolicyDataIdentity != nil {
-			fmt.Fprintf(&output, "Aggregate %s · evaluator %s@%s · policy-data %s\n", *status.AggregateRevision, status.EvaluatorIdentity.Version, status.EvaluatorIdentity.Digest, status.PolicyDataIdentity.Digest)
+			output.row("Aggregate", *status.AggregateRevision, styleText)
+			output.row("Evaluator", status.EvaluatorIdentity.Version+"@"+string(status.EvaluatorIdentity.Digest), styleText)
+			output.row("Policy data", string(status.PolicyDataIdentity.Digest), styleText)
 		}
 	}
-	fmt.Fprintf(&output, "Templates %d · Contexts %d · Workspaces %d\n", status.TemplateCount, status.ContextCount, status.WorkspaceCount)
+	output.row("Resources", fmt.Sprintf("%d Templates · %d Contexts · %d Workspaces", status.TemplateCount, status.ContextCount, status.WorkspaceCount), styleText)
+	if len(status.Components) > 0 {
+		output.section("Components")
+	}
 	for _, component := range status.Components {
 		health := ""
 		if component.Health != "" {
 			health = " · " + safeExternalText(component.Health)
 		}
-		fmt.Fprintf(&output, "%s  %s%s · identity %s · topology %s\n", finalClusterComponentLabel(component.Name), component.State, health, component.Identity, component.Topology)
+		output.row(finalClusterComponentLabel(component.Name), string(component.State)+health+" · identity "+safeExternalText(string(component.Identity))+" · topology "+safeExternalText(string(component.Topology)), humanStatusToken(string(component.State)))
 	}
-	return []byte(output.String()), nil
+	return output.bytes(), nil
 }
 
 func renderFinalClusterUp(path string, result workspaceauthoritycmd.FinalClusterReconciliation, format successFormat) ([]byte, error) {
+	return renderFinalClusterUpWithColor(path, result, format, false)
+}
+
+func renderFinalClusterUpWithColor(path string, result workspaceauthoritycmd.FinalClusterReconciliation, format successFormat, color bool) ([]byte, error) {
 	if err := result.Validate(); err != nil {
 		return nil, fault.Wrap(fault.KindContract, "invalid_cluster_reconciliation_result", "final cluster activation result is invalid", false, err)
 	}
 	if format == successFormatJSON {
 		return finalClusterJSON(path, "cluster_up", tobari.FinalClusterUpSchemaVersion, newFinalClusterUpPublicResult(result))
 	}
-	return []byte(fmt.Sprintf("Cluster activated\nCollection generation %d · %s\nAggregate %s · evaluator %s@%s · policy-data %s\nContexts %d · content %s\n", result.Generation, result.CollectionRevision, result.AggregateRevision, result.EvaluatorIdentity.Version, result.EvaluatorIdentity.Digest, result.PolicyDataIdentity.Digest, len(result.Contexts), result.ContentDigest)), nil
+	output := newHumanOutput(color)
+	output.heading("✓", "Cluster activated", styleSuccess)
+	output.row("Collection", fmt.Sprintf("generation %d · %s", result.Generation, result.CollectionRevision), styleText)
+	output.row("Aggregate", result.AggregateRevision, styleText)
+	output.row("Evaluator", result.EvaluatorIdentity.Version+"@"+string(result.EvaluatorIdentity.Digest), styleText)
+	output.row("Policy data", string(result.PolicyDataIdentity.Digest), styleText)
+	output.row("Contexts", fmt.Sprintf("%d · content %s", len(result.Contexts), result.ContentDigest), styleText)
+	return output.bytes(), nil
 }
 
 // finalClusterUpPublicResult keeps the task-owned validation version private.
@@ -238,28 +271,44 @@ type finalClusterPolicyMemoryPublicResult struct {
 }
 
 type finalClusterStatusPublicResult struct {
-	Task               string                                         `json:"task"`
-	Authority          tobari.FinalClusterAuthorityState              `json:"authority"`
-	Generation         uint64                                         `json:"generation,omitempty"`
-	CollectionRevision tobari.SemanticDigest                          `json:"collection_revision,omitempty"`
-	AggregateRevision  *string                                        `json:"aggregate_revision"`
-	EvaluatorIdentity  *tobari.PolicyEvaluatorIdentity                `json:"evaluator_identity"`
-	PolicyDataIdentity *tobari.PolicyDataIdentity                     `json:"policy_data_identity"`
-	TemplateCount      int                                            `json:"template_count"`
-	ContextCount       int                                            `json:"context_count"`
-	WorkspaceCount     int                                            `json:"workspace_count"`
-	Runtime            tobari.FinalClusterRuntimeState                `json:"runtime"`
-	Receipt            tobari.FinalClusterReceiptState                `json:"receipt"`
-	Contexts           []tobari.FinalClusterContextReceiptObservation `json:"contexts"`
-	Components         []tobari.FinalClusterComponentObservation      `json:"components"`
+	Task               string                                    `json:"task"`
+	Authority          tobari.FinalClusterAuthorityState         `json:"authority"`
+	Generation         uint64                                    `json:"generation,omitempty"`
+	CollectionRevision tobari.SemanticDigest                     `json:"collection_revision,omitempty"`
+	AggregateRevision  *string                                   `json:"aggregate_revision"`
+	EvaluatorIdentity  *tobari.PolicyEvaluatorIdentity           `json:"evaluator_identity"`
+	PolicyDataIdentity *tobari.PolicyDataIdentity                `json:"policy_data_identity"`
+	TemplateCount      int                                       `json:"template_count"`
+	ContextCount       int                                       `json:"context_count"`
+	WorkspaceCount     int                                       `json:"workspace_count"`
+	Runtime            tobari.FinalClusterRuntimeState           `json:"runtime"`
+	Receipt            tobari.FinalClusterReceiptState           `json:"receipt"`
+	Contexts           []finalClusterContextReceiptPublicResult  `json:"contexts"`
+	Components         []tobari.FinalClusterComponentObservation `json:"components"`
+}
+
+type finalClusterContextReceiptPublicResult struct {
+	ContextID      tobari.ContextID                        `json:"context_id"`
+	TemplatePolicy *tobari.TemplatePolicyActivationReceipt `json:"template_policy,omitempty"`
+	PolicyMemory   *finalClusterPolicyMemoryPublicResult   `json:"policy_memory,omitempty"`
 }
 
 func newFinalClusterStatusPublicResult(status tobari.FinalClusterStatus) finalClusterStatusPublicResult {
+	contexts := make([]finalClusterContextReceiptPublicResult, len(status.Contexts))
+	for index, context := range status.Contexts {
+		contexts[index] = finalClusterContextReceiptPublicResult{ContextID: context.ContextID, TemplatePolicy: context.TemplatePolicy}
+		if context.PolicyMemory != nil {
+			contexts[index].PolicyMemory = &finalClusterPolicyMemoryPublicResult{
+				ContextID: context.PolicyMemory.ContextID,
+				Revision:  context.PolicyMemory.Revision,
+			}
+		}
+	}
 	return finalClusterStatusPublicResult{
 		Task: status.Task, Authority: status.Authority, Generation: status.Generation, CollectionRevision: status.CollectionRevision,
 		AggregateRevision: status.AggregateRevision, EvaluatorIdentity: status.EvaluatorIdentity, PolicyDataIdentity: status.PolicyDataIdentity,
 		TemplateCount: status.TemplateCount, ContextCount: status.ContextCount, WorkspaceCount: status.WorkspaceCount,
-		Runtime: status.Runtime, Receipt: status.Receipt, Contexts: status.Contexts, Components: status.Components,
+		Runtime: status.Runtime, Receipt: status.Receipt, Contexts: contexts, Components: status.Components,
 	}
 }
 
@@ -280,6 +329,10 @@ func newFinalClusterUpPublicResult(result workspaceauthoritycmd.FinalClusterReco
 }
 
 func renderFinalClusterDown(path string, result workspaceauthoritycmd.FinalClusterDownResult, format successFormat) ([]byte, error) {
+	return renderFinalClusterDownWithColor(path, result, format, false)
+}
+
+func renderFinalClusterDownWithColor(path string, result workspaceauthoritycmd.FinalClusterDownResult, format successFormat, color bool) ([]byte, error) {
 	if err := result.Validate(); err != nil {
 		return nil, fault.Wrap(fault.KindContract, "invalid_cluster_down_result", "final cluster retirement result is invalid", false, err)
 	}
@@ -289,7 +342,12 @@ func renderFinalClusterDown(path string, result workspaceauthoritycmd.FinalClust
 			CollectionRevision: result.CollectionRevision, EnvelopeChanged: result.EnvelopeChanged,
 		})
 	}
-	return []byte(fmt.Sprintf("Cluster stopped\nShared volumes purged: %t\nCollection generation %d · %s\nActive Context receipts cleared: %t\n", result.Purged, result.Generation, result.CollectionRevision, result.EnvelopeChanged)), nil
+	output := newHumanOutput(color)
+	output.heading("✓", "Cluster stopped", styleSuccess)
+	output.row("Volumes purged", humanBool(result.Purged), humanOutcomeBoolToken(result.Purged))
+	output.row("Collection", fmt.Sprintf("generation %d · %s", result.Generation, result.CollectionRevision), styleText)
+	output.row("Receipts cleared", humanBool(result.EnvelopeChanged), humanOutcomeBoolToken(result.EnvelopeChanged))
+	return output.bytes(), nil
 }
 
 type finalClusterDownPublicResult struct {

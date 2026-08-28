@@ -121,7 +121,12 @@ The owner keeps the wait registry in memory and exposes one attachment-local
 read-only Unix socket to `tobari-permission`. Observation delegates exact
 effect evaluation and precedence to the canonical live OPA policy; it adds no
 rule matcher, policy authority, persistent store, daemon, Workspace file, or
-request replay. Teardown ends the authority and never rebinds waits to a new
+request replay. The host accepts an atomic OPA observation only when its
+revision equals the strictly validated final active policy receipt at
+`$XDG_STATE_HOME/tobari/workspace-authority-policy/active.json`; predecessor
+`state.json` is never an authority or fallback, and a missing or unsafe final
+receipt fails the wait unavailable instead of polling forever. Teardown ends
+the authority and never rebinds waits to a new
 attachment. Listener, heartbeat, and renewal failures close transport and
 invalidate waits before exact bounded authority cleanup; an expired lease is
 never renewed. Attachment cleanup faults remain typed secondary entry outcomes
@@ -479,6 +484,14 @@ reconstruction. Progress stays on host-owned stderr before handoff. A fresh
 noninteractive invocation fails before mutation because the recommended review
 requires the existing terminal contract.
 
+Because this orchestration combines catalog dispatch with production-only
+adapter construction and root-owned terminal/environment decisions, lower-layer
+selector or application fixtures are not sufficient composition evidence. The
+release binary owns the representative cold, exact-root, descendant-reuse, and
+explicit-nested-create journey. Separately, a whole-public-catalog test fixes
+the exact Program/path-to-handler mapping so a rewrite cannot leave tests on a
+retired handler while routing the public command elsewhere.
+
 ### Recovery binding
 
 Catalog recovery metadata and final status PrimaryNext/Attention are the only
@@ -595,14 +608,16 @@ Both canonical sources declare component API V1. Source records only reviewed
 parent inputs; generated owned-image outputs never enter `versions.env` or
 release packaging.
 
-Compose mounts owner-only host state
-`auth/contexts` at `/var/lib/tobari-auth/contexts` and `auth/runtime` at
-`/run/tobari-auth/runtime`; the control socket lives on private tmpfs. The
-daemon listens on
+Compose mounts only durable owner-only host state `auth/contexts` at
+`/var/lib/tobari-auth/contexts`. The runtime socket crosses a Docker-owned
+local volume backed by tmpfs, created with the host UID/GID and mode `0700`;
+it is not a host bind mount or durable XDG state. Cluster down removes that
+ephemeral volume even when the retained CA and policy volumes are preserved.
+The control socket lives on container-private tmpfs. The daemon listens on
 `/run/tobari-auth/control/broker.sock` and
 `/run/tobari-auth/runtime/broker.sock`. Control operations enter the container
 through fixed `docker exec` argv and stdin. Gateway mounts only the runtime
-directory read-only. The provider projection is generated atomically from the
+volume read-only. The provider projection is generated atomically from the
 built-in documents plus owner-only XDG user manifests. Its dedicated parent
 directory is mounted read-only into Gateway so atomic replacement selects a new
 inode without recreating the service; neither the projection nor a provider
@@ -1047,7 +1062,10 @@ canonical CWD's indexed Workspace candidates. An exact current-root record is
 selected directly; when only ancestor records exist, the CLI presents every
 containing root nearest-first and the application accepts either one validated
 candidate or an explicit create-at-CWD choice. The choice is revalidated under
-the lifecycle lock before the selected logical record is created or reused. It
+the lifecycle lock before the selected logical record is created or reused.
+Selection retains the canonical invocation CWD independently from the selected
+Project root: runtime binding and source ownership use the selected root, while
+the attached process starts at the corresponding descendant path. It
 then resolves the selected record's root-scoped Workspace Template Git fallback before
 Docker calls and resolves the bound Workspace Template image. Standard reconciliation
 uses an explicit empty authentication projection and neither inspects nor
@@ -1116,7 +1134,11 @@ Cluster removal is rejected until no instance record remains. Both `cluster
 down` forms remove shared runtime resources while preserving encrypted Workspace Template
 vaults and the installation root key. `--purge` additionally removes only the
 shared CA and active policy-bundle volumes; cluster teardown is not credential
-logout or revocation.
+logout or revocation. The stopped receipt orders purge above retained-volume
+down: an exact completed purge may satisfy a later retained-volume request only
+after runtime and volume absence are reconfirmed. Active journals remain bound
+to the exact requested mode, and retained-volume completion can move to purge
+only through the explicit upgrade settlement.
 
 The authority collection enforces one Context per `(canonical root, Workspace
 Template ID)` and at most one replaceable Workspace per Context. The lifecycle
@@ -1217,7 +1239,9 @@ Every catalog command that supports human text explicitly declares the shared
 semantic-token presentation. The CLI presentation layer owns the exact
 `text`, `muted`, `accent`, `success`, `warning`, and `danger` vocabulary and is
 the only production location that maps those meanings to ANSI color or
-emphasis for catalog-rendered output. Attached Workspace child stdout has a
+emphasis for catalog-rendered output. That mapping uses named ANSI colors so
+the terminal theme owns the concrete palette; fixed 256-color and truecolor
+coordinates are rejected. Attached Workspace child stdout has a
 separate infrastructure-owned syntax-color projection; it maps only bounded
 JSON/YAML token classes and never changes task-owned catalog content. Command renderers select tokens by
 information meaning; they do not own escape sequences or concrete colors.
@@ -1243,6 +1267,12 @@ Its reader absorbs idle VTIME polls without returning a render event, while
 input, selection changes, completion, and cancellation remain observable state transitions. Catalog
 selection supplies bare-namespace normalization and deterministic typo
 suggestions, so routing and recovery do not create a second command registry.
+The deterministic CLI-experience evaluator combines these ownership checks
+with public Catalog handler reachability. It rejects a presentation owner that
+is not reached by the registered command and rejects retained predecessor
+owners even when their focused tests pass. The shared progress module alone
+owns the Braille frames and timing; task renderers supply only a truthful
+active-work label and typed completion result.
 
 ## Gateway request flow
 
@@ -1398,32 +1428,19 @@ pending effect; references remain stable across repeated denials. This pure
 read projection also converges concurrent identical audit records without a
 second persisted inbox or write race. They remove effects already covered by
 the CLI-owned learned allow or deny data and trusted baseline deny rules.
-Baseline denies remain audit-only. `review permissions` is the routine human text
-workflow: its raw list stages exact decisions and its detail view alone stages
-template authority, always over unchanged opaque candidate IDs for one Workspace Template,
-then applies the complete typed set once. Apply or discard precedes
-switching Workspace Template, keeping source promotion to one atomic domain generation;
-redirected review is read-only. The optional raw-terminal `--watch` modifier
-uses the same complete bounded application query on a one-second schedule with
-bounded exponential backoff; it is not streaming delivery or a second policy
-transport. The selector retains one alternate-screen presentation frame across
-CLI-owned reads and quick-staging continuations, while the application use case
-still owns every bounded read. It compares the complete typed report, selected
-ID, staged-ID map, and notice before rendering, so an unchanged successful timer
-refresh writes no new frame. Manual or automatic refresh intersects the staged ordered set with
-the fresh queue by opaque ID, retains selection by ID, and preserves the last
-valid snapshot on read failure. Final review repeats every exact scope,
-effect, decision, and candidate ID before one explicit confirmation. The
-infrastructure returns the revision only after the running OPA confirms it;
-the typed application receipt preserves that revision and ordered decisions.
-Watch tracks a process-memory union of successfully observed typed review-item
-IDs. Only a later successful snapshot containing an unseen ID calls the narrow
-terminal notifier once; the notifier writes fixed trusted ASCII OSC 9 or BEL,
-or nothing for `off`, and never receives denial evidence. `auto` resolves from
-exact iTerm2 identity or the presence of both protected cmux workspace and
-surface identities inside infrastructure, and conservatively falls back to
-BEL. Notification write failure does not change snapshot, staging,
-Apply, retry, terminal passthrough, or policy state.
+Baseline denies remain audit-only. \`review permissions\` is the routine human
+workflow over one validated final-authority snapshot. The CLI owns one
+raw-terminal state machine with list, detail, and final-review states. It stages
+only domain-valid decisions against unchanged opaque review-item IDs; exact
+items can Allow or Deny, while path-template items can only Allow the typed
+shape. Manual refresh returns to the application read boundary and discards the
+prior staged map. Final confirmation exits raw mode before crossing either the
+persistent reviewed-set mutation or the separate attachment-scoped mutation.
+The two lifetimes cannot be mixed in one Apply. Redirected review remains a
+read-only projection, and the release Catalog exposes no watch or notification
+modifier. Infrastructure returns the revision only after running OPA confirms
+it; the typed application receipt preserves that revision and ordered
+decisions.
 `policy rules` is the exhaustive current inventory of CLI-owned learned Allows
 and exact Denies. `policy reset --id` removes exactly one such decision through
 the same preflight, atomic-write, and OPA activation boundary, leaving the
@@ -1560,6 +1577,11 @@ or row order.
 ## Architecture enforcement
 
 - Go architecture lint preserves layer direction and a thin `cmd/tobari`.
+- Whole-public-catalog tests fix the exact production handler for every public
+  command in the release executable and both attachment helpers. New or
+  rerouted paths must update that reviewed mapping, and focused CLI tests must
+  execute their public mutation projection rather than stopping at the
+  application service.
 - Each claim belongs to the lowest layer that can prove it without simulating
   the subject of the claim. Domain owns pure semantics, application owns use-
   case ordering, infrastructure owns exact adapter requests and filesystem

@@ -35,6 +35,7 @@ type finalClusterLifecycleRunner struct {
 	policyVolumeCreates  int
 	policyVolumeRemoves  int
 	failPolicyTestOnce   bool
+	failComposeOnce      bool
 	policyReadyMisses    int
 }
 
@@ -121,7 +122,7 @@ func (r *finalClusterLifecycleRunner) Run(ctx context.Context, args, environment
 		}
 	}
 	if len(args) >= 2 && args[0] == "volume" && args[1] == "ls" {
-		for _, name := range []string{"tobari-gateway-ca", "tobari-public-ca"} {
+		for _, name := range finalFreshVolumeNames() {
 			if slices.Contains(args, "name=^"+name+"$") {
 				if !r.cleanStart && !r.removedVolumes[name] {
 					_, _ = fmt.Fprintln(out, name)
@@ -137,6 +138,11 @@ func (r *finalClusterLifecycleRunner) Run(ctx context.Context, args, environment
 		}
 	}
 	if len(args) > 0 && args[0] == "compose" {
+		if r.failComposeOnce {
+			r.failComposeOnce = false
+			_, _ = io.WriteString(errOut, "synthetic Compose activation failure")
+			return errors.New("synthetic Compose activation failure")
+		}
 		r.cleanStart = false
 		if slices.Contains(args, "up") {
 			for _, component := range []string{gatewayContainer, opaContainer, authBrokerContainer} {
@@ -145,7 +151,7 @@ func (r *finalClusterLifecycleRunner) Run(ctx context.Context, args, environment
 			for _, network := range []string{"tobari-control", "tobari-egress"} {
 				delete(r.removedNetworks, network)
 			}
-			for _, volume := range []string{"tobari-gateway-ca", policyBundleVolume, "tobari-public-ca"} {
+			for _, volume := range finalFreshVolumeNames() {
 				delete(r.removedVolumes, volume)
 			}
 			r.policyVolumeExists = true
@@ -179,6 +185,9 @@ func (r *finalClusterLifecycleRunner) Output(ctx context.Context, args, environm
 			return []byte("Error: No such volume: " + name), errors.New("No such volume")
 		}
 		if name == policyBundleVolume {
+			return []byte(ownerValue + "\n"), nil
+		}
+		if slices.Contains(finalFreshVolumeNames(), name) {
 			return []byte(ownerValue + "\n"), nil
 		}
 	}
@@ -554,6 +563,8 @@ func markFinalClusterRuntimeRemoved(runner *finalClusterLifecycleRunner) {
 	}
 	if brokerRuntimeEnabled {
 		runner.removedComponents[authBrokerContainer] = true
+		runner.removedVolumes[authRuntimeVolume] = true
+		runner.volumeRemoveCalls++
 	}
 	for _, name := range []string{"tobari-control", "tobari-egress"} {
 		runner.removedNetworks[name] = true
@@ -574,13 +585,20 @@ func assertFinalClusterDownConsequence(t *testing.T, runtime *Runtime, runner *f
 	if _, present, err := runtime.readFinalClusterStopped(runtime.finalClusterDownJournalPath()); err != nil || present {
 		t.Fatalf("down journal present=%t err=%v", present, err)
 	}
-	if runner.volumeRemoveCalls != runner.policyVolumeRemoves {
-		t.Fatalf("down attempted retained volume removal: all=%d preflight=%d", runner.volumeRemoveCalls, runner.policyVolumeRemoves)
+	wantEphemeralRemovals := 0
+	if brokerRuntimeEnabled {
+		wantEphemeralRemovals = 1
 	}
-	for _, volume := range []string{"tobari-gateway-ca", policyBundleVolume, "tobari-public-ca"} {
+	if runner.volumeRemoveCalls != runner.policyVolumeRemoves+wantEphemeralRemovals {
+		t.Fatalf("down volume removals: all=%d preflight=%d ephemeral=%d", runner.volumeRemoveCalls, runner.policyVolumeRemoves, wantEphemeralRemovals)
+	}
+	for _, volume := range finalRetainedVolumeNames() {
 		if err := runtime.verifyOwned(context.Background(), "volume", volume); err != nil {
 			t.Fatalf("retained volume %s: %v", volume, err)
 		}
+	}
+	if brokerRuntimeEnabled && !runner.removedVolumes[authRuntimeVolume] {
+		t.Fatal("down retained ephemeral Auth Broker runtime volume")
 	}
 	status, err := runtime.ObserveFinalCluster(context.Background(), next, true)
 	if err != nil || status.Runtime != tobari.FinalClusterRuntimeStopped || status.Receipt != tobari.FinalClusterReceiptStopped || status.Validate() != nil {
@@ -619,10 +637,14 @@ func TestFinalClusterDownPurgeRemovesOnlyExactOwnedSharedVolumes(t *testing.T) {
 	if err != nil || !present || !stopped.Purge {
 		t.Fatalf("purged stopped receipt=%#v present=%t err=%v", stopped, present, err)
 	}
-	if runner.volumeRemoveCalls-before != 3 {
+	wantRemovals := len(finalRetainedVolumeNames())
+	if brokerRuntimeEnabled {
+		wantRemovals++
+	}
+	if runner.volumeRemoveCalls-before != wantRemovals {
 		t.Fatalf("purge volume removal calls=%d before=%d", runner.volumeRemoveCalls, before)
 	}
-	for _, volume := range []string{"tobari-gateway-ca", policyBundleVolume, "tobari-public-ca"} {
+	for _, volume := range finalFreshVolumeNames() {
 		if !runner.removedVolumes[volume] {
 			t.Fatalf("purge retained shared volume %s", volume)
 		}
@@ -633,6 +655,43 @@ func TestFinalClusterDownPurgeRemovesOnlyExactOwnedSharedVolumes(t *testing.T) {
 	}
 	if runner.volumeRemoveCalls != removals {
 		t.Fatalf("repeat purge retried volume removals: %d -> %d", removals, runner.volumeRemoveCalls)
+	}
+}
+
+func TestCompletedFinalClusterPurgeSatisfiesLaterRetainedDown(t *testing.T) {
+	runtime, runner, active := reconcileCleanFinalCluster(t)
+	purged := finalClusterDownTransitionWithPurge(t, active, true)
+	if err := runtime.SettleFinalClusterDown(context.Background(), active, purged.Next, "cluster-down", "purged-down", true); err != nil {
+		t.Fatal(err)
+	}
+	componentCalls := 0
+	for _, calls := range runner.componentRemoveCalls {
+		componentCalls += calls
+	}
+	volumeCalls := runner.volumeRemoveCalls
+	retained := finalClusterDownTransitionWithPurge(t, purged.Next, false)
+	if err := runtime.SettleFinalClusterDown(context.Background(), purged.Next, retained.Next, "cluster-down", "retained-after-purge", false); err != nil {
+		t.Fatalf("completed purge did not satisfy retained down: %v", err)
+	}
+	afterComponentCalls := 0
+	for _, calls := range runner.componentRemoveCalls {
+		afterComponentCalls += calls
+	}
+	if afterComponentCalls != componentCalls || runner.volumeRemoveCalls != volumeCalls {
+		t.Fatalf("retained down replayed removal after purge: components %d -> %d, volumes %d -> %d", componentCalls, afterComponentCalls, volumeCalls, runner.volumeRemoveCalls)
+	}
+}
+
+func TestCompletedFinalClusterPurgeDoesNotMaskRecreatedVolume(t *testing.T) {
+	runtime, runner, active := reconcileCleanFinalCluster(t)
+	purged := finalClusterDownTransitionWithPurge(t, active, true)
+	if err := runtime.SettleFinalClusterDown(context.Background(), active, purged.Next, "cluster-down", "purged-down", true); err != nil {
+		t.Fatal(err)
+	}
+	runner.removedVolumes[finalRetainedVolumeNames()[0]] = false
+	retained := finalClusterDownTransitionWithPurge(t, purged.Next, false)
+	if err := runtime.SettleFinalClusterDown(context.Background(), purged.Next, retained.Next, "cluster-down", "retained-after-drift", false); err == nil {
+		t.Fatal("retained down accepted a recreated volume after completed purge")
 	}
 }
 
@@ -700,10 +759,21 @@ func TestFinalClusterDownPurgeRestartsThroughFreshBootstrap(t *testing.T) {
 	if _, err := runtime.readFinalPolicyActivation(runtime.finalPolicyActiveReceiptPath()); err != nil {
 		t.Fatalf("purged restart active receipt: %v", err)
 	}
-	for _, volume := range []string{"tobari-gateway-ca", policyBundleVolume, "tobari-public-ca"} {
+	for _, volume := range finalFreshVolumeNames() {
 		if runner.removedVolumes[volume] {
 			t.Fatalf("purged restart did not recreate volume %s", volume)
 		}
+	}
+}
+
+func TestFinalClusterBootstrapClassifiesComposeFailureAsUnknownEffect(t *testing.T) {
+	runtime, runner, previous, active, _ := finalClusterLifecycleFixture(t)
+	runner.failComposeOnce = true
+	err := runtime.ReconcileFinalClusterAuthority(context.Background(), previous, active, "cluster-up", "compose-failure")
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "cluster_start_failed" || public.Kind != fault.KindUnavailable ||
+		public.Phase != fault.PhaseMutation || public.ChangeState != fault.ChangeUnknown || public.Retryable {
+		t.Fatalf("Compose activation failure = %#v, %v", public, err)
 	}
 }
 

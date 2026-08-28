@@ -31,6 +31,8 @@ func finalDefaultPairEnterErrors() []CommandError {
 		classifiedCommandError(fault.KindContract, "invalid_first_use_draft", false, fault.PhasePrecondition, fault.ChangeNone, "help tobari", "Inspect the root first-use contract."),
 		classifiedCommandError(fault.KindInternal, "first_use_review_failed", false, fault.PhasePrecondition, fault.ChangeNone, "help tobari", "Open an interactive terminal and retry the reviewed first-use flow."),
 		classifiedCommandError(fault.KindContract, "invalid_first_use_action", false, fault.PhasePrecondition, fault.ChangeNone, "help tobari", "Inspect the root first-use contract."),
+		classifiedCommandError(fault.KindRejected, "already_inside", false, fault.PhasePrecondition, fault.ChangeNone, "help tobari", "Exit the current Workspace session before entering another."),
+		classifiedCommandError(fault.KindContract, "invalid_default_pair_selection", false, fault.PhasePrecondition, fault.ChangeNone, "status", "Observe current Context roots before selecting again."),
 		classifiedCommandError(fault.KindUnavailable, "docker_cli_unavailable", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect generic Docker readiness."),
 		classifiedCommandError(fault.KindUnavailable, "docker_engine_unavailable", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Start the selected engine externally, then retry root entry."),
 		classifiedCommandError(fault.KindUnavailable, "docker_context_unavailable", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect the selected Docker context."),

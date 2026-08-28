@@ -940,7 +940,7 @@ func TestE2EDoctorUsesProductionRuntimeAdapter(t *testing.T) {
 	output := stdout.String()
 	marker := "✓"
 	if code == ExitRejected {
-		marker = "✗"
+		marker = "×"
 	}
 	if !strings.HasPrefix(output, marker+" Environment check\n  docker_cli     pass") {
 		t.Fatalf("doctor output = %q", output)

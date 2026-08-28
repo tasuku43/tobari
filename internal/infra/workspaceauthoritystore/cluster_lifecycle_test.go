@@ -109,3 +109,18 @@ func TestFinalClusterDownAdapterRejectsDifferentModeDuringRecovery(t *testing.T)
 		t.Fatalf("different mode reached settlement: calls=%d", settlement.calls)
 	}
 }
+
+func TestFinalClusterDownAdapterAllowsRetainedDownAfterCompletedPurge(t *testing.T) {
+	previous := finalClusterDownCollectionFixture(t)
+	_, adapter, settlement := newFinalClusterDownAdapterFixture(t, previous)
+	if _, err := adapter.Down(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := adapter.Down(context.Background(), false)
+	if err != nil {
+		t.Fatalf("retained down after completed purge: %v", err)
+	}
+	if plan.Purge || settlement.calls != 2 || settlement.purge {
+		t.Fatalf("plan=%#v settlement=%#v", plan, settlement)
+	}
+}

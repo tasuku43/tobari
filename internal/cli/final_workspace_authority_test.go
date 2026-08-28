@@ -14,6 +14,7 @@ import (
 
 	"github.com/tasuku43/tobari/internal/app/runtimecmd"
 	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
@@ -30,6 +31,81 @@ type finalTemplateCreateCapture struct {
 	calls int
 	name  string
 	body  tobari.WorkspaceTemplateBody
+}
+
+type finalTemplateCopyCapture struct {
+	calls int
+	ref   string
+	name  string
+}
+
+type finalTemplateDefaultCapture struct {
+	calls int
+	ref   string
+}
+
+func (f *finalTemplateDefaultCapture) SetDefaultWorkspaceTemplateByReference(_ context.Context, ref string) (tobari.WorkspaceTemplateSelectionResult, error) {
+	f.calls++
+	f.ref = ref
+	id, err := tobari.ParseWorkspaceTemplateRef(ref)
+	return tobari.WorkspaceTemplateSelectionResult{TemplateID: id, Selected: true}, err
+}
+
+type finalContextMutationCapture struct {
+	createCalls int
+	applyCalls  int
+	templateRef string
+	root        string
+	planRef     string
+	snapshot    tobari.ContextAuthoritySnapshot
+}
+
+func (f *finalContextMutationCapture) CreateContextDraftByTemplateReference(_ context.Context, templateRef, root string) (tobari.ContextDraft, error) {
+	f.createCalls++
+	f.templateRef, f.root = templateRef, root
+	templateID, err := tobari.ParseWorkspaceTemplateRef(templateRef)
+	if err != nil {
+		return tobari.ContextDraft{}, err
+	}
+	contextID := tobari.ContextID("01912345-6789-7abc-8def-0123456789b3")
+	revision := tobari.SemanticDigest("sha256:" + strings.Repeat("b", 64))
+	return tobari.ContextDraft{
+		Source:      tobari.ContextSource{SchemaVersion: tobari.ContextSourceSchemaVersion, ContextID: contextID, ProjectRoot: root, TemplateID: templateID},
+		Observation: tobari.ResourceSourceObservation{Path: "/config/tobari/contexts/01912345-6789-7abc-8def-0123456789b3/context.yaml", State: tobari.ResourceSourceModified, SourceRevision: &revision},
+	}, nil
+}
+
+func (f *finalContextMutationCapture) ApplyContextSourceByPlan(_ context.Context, planRef string) (tobari.ContextAuthoritySnapshot, bool, error) {
+	f.applyCalls++
+	f.planRef = planRef
+	return f.snapshot.Clone(), true, nil
+}
+
+func (f *finalContextMutationCapture) ObserveContextSource(_ context.Context, binding tobari.ContextBinding) (tobari.ResourceSourceObservation, error) {
+	revision, err := tobari.ContextSourceSemanticRevision(binding)
+	if err != nil {
+		return tobari.ResourceSourceObservation{}, err
+	}
+	return tobari.ResourceSourceObservation{
+		Path: "/config/tobari/contexts/" + string(binding.ID) + "/context.yaml", State: tobari.ResourceSourceInSync,
+		SourceRevision: &revision, ActiveRevision: &revision,
+	}, nil
+}
+
+func (f *finalTemplateCopyCapture) CopyWorkspaceTemplateDraftByRevisionReference(_ context.Context, ref, name string) (tobari.WorkspaceTemplateDraft, error) {
+	f.calls++
+	f.ref, f.name = ref, name
+	id := tobari.WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789b2")
+	body := finalAxisTemplateBody("/copied")
+	revision, err := tobari.NewWorkspaceTemplateRevision(id, 1, body)
+	if err != nil {
+		return tobari.WorkspaceTemplateDraft{}, err
+	}
+	value := revision.Revision
+	return tobari.WorkspaceTemplateDraft{
+		ID: id, Name: name, Body: body,
+		Source: tobari.ResourceSourceObservation{Path: "/config/tobari/templates/01912345-6789-7abc-8def-0123456789b2/template.yaml", State: tobari.ResourceSourceModified, SourceRevision: &value},
+	}, nil
 }
 
 func (f *finalTemplateCreateCapture) CreateWorkspaceTemplateDraft(_ context.Context, name string, body tobari.WorkspaceTemplateBody) (tobari.WorkspaceTemplateDraft, error) {
@@ -80,6 +156,18 @@ func (f finalContextAxisReadFixture) ReadContextAuthorityByReference(context.Con
 }
 
 type finalAuthorityDeleteCounter struct{ calls int }
+
+type finalAuthorityMissingFixture struct{ finalAuthorityReadFixture }
+
+func (finalAuthorityMissingFixture) DeleteWorkspaceTemplateByReference(context.Context, string) (tobari.WorkspaceTemplateDeleteResult, error) {
+	return tobari.WorkspaceTemplateDeleteResult{}, tobari.ErrWorkspaceTemplateNotFound
+}
+func (finalAuthorityMissingFixture) DeleteContextByReference(context.Context, string) (tobari.ContextDeleteResult, error) {
+	return tobari.ContextDeleteResult{}, tobari.ErrContextBindingNotFound
+}
+func (finalAuthorityMissingFixture) DeleteWorkspaceByReference(context.Context, string, bool) (tobari.WorkspaceAuthorityDeleteResult, error) {
+	return tobari.WorkspaceAuthorityDeleteResult{}, tobari.ErrWorkspaceBindingNotFound
+}
 
 func (f *finalAuthorityDeleteCounter) DeleteWorkspaceTemplateByReference(context.Context, string) (tobari.WorkspaceTemplateDeleteResult, error) {
 	f.calls++
@@ -198,6 +286,82 @@ func TestFinalContextPlanEmitsDeclaredLegacyReadFault(t *testing.T) {
 	}
 }
 
+func TestFinalAuthorityCRUDCatalogDeclaresApplicationFaultClassifications(t *testing.T) {
+	tests := []struct {
+		path   string
+		code   string
+		kind   fault.Kind
+		phase  fault.Phase
+		change fault.ChangeState
+	}{
+		{path: "template list", code: "invalid_template_list", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
+		{path: "template show", code: "template_not_found", kind: fault.KindNotFound, phase: fault.PhaseObservation, change: fault.ChangeNotApplicable},
+		{path: "template show", code: "invalid_template", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
+		{path: "template create", code: "invalid_template_create_result", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
+		{path: "template delete", code: "template_not_found", kind: fault.KindNotFound, phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{path: "template delete", code: "invalid_template_delete_result", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
+		{path: "context list", code: "invalid_context_list", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
+		{path: "context show", code: "context_not_found", kind: fault.KindNotFound, phase: fault.PhaseObservation, change: fault.ChangeNotApplicable},
+		{path: "context show", code: "invalid_context", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
+		{path: "context create", code: "invalid_context_create_result", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
+		{path: "context delete", code: "context_not_found", kind: fault.KindNotFound, phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{path: "context delete", code: "invalid_context_delete_result", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
+		{path: "workspace list", code: "invalid_workspace_list", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
+		{path: "workspace status", code: "workspace_not_found", kind: fault.KindNotFound, phase: fault.PhaseObservation, change: fault.ChangeNotApplicable},
+		{path: "workspace status", code: "invalid_workspace", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
+		{path: "workspace delete", code: "workspace_not_found", kind: fault.KindNotFound, phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{path: "workspace delete", code: "invalid_workspace_delete_result", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
+	}
+	catalog := DefaultCatalog()
+	for _, test := range tests {
+		t.Run(test.path+"/"+test.code, func(t *testing.T) {
+			spec, found := catalog.Lookup(test.path)
+			if !found {
+				t.Fatalf("command %q is absent", test.path)
+			}
+			declared := commandErrorByCode(t, spec.Agent.Errors, test.code)
+			if declared.Kind != test.kind || declared.Phase != test.phase || declared.ChangeState != test.change {
+				t.Fatalf("%s %s = kind=%q phase=%q change=%q, want %q/%q/%q", test.path, test.code, declared.Kind, declared.Phase, declared.ChangeState, test.kind, test.phase, test.change)
+			}
+		})
+	}
+}
+
+func TestFinalAuthorityCRUDNotFoundFaultsNeverCollapseToUndeclaredContract(t *testing.T) {
+	const (
+		templateRef  = "wtpl1_01912345-6789-7abc-8def-0123456789a1"
+		contextRef   = "ctx1_01912345-6789-7abc-8def-0123456789a2"
+		workspaceRef = "wsp1_01912345-6789-7abc-8def-0123456789a3"
+	)
+	fixture := finalAuthorityMissingFixture{}
+	tests := []struct {
+		name string
+		args []string
+		code string
+		wire func(*CLI)
+	}{
+		{name: "template show", args: []string{"template", "show", "--name", "missing"}, code: "template_not_found", wire: func(c *CLI) { c.finalTemplates = workspaceauthoritycmd.NewTemplateService(fixture) }},
+		{name: "context show", args: []string{"context", "show", "--id", contextRef}, code: "context_not_found", wire: func(c *CLI) { c.finalContexts = workspaceauthoritycmd.NewContextService(fixture) }},
+		{name: "workspace status", args: []string{"workspace", "status", "--id", workspaceRef}, code: "workspace_not_found", wire: func(c *CLI) { c.finalWorkspaces = workspaceauthoritycmd.NewWorkspaceService(fixture) }},
+		{name: "template stale delete", args: []string{"template", "delete", "--id", templateRef, "--confirm=delete"}, code: "template_not_found", wire: func(c *CLI) { c.finalTemplates = workspaceauthoritycmd.NewTemplateService(fixture) }},
+		{name: "context stale delete", args: []string{"context", "delete", "--id", contextRef, "--confirm=delete"}, code: "context_not_found", wire: func(c *CLI) { c.finalContexts = workspaceauthoritycmd.NewContextService(fixture) }},
+		{name: "workspace stale delete", args: []string{"workspace", "delete", "--id", workspaceRef, "--confirm=delete"}, code: "workspace_not_found", wire: func(c *CLI) { c.finalWorkspaces = workspaceauthoritycmd.NewWorkspaceService(fixture) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+			test.wire(command)
+			if code := command.RunContext(context.Background(), test.args); code != ExitNotFound {
+				t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			if !strings.Contains(stderr.String(), test.code) || strings.Contains(stderr.String(), "undeclared_fault_contract") {
+				t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
 func TestPublicCatalogDoesNotExposeLegacyExecutablePolicy(t *testing.T) {
 	for _, command := range DefaultCatalog().PublicCommands() {
 		encoded, err := json.Marshal(command)
@@ -260,6 +424,83 @@ func TestFinalTemplateCreateCanPublishReadAccessAndBoundedGraphQLEndpoint(t *tes
 	}
 	if capture.calls != 0 {
 		t.Fatalf("invalid endpoint reached create port: calls=%d", capture.calls)
+	}
+}
+
+func TestFinalTemplateCopyHandlerConsumesTheExactRevisionReference(t *testing.T) {
+	sourceID := tobari.WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789b1")
+	sourceRevision := tobari.SemanticDigest("sha256:" + strings.Repeat("a", 64))
+	sourceRef, err := tobari.WorkspaceTemplateRevisionRef(sourceID, sourceRevision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capture := &finalTemplateCopyCapture{}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.finalTemplates = workspaceauthoritycmd.NewTemplateService(capture)
+	if code := command.RunContext(context.Background(), []string{"template", "copy", "--from", sourceRef, "--name", "copied", "--format=json"}); code != ExitOK {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if capture.calls != 1 || capture.ref != sourceRef || capture.name != "copied" {
+		t.Fatalf("calls=%d ref=%q name=%q", capture.calls, capture.ref, capture.name)
+	}
+	var document struct {
+		Template finalTemplateDraftProjection `json:"template"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.Template.Name != "copied" || document.Template.Lifecycle != "draft" || document.Template.TemplateRef == "" {
+		t.Fatalf("copy output=%+v", document.Template)
+	}
+}
+
+func TestFinalTemplateDefaultHandlerConsumesTheExactTemplateReference(t *testing.T) {
+	templateID := tobari.WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789b1")
+	templateRef, err := tobari.WorkspaceTemplateRef(templateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capture := &finalTemplateDefaultCapture{}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.finalTemplates = workspaceauthoritycmd.NewTemplateService(capture)
+	if code := command.RunContext(context.Background(), []string{"template", "default", "set", "--id", templateRef, "--format=json"}); code != ExitOK {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if capture.calls != 1 || capture.ref != templateRef || !strings.Contains(stdout.String(), `"selected":true`) {
+		t.Fatalf("calls=%d ref=%q stdout=%q", capture.calls, capture.ref, stdout.String())
+	}
+}
+
+func TestFinalContextCreateAndApplyHandlersBindTheirExactPublicScopes(t *testing.T) {
+	templateID := tobari.WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789b1")
+	templateRef, err := tobari.WorkspaceTemplateRef(templateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capture := &finalContextMutationCapture{}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.finalContexts = workspaceauthoritycmd.NewContextService(capture)
+	command.finalProjectRoot = firstUseIntegrationProjectRoot{root: "/workspace/new-context"}
+	if code := command.RunContext(context.Background(), []string{"context", "create", "--template", templateRef, "--format=json"}); code != ExitOK {
+		t.Fatalf("create code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if capture.createCalls != 1 || capture.templateRef != templateRef || capture.root != "/workspace/new-context" || !strings.Contains(stdout.String(), `"lifecycle":"draft"`) {
+		t.Fatalf("create calls=%d template=%q root=%q stdout=%q", capture.createCalls, capture.templateRef, capture.root, stdout.String())
+	}
+
+	capture.snapshot, _, _, _, _ = finalDesiredActiveSnapshotFixture(t, false)
+	contextID := capture.snapshot.Context.ID
+	planRef := "ctxplan1_" + string(contextID) + "_" + strings.Repeat("c", 64)
+	stdout.Reset()
+	stderr.Reset()
+	if code := command.RunContext(context.Background(), []string{"context", "apply", "--plan", planRef, "--format=json"}); code != ExitOK {
+		t.Fatalf("apply code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if capture.applyCalls != 1 || capture.planRef != planRef || !strings.Contains(stdout.String(), `"changed":true`) {
+		t.Fatalf("apply calls=%d plan=%q stdout=%q", capture.applyCalls, capture.planRef, stdout.String())
 	}
 }
 

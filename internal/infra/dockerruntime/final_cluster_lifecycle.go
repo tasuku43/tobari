@@ -539,6 +539,20 @@ func (r *Runtime) SettleFinalClusterDown(ctx context.Context, previous, next tob
 			}
 			return r.resumeFinalClusterDown(ctx, journal)
 		}
+		// A completed purge is a strictly stronger stopped state than a later
+		// retain-volume request. Accept that request only after re-confirming
+		// both the stopped runtime and the purged volume consequence. The
+		// reverse direction still uses the explicit upgrade path above, and an
+		// interrupted decision remains exact-match recovery only.
+		completedPurgeSatisfiesRetain := stopped.Operation == operation && stopped.Purge && !purge &&
+			stopped.NextGeneration == previous.Generation && stopped.NextRevision == previous.Revision &&
+			previous.Generation == next.Generation && previous.Revision == next.Revision
+		if completedPurgeSatisfiesRetain {
+			if err := r.confirmFinalClusterStoppedRuntime(ctx); err != nil {
+				return err
+			}
+			return r.confirmFinalPurgedVolumesAbsent(ctx)
+		}
 		exactCompletedAction := stopped.Operation == operation && stopped.DecisionRef == decisionRef && stopped.Purge == purge &&
 			stopped.NextGeneration == next.Generation && stopped.NextRevision == next.Revision &&
 			(stopped.PreviousGeneration == previous.Generation && stopped.PreviousRevision == previous.Revision ||
@@ -644,17 +658,34 @@ func (r *Runtime) confirmFinalClusterStoppedRuntime(ctx context.Context) error {
 			return fmt.Errorf("completed final cluster down retained shared network %s: %w", network, err)
 		}
 	}
+	if brokerRuntimeEnabled {
+		if err := r.requireDockerResourceAbsent(ctx, "volume", authRuntimeVolume); err != nil {
+			return fmt.Errorf("completed final cluster down retained Auth Broker runtime volume: %w", err)
+		}
+	}
 	return nil
 }
 
 func (r *Runtime) confirmFinalPurgedVolumesAbsent(ctx context.Context) error {
-	for _, volume := range []string{"tobari-gateway-ca", "tobari-public-ca", policyBundleVolume} {
+	for _, volume := range finalRetainedVolumeNames() {
 		if err := r.verifyOwned(ctx, "volume", volume); errors.Is(err, errOwnedResourceMissing) {
 			continue
 		} else if err != nil {
 			return fmt.Errorf("observe purged final shared volume %s: %w", volume, err)
 		}
 		return fmt.Errorf("completed purge retained final shared volume %s", volume)
+	}
+	return nil
+}
+
+func (r *Runtime) removeOwnedFinalVolume(ctx context.Context, volume string) error {
+	if err := r.verifyOwned(ctx, "volume", volume); errors.Is(err, errOwnedResourceMissing) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if output, err := r.runner.Output(ctx, []string{"volume", "rm", volume}, os.Environ()); err != nil {
+		return fmt.Errorf("remove exact final shared volume %s: %w: %s", volume, err, boundedDiagnostic(output))
 	}
 	return nil
 }
@@ -680,6 +711,9 @@ func (r *Runtime) resumeFinalClusterDown(ctx context.Context, journal finalClust
 			if err := r.waitForCredentialCompanionStopped(ctx); err != nil {
 				return err
 			}
+			if err := r.removeOwnedFinalVolume(ctx, authRuntimeVolume); err != nil {
+				return fmt.Errorf("remove ephemeral Auth Broker runtime volume: %w", err)
+			}
 		}
 		for _, network := range []string{"tobari-control", "tobari-egress"} {
 			if err := r.verifyOwned(ctx, "network", network); errors.Is(err, errOwnedResourceMissing) {
@@ -698,14 +732,9 @@ func (r *Runtime) resumeFinalClusterDown(ctx context.Context, journal finalClust
 	}
 	if journal.Phase == finalClusterDownRuntime {
 		if journal.Purge {
-			for _, volume := range []string{"tobari-gateway-ca", "tobari-public-ca", policyBundleVolume} {
-				if err := r.verifyOwned(ctx, "volume", volume); errors.Is(err, errOwnedResourceMissing) {
-					continue
-				} else if err != nil {
+			for _, volume := range finalRetainedVolumeNames() {
+				if err := r.removeOwnedFinalVolume(ctx, volume); err != nil {
 					return err
-				}
-				if output, err := r.runner.Output(ctx, []string{"volume", "rm", volume}, os.Environ()); err != nil {
-					return fmt.Errorf("remove exact final shared volume %s: %w: %s", volume, err, boundedDiagnostic(output))
 				}
 			}
 		}

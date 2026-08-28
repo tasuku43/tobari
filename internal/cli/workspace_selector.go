@@ -78,6 +78,64 @@ func (s *workspaceSelector) Select(
 	return choice, nil
 }
 
+// SelectFinalDefaultPair reuses the one terminal interaction implementation
+// while preserving final Context identity at the application boundary. The
+// compatibility view is invocation-local only; no predecessor state or ID is
+// read or published.
+func (s *workspaceSelector) SelectFinalDefaultPair(
+	ctx context.Context, selection tobari.FinalDefaultPairSelection, in io.Reader, out io.Writer,
+) (tobari.FinalDefaultPairSelectionChoice, error) {
+	if err := selection.Validate(); err != nil {
+		return tobari.FinalDefaultPairSelectionChoice{}, err
+	}
+	if selection.DefaultTemplate == nil {
+		return tobari.FinalDefaultPairSelectionChoice{}, fmt.Errorf("default Template is unavailable for ancestor selection")
+	}
+	view := tobari.WorkspaceSelection{CWD: selection.CanonicalCWD, Candidates: []tobari.WorkspaceSelectionCandidate{}, CanCreate: true}
+	for _, candidate := range selection.Candidates {
+		runtime := tobari.RuntimeDiagnosticMissing
+		if candidate.Snapshot.Workspace != nil {
+			runtime = tobari.RuntimeDiagnosticUnknown
+		}
+		view.Candidates = append(view.Candidates, tobari.WorkspaceSelectionCandidate{
+			ID: string(candidate.Snapshot.Context.ID), Root: candidate.Snapshot.Context.ProjectRoot,
+			WorkspaceManifestID: string(selection.DefaultTemplate.ID), WorkspaceManifestName: selection.DefaultTemplate.Name,
+			Runtime: runtime,
+		})
+		if candidate.Snapshot.Context.ProjectRoot == selection.CanonicalCWD {
+			view.CanCreate = false
+		}
+	}
+	choice, err := s.Select(ctx, view, in, out)
+	if err != nil {
+		return tobari.FinalDefaultPairSelectionChoice{}, err
+	}
+	if choice.Kind == tobari.ProjectSelectionCreate {
+		return tobari.FinalDefaultPairSelectionChoice{Kind: tobari.FinalDefaultPairSelectionCreate}, nil
+	}
+	contextID := tobari.ContextID(choice.ID)
+	result := tobari.FinalDefaultPairSelectionChoice{Kind: tobari.FinalDefaultPairSelectionUse, ContextID: contextID}
+	if err := selection.ValidateChoice(result); err != nil {
+		return tobari.FinalDefaultPairSelectionChoice{}, err
+	}
+	return result, nil
+}
+
+type finalDefaultPairSelector struct {
+	workspace *workspaceSelector
+}
+
+func newFinalDefaultPairSelectorWithStyle(enabled bool) *finalDefaultPairSelector {
+	return &finalDefaultPairSelector{workspace: newWorkspaceSelectorWithStyle(enabled)}
+}
+
+func (s *finalDefaultPairSelector) Select(ctx context.Context, selection tobari.FinalDefaultPairSelection, in io.Reader, out io.Writer) (tobari.FinalDefaultPairSelectionChoice, error) {
+	if s == nil || s.workspace == nil {
+		return tobari.FinalDefaultPairSelectionChoice{}, fmt.Errorf("final default-pair selector is unavailable")
+	}
+	return s.workspace.SelectFinalDefaultPair(ctx, selection, in, out)
+}
+
 type selectorKeyKind uint8
 
 const (
@@ -362,7 +420,7 @@ func ansiWorkspaceOption(option workspaceSelectorOption, selected, style bool) s
 	}
 	prefix := "  "
 	if selected {
-		prefix = applyStyleToken(style, styleText, "❯ ")
+		prefix = applyStyleToken(style, styleText, "> ")
 	}
 	if option.create {
 		return prefix + applyStyleToken(style, styleText, marker+" Create a new Workspace here")

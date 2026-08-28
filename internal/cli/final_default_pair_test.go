@@ -42,7 +42,7 @@ func TestStatusHomeFreshJSONAndHumanAreCWDFirstAndZeroAuthority(t *testing.T) {
 		}
 	}
 	human := runStatusHomeFixture(t, observation, "text")
-	for _, want := range []string{"Project   /workspace/fresh", "Template  no default Template", "Current   no Context or Workspace", "Next      tobari"} {
+	for _, want := range []string{"Tobari · Project Status", "Project        /workspace/fresh", "Template       no default Template", "Current        no Context or Workspace", "Next           " + ProgramName} {
 		if !strings.Contains(human, want) {
 			t.Errorf("human output missing %q: %q", want, human)
 		}
@@ -82,7 +82,7 @@ func TestStatusHomeJSONPreservesIndependentTemplateContextWorkspaceAxes(t *testi
 		}
 	}
 	human := runStatusHomeFixture(t, observation, "text")
-	if !strings.Contains(human, "Current   Context selected · Workspace present") || !strings.Contains(human, "Next      tobari —") {
+	if !strings.Contains(human, "Current        Context selected · Workspace present") || !strings.Contains(human, "Next           "+ProgramName+" —") {
 		t.Fatalf("human Current/Next separation is unclear: %q", human)
 	}
 }

@@ -3275,7 +3275,7 @@ func TestComposeEnvironmentUsesPinnedImages(t *testing.T) {
 			t.Fatalf("compose environment omits permission attachment binding %q: %s", binding, joined)
 		}
 	}
-	authBindings := []string{"TOBARI_AUTH_PROVIDER_DIR=", "TOBARI_AUTH_CONTEXTS_DIR=", "TOBARI_AUTH_RUNTIME_DIR=", "TOBARI_AUTH_BROKER_IMAGE="}
+	authBindings := []string{"TOBARI_AUTH_PROVIDER_DIR=", "TOBARI_AUTH_CONTEXTS_DIR=", "TOBARI_AUTH_BROKER_IMAGE="}
 	for _, binding := range authBindings {
 		present := strings.Contains(joined, binding)
 		if brokerRuntimeEnabled && !present {
@@ -3284,6 +3284,9 @@ func TestComposeEnvironmentUsesPinnedImages(t *testing.T) {
 		if !brokerRuntimeEnabled && present {
 			t.Fatalf("standard compose environment exposes %q", binding)
 		}
+	}
+	if strings.Contains(joined, "TOBARI_AUTH_RUNTIME_DIR=") {
+		t.Fatal("compose environment exposes a retired host Auth Broker runtime directory")
 	}
 	if strings.Contains(joined, "TOBARI_PRINCIPAL_CONFIG=") {
 		t.Fatal("compose environment still exposes the single-file principal configuration")

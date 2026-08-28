@@ -382,7 +382,7 @@ Readers reject every other version without migration or fallback.
 | macOS root key | 32 bytes | Keychain service `io.tobari.auth-root.v1`, account `tobari` |
 | Public root-key backend | enum | `macos_keychain`, `xdg_file`, or observation-only `unavailable` |
 | Broker control socket | NDJSON schema 1 | `/run/tobari-auth/control/broker.sock` |
-| Broker runtime socket | NDJSON schema 1 | `/run/tobari-auth/runtime/broker.sock` |
+| Broker runtime socket | NDJSON schema 1 | `/run/tobari-auth/runtime/broker.sock` in ephemeral Docker local/tmpfs volume `tobari-auth-runtime` |
 | Private companion socket | framed schema 1 | `/run/tobari-auth/companion/bridge.sock` |
 
 `linux_xdg_file` is an infrastructure/doctor label, not a public JSON enum.
@@ -398,7 +398,8 @@ stdin only after exact container identity and control readiness are verified.
 The Broker is non-root, has no TCP listener, joins no Workspace network, and
 contains no provider CLI. It has bounded egress only for its compiled Datadog
 and OpenAI refresh transports. Gateway alone mounts the runtime socket
-read-only. The AWS companion is a private authenticated reverse session, not a
+read-only from the owner-labeled ephemeral volume; Broker mounts the same
+volume read-write, and cluster down removes it. The AWS companion is a private authenticated reverse session, not a
 host listener or Workspace mount. Control and runtime frames are strict 64 KiB
 schema-1 NDJSON; key and credential payload bytes follow their declared length
 and never use argv or environment.

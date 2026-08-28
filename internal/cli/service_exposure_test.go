@@ -209,3 +209,75 @@ func TestServiceDirectJSONActionsConsumeExactRefsWithoutConfirmFlags(t *testing.
 		t.Fatalf("redundant confirmation output=%s", out.String())
 	}
 }
+
+func TestEveryServiceMutationHandlerConsumesItsExactPublicReference(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		args      func(tobari.ServiceRequest, tobari.ServiceExposure) []string
+		wantEvent func(tobari.ServiceRequest, tobari.ServiceExposure) string
+		wantField string
+	}{
+		{
+			name: "deny",
+			args: func(request tobari.ServiceRequest, _ tobari.ServiceExposure) []string {
+				return []string{"service", "deny", "--id", request.ID, "--format=json"}
+			},
+			wantEvent: func(request tobari.ServiceRequest, _ tobari.ServiceExposure) string { return "deny:" + request.ID },
+			wantField: "denied",
+		},
+		{
+			name: "open",
+			args: func(_ tobari.ServiceRequest, exposure tobari.ServiceExposure) []string {
+				return []string{"service", "open", "--id", exposure.ID, "--format=json"}
+			},
+			wantEvent: func(_ tobari.ServiceRequest, exposure tobari.ServiceExposure) string { return "open:" + exposure.ID },
+			wantField: "outcome",
+		},
+		{
+			name: "stop",
+			args: func(_ tobari.ServiceRequest, exposure tobari.ServiceExposure) []string {
+				return []string{"service", "stop", "--id", exposure.ID, "--format=json"}
+			},
+			wantEvent: func(_ tobari.ServiceRequest, exposure tobari.ServiceExposure) string { return "stop:" + exposure.ID },
+			wantField: "stopped",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			port, request := cliServiceFixture()
+			command, out, errOut := serviceCLIForTest("", port)
+			if code := runCLI(command, test.args(request, port.exposure)); code != ExitOK {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+			}
+			if !reflect.DeepEqual(port.events, []string{test.wantEvent(request, port.exposure)}) {
+				t.Fatalf("events=%v", port.events)
+			}
+			var document map[string]json.RawMessage
+			if err := json.Unmarshal(out.Bytes(), &document); err != nil {
+				t.Fatal(err)
+			}
+			var payload map[string]json.RawMessage
+			for _, envelope := range []string{"result", "open"} {
+				if document[envelope] != nil {
+					if err := json.Unmarshal(document[envelope], &payload); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if payload[test.wantField] == nil {
+				t.Fatalf("%s JSON omitted %q: %s", test.name, test.wantField, out.String())
+			}
+		})
+	}
+}
+
+func TestExposureHelperStopConsumesOnlyTheAttachmentLocalReference(t *testing.T) {
+	port, _ := cliServiceFixture()
+	helper, out, errOut := serviceCLIForTest("", port)
+	helper.catalog = DefaultCatalog().ForProgram(ExposureProgramName)
+	if code := runCLI(helper, []string{"stop", port.exposure.ID}); code != ExitOK {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	if !reflect.DeepEqual(port.events, []string{"stop:" + port.exposure.ID}) || !strings.Contains(out.String(), `"stopped":true`) {
+		t.Fatalf("events=%v output=%s", port.events, out.String())
+	}
+}

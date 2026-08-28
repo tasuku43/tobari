@@ -267,9 +267,12 @@ type firstUseIntegrationSessionOwner struct {
 	parent *firstUseIntegrationSession
 }
 
-func (s *firstUseIntegrationSession) BeginWorkspaceSession(_ context.Context, binding tobari.WorkspaceSessionBinding) (workspaceauthoritystore.WorkspaceSessionOwner, error) {
+func (s *firstUseIntegrationSession) BeginWorkspaceSession(_ context.Context, binding tobari.WorkspaceSessionBinding, invocationRoot string) (workspaceauthoritystore.WorkspaceSessionOwner, error) {
 	s.begin++
 	if err := binding.Validate(); err != nil {
+		return nil, err
+	}
+	if err := tobari.ValidateRootContains(binding.ProjectRoot, invocationRoot); err != nil {
 		return nil, err
 	}
 	s.owner.parent = s
@@ -385,7 +388,7 @@ func TestFinalRootFreshStartBootstrapsAuthorityClusterAndWorkspaceFromEmptyXDG(t
 	command.finalEntryReadiness = firstUseIntegrationReadiness{}
 	command.finalCluster = cluster
 	command.firstUse = firstUseIntegrationReviewer{}
-	command.firstUseInteractive = func(io.Reader, io.Writer, io.Writer) bool { return true }
+	command.interactive = func(io.Reader, io.Writer, io.Writer) bool { return true }
 	command.firstUseTemplateBody = func(context.Context) (tobari.WorkspaceTemplateBody, error) {
 		body := finalAxisTemplateBody("/bootstrap")
 		body.Boundary.SourceAccess = tobari.ManifestSourceAccessReadWrite

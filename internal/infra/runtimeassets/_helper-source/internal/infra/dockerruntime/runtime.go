@@ -29,9 +29,22 @@ const (
 	gatewayContainer         = "tobari-gateway"
 	opaContainer             = "tobari-opa"
 	policyBundleVolume       = "tobari-policy-bundle"
+	authRuntimeVolume        = "tobari-auth-runtime"
 	authBrokerContainer      = "tobari-auth-broker"
 	policyTestFailureMessage = "built-in policy checks failed; reconcile the typed policy data and owned Docker policy bundle"
 )
+
+func finalRetainedVolumeNames() []string {
+	return []string{"tobari-gateway-ca", policyBundleVolume, "tobari-public-ca"}
+}
+
+func finalFreshVolumeNames() []string {
+	volumes := finalRetainedVolumeNames()
+	if brokerRuntimeEnabled {
+		volumes = append([]string{authRuntimeVolume}, volumes...)
+	}
+	return volumes
+}
 
 var errOwnedResourceMissing = errors.New("owned Docker resource is missing")
 
@@ -151,6 +164,9 @@ type Runtime struct {
 	// input or runtime probe can change it.
 	permissionIngestionTransport tobari.PermissionSessionTransport
 	policyProjectionMu           sync.Mutex
+	// attachmentGrantVisibility is nil in production. Focused tests replace
+	// only the bounded Gateway bind-mount visibility confirmation.
+	attachmentGrantVisibility func(context.Context, []byte) error
 	// projectStateWriter is nil in production. Tests may use it to inject a
 	// durable-state write failure after Docker reconciliation has completed.
 	projectStateWriter func(tobari.Workspace) error

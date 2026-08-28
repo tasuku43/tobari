@@ -235,9 +235,16 @@ func renderTextErrorWithColor(payload errorPayload, color bool) []byte {
 
 func renderTextErrorForProgram(payload errorPayload, color bool, program string) []byte {
 	output := newHumanOutput(color)
-	heading, marker, stateToken, messageToken := "Command failed", "✗", styleDanger, styleDanger
+	heading, marker, stateToken, messageToken := "Command failed", "×", styleDanger, styleDanger
 	if payload.Kind == fault.KindCanceled {
-		heading, marker, stateToken, messageToken = "Canceled", "·", styleMuted, styleText
+		output.heading("·", "Canceled", styleMuted)
+		output.row("Message", escapeTSVCell(payload.Message), styleText)
+		output.row("Code", payload.Code, styleText)
+		output.row("Change state", string(payload.ChangeState), humanStatusToken(string(payload.ChangeState)))
+		for _, action := range payload.NextActions {
+			output.nextForProgram(program, action.Command, action.Reason)
+		}
+		return output.bytes()
 	}
 	output.heading(marker, heading, stateToken)
 	output.row("Message", escapeTSVCell(payload.Message), messageToken)

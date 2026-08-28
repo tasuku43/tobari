@@ -163,16 +163,19 @@ type entrySessionFixture struct {
 }
 
 type defaultPairContextEntryPort interface {
-	EnterFinalDefaultPair(context.Context, tobari.FinalDefaultPairObservation, tobari.WorkspaceSessionRequest, io.Reader, io.Writer, io.Writer) (tobari.ContextEntryPublication, error)
+	EnterFinalDefaultPair(context.Context, tobari.FinalDefaultPairObservation, string, tobari.WorkspaceSessionRequest, io.Reader, io.Writer, io.Writer) (tobari.ContextEntryPublication, error)
 }
 
-func (s *entrySessionFixture) BeginWorkspaceSession(_ context.Context, binding tobari.WorkspaceSessionBinding) (WorkspaceSessionOwner, error) {
+func (s *entrySessionFixture) BeginWorkspaceSession(_ context.Context, binding tobari.WorkspaceSessionBinding, invocationRoot string) (WorkspaceSessionOwner, error) {
 	s.begin++
 	if s.lifecycle == nil || !s.lifecycle.held.Load() {
 		return nil, fmt.Errorf("session owner was not acquired under lifecycle authority")
 	}
 	if err := binding.Validate(); err != nil {
 		return nil, fmt.Errorf("session owner received invalid final authority: %w", err)
+	}
+	if err := tobari.ValidateRootContains(binding.ProjectRoot, invocationRoot); err != nil {
+		return nil, err
 	}
 	if s.beginErr != nil {
 		return nil, s.beginErr
@@ -334,7 +337,7 @@ func TestDefaultPairEntryRechecksExactReceiptInsideLifecycleLockBeforeRuntimeEff
 		writeAuthorityBytes(t, store.root, encoded)
 		lifecycle.before = nil
 	}
-	if _, err := entry.EnterFinalDefaultPair(context.Background(), expected, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); err == nil {
+	if _, err := entry.EnterFinalDefaultPair(context.Background(), expected, expected.ProjectRoot, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); err == nil {
 		t.Fatal("default-pair entry accepted collection/default drift inside the lifecycle lock")
 	}
 	if runtime.planCalls != 0 || runtime.reconcileCalls != 0 || runtime.confirmCalls != 0 || templatePolicy.calls != 0 || memory.confirmCalls != 0 || sessions.begin != 0 || sessions.run != 0 || sessions.close != 0 {
@@ -352,7 +355,7 @@ func TestDefaultPairEntryProgressEndsBeforeSessionStreamHandoff(t *testing.T) {
 	}
 	events := []tobari.FirstEntryProgress{}
 	publication, err := adapter.EnterFinalDefaultPairWithProgress(
-		context.Background(), expected, tobari.NewWorkspaceShellSession(),
+		context.Background(), expected, expected.ProjectRoot, tobari.NewWorkspaceShellSession(),
 		func(event tobari.FirstEntryProgress) { events = append(events, event) },
 		strings.NewReader(""), io.Discard, io.Discard,
 	)

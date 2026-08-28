@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
@@ -20,9 +22,25 @@ type finalPolicyPortFixture struct {
 	allow      tobari.PolicyCandidatePublication
 	deny       tobari.PolicyCandidatePublication
 	reset      tobari.PolicyRuleResetPublication
+	attachment tobari.AttachmentGrantPublication
 	allowCalls int
 	denyCalls  int
 	resetCalls int
+}
+
+func (f *finalPolicyPortFixture) ListPolicyCandidatesIncludingAttachments(context.Context) (tobari.PolicyCandidateAuthorityList, error) {
+	return f.candidates.Clone(), nil
+}
+
+func (f *finalPolicyPortFixture) ApplyAttachmentPolicyCandidate(_ context.Context, ref string, decision tobari.PolicyMemoryDecision) (tobari.AttachmentGrantPublication, bool, error) {
+	if f.attachment.Candidate.ID != ref {
+		return tobari.AttachmentGrantPublication{}, false, nil
+	}
+	if err := f.attachment.ValidateFor(ref, decision); err != nil {
+		return tobari.AttachmentGrantPublication{}, true, err
+	}
+	f.allowCalls++
+	return f.attachment, true, nil
 }
 
 func (f *finalPolicyPortFixture) ListPendingPolicyCandidateAuthority(context.Context) (tobari.PolicyCandidateAuthorityList, error) {
@@ -162,6 +180,24 @@ func TestFinalPolicyCatalogHasExactSchemaAndReferenceGraph(t *testing.T) {
 			t.Fatalf("missing %q", path)
 		}
 	}
+	for _, test := range []struct {
+		path, readCode, invalidCode string
+	}{
+		{path: "policy candidates", readCode: "policy_candidate_read_failed", invalidCode: "invalid_policy_candidate_list"},
+		{path: "review permissions", readCode: "policy_review_read_failed", invalidCode: "invalid_policy_review_snapshot"},
+		{path: "policy rules", readCode: "policy_rule_read_failed", invalidCode: "invalid_policy_rule_list"},
+	} {
+		spec, _ := catalog.Lookup(test.path)
+		read := commandErrorByCode(t, spec.Agent.Errors, test.readCode)
+		if read.Kind != fault.KindUnavailable || read.Phase != fault.PhaseObservation || read.ChangeState != fault.ChangeNotApplicable {
+			t.Fatalf("%s read fault contract = %+v", test.path, read)
+		}
+		invalid := commandErrorByCode(t, spec.Agent.Errors, test.invalidCode)
+		if invalid.Kind != fault.KindContract || invalid.Phase != fault.PhaseVerification || invalid.ChangeState != fault.ChangeUnknown {
+			t.Fatalf("%s verification fault contract = %+v", test.path, invalid)
+		}
+		commandErrorByCode(t, spec.Agent.Errors, "output_encoding_failed")
+	}
 	candidates, _ := catalog.Lookup("policy candidates")
 	rules, _ := catalog.Lookup("policy rules")
 	if candidates.Agent.Output.JSONSchemaVersion != 3 || rules.Agent.Output.JSONSchemaVersion != 3 {
@@ -217,6 +253,78 @@ func TestFinalPolicyReadsAndDirectMutationsUseOnlyFinalService(t *testing.T) {
 	}
 	if port.allowCalls != 1 || port.denyCalls != 1 || port.resetCalls != 1 {
 		t.Fatalf("mutation calls allow=%d deny=%d reset=%d", port.allowCalls, port.denyCalls, port.resetCalls)
+	}
+}
+
+func TestFinalPermissionInboxAppliesOneAttachmentCandidateThroughAttachmentBoundary(t *testing.T) {
+	port, _, _ := finalPolicyCLIFixture(t)
+	collection := port.review.Collection
+	denial := tobari.PolicyDenial{
+		PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "http", Protocol: tobari.PolicyProtocolHTTP},
+		Timestamp:              "2026-08-25T12:00:00Z", RequestID: strings.Repeat("4", 32),
+		WorkspaceManifestID: string(collection.Contexts[0].Context.ID), WorkspaceManifestName: collection.Templates[0].Name,
+		ProjectID: string(collection.Workspaces[0].ID), ProjectRoot: collection.Workspaces[0].ProjectRoot,
+		Host: tobari.HostLoopbackHostname, Port: 32123, Method: "GET", Path: "/health",
+		Reason: "Host Loopback requires attachment policy review", StatusCode: 403, Learnable: true,
+		DestinationKind: tobari.PolicyDestinationHostLoopback, AuthorityLifetime: tobari.AuthorityLifetimeAttachment,
+		AttachmentEpochID: "att_" + strings.Repeat("5", 32),
+	}
+	attachments, err := tobari.PolicyCandidatesWithDenyRules([]tobari.PolicyDenial{denial}, []tobari.LearnedPolicyRule{}, tobari.PolicyDenyRuleSet{Exact: []tobari.PolicyDenyRule{}})
+	if err != nil || len(attachments) != 1 {
+		t.Fatalf("attachments=%#v err=%v", attachments, err)
+	}
+	list, err := tobari.NewPolicyCandidateAuthorityListWithAttachments(collection, true, attachments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port.candidates = list
+	port.review, err = tobari.JoinPolicyMemoryReviewCandidates(port.review, list)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant, err := tobari.NewAttachmentGrantFromCandidate(string(tobari.PolicyMemoryAllow), attachments[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	port.attachment = tobari.AttachmentGrantPublication{Candidate: attachments[0], Grant: grant, Activation: tobari.PolicyActivationReceipt{ActiveRevision: strings.Repeat("a", 64)}}
+	var out, errOut bytes.Buffer
+	command := newCLI(strings.NewReader(""), &out, &errOut, DefaultCatalog(), nil)
+	command.finalPolicy = workspaceauthoritycmd.NewPolicyMemoryService(port)
+	if code := command.RunContext(context.Background(), []string{"review", "permissions", "--format", "json"}); code != ExitOK || !strings.Contains(out.String(), `"host":"host.tobari.internal"`) {
+		t.Fatalf("review code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	out.Reset()
+	errOut.Reset()
+	command.In = strings.NewReader("1\na\np\ny\n")
+	command.interactive = func(io.Reader, io.Writer, io.Writer) bool { return true }
+	if code := command.RunContext(context.Background(), []string{"review", "permissions"}); code != ExitOK || port.allowCalls != 1 || !strings.Contains(out.String(), "Active revision") {
+		t.Fatalf("code=%d allow=%d stdout=%q stderr=%q", code, port.allowCalls, out.String(), errOut.String())
+	}
+}
+
+func TestFinalPermissionInboxRawFlowOwnsListDetailAndReview(t *testing.T) {
+	port, _, _ := finalPolicyCLIFixture(t)
+	var output bytes.Buffer
+	result, err := selectFinalPolicyReviewRaw(
+		context.Background(), port.review, strings.NewReader("\n\npy"), &output, false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.kind != finalPolicyReviewRawApply || len(result.staged) != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+	text := output.String()
+	for _, want := range []string{
+		"Tobari · Permission Inbox", "Tobari · Review Permission", "Allow this exact request",
+		"Tobari · Review Decisions", "Staging has not changed the active policy.",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("raw flow lacks %q: %q", want, text)
+		}
+	}
+	if strings.Contains(text, "Commands: number select") {
+		t.Fatalf("raw flow retained predecessor line UI: %q", text)
 	}
 }
 

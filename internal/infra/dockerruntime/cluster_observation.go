@@ -337,19 +337,17 @@ func (r *Runtime) ClusterDown(ctx context.Context, state tobari.State, purge boo
 		if err := r.waitForCredentialCompanionStopped(ctx); err != nil {
 			return err
 		}
+		if err := r.removeOwnedFinalVolume(ctx, authRuntimeVolume); err != nil {
+			return fmt.Errorf("remove ephemeral Auth Broker runtime volume: %w", err)
+		}
 	}
 	if err := r.replaceProjectPrincipalRegistry(ctx, []projectPrincipalBinding{}); err != nil {
 		return fmt.Errorf("clear project principal registry: %w", err)
 	}
 	if purge {
-		for _, volume := range []string{"tobari-gateway-ca", "tobari-public-ca", policyBundleVolume} {
-			if err := r.verifyOwned(ctx, "volume", volume); errors.Is(err, errOwnedResourceMissing) {
-				continue
-			} else if err != nil {
+		for _, volume := range finalRetainedVolumeNames() {
+			if err := r.removeOwnedFinalVolume(ctx, volume); err != nil {
 				return err
-			}
-			if output, err := r.runner.Output(ctx, []string{"volume", "rm", volume}, os.Environ()); err != nil {
-				return fmt.Errorf("remove owned volume %s: %w: %s", volume, err, boundedDiagnostic(output))
 			}
 		}
 	}

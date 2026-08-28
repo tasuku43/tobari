@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"reflect"
 	"strings"
@@ -62,6 +63,7 @@ func batchCB3FinalReviewCLI(t *testing.T, input string, refreshEmpty bool) (*CLI
 	command := newCLI(strings.NewReader(input), stdout, stderr, DefaultCatalog(), nil)
 	command.finalPolicy = workspaceauthoritycmd.NewPolicyMemoryService(port)
 	command.tobari = tobaricmd.New(&policyReviewRuntimeFake{terminal: true})
+	command.interactive = func(io.Reader, io.Writer, io.Writer) bool { return true }
 	return command, port, stdout, stderr
 }
 

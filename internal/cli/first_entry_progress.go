@@ -37,25 +37,33 @@ type firstEntryProgress struct {
 	timing          firstEntryProgressTiming
 	now             func() time.Time
 	existingContext bool
+	interactive     bool
+	color           bool
 
 	mu        sync.Mutex
 	current   tobari.FirstEntryStage
 	startedAt time.Time
 	lastIndex int
+	frame     int
+	heading   bool
 	stop      chan struct{}
 	done      chan struct{}
 }
 
-func newFirstEntryProgress(out io.Writer, existingContext bool) *firstEntryProgress {
-	return newFirstEntryProgressWithTiming(out, existingContext, defaultFirstEntryProgressTiming())
+func newFirstEntryProgress(out io.Writer, existingContext, interactive, color bool) *firstEntryProgress {
+	return newFirstEntryProgressWithTiming(out, existingContext, interactive, color, defaultFirstEntryProgressTiming())
 }
 
-func newFirstEntryProgressWithTiming(out io.Writer, existingContext bool, timing firstEntryProgressTiming) *firstEntryProgress {
+func newFirstEntryProgressWithTiming(
+	out io.Writer, existingContext, interactive, color bool, timing firstEntryProgressTiming,
+) *firstEntryProgress {
 	return &firstEntryProgress{
 		out:             out,
 		timing:          timing,
 		now:             time.Now,
 		existingContext: existingContext,
+		interactive:     interactive,
+		color:           color,
 		lastIndex:       -1,
 	}
 }
@@ -84,8 +92,14 @@ func (p *firstEntryProgress) Start(stage tobari.FirstEntryStage) error {
 		p.mu.Unlock()
 		return fmt.Errorf("first-entry progress stage is out of order")
 	}
+	if !p.heading {
+		fmt.Fprintln(p.out, applyStyleToken(p.color, styleAccent, "Tobari · Starting Workspace"))
+		fmt.Fprintln(p.out)
+		p.heading = true
+	}
 	p.current = stage
 	p.startedAt = p.now()
+	p.frame = 0
 	p.stop = make(chan struct{})
 	p.done = make(chan struct{})
 	stop, done := p.stop, p.done
@@ -137,6 +151,10 @@ func (p *firstEntryProgress) run(stage tobari.FirstEntryStage, stop <-chan struc
 	case <-stop:
 		return
 	}
+	if p.interactive {
+		p.runInteractive(stage, stop)
+		return
+	}
 
 	elapsedDelay := p.timing.elapsed - p.timing.antiFlicker
 	if elapsedDelay < 0 {
@@ -176,6 +194,20 @@ func (p *firstEntryProgress) run(stage tobari.FirstEntryStage, stop <-chan struc
 	}
 }
 
+func (p *firstEntryProgress) runInteractive(stage tobari.FirstEntryStage, stop <-chan struct{}) {
+	p.writeRunning(stage, false)
+	ticker := time.NewTicker(interactiveSpinnerInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			p.writeRunning(stage, p.now().Sub(p.startedAt) >= p.timing.elapsed)
+		case <-stop:
+			return
+		}
+	}
+}
+
 func (p *firstEntryProgress) writeRunning(stage tobari.FirstEntryStage, elapsed bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -186,7 +218,15 @@ func (p *firstEntryProgress) writeRunning(stage tobari.FirstEntryStage, elapsed 
 	if elapsed {
 		detail = firstEntryElapsedText(p.now().Sub(p.startedAt))
 	}
-	p.writeLocked("…", p.stageLabel(stage), detail)
+	if p.now().Sub(p.startedAt) >= p.timing.waitReason {
+		detail = firstEntryElapsedText(p.now().Sub(p.startedAt)) + " · " + p.stageWaitReason(stage)
+	}
+	marker := "..."
+	if p.interactive {
+		marker = interactiveSpinnerFrame(p.frame)
+		p.frame++
+	}
+	p.writeLockedWithToken(marker, p.stageLabel(stage), detail, styleAccent, false)
 }
 
 func (p *firstEntryProgress) writeWaiting(stage tobari.FirstEntryStage) {
@@ -196,15 +236,38 @@ func (p *firstEntryProgress) writeWaiting(stage tobari.FirstEntryStage) {
 		return
 	}
 	detail := firstEntryElapsedText(p.now().Sub(p.startedAt)) + " · " + p.stageWaitReason(stage)
-	p.writeLocked("…", p.stageLabel(stage), detail)
+	p.writeLockedWithToken("...", p.stageLabel(stage), detail, styleText, true)
 }
 
 func (p *firstEntryProgress) writeLocked(marker, label, detail string) {
+	token := styleText
+	switch marker {
+	case "✓":
+		token = styleSuccess
+	case "!":
+		token = styleWarning
+	case "×":
+		token = styleDanger
+	}
+	p.writeLockedWithToken(marker, label, detail, token, true)
+}
+
+func (p *firstEntryProgress) writeLockedWithToken(marker, label, detail string, token styleToken, newline bool) {
+	if p.interactive {
+		_, _ = fmt.Fprint(p.out, "\r\x1b[2K")
+	}
+	styledMarker := applyStyleToken(p.color, token, marker)
 	if detail == "" {
-		_, _ = fmt.Fprintf(p.out, "%s %s\n", marker, label)
+		_, _ = fmt.Fprintf(p.out, "%s %s", styledMarker, label)
+		if newline {
+			_, _ = fmt.Fprintln(p.out)
+		}
 		return
 	}
-	_, _ = fmt.Fprintf(p.out, "%s %s · %s\n", marker, label, detail)
+	_, _ = fmt.Fprintf(p.out, "%s %s · %s", styledMarker, label, detail)
+	if newline {
+		_, _ = fmt.Fprintln(p.out)
+	}
 }
 
 func firstEntryElapsedText(elapsed time.Duration) string {
@@ -263,7 +326,7 @@ func firstEntryStageMarker(state tobari.FirstEntryStageState) string {
 	case tobari.FirstEntryStageBlocked:
 		return "!"
 	case tobari.FirstEntryStageFailed:
-		return "✗"
+		return "×"
 	case tobari.FirstEntryStageUnknown:
 		return "?"
 	default:

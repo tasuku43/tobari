@@ -109,6 +109,24 @@ func (a *FinalPolicyCandidateAdapter) ListPolicyCandidatesIncludingAttachments(c
 	return tobari.NewPolicyCandidateAuthorityListWithObservations(collection, present, observed, attachments)
 }
 
+// ReadPolicyMemoryReviewSnapshot joins the complete final collection and the
+// bounded live denial observations only when both reads retain the same exact
+// collection receipt.
+func (a *FinalPolicyCandidateAdapter) ReadPolicyMemoryReviewSnapshot(ctx context.Context) (tobari.PolicyMemoryReviewSnapshot, error) {
+	if a == nil || a.store == nil {
+		return tobari.PolicyMemoryReviewSnapshot{}, fmt.Errorf("final Policy candidate authority is unavailable")
+	}
+	candidates, err := a.ListPolicyCandidatesIncludingAttachments(ctx)
+	if err != nil {
+		return tobari.PolicyMemoryReviewSnapshot{}, err
+	}
+	snapshot, err := a.store.ReadPolicyMemoryReviewSnapshot(ctx)
+	if err != nil {
+		return tobari.PolicyMemoryReviewSnapshot{}, err
+	}
+	return tobari.JoinPolicyMemoryReviewCandidates(snapshot, candidates)
+}
+
 func (a *FinalPolicyCandidateAdapter) ApplyAttachmentPolicyCandidate(
 	ctx context.Context, ref string, decision tobari.PolicyMemoryDecision,
 ) (tobari.AttachmentGrantPublication, bool, error) {

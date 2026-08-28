@@ -33,10 +33,13 @@ func (f *defaultPairClusterRefreshFixture) ObserveFinalDefaultPair(context.Conte
 }
 
 func (f *defaultPairClusterRefreshFixture) EnterContextByReference(_ context.Context, _ string, session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer) (tobari.ContextEntryPublication, error) {
-	return f.EnterFinalDefaultPair(context.Background(), f.observation, session, in, out, errOut)
+	return f.EnterFinalDefaultPair(context.Background(), f.observation, f.observation.ProjectRoot, session, in, out, errOut)
 }
 
-func (f *defaultPairClusterRefreshFixture) EnterFinalDefaultPair(_ context.Context, observation tobari.FinalDefaultPairObservation, _ tobari.WorkspaceSessionRequest, _ io.Reader, _, _ io.Writer) (tobari.ContextEntryPublication, error) {
+func (f *defaultPairClusterRefreshFixture) EnterFinalDefaultPair(_ context.Context, observation tobari.FinalDefaultPairObservation, invocationRoot string, _ tobari.WorkspaceSessionRequest, _ io.Reader, _, _ io.Writer) (tobari.ContextEntryPublication, error) {
+	if err := tobari.ValidateRootContains(observation.ProjectRoot, invocationRoot); err != nil {
+		return tobari.ContextEntryPublication{}, err
+	}
 	f.entries++
 	snapshot := observation.Context.Clone()
 	applied := tobari.WorkspaceAppliedEntry{
@@ -140,7 +143,7 @@ func TestDefaultPairRefreshesCanonicalClusterReceiptBeforeEntry(t *testing.T) {
 	before, after, cluster := defaultPairClusterTransitionFixture(t)
 	fixture := &defaultPairClusterRefreshFixture{root: before.ProjectRoot, observation: before}
 	service := NewDefaultPairService(fixture, nil, NewContextService(fixture))
-	resolution := DefaultPairResolution{Observation: before, AuthorityChanged: false}
+	resolution := DefaultPairResolution{Observation: before, InvocationRoot: before.ProjectRoot, AuthorityChanged: false}
 	fixture.observation = after
 	refreshed, err := service.RefreshAfterCluster(context.Background(), resolution, cluster)
 	if err != nil {
@@ -175,7 +178,7 @@ func TestDefaultPairRefreshPreservesConfirmedClusterMutationOnPostClusterObserva
 		t.Run(tt.name, func(t *testing.T) {
 			fixture := &defaultPairClusterRefreshFixture{root: before.ProjectRoot, observation: tt.observation, observeErr: tt.observeErr}
 			service := NewDefaultPairService(fixture, nil, NewContextService(fixture))
-			_, err := service.RefreshAfterCluster(context.Background(), DefaultPairResolution{Observation: before, AuthorityChanged: false}, cluster)
+			_, err := service.RefreshAfterCluster(context.Background(), DefaultPairResolution{Observation: before, InvocationRoot: before.ProjectRoot, AuthorityChanged: false}, cluster)
 			public, ok := fault.PublicCopy(err)
 			if !ok || public.Code != "default_pair_initialized" || public.ChangeState != fault.ChangePartial || fixture.entries != 0 {
 				t.Fatalf("post-cluster fault=%#v entries=%d err=%v", public, fixture.entries, err)

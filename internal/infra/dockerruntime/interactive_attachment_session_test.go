@@ -205,6 +205,18 @@ func TestLoopbackTCPInteractiveSessionOwnsWaitWithoutUnixMountSource(t *testing.
 	if ack, err := registerPermissionWait(runtime, owner.session, record); err != nil || ack != "OK" {
 		t.Fatalf("loopback registration = %q, %v", ack, err)
 	}
+	owner.waits.observer = &dispositionObserverStub{
+		results: []tobari.PermissionWaitResult{tobari.PermissionWaitResultAllow},
+		done:    []bool{true},
+	}
+	client, err := newPermissionWaitOwnerClient(runtime, owner.session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.WaitPermission(context.Background(), record.ID)
+	if err != nil || result != tobari.PermissionWaitResultAllow {
+		t.Fatalf("loopback owner wait transport = %q, %v", result, err)
+	}
 	mismatch := owner.session
 	mismatch.IngestionTransport = tobari.PermissionSessionTransportUnix
 	mismatch.IngestionEndpoint = "pws_0123456789abcdef0123456789abcdef.sock"

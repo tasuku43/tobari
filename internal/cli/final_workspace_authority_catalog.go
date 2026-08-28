@@ -16,8 +16,8 @@ func finalAuthorityReadErrors(path, recovery string) []CommandError {
 		declaredCommandError(fault.KindRejected, "installation_migration_required", false, "installation migration plan", "Review the exact supported authority.json migration."),
 		declaredCommandError(fault.KindRejected, "legacy_state_present", false, "doctor", "Reset or recreate this pre-release installation before initializing final authority."),
 		declaredCommandError(fault.KindNotFound, "authority_not_found", false, recovery, "Discover current final authority references."),
-		declaredCommandError(fault.KindContract, "invalid_authority", false, recovery, "Repair the final authority envelope."),
-		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the final authority adapter."))
+		classifiedCommandError(fault.KindContract, "invalid_authority", false, fault.PhaseVerification, fault.ChangeUnknown, recovery, "Repair the final authority envelope."),
+		classifiedCommandError(fault.KindInternal, "missing_runtime", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Configure the final authority adapter."))
 }
 
 func finalAuthorityMutationErrors(path, recovery string) []CommandError {
@@ -29,11 +29,63 @@ func finalAuthorityMutationErrors(path, recovery string) []CommandError {
 		declaredCommandError(fault.KindRejected, "legacy_state_present", false, "doctor", "Reset or recreate this pre-release installation before initializing final authority."),
 		declaredCommandError(fault.KindNotFound, "authority_not_found", false, recovery, "Discover current final authority references."),
 		declaredCommandError(fault.KindRejected, "authority_in_use", false, recovery, "Remove the exact dependent final authority first."),
-		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the final authority mutation adapter."))
+		classifiedCommandError(fault.KindInternal, "missing_runtime", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Configure the final authority mutation adapter."))
+}
+
+func finalReadVerificationError(code, recovery, reason string) CommandError {
+	return classifiedCommandError(fault.KindContract, code, false, fault.PhaseVerification, fault.ChangeUnknown, recovery, reason)
+}
+
+func finalMutationVerificationError(code, recovery, reason string) CommandError {
+	return classifiedCommandError(fault.KindContract, code, false, fault.PhaseVerification, fault.ChangeUnknown, recovery, reason)
+}
+
+func finalTemplateListErrors(path, recovery string) []CommandError {
+	return append(finalAuthorityReadErrors(path, recovery),
+		declaredCommandError(fault.KindUnavailable, "template_read_failed", false, recovery, "Read the final Template authority again."),
+		declaredCommandError(fault.KindUnavailable, "template_source_read_failed", false, recovery, "Inspect the canonical Template source pair and draft files."),
+		finalReadVerificationError("invalid_template_list", recovery, "Repair contradictory Template authority or source projections."))
+}
+
+func finalTemplateShowErrors(path, recovery string) []CommandError {
+	return append(finalTemplateListErrors(path, recovery),
+		declaredCommandError(fault.KindInvalidInput, "invalid_template_name", false, recovery, "Use a valid Template display name."),
+		declaredCommandError(fault.KindNotFound, "template_not_found", false, recovery, "Discover current Template authority."),
+		finalReadVerificationError("invalid_template", recovery, "Repair the selected Template authority or source projection."))
+}
+
+func finalContextListErrors(path, recovery string) []CommandError {
+	return append(finalAuthorityReadErrors(path, recovery),
+		declaredCommandError(fault.KindUnavailable, "context_read_failed", false, recovery, "Read the final Context authority again."),
+		declaredCommandError(fault.KindUnavailable, "context_source_read_failed", false, recovery, "Inspect canonical Context sources and drafts."),
+		finalReadVerificationError("invalid_context_list", recovery, "Repair contradictory Context authority or source projections."))
+}
+
+func finalContextShowErrors(path, recovery string) []CommandError {
+	return append(finalContextListErrors(path, recovery),
+		declaredCommandError(fault.KindInvalidInput, "invalid_context_ref", false, recovery, "Use one exact Context reference from Context discovery."),
+		declaredCommandError(fault.KindNotFound, "context_not_found", false, recovery, "Discover current Context authority."),
+		finalReadVerificationError("invalid_context", recovery, "Repair the selected Context authority or source projection."))
+}
+
+func finalWorkspaceListErrors(path, recovery string) []CommandError {
+	return append(finalAuthorityReadErrors(path, recovery),
+		declaredCommandError(fault.KindUnavailable, "workspace_read_failed", false, recovery, "Read the final Workspace authority again."),
+		finalReadVerificationError("invalid_workspace_list", recovery, "Repair contradictory Workspace authority."))
+}
+
+func finalWorkspaceStatusErrors(path, recovery string) []CommandError {
+	return append(finalWorkspaceListErrors(path, recovery),
+		declaredCommandError(fault.KindInvalidInput, "invalid_workspace_ref", false, recovery, "Use one exact Workspace reference from Workspace discovery."),
+		declaredCommandError(fault.KindNotFound, "workspace_not_found", false, recovery, "Discover current Workspace authority."),
+		finalReadVerificationError("invalid_workspace", recovery, "Repair the selected Workspace authority."))
 }
 
 func finalContextEnterErrors(path, recovery string) []CommandError {
 	return append(finalAuthorityMutationErrors(path, recovery),
+		declaredCommandError(fault.KindInvalidInput, "invalid_context_ref", false, recovery, "Use one exact Context reference from Context discovery."),
+		declaredCommandError(fault.KindNotFound, "context_not_found", false, recovery, "Discover current Context authority."),
+		finalMutationVerificationError("invalid_context_entry_result", recovery, "Reconcile the confirmed Context and Workspace entry authority."),
 		classifiedCommandError(fault.KindUnavailable, "workspace_entry_attachment_unavailable", false, fault.PhaseAttachment, fault.ChangeConfirmed, "context list", "Discover the confirmed Context authority before another explicit entry."),
 		classifiedCommandError(fault.KindUnavailable, "workspace_entry_interrupted", false, fault.PhaseMutation, fault.ChangePartial, "status", "Read the preserved entry decision, then repeat the exact same-Context entry command."),
 		classifiedCommandError(fault.KindRejected, "workspace_entry_template_policy_inactive", false, fault.PhasePrecondition, fault.ChangeNone, "cluster status", "Read the current Template policy activation before explicit cluster reconciliation."),
@@ -201,16 +253,12 @@ func finalWorkspaceListFields() []OutputField {
 }
 
 func finalTemplateListSpec() CommandSpec {
-	errors := append(finalAuthorityReadErrors("template list", "doctor"),
-		declaredCommandError(fault.KindUnavailable, "template_source_read_failed", false, "help template list", "Inspect the canonical Template source pair and draft files."),
-	)
+	errors := finalTemplateListErrors("template list", "doctor")
 	return CommandSpec{Path: "template list", Summary: "List final Workspace Templates", Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Return the exhaustive final Workspace Template collection", Inputs: []CommandInput{formatInput()}, Output: finalJSONOutput("templates", finalTemplateListFields(), CollectionCoverageExhaustive), Prerequisites: []string{}, Errors: errors}, handler: runFinalTemplateList}
 }
 
 func finalTemplateShowSpec() CommandSpec {
-	errors := append(finalAuthorityReadErrors("template show", "template list"),
-		declaredCommandError(fault.KindUnavailable, "template_source_read_failed", false, "template list", "Inspect the canonical Template source pair and draft files."),
-	)
+	errors := finalTemplateShowErrors("template show", "template list")
 	return CommandSpec{Path: "template show", Summary: "Inspect one final Workspace Template", Args: "[--name <name>] [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Return one final Template and its exact current immutable revision", Inputs: []CommandInput{{Name: "--name", Source: InputSourceFlag, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Read-only Template display-name selector; omission selects the exact default.", AllowedValues: []string{}}, formatInput()}, Output: finalJSONOutput("template", finalTemplateShowFields(true), CollectionCoverageNotApplicable), Prerequisites: []string{}, Errors: errors}, handler: runFinalTemplateShow}
 }
 
@@ -219,11 +267,21 @@ func finalTemplateCreateSpec() CommandSpec {
 		{Name: "--name", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Unique Template display name.", AllowedValues: []string{}},
 		{Name: "--source-access", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Immutable direct Project source access for this Template.", AllowedValues: []string{"read-only", "read-write"}, DefaultValue: stringPointer("read-write")},
 		{Name: "--graphql-endpoint", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: int64Pointer(1), Description: "One exact HTTPS GraphQL endpoint with an explicit port and path; it is bounded by the standard destination and POST method ceilings.", AllowedValues: []string{}},
-		formatInput()}, Output: finalJSONOutput("template", finalTemplateCreateFields(), CollectionCoverageNotApplicable), Prerequisites: []string{"The built-in standard Runtime revision is available exactly."}, FixedTarget: &FixedTarget{Kind: tobari.WorkspaceTemplateCatalogTargetKind, ID: tobari.WorkspaceTemplateCatalogTargetID, Description: "This installation's final Workspace Template collection.", Scope: FixedTargetScopeToolLocal}, Errors: finalAuthorityMutationErrors("template create", "template list"), Mutation: &MutationContract{TargetKind: tobari.WorkspaceTemplateCatalogTargetKind, TargetInputs: []string{}, Impact: workspaceauthoritycmd.TemplateCreateImpact()}}, handler: runFinalTemplateCreate}
+		formatInput()}, Output: finalJSONOutput("template", finalTemplateCreateFields(), CollectionCoverageNotApplicable), Prerequisites: []string{"The built-in standard Runtime revision is available exactly."}, FixedTarget: &FixedTarget{Kind: tobari.WorkspaceTemplateCatalogTargetKind, ID: tobari.WorkspaceTemplateCatalogTargetID, Description: "This installation's final Workspace Template collection.", Scope: FixedTargetScopeToolLocal}, Errors: append(finalAuthorityMutationErrors("template create", "template list"),
+		declaredCommandError(fault.KindInvalidInput, "invalid_template_name", false, "template list", "Use a valid unique Template display name."),
+		declaredCommandError(fault.KindInvalidInput, "invalid_template_body", false, "help template create", "Correct the reviewed Template body."),
+		declaredCommandError(fault.KindRejected, "template_exists", false, "template list", "Choose another name or inspect the existing Template."),
+		finalMutationVerificationError("invalid_template_create_result", "template list", "Reconcile the created Template draft.")), Mutation: &MutationContract{TargetKind: tobari.WorkspaceTemplateCatalogTargetKind, TargetInputs: []string{}, Impact: workspaceauthoritycmd.TemplateCreateImpact()}}, handler: runFinalTemplateCreate}
 }
 
 func finalTemplateCopySpec() CommandSpec {
-	return CommandSpec{Path: "template copy", Summary: "Copy one immutable Template revision into a draft", Args: "--from <template-revision-ref> --name <name> [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Write one independent unpublished Template source draft from one exact retained revision", Inputs: []CommandInput{finalReferenceInput("--from", "Opaque exact Template revision reference.", tobari.WorkspaceTemplateRevisionReferenceKind), {Name: "--name", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Unique new Template display name.", AllowedValues: []string{}}, formatInput()}, Output: finalJSONOutput("template", finalTemplateCreateFields(), CollectionCoverageNotApplicable), Prerequisites: []string{"The source Template pair is in sync."}, Errors: finalAuthorityMutationErrors("template copy", "template list"), Mutation: &MutationContract{TargetKind: tobari.WorkspaceTemplateReferenceKind, TargetInputs: []string{"--from"}, ParentInput: "--from", Impact: workspaceauthoritycmd.TemplateCreateImpact()}}, handler: runFinalTemplateCopy}
+	errors := append(finalAuthorityMutationErrors("template copy", "template list"),
+		declaredCommandError(fault.KindInvalidInput, "invalid_template_revision_ref", false, "template show", "Use one exact retained Template revision reference."),
+		declaredCommandError(fault.KindInvalidInput, "invalid_template_name", false, "template list", "Use a valid unique Template display name."),
+		declaredCommandError(fault.KindNotFound, "template_not_found", false, "template list", "Discover current Template authority."),
+		declaredCommandError(fault.KindRejected, "template_exists", false, "template list", "Choose another name or inspect the existing Template."),
+		finalMutationVerificationError("invalid_template_copy_result", "template list", "Reconcile the copied Template draft."))
+	return CommandSpec{Path: "template copy", Summary: "Copy one immutable Template revision into a draft", Args: "--from <template-revision-ref> --name <name> [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Write one independent unpublished Template source draft from one exact retained revision", Inputs: []CommandInput{finalReferenceInput("--from", "Opaque exact Template revision reference.", tobari.WorkspaceTemplateRevisionReferenceKind), {Name: "--name", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Unique new Template display name.", AllowedValues: []string{}}, formatInput()}, Output: finalJSONOutput("template", finalTemplateCreateFields(), CollectionCoverageNotApplicable), Prerequisites: []string{"The source Template pair is in sync."}, Errors: errors, Mutation: &MutationContract{TargetKind: tobari.WorkspaceTemplateReferenceKind, TargetInputs: []string{"--from"}, ParentInput: "--from", Impact: workspaceauthoritycmd.TemplateCreateImpact()}}, handler: runFinalTemplateCopy}
 }
 
 func finalTemplateApplySpec() CommandSpec {
@@ -356,14 +414,23 @@ func finalTemplateWriteSpec(path, summary string, handler commandHandler, impact
 	if confirm {
 		stateField = OutputField{Name: "deleted", Type: OutputFieldTypeBoolean, Description: "Always true after confirmed deletion."}
 	}
-	return CommandSpec{Path: path, Summary: summary, Args: args + " [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: summary, Inputs: inputs, Output: finalJSONOutput("result", []OutputField{{Name: "workspace_template_id", Type: OutputFieldTypeString, Description: "Exact affected Template identity."}, stateField}, CollectionCoverageNotApplicable), Prerequisites: []string{}, Errors: finalAuthorityMutationErrors(path, "template list"), Mutation: &MutationContract{TargetKind: tobari.WorkspaceTemplateReferenceKind, TargetInputs: []string{"--id"}, TargetIDInput: "--id", Impact: impact}}, handler: handler}
+	errors := append(finalAuthorityMutationErrors(path, "template list"),
+		declaredCommandError(fault.KindNotFound, "template_not_found", false, "template list", "Discover current Template authority."))
+	if confirm {
+		errors = append(errors,
+			declaredCommandError(fault.KindRejected, "template_in_use", false, "context list", "Remove dependent Contexts and the default selection first."),
+			finalMutationVerificationError("invalid_template_delete_result", "template list", "Reconcile the deleted Template authority."))
+	} else {
+		errors = append(errors, finalMutationVerificationError("invalid_template_default_result", "template list", "Reconcile the default Template selection."))
+	}
+	return CommandSpec{Path: path, Summary: summary, Args: args + " [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: summary, Inputs: inputs, Output: finalJSONOutput("result", []OutputField{{Name: "workspace_template_id", Type: OutputFieldTypeString, Description: "Exact affected Template identity."}, stateField}, CollectionCoverageNotApplicable), Prerequisites: []string{}, Errors: errors, Mutation: &MutationContract{TargetKind: tobari.WorkspaceTemplateReferenceKind, TargetInputs: []string{"--id"}, TargetIDInput: "--id", Impact: impact}}, handler: handler}
 }
 
 func finalContextListSpec() CommandSpec {
-	return CommandSpec{Path: "context list", Summary: "List final Context bindings", Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Return every final Context with exact Project and Template scope", Inputs: []CommandInput{formatInput()}, Output: finalJSONOutput("contexts", finalContextListFields(), CollectionCoverageExhaustive), Prerequisites: []string{}, Errors: finalAuthorityReadErrors("context list", "doctor")}, handler: runFinalContextList}
+	return CommandSpec{Path: "context list", Summary: "List final Context bindings", Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Return every final Context with exact Project and Template scope", Inputs: []CommandInput{formatInput()}, Output: finalJSONOutput("contexts", finalContextListFields(), CollectionCoverageExhaustive), Prerequisites: []string{}, Errors: finalContextListErrors("context list", "doctor")}, handler: runFinalContextList}
 }
 func finalContextShowSpec() CommandSpec {
-	return CommandSpec{Path: "context show", Summary: "Inspect one final Context", Args: "--id <context-ref> [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Return one exact Context with desired and independently active authority", Inputs: []CommandInput{finalReferenceInput("--id", "Opaque Context reference.", tobari.ContextReferenceKind), formatInput()}, Output: finalJSONOutput("context", finalContextFields(true), CollectionCoverageNotApplicable), Prerequisites: []string{}, Errors: finalAuthorityReadErrors("context show", "context list")}, handler: runFinalContextShow}
+	return CommandSpec{Path: "context show", Summary: "Inspect one final Context", Args: "--id <context-ref> [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Return one exact Context with desired and independently active authority", Inputs: []CommandInput{finalReferenceInput("--id", "Opaque Context reference.", tobari.ContextReferenceKind), formatInput()}, Output: finalJSONOutput("context", finalContextFields(true), CollectionCoverageNotApplicable), Prerequisites: []string{}, Errors: finalContextShowErrors("context show", "context list")}, handler: runFinalContextShow}
 }
 func finalContextApplySpec() CommandSpec {
 	fields := append([]OutputField{}, finalContextFields(true)...)
@@ -406,7 +473,15 @@ func finalContextPlanSpec() CommandSpec {
 }
 func finalContextCreateSpec() CommandSpec {
 	fields := []OutputField{{Name: "lifecycle", Type: OutputFieldTypeString, Description: "Always draft.", Enum: []string{"draft"}}, {Name: "context_ref", Type: OutputFieldTypeString, Description: "Opaque draft Context reference.", ReferenceKind: tobari.ContextReferenceKind}, {Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context ID."}, {Name: "workspace_template_id", Type: OutputFieldTypeString, Description: "Bound active Template ID."}, {Name: "project_root", Type: OutputFieldTypeString, Description: "Canonical Project root."}, {Name: "source_path", Type: OutputFieldTypeString, Description: "Canonical context.yaml path."}, {Name: "source_state", Type: OutputFieldTypeString, Description: "Modified until planned Apply."}, {Name: "source_revision", Type: OutputFieldTypeString, Description: "Desired Context identity digest."}}
-	return CommandSpec{Path: "context create", Summary: "Create a draft Context for the canonical current Project", Args: "--template <template-ref> [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Write one draft context.yaml bound to an active Template and canonical Project root", Inputs: []CommandInput{finalReferenceInput("--template", "Opaque parent active Workspace Template reference.", tobari.WorkspaceTemplateReferenceKind), formatInput()}, Output: finalJSONOutput("context", fields, CollectionCoverageNotApplicable), Prerequisites: []string{"The canonical current Project root and active Template are available."}, Errors: finalAuthorityMutationErrors("context create", "context list"), Mutation: &MutationContract{TargetKind: tobari.ContextReferenceKind, TargetInputs: []string{"--template"}, ParentInput: "--template", Impact: workspaceauthoritycmd.ContextCreateImpact()}}, handler: runFinalContextCreate}
+	errors := append(finalAuthorityMutationErrors("context create", "context list"),
+		declaredCommandError(fault.KindInvalidInput, "invalid_project_root", false, "status", "Use the canonical current Project root."),
+		declaredCommandError(fault.KindNotFound, "resource_source_missing", false, "context list", "Restore the exact resource source."),
+		declaredCommandError(fault.KindInvalidInput, "resource_source_invalid", false, "context list", "Correct the exact resource source."),
+		declaredCommandError(fault.KindRejected, "context_identity_immutable", false, "context list", "Create a fresh Context for another identity."),
+		declaredCommandError(fault.KindNotFound, "template_not_found", false, "template list", "Discover current Template authority."),
+		declaredCommandError(fault.KindRejected, "context_exists", false, "context list", "Use the existing Context reference."),
+		finalMutationVerificationError("invalid_context_create_result", "context list", "Reconcile the created Context draft."))
+	return CommandSpec{Path: "context create", Summary: "Create a draft Context for the canonical current Project", Args: "--template <template-ref> [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Write one draft context.yaml bound to an active Template and canonical Project root", Inputs: []CommandInput{finalReferenceInput("--template", "Opaque parent active Workspace Template reference.", tobari.WorkspaceTemplateReferenceKind), formatInput()}, Output: finalJSONOutput("context", fields, CollectionCoverageNotApplicable), Prerequisites: []string{"The canonical current Project root and active Template are available."}, Errors: errors, Mutation: &MutationContract{TargetKind: tobari.ContextReferenceKind, TargetInputs: []string{"--template"}, ParentInput: "--template", Impact: workspaceauthoritycmd.ContextCreateImpact()}}, handler: runFinalContextCreate}
 }
 func finalContextEnterSpec() CommandSpec {
 	output := CommandOutput{Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
@@ -415,15 +490,25 @@ func finalContextEnterSpec() CommandSpec {
 	return CommandSpec{Path: "context enter", Summary: "Enter one explicit final Context", Args: "--id <context-ref> [--format text|json] [-- <command>...]", Effect: operation.EffectCreate, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Reconcile and enter one exact Context Workspace", Inputs: []CommandInput{finalReferenceInput("--id", "Opaque Context parent reference.", tobari.ContextReferenceKind), formatInput(), {Name: "command", Source: InputSourceArgument, ValueKind: InputValueText, Cardinality: InputCardinalityRepeatable, Description: "Exact child argv after --.", AllowedValues: []string{}, PositionalOnly: true}}, Output: output, Prerequisites: []string{"The exact final Context, Runtime, and cluster settlement authorities are available without a conflicting lifecycle or session owner."}, Errors: finalContextEnterErrors("context enter", "context list"), Mutation: &MutationContract{TargetKind: tobari.WorkspaceReferenceKind, TargetInputs: []string{"--id"}, ParentInput: "--id", Impact: workspaceauthoritycmd.ContextEnterImpact()}}, handler: runFinalContextEnter}
 }
 func finalContextDeleteSpec() CommandSpec {
-	return CommandSpec{Path: "context delete", Summary: "Delete one empty final Context", Args: "--id <context-ref> --confirm=delete [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Delete one exact Context, its Policy Memory, and unresolved candidates", Inputs: []CommandInput{finalReferenceInput("--id", "Opaque Context reference.", tobari.ContextReferenceKind), {Name: "--confirm", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Literal destructive confirmation.", AllowedValues: []string{"delete"}}, formatInput()}, Output: finalJSONOutput("result", []OutputField{{Name: "context_id", Type: OutputFieldTypeString, Description: "Deleted Context identity."}, {Name: "deleted", Type: OutputFieldTypeBoolean, Description: "Always true after confirmed deletion."}}, CollectionCoverageNotApplicable), Prerequisites: []string{"No Workspace, live attachment, or research credential remains."}, Errors: finalAuthorityMutationErrors("context delete", "context list"), Mutation: &MutationContract{TargetKind: tobari.ContextReferenceKind, TargetInputs: []string{"--id"}, TargetIDInput: "--id", Impact: workspaceauthoritycmd.ContextDeleteImpact()}}, handler: runFinalContextDelete}
+	errors := append(finalAuthorityMutationErrors("context delete", "context list"),
+		declaredCommandError(fault.KindInvalidInput, "invalid_context_ref", false, "context list", "Use one exact Context reference from Context discovery."),
+		declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Discover current Context authority."),
+		declaredCommandError(fault.KindRejected, "context_in_use", false, "context list", "Remove the exact blocking Workspace or attachment first."),
+		finalMutationVerificationError("invalid_context_delete_result", "context list", "Reconcile the deleted Context authority."))
+	return CommandSpec{Path: "context delete", Summary: "Delete one empty final Context", Args: "--id <context-ref> --confirm=delete [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Delete one exact Context, its Policy Memory, and unresolved candidates", Inputs: []CommandInput{finalReferenceInput("--id", "Opaque Context reference.", tobari.ContextReferenceKind), {Name: "--confirm", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Literal destructive confirmation.", AllowedValues: []string{"delete"}}, formatInput()}, Output: finalJSONOutput("result", []OutputField{{Name: "context_id", Type: OutputFieldTypeString, Description: "Deleted Context identity."}, {Name: "deleted", Type: OutputFieldTypeBoolean, Description: "Always true after confirmed deletion."}}, CollectionCoverageNotApplicable), Prerequisites: []string{"No Workspace, live attachment, or research credential remains."}, Errors: errors, Mutation: &MutationContract{TargetKind: tobari.ContextReferenceKind, TargetInputs: []string{"--id"}, TargetIDInput: "--id", Impact: workspaceauthoritycmd.ContextDeleteImpact()}}, handler: runFinalContextDelete}
 }
 
 func finalWorkspaceListSpec() CommandSpec {
-	return CommandSpec{Path: "workspace list", Summary: "List final Workspaces", Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Return every final Workspace and its exact owner binding", Inputs: []CommandInput{formatInput()}, Output: finalJSONOutput("workspaces", finalWorkspaceListFields(), CollectionCoverageExhaustive), Prerequisites: []string{}, Errors: finalAuthorityReadErrors("workspace list", "doctor")}, handler: runFinalWorkspaceList}
+	return CommandSpec{Path: "workspace list", Summary: "List final Workspaces", Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Return every final Workspace and its exact owner binding", Inputs: []CommandInput{formatInput()}, Output: finalJSONOutput("workspaces", finalWorkspaceListFields(), CollectionCoverageExhaustive), Prerequisites: []string{}, Errors: finalWorkspaceListErrors("workspace list", "doctor")}, handler: runFinalWorkspaceList}
 }
 func finalWorkspaceStatusSpec() CommandSpec {
-	return CommandSpec{Path: "workspace status", Summary: "Inspect one final Workspace", Args: "--id <workspace-ref> [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Return one exact Workspace and its applied authority", Inputs: []CommandInput{finalReferenceInput("--id", "Opaque Workspace reference.", tobari.WorkspaceReferenceKind), formatInput()}, Output: finalJSONOutput("workspace", finalWorkspaceFields(true), CollectionCoverageNotApplicable), Prerequisites: []string{}, Errors: finalAuthorityReadErrors("workspace status", "workspace list")}, handler: runFinalWorkspaceStatus}
+	return CommandSpec{Path: "workspace status", Summary: "Inspect one final Workspace", Args: "--id <workspace-ref> [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Return one exact Workspace and its applied authority", Inputs: []CommandInput{finalReferenceInput("--id", "Opaque Workspace reference.", tobari.WorkspaceReferenceKind), formatInput()}, Output: finalJSONOutput("workspace", finalWorkspaceFields(true), CollectionCoverageNotApplicable), Prerequisites: []string{}, Errors: finalWorkspaceStatusErrors("workspace status", "workspace list")}, handler: runFinalWorkspaceStatus}
 }
 func finalWorkspaceDeleteSpec() CommandSpec {
-	return CommandSpec{Path: "workspace delete", Summary: "Delete one exact final Workspace", Args: "--id <workspace-ref> --confirm=delete [--force] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Retire one exact Workspace, home, native auth, and owned runtime resources while preserving Context Policy Memory", Inputs: []CommandInput{finalReferenceInput("--id", "Opaque Workspace reference.", tobari.WorkspaceReferenceKind), {Name: "--confirm", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Literal destructive confirmation.", AllowedValues: []string{"delete"}}, {Name: "--force", Source: InputSourceFlag, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Retire the exact live target session and owned container; missing, foreign, ambiguous, or unrelated live owners remain blocking.", AllowedValues: []string{}, DefaultValue: stringPointer("false")}, formatInput()}, Output: finalJSONOutput("result", []OutputField{{Name: "workspace_id", Type: OutputFieldTypeString, Description: "Deleted Workspace identity."}, {Name: "deleted", Type: OutputFieldTypeBoolean, Description: "Always true after confirmed deletion."}}, CollectionCoverageNotApplicable), Prerequisites: []string{"The exact target and canonical attachment authority can be observed without ambiguity."}, Errors: finalAuthorityMutationErrors("workspace delete", "workspace list"), Mutation: &MutationContract{TargetKind: tobari.WorkspaceReferenceKind, TargetInputs: []string{"--id"}, TargetIDInput: "--id", Impact: workspaceauthoritycmd.WorkspaceDeleteImpact()}}, handler: runFinalWorkspaceDelete}
+	errors := append(finalAuthorityMutationErrors("workspace delete", "workspace list"),
+		declaredCommandError(fault.KindInvalidInput, "invalid_workspace_ref", false, "workspace list", "Use one exact Workspace reference from Workspace discovery."),
+		declaredCommandError(fault.KindNotFound, "workspace_not_found", false, "workspace list", "Discover current Workspace authority."),
+		declaredCommandError(fault.KindRejected, "workspace_attached", false, "workspace list", "Leave the exact Workspace or explicitly confirm forced cleanup."),
+		finalMutationVerificationError("invalid_workspace_delete_result", "workspace list", "Reconcile the deleted Workspace authority."))
+	return CommandSpec{Path: "workspace delete", Summary: "Delete one exact final Workspace", Args: "--id <workspace-ref> --confirm=delete [--force] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Retire one exact Workspace, home, native auth, and owned runtime resources while preserving Context Policy Memory", Inputs: []CommandInput{finalReferenceInput("--id", "Opaque Workspace reference.", tobari.WorkspaceReferenceKind), {Name: "--confirm", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Literal destructive confirmation.", AllowedValues: []string{"delete"}}, {Name: "--force", Source: InputSourceFlag, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Retire the exact live target session and owned container; missing, foreign, ambiguous, or unrelated live owners remain blocking.", AllowedValues: []string{}, DefaultValue: stringPointer("false")}, formatInput()}, Output: finalJSONOutput("result", []OutputField{{Name: "workspace_id", Type: OutputFieldTypeString, Description: "Deleted Workspace identity."}, {Name: "deleted", Type: OutputFieldTypeBoolean, Description: "Always true after confirmed deletion."}}, CollectionCoverageNotApplicable), Prerequisites: []string{"The exact target and canonical attachment authority can be observed without ambiguity."}, Errors: errors, Mutation: &MutationContract{TargetKind: tobari.WorkspaceReferenceKind, TargetInputs: []string{"--id"}, TargetIDInput: "--id", Impact: workspaceauthoritycmd.WorkspaceDeleteImpact()}}, handler: runFinalWorkspaceDelete}
 }

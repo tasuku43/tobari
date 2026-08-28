@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"maps"
 	"os"
 	"reflect"
 	"runtime"
@@ -14,37 +15,95 @@ import (
 )
 
 func TestBatchDRegisteredFinalHandlersAreExact(t *testing.T) {
+	// public-production-handler-evidence:start
 	want := map[string]string{
-		"tobari":                "runFinalDefaultPairEnter",
-		"status":                "runFinalDefaultPairStatus",
-		"cluster up":            "runFinalClusterUp",
-		"cluster status":        "runFinalClusterStatus",
-		"cluster down":          "runFinalClusterDown",
-		"policy candidates":     "runFinalPolicyCandidates",
-		"review permissions":    "runFinalPolicyReview",
-		"policy apply-reviewed": "runFinalPolicyApplyReviewed",
-		"policy rules":          "runFinalPolicyRules",
-		"policy allow":          "runFinalPolicyAllow",
-		"policy deny":           "runFinalPolicyDeny",
-		"policy reset":          "runFinalPolicyReset",
+		ReleaseProgramName + "\x00cluster denials":              "runFinalClusterDenials",
+		ReleaseProgramName + "\x00cluster down":                 "runFinalClusterDown",
+		ReleaseProgramName + "\x00cluster logs":                 "runFinalClusterLogs",
+		ReleaseProgramName + "\x00cluster status":               "runFinalClusterStatus",
+		ReleaseProgramName + "\x00cluster up":                   "runFinalClusterUp",
+		ReleaseProgramName + "\x00completion candidates":        "runCompletionCandidates",
+		ReleaseProgramName + "\x00completion zsh":               "runCompletionZsh",
+		ReleaseProgramName + "\x00context apply":                "runFinalContextApply",
+		ReleaseProgramName + "\x00context create":               "runFinalContextCreate",
+		ReleaseProgramName + "\x00context delete":               "runFinalContextDelete",
+		ReleaseProgramName + "\x00context enter":                "runFinalContextEnter",
+		ReleaseProgramName + "\x00context list":                 "runFinalContextList",
+		ReleaseProgramName + "\x00context plan":                 "runFinalContextPlan",
+		ReleaseProgramName + "\x00context show":                 "runFinalContextShow",
+		ReleaseProgramName + "\x00doctor":                       "runDoctor",
+		ReleaseProgramName + "\x00help":                         "runHelp",
+		ReleaseProgramName + "\x00installation migration apply": "runInstallationMigrationApply",
+		ReleaseProgramName + "\x00installation migration plan":  "runInstallationMigrationPlan",
+		ReleaseProgramName + "\x00policy allow":                 "runFinalPolicyAllow",
+		ReleaseProgramName + "\x00policy candidates":            "runFinalPolicyCandidates",
+		ReleaseProgramName + "\x00policy deny":                  "runFinalPolicyDeny",
+		ReleaseProgramName + "\x00policy reset":                 "runFinalPolicyReset",
+		ReleaseProgramName + "\x00policy rules":                 "runFinalPolicyRules",
+		ReleaseProgramName + "\x00review permissions":           "runFinalPolicyReview",
+		ReleaseProgramName + "\x00review runtimes":              "runRuntimeReview",
+		ReleaseProgramName + "\x00review services":              "runServiceReview",
+		ReleaseProgramName + "\x00runtime build":                "runRuntimeBuild",
+		ReleaseProgramName + "\x00runtime create":               "runRuntimeCreate",
+		ReleaseProgramName + "\x00runtime delete":               "runRuntimeDelete",
+		ReleaseProgramName + "\x00runtime history":              "runRuntimeHistory",
+		ReleaseProgramName + "\x00runtime list":                 "runRuntimeList",
+		ReleaseProgramName + "\x00runtime prune apply":          "runRuntimePruneApply",
+		ReleaseProgramName + "\x00runtime prune dry-run":        "runRuntimePruneDryRun",
+		ReleaseProgramName + "\x00runtime restore":              "runRuntimeRestore",
+		ReleaseProgramName + "\x00runtime show":                 "runRuntimeShow",
+		ReleaseProgramName + "\x00service allow":                "runServiceAllow",
+		ReleaseProgramName + "\x00service deny":                 "runServiceDeny",
+		ReleaseProgramName + "\x00service open":                 "runServiceOpen",
+		ReleaseProgramName + "\x00service status":               "runServiceStatus",
+		ReleaseProgramName + "\x00service stop":                 "runServiceStop",
+		ReleaseProgramName + "\x00status":                       "runFinalDefaultPairStatus",
+		ReleaseProgramName + "\x00template apply":               "runFinalTemplateApply",
+		ReleaseProgramName + "\x00template copy":                "runFinalTemplateCopy",
+		ReleaseProgramName + "\x00template create":              "runFinalTemplateCreate",
+		ReleaseProgramName + "\x00template default set":         "runFinalTemplateDefaultSet",
+		ReleaseProgramName + "\x00template delete":              "runFinalTemplateDelete",
+		ReleaseProgramName + "\x00template list":                "runFinalTemplateList",
+		ReleaseProgramName + "\x00template migration apply":     "runFinalTemplateMigrationApply",
+		ReleaseProgramName + "\x00template migration plan":      "runFinalTemplateMigrationPlan",
+		ReleaseProgramName + "\x00template plan":                "runFinalTemplatePlan",
+		ReleaseProgramName + "\x00template show":                "runFinalTemplateShow",
+		ReleaseProgramName + "\x00tobari":                       "runFinalDefaultPairEnter",
+		ReleaseProgramName + "\x00version":                      "runVersion",
+		ReleaseProgramName + "\x00workspace delete":             "runFinalWorkspaceDelete",
+		ReleaseProgramName + "\x00workspace list":               "runFinalWorkspaceList",
+		ReleaseProgramName + "\x00workspace status":             "runFinalWorkspaceStatus",
+		ExposureProgramName + "\x00help":                        "runHelp",
+		ExposureProgramName + "\x00status":                      "runExposureStatus",
+		ExposureProgramName + "\x00stop":                        "runExposureStop",
+		ExposureProgramName + "\x00" + ExposureProgramName:      "runExposureRequest",
+		PermissionProgramName + "\x00help":                      "runHelp",
+		PermissionProgramName + "\x00wait":                      "runPermissionWait",
 	}
+	// public-production-handler-evidence:end
 	if buildIdentityHasBroker() {
-		want["auth login"] = "runAuthLogin"
-		want["auth import"] = "runAuthImport"
-		want["auth status"] = "runAuthStatus"
-		want["auth logout"] = "runAuthLogout"
+		delete(want, ReleaseProgramName+"\x00"+WorkspaceEntryCommandPath)
+		for key, handler := range maps.Clone(want) {
+			if strings.HasPrefix(key, ReleaseProgramName+"\x00") {
+				delete(want, key)
+				want[ResearchProgramName+strings.TrimPrefix(key, ReleaseProgramName)] = handler
+			}
+		}
+		want[ResearchProgramName+"\x00auth login"] = "runAuthLogin"
+		want[ResearchProgramName+"\x00auth import"] = "runAuthImport"
+		want[ResearchProgramName+"\x00auth status"] = "runAuthStatus"
+		want[ResearchProgramName+"\x00auth logout"] = "runAuthLogout"
+		want[ResearchProgramName+"\x00serve"] = "runServe"
+		want[ResearchProgramName+"\x00"+WorkspaceEntryCommandPath] = "runFinalDefaultPairEnter"
 	}
 	catalog := DefaultCatalog()
-	for path, suffix := range want {
-		spec, found := catalog.lookupRegistered(path)
-		if !found {
-			t.Errorf("%s is not registered", path)
-			continue
-		}
+	got := make(map[string]string)
+	for _, spec := range catalog.PublicCommands() {
 		name := runtime.FuncForPC(reflect.ValueOf(spec.handler).Pointer()).Name()
-		if !strings.HasSuffix(name, "."+suffix) {
-			t.Errorf("%s handler = %s, want %s", path, name, suffix)
-		}
+		got[spec.programName()+"\x00"+spec.Path] = name[strings.LastIndex(name, ".")+1:]
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("public production handler composition differs\ngot=%v\nwant=%v", got, want)
 	}
 	if !buildIdentityHasBroker() {
 		for _, path := range []string{"auth login", "auth import", "auth status", "auth logout", "serve"} {

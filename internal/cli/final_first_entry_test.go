@@ -36,11 +36,35 @@ type firstEntryPairFixture struct {
 	entryErr       error
 	recovery       tobari.FinalAuthorityMutationObservation
 	recoveryErr    error
+	selectionErr   error
 }
 
 func (f *firstEntryPairFixture) Observe(context.Context) (tobari.FinalDefaultPairObservation, error) {
 	*f.order = append(*f.order, "observe")
 	return f.observation.Clone(), nil
+}
+
+func (f *firstEntryPairFixture) Select(context.Context, io.Reader, io.Writer) (workspaceauthoritycmd.SelectedDefaultPair, error) {
+	*f.order = append(*f.order, "observe")
+	if f.selectionErr != nil {
+		return workspaceauthoritycmd.SelectedDefaultPair{}, f.selectionErr
+	}
+	return workspaceauthoritycmd.SelectedDefaultPair{Selection: tobari.FinalDefaultPairSelection{
+		SchemaVersion: tobari.FinalDefaultPairSelectionSchemaVersion, CollectionPresent: f.observation.CollectionPresent,
+		CanonicalCWD: f.observation.ProjectRoot, Candidates: []tobari.FinalDefaultPairCandidate{},
+	}}, nil
+}
+
+func TestFinalRootAlreadyInsideMatchesCatalogBeforeReadiness(t *testing.T) {
+	command, pair, readiness, cluster, _, _, stderr, order := newFirstEntryCLI(t, false, true, recommendedFirstUseStart)
+	pair.selectionErr = fault.New(fault.KindRejected, "already_inside", "This process is already inside a Workspace; nested entry is not supported", false,
+		fault.NextAction{Command: "help tobari", Reason: "Exit the current Workspace session before entering another."})
+	if code := command.RunContext(context.Background(), nil); code != ExitRejected {
+		t.Fatalf("inside exit=%d stderr=%q", code, stderr.String())
+	}
+	if !reflect.DeepEqual(*order, []string{"observe"}) || readiness.calls != 0 || cluster.calls != 0 || pair.resolveCalls != 0 || !strings.Contains(stderr.String(), "already_inside") || strings.Contains(stderr.String(), "undeclared_fault_contract") {
+		t.Fatalf("inside order=%v stderr=%q", *order, stderr.String())
+	}
 }
 
 func (f *firstEntryPairFixture) ObserveMutationRecovery(context.Context) (tobari.FinalAuthorityMutationObservation, error) {
@@ -58,6 +82,10 @@ func (f *firstEntryPairFixture) Resolve(_ context.Context, intent operation.Inte
 	}
 	f.resolveBody = body
 	return f.resolution, f.resolveErr
+}
+
+func (f *firstEntryPairFixture) ResolveSelected(ctx context.Context, intent operation.Intent, body *tobari.WorkspaceTemplateBody, _ workspaceauthoritycmd.SelectedDefaultPair) (workspaceauthoritycmd.DefaultPairResolution, error) {
+	return f.Resolve(ctx, intent, body)
 }
 
 func (f *firstEntryPairFixture) RefreshAfterCluster(ctx context.Context, resolution workspaceauthoritycmd.DefaultPairResolution, _ workspaceauthoritycmd.FinalClusterReconciliation) (workspaceauthoritycmd.DefaultPairResolution, error) {
@@ -149,7 +177,7 @@ func newFirstEntryCLI(t *testing.T, fresh, interactive bool, action recommendedF
 	command.finalEntryReadiness = readiness
 	command.finalCluster = cluster
 	command.firstUse = reviewer
-	command.firstUseInteractive = func(io.Reader, io.Writer, io.Writer) bool { return interactive }
+	command.interactive = func(io.Reader, io.Writer, io.Writer) bool { return interactive }
 	command.firstUseTemplateBody = func(context.Context) (tobari.WorkspaceTemplateBody, error) {
 		order = append(order, "template body")
 		return tobari.WorkspaceTemplateBody{}, nil
@@ -176,7 +204,7 @@ func TestFinalRootFreshStartComposesReviewFiveCheckpointsAndExactDirectArgv(t *t
 	if !pair.session.Direct() || !reflect.DeepEqual(pair.session.Argv(), argv) {
 		t.Fatalf("direct argv = %#v", pair.session.Argv())
 	}
-	wantProgress := "✓ Check requirements\n✓ Save setup\n✓ Prepare protection\n✓ Prepare Workspace\n✓ Enter Workspace\n"
+	wantProgress := "Tobari · Starting Workspace\n\n✓ Check requirements\n✓ Save setup\n✓ Prepare protection\n✓ Prepare Workspace\n✓ Enter Workspace\n"
 	if stderr.String() != wantProgress || stdout.Len() != 0 {
 		t.Fatalf("root streams stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}

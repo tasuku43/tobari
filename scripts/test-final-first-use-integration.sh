@@ -9,6 +9,8 @@ binary=${TOBARI_FIRST_USE_INTEGRATION_BINARY:-}
 owns_shared_resources=false
 context_ref=
 workspace_ref=
+nested_context_ref=
+nested_workspace_ref=
 standard_runtime_image=$(go run ./tools/runtimeassetid standard-runtime-image)
 gateway_image="tobari-gateway:base-$(go run ./tools/runtimeassetid gateway)"
 
@@ -73,6 +75,7 @@ os.set_blocking(master, False)
 deadline = time.monotonic() + 1200
 review = bytearray()
 started = False
+selected = False
 entered = False
 sent_exit = False
 status = None
@@ -92,13 +95,16 @@ while status is None:
         if data:
             os.write(1, data)
             review.extend(data)
-            if mode == "fresh" and not started and b"Start Workspace" in review:
+            if mode == "fresh" and not started and b"Create and enter Workspace" in review:
                 os.write(master, b"\r")
                 started = True
+            if mode in ("ancestor-use", "nested-create") and not selected and b"Create a new Workspace here" in review:
+                os.write(master, b"\r" if mode == "ancestor-use" else b"n")
+                selected = True
             if not sent_exit and re.search(rb"tobari-[a-z0-9-]+-work:[^\r\n]*[$#] ", review):
                 entered = True
                 sent_exit = True
-                os.write(master, b"exit\r")
+                os.write(master, b"echo E2E_CWD=$PWD; exit\r")
             if len(review) > 131072:
                 del review[:-65536]
         elif mode == "fresh" and not started:
@@ -108,6 +114,8 @@ while status is None:
         status = value
 if mode == "fresh" and not started:
     raise SystemExit("first-use review was not observed")
+if mode in ("ancestor-use", "nested-create") and not selected:
+    raise SystemExit("ancestor selector was not observed")
 if not entered:
     raise SystemExit("bare Tobari did not hand off to a Workspace shell")
 if os.WIFEXITED(status):
@@ -122,6 +130,12 @@ cleanup() {
 	local cleanup_failed=false
 	trap - EXIT
 	if [[ $owns_shared_resources == true ]]; then
+		if [[ -n ${test_root:-} && -x ${binary:-} && -n ${nested_workspace_ref:-} ]]; then
+			run_tobari workspace delete --id "$nested_workspace_ref" --confirm=delete --force >/dev/null 2>&1 || cleanup_failed=true
+		fi
+		if [[ -n ${test_root:-} && -x ${binary:-} && -n ${nested_context_ref:-} ]]; then
+			run_tobari context delete --id "$nested_context_ref" --confirm=delete >/dev/null 2>&1 || cleanup_failed=true
+		fi
 		if [[ -n ${test_root:-} && -x ${binary:-} && -n ${workspace_ref:-} ]]; then
 			run_tobari workspace delete --id "$workspace_ref" --confirm=delete --force >/dev/null 2>&1 || cleanup_failed=true
 		fi
@@ -207,7 +221,7 @@ if ! run_bare_tobari_pty_at fresh "$test_root/user/project" >"$first_entry_log" 
   echo "first-use integration: bare cold entry failed" >&2
   exit 1
 fi
-grep -F 'Start Workspace' "$first_entry_log" >/dev/null || {
+grep -F 'Create and enter Workspace' "$first_entry_log" >/dev/null || {
   echo "first-use integration: recommended review was not rendered" >&2
   exit 1
 }
@@ -261,4 +275,26 @@ python3 -c 'import json,sys; assert len(json.load(sys.stdin)["templates"]["items
 python3 -c 'import json,sys; assert len(json.load(sys.stdin)["contexts"]["items"]) == 1' <<<"$(run_tobari context list --format=json)"
 python3 -c 'import json,sys; assert len(json.load(sys.stdin)["workspaces"]["items"]) == 1' <<<"$(run_tobari workspace list --format=json)"
 
-echo "first-use integration: empty XDG and empty Tobari images to bare builtin/standard Workspace entry and re-entry OK"
+mkdir -p "$test_root/user/project/child"
+ancestor_log=$test_root/ancestor-entry.log
+run_bare_tobari_pty_at ancestor-use "$test_root/user/project/child" >"$ancestor_log" 2>&1 || {
+	cat "$ancestor_log" >&2; echo "first-use integration: descendant ancestor selection failed" >&2; exit 1;
+}
+grep -F 'Create a new Workspace here' "$ancestor_log" >/dev/null
+grep -F 'Using existing Workspace' "$ancestor_log" >/dev/null
+grep -F 'E2E_CWD=/var/lib/tobari/project/child' "$ancestor_log" >/dev/null
+python3 -c 'import json,sys; assert len(json.load(sys.stdin)["contexts"]["items"]) == 1' <<<"$(run_tobari context list --format=json)"
+python3 -c 'import json,sys; assert len(json.load(sys.stdin)["workspaces"]["items"]) == 1' <<<"$(run_tobari workspace list --format=json)"
+
+nested_log=$test_root/nested-entry.log
+run_bare_tobari_pty_at nested-create "$test_root/user/project/child" >"$nested_log" 2>&1 || {
+	cat "$nested_log" >&2; echo "first-use integration: explicit nested-root creation failed" >&2; exit 1;
+}
+grep -F 'Creating a new Workspace here' "$nested_log" >/dev/null
+grep -F 'E2E_CWD=/var/lib/tobari/project/child' "$nested_log" >/dev/null
+context_list=$(run_tobari context list --format=json)
+nested_context_ref=$(python3 -c 'import json,sys; items=json.load(sys.stdin)["contexts"]["items"]; assert len(items) == 2; print(next(x["context_ref"] for x in items if x["project_root"].endswith("/project/child")))' <<<"$context_list")
+workspace_list=$(run_tobari workspace list --format=json)
+nested_workspace_ref=$(python3 -c 'import json,sys; items=json.load(sys.stdin)["workspaces"]["items"]; assert len(items) == 2; print(next(x["workspace_ref"] for x in items if x["project_root"].endswith("/project/child")))' <<<"$workspace_list")
+
+echo "first-use integration: cold entry, re-entry, descendant selection, and explicit nested creation OK"

@@ -44,7 +44,7 @@ func expectedFreshClusterResourceAuthority() freshClusterResourceAuthority {
 	return freshClusterResourceAuthority{
 		Containers: containers,
 		Networks:   []string{"tobari-control", "tobari-egress"},
-		Volumes:    []string{"tobari-gateway-ca", policyBundleVolume, "tobari-public-ca"},
+		Volumes:    finalFreshVolumeNames(),
 	}
 }
 

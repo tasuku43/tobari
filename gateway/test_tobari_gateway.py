@@ -618,7 +618,7 @@ class PermissionResumeProjectionTests(unittest.TestCase):
             finally:
                 listener.close()
 
-    def test_denial_schema2_exposes_no_frozen_alias(self):
+    def test_denial_schema3_exposes_no_frozen_alias(self):
         principal = {"context_id": CONTEXT, "project_id": PROJECT}
         flow = tflow.tflow(req=http.Request.make("GET", "https://api.example.com/items"))
         resume = {
@@ -635,7 +635,7 @@ class PermissionResumeProjectionTests(unittest.TestCase):
         self.assertNotIn("project_id", denial["tobari"])
         self.assertEqual(denial["tobari"]["resume"], resume)
 
-    def test_ordinary_policy_denial_acks_then_projects_schema2_resume(self):
+    def test_ordinary_policy_denial_acks_then_projects_schema3_denial_with_schema2_resume(self):
         principal = gateway._parse_project_principals(
             json.dumps(principal_registry()).encode()
         )["172.29.0.3"]
