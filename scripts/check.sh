@@ -288,7 +288,7 @@ run_authbroker() {
     python3 -m unittest discover -s authbroker/tests -v
 }
 
-run_first_use() {
+activate_integration_docker_context() {
   local integration_context=${TOBARI_INTEGRATION_DOCKER_CONTEXT:-${DOCKER_CONTEXT:-}}
   [[ -n $integration_context && $integration_context != default ]] || {
     echo "check first-use: TOBARI_INTEGRATION_DOCKER_CONTEXT must name an explicit non-default Docker context" >&2
@@ -297,6 +297,10 @@ run_first_use() {
   docker --context "$integration_context" version >/dev/null
   export DOCKER_CONTEXT="$integration_context"
   export TOBARI_INTEGRATION_DOCKER_CONTEXT="$integration_context"
+}
+
+run_first_use() {
+  activate_integration_docker_context
   ./scripts/test-final-first-use-integration.sh
 }
 
@@ -306,6 +310,7 @@ run_integration() {
 }
 
 run_runtime() {
+  activate_integration_docker_context
   run_policy
   run_gateway
   run_authbroker
@@ -318,6 +323,7 @@ run_runtime_release_components() {
 }
 
 run_runtime_release() {
+  activate_integration_docker_context
   run_runtime_release_components
   run_first_use
 }

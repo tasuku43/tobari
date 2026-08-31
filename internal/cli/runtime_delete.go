@@ -79,7 +79,11 @@ func runRuntimeDelete(ctx context.Context, c *CLI, command CommandSpec, intent o
 		if !ok {
 			classified = fault.Wrap(fault.KindContract, "output_encoding_failed", "Runtime delete result output could not be encoded", false, err)
 		}
-		return c.fail(ctx, fault.WithClassification(classified, fault.PhasePresentation, fault.ChangeConfirmed))
+		phase := fault.PhasePresentation
+		if classified.Code == "invalid_runtime_delete_result_confirmed" {
+			phase = fault.PhaseVerification
+		}
+		return c.fail(ctx, fault.WithClassification(classified, phase, fault.ChangeConfirmed))
 	}
 	return c.emitMutationResult(ctx, command, output)
 }

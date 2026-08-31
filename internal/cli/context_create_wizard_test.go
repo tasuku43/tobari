@@ -459,12 +459,9 @@ func TestContextCreateWizardRawUsesOneContinuousSixStepSession(t *testing.T) {
 			t.Errorf("raw wizard output lacks %q: %q", required, output.String())
 		}
 	}
-	if strings.Count(output.String(), selectorAlternateScreenEnter) != 1 ||
-		strings.Count(output.String(), selectorAlternateScreenExit) != 1 {
-		t.Fatalf("alternate screen entry/exit count is not one: %q", output.String())
-	}
-	if strings.Index(output.String(), selectorAlternateScreenEnter) > strings.Index(output.String(), "Workspace Manifest name:") {
-		t.Fatalf("name prompt appeared before the full-screen session: %q", output.String())
+	if strings.Count(output.String(), selectorCursorShow) != 1 ||
+		strings.Contains(output.String(), "\x1b[?1049") {
+		t.Fatalf("inline screen did not restore the cursor once: %q", output.String())
 	}
 }
 
@@ -779,9 +776,8 @@ func TestContextCreateWizardRawCollectsAWSProfileWithoutLeavingSession(t *testin
 		t.Fatalf("AWS profile = %q", selection.AWSBootstrapProfile)
 	}
 	if !strings.Contains(output.String(), "AWS profile") || !strings.Contains(output.String(), "account 123456789012") ||
-		strings.Count(output.String(), selectorAlternateScreenEnter) != 1 ||
-		strings.Count(output.String(), selectorAlternateScreenExit) != 1 {
-		t.Fatalf("AWS profile was not collected inside one full-screen session: %q", output.String())
+		strings.Count(output.String(), selectorCursorShow) != 1 {
+		t.Fatalf("AWS profile was not collected inside one inline session: %q", output.String())
 	}
 }
 
@@ -799,7 +795,7 @@ func TestContextCreateWizardRawCollectsAWSAndEKSInsideOneSession(t *testing.T) {
 	if selection.AWSBootstrapProfile != "engineering" || selection.EKSBootstrapContext != "platform" {
 		t.Fatalf("composed bootstrap = %+v", selection)
 	}
-	if !strings.Contains(output.String(), "Amazon EKS") || strings.Count(output.String(), selectorAlternateScreenEnter) != 1 || strings.Count(output.String(), selectorAlternateScreenExit) != 1 {
+	if !strings.Contains(output.String(), "Amazon EKS") || strings.Count(output.String(), selectorCursorShow) != 1 {
 		t.Fatalf("EKS bootstrap left the continuous session: %q", output.String())
 	}
 }
@@ -840,8 +836,7 @@ func TestContextCreateWizardRawCancelRestoresTerminalBeforeSelection(t *testing.
 		t.Fatalf("wizard error = %v, want canceled", err)
 	}
 	if mode.entered != 1 || mode.restored != 1 ||
-		strings.Count(output.String(), selectorAlternateScreenEnter) != 1 ||
-		strings.Count(output.String(), selectorAlternateScreenExit) != 1 {
+		strings.Count(output.String(), selectorCursorShow) != 1 {
 		t.Fatalf("terminal cleanup entered/restored = %d/%d, output %q", mode.entered, mode.restored, output.String())
 	}
 }

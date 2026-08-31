@@ -32,6 +32,16 @@ func (f *defaultPairClusterRefreshFixture) ObserveFinalDefaultPair(context.Conte
 	return f.observation.Clone(), nil
 }
 
+func (f *defaultPairClusterRefreshFixture) ObserveFinalDefaultPairContext(_ context.Context, _ string, id tobari.ContextID) (tobari.FinalDefaultPairObservation, error) {
+	if f.observeErr != nil {
+		return tobari.FinalDefaultPairObservation{}, f.observeErr
+	}
+	if f.observation.Context == nil || f.observation.Context.Context.ID != id {
+		return tobari.FinalDefaultPairObservation{}, tobari.ErrContextBindingNotFound
+	}
+	return f.observation.Clone(), nil
+}
+
 func (f *defaultPairClusterRefreshFixture) EnterContextByReference(_ context.Context, _ string, session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer) (tobari.ContextEntryPublication, error) {
 	return f.EnterFinalDefaultPair(context.Background(), f.observation, f.observation.ProjectRoot, session, in, out, errOut)
 }
@@ -50,7 +60,7 @@ func (f *defaultPairClusterRefreshFixture) EnterFinalDefaultPair(_ context.Conte
 	}
 	snapshot.Workspace = &tobari.WorkspaceBinding{
 		SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: workspaceID, ContextID: snapshot.Context.ID,
-		ProjectRoot: snapshot.Context.ProjectRoot, Home: "/workspace/home",
+		ProjectRoot: "/workspace/example", Home: "/workspace/home",
 		CreationDefaults: snapshot.Template.Current.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied,
 	}
 	return tobari.ContextEntryPublication{Snapshot: snapshot, Outcome: tobari.WorkspaceSessionOutcome{ExitCode: 0, CleanupIssues: []tobari.WorkspaceAttachmentCleanupIssue{}}}, nil
@@ -72,12 +82,30 @@ func defaultPairClusterTransitionFixture(t *testing.T) (tobari.FinalDefaultPairO
 	if err != nil || !transition.Plan.EnvelopeChanged {
 		t.Fatalf("plan active receipts: changed=%t err=%v", transition.Plan.EnvelopeChanged, err)
 	}
-	before, err := tobari.NewFinalDefaultPairObservation(previous, true, snapshot.Context.ProjectRoot)
+	before, err := tobari.NewFinalDefaultPairObservation(previous, true, "/workspace/example")
 	if err != nil {
 		t.Fatal(err)
 	}
-	after, err := tobari.NewFinalDefaultPairObservation(transition.Next, true, snapshot.Context.ProjectRoot)
+	beforeContext := snapshot.Clone()
+	before.Context = &beforeContext
+	if err := before.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	after, err := tobari.NewFinalDefaultPairObservation(transition.Next, true, "/workspace/example")
 	if err != nil {
+		t.Fatal(err)
+	}
+	afterSnapshots, err := transition.Next.ContextSnapshots()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range afterSnapshots {
+		if candidate.Context.ID == snapshot.Context.ID {
+			value := candidate.Clone()
+			after.Context = &value
+		}
+	}
+	if err := after.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	cluster, err := NewFinalClusterReconciliation(transition.Plan, finalClusterIdentityFixture())
@@ -107,6 +135,17 @@ func (f *defaultPairReceiptDriftFixture) ObserveFinalDefaultPair(ctx context.Con
 		observation.CollectionRevision = digest("f")
 	}
 	return observation, observation.Validate()
+}
+
+func (f *defaultPairReceiptDriftFixture) ObserveFinalDefaultPairContext(ctx context.Context, root string, id tobari.ContextID) (tobari.FinalDefaultPairObservation, error) {
+	observation, err := f.ObserveFinalDefaultPair(ctx, root)
+	if err != nil {
+		return tobari.FinalDefaultPairObservation{}, err
+	}
+	if observation.Context == nil || observation.Context.Context.ID != id {
+		return tobari.FinalDefaultPairObservation{}, tobari.ErrContextBindingNotFound
+	}
+	return observation, nil
 }
 
 func TestDefaultPairReceiptDriftBeforeNestedEntryMakesZeroEntryEffect(t *testing.T) {

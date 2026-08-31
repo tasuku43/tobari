@@ -286,9 +286,17 @@ runtime_release_body=$(awk '
 ' scripts/check.sh)
 if ! grep -F 'run_policy' <<<"$runtime_release_components_body" >/dev/null ||
   ! grep -F 'run_gateway' <<<"$runtime_release_components_body" >/dev/null ||
+  ! grep -F 'activate_integration_docker_context' <<<"$runtime_release_body" >/dev/null ||
   ! grep -F 'run_runtime_release_components' <<<"$runtime_release_body" >/dev/null ||
   ! grep -F 'run_first_use' <<<"$runtime_release_body" >/dev/null; then
-  echo "integration scope: release runtime profile lost policy, Gateway, or cold first-use coverage" >&2
+  echo "integration scope: release runtime profile lost isolated-context, policy, Gateway, or cold first-use coverage" >&2
+  exit 1
+fi
+runtime_release_context_line=$(grep -nF 'activate_integration_docker_context' <<<"$runtime_release_body" | head -n 1 | cut -d: -f1)
+runtime_release_components_line=$(grep -nF 'run_runtime_release_components' <<<"$runtime_release_body" | head -n 1 | cut -d: -f1)
+if [[ -z $runtime_release_context_line || -z $runtime_release_components_line ]] ||
+  ((runtime_release_context_line >= runtime_release_components_line)); then
+  echo "integration scope: release components run before the isolated Docker context is active" >&2
   exit 1
 fi
 if grep -Eq 'run_authbroker|run_integration' <<<"$runtime_release_components_body$runtime_release_body"; then

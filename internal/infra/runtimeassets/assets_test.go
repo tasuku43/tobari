@@ -451,6 +451,17 @@ func TestComposeSpecCapsSharedServiceLogs(t *testing.T) {
 	}
 }
 
+func TestComposeSpecShadowsUnusedInheritedGatewayVolumeWithTmpfs(t *testing.T) {
+	data, err := Read("compose.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := string(data)
+	if count := strings.Count(spec, "      - ${TOBARI_GATEWAY_INHERITED_CA_PATH}:size=1m,mode=0700\n"); count != 1 {
+		t.Fatalf("Gateway inherited-volume tmpfs shadows=%d, want 1", count)
+	}
+}
+
 func TestComposeSpecCapsSharedServiceResources(t *testing.T) {
 	data, err := Read("compose.yaml")
 	if err != nil {

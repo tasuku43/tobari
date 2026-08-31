@@ -126,7 +126,7 @@ func (r *Runtime) interactiveAttachmentDirectory() string {
 // remain owner-only. The registry stores only a validated basename.
 func (r *Runtime) interactiveAttachmentSocketDirectory() string {
 	digest := sha256.Sum256([]byte(r.configDirectory))
-	return filepath.Join("/tmp", fmt.Sprintf("tobari-permission-%d-%x", os.Getuid(), digest[:8]))
+	return filepath.Join(r.shortTemporaryDirectory, fmt.Sprintf("tobari-permission-%d-%x", os.Getuid(), digest[:8]))
 }
 
 func (r *Runtime) interactiveAttachmentSocketPath(session tobari.InteractiveAttachmentSession) string {

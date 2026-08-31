@@ -62,7 +62,7 @@ func finalContextSnapshotFixture(t *testing.T) (tobari.ContextAuthoritySnapshot,
 		t.Fatal(err)
 	}
 	template := tobari.WorkspaceTemplate{SchemaVersion: tobari.WorkspaceTemplateSchemaVersion, ID: templateID, Name: "research", Current: revision, Retained: []tobari.WorkspaceTemplateRevision{revision.Clone()}}
-	binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, ProjectRoot: "/workspace/example", TemplateID: templateID}
+	binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: templateID}
 	memory, _, err := tobari.PublishPolicyMemory(contextID, []tobari.PolicyMemoryRule{}, nil)
 	if err != nil {
 		t.Fatal(err)

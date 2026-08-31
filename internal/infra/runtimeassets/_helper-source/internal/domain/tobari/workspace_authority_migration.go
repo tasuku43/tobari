@@ -478,7 +478,7 @@ func BuildWorkspaceAuthorityMigrationPlan(input WorkspaceAuthorityMigrationInput
 	contextByWorkspace := make(map[string]ContextBinding, len(input.Workspaces))
 	for _, oldWorkspace := range input.Workspaces {
 		assignment := assignmentByPair[oldWorkspace.ProjectRoot+"\x00"+oldWorkspace.ManifestID]
-		context := ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: assignment.ContextID, ProjectRoot: oldWorkspace.ProjectRoot, TemplateID: WorkspaceTemplateID(oldWorkspace.ManifestID)}
+		context := ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: assignment.ContextID, TemplateID: WorkspaceTemplateID(oldWorkspace.ManifestID)}
 		plan.Contexts = append(plan.Contexts, context)
 		contextByWorkspace[oldWorkspace.ID] = context
 
@@ -509,7 +509,7 @@ func BuildWorkspaceAuthorityMigrationPlan(input WorkspaceAuthorityMigrationInput
 		if !creationReceiptFound {
 			return WorkspaceAuthorityMigrationPlan{}, fmt.Errorf("predecessor Workspace creation receipt has no exact retained Template body")
 		}
-		binding := WorkspaceBinding{SchemaVersion: WorkspaceBindingSchemaVersion, ID: workspaceID, ContextID: context.ID, ProjectRoot: context.ProjectRoot, Home: oldWorkspace.Home, CreationDefaults: oldWorkspace.CreationDefaults}
+		binding := WorkspaceBinding{SchemaVersion: WorkspaceBindingSchemaVersion, ID: workspaceID, ContextID: context.ID, ProjectRoot: oldWorkspace.ProjectRoot, Home: oldWorkspace.Home, CreationDefaults: oldWorkspace.CreationDefaults}
 		adoption := WorkspaceMigrationUnverified
 		if oldWorkspace.LastSuccessfulEntry != nil && oldWorkspace.DockerObservation.State == PredecessorDockerObservationExactOwned {
 			oldApplied := oldWorkspace.LastSuccessfulEntry
@@ -818,7 +818,14 @@ func (p WorkspaceAuthorityMigrationPlan) Validate() error {
 			return fmt.Errorf("migration plan Context assignment is duplicated")
 		}
 		context, exists := contextByID[assignment.ContextID]
-		if !exists || context.ProjectRoot != assignment.ProjectRoot || string(context.TemplateID) != assignment.PredecessorManifestID {
+		workspaceMatches := false
+		for _, workspace := range p.Workspaces {
+			if workspace.Binding.ContextID == assignment.ContextID && workspace.Binding.ProjectRoot == assignment.ProjectRoot {
+				workspaceMatches = true
+				break
+			}
+		}
+		if !exists || !workspaceMatches || string(context.TemplateID) != assignment.PredecessorManifestID {
 			return fmt.Errorf("migration plan Context assignment does not match final Context")
 		}
 		assignmentByPair[pair] = assignment.ContextID

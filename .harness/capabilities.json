@@ -90,6 +90,16 @@
     "reason": ""
   },
   {
+    "id": "policy.assistance",
+    "status": "public",
+    "reason": ""
+  },
+  {
+    "id": "runtime.assistance",
+    "status": "public",
+    "reason": ""
+  },
+  {
     "id": "runtime.lifecycle",
     "status": "public",
     "reason": ""

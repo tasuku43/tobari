@@ -479,6 +479,114 @@ func (s *Store) PublishTemplate(ctx context.Context, source tobari.WorkspaceTemp
 	})
 }
 
+// ReplaceTemplateSnapshot atomically replaces one exact observed desired
+// source pair. It is used only after a trusted host has frozen a Configurator
+// submission; active authority remains unchanged until normal Plan/Apply.
+func (s *Store) ReplaceTemplateSnapshot(ctx context.Context, source tobari.WorkspaceTemplateSource, expectedFingerprint string) (resultErr error) {
+	if err := source.Validate(); err != nil {
+		return err
+	}
+	if !validFingerprint(expectedFingerprint) {
+		return fmt.Errorf("expected Template source fingerprint is invalid")
+	}
+	templateData, err := encodeCanonicalYAML(source.Template)
+	if err != nil {
+		return err
+	}
+	policyData, err := encodeCanonicalYAML(source.Policy)
+	if err != nil {
+		return err
+	}
+	desiredFingerprint := sourceFingerprint(templateData, policyData)
+	path, err := s.TemplatePath(source.Template.TemplateID)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(path)
+	concept := filepath.Dir(dir)
+	stage := filepath.Join(concept, ".configurator-"+string(source.Template.TemplateID)+"-new")
+	backup := filepath.Join(concept, ".configurator-"+string(source.Template.TemplateID)+"-old")
+	if err := recoverConfiguratorSourceReplacement(dir, stage, backup); err != nil {
+		return err
+	}
+	_, observed, present, err := s.ReadTemplateSnapshot(ctx, source.Template.TemplateID)
+	if err != nil || !present {
+		return errors.Join(tobari.ErrResourceSourceMissing, err)
+	}
+	if observed == desiredFingerprint {
+		return nil
+	}
+	if observed != expectedFingerprint {
+		return tobari.ErrResourceSourceChanged
+	}
+	if err := os.Mkdir(stage, 0o700); err != nil {
+		return err
+	}
+	defer func() {
+		if resultErr != nil {
+			resultErr = errors.Join(resultErr, os.RemoveAll(stage))
+		}
+	}()
+	for name, data := range map[string][]byte{templateFileName: templateData, policyFileName: policyData} {
+		if err := writeDurableSourceFile(filepath.Join(stage, name), data); err != nil {
+			return err
+		}
+	}
+	if err := syncDirectory(stage); err != nil {
+		return err
+	}
+	_, observed, present, err = s.ReadTemplateSnapshot(ctx, source.Template.TemplateID)
+	if err != nil || !present || observed != expectedFingerprint {
+		return errors.Join(tobari.ErrResourceSourceChanged, err)
+	}
+	if err := os.Rename(dir, backup); err != nil {
+		return err
+	}
+	if err := os.Rename(stage, dir); err != nil {
+		return errors.Join(err, os.Rename(backup, dir))
+	}
+	if err := syncDirectory(concept); err != nil {
+		return errors.Join(tobari.ErrResourceSourceRecoveryRequired, err)
+	}
+	if err := os.RemoveAll(backup); err != nil {
+		return errors.Join(tobari.ErrResourceSourceRecoveryRequired, err)
+	}
+	return syncDirectory(concept)
+}
+
+func recoverConfiguratorSourceReplacement(dir, stage, backup string) error {
+	_, finalErr := os.Lstat(dir)
+	_, stageErr := os.Lstat(stage)
+	_, backupErr := os.Lstat(backup)
+	finalPresent, stagePresent, backupPresent := finalErr == nil, stageErr == nil, backupErr == nil
+	if (!finalPresent && !errors.Is(finalErr, os.ErrNotExist)) || (!stagePresent && !errors.Is(stageErr, os.ErrNotExist)) || (!backupPresent && !errors.Is(backupErr, os.ErrNotExist)) {
+		return tobari.ErrResourceSourceRecoveryRequired
+	}
+	switch {
+	case finalPresent && !backupPresent:
+		if stagePresent {
+			return os.RemoveAll(stage)
+		}
+		return nil
+	case finalPresent && backupPresent:
+		return errors.Join(os.RemoveAll(stage), os.RemoveAll(backup), syncDirectory(filepath.Dir(dir)))
+	case !finalPresent && stagePresent && backupPresent:
+		if err := os.Rename(stage, dir); err != nil {
+			return errors.Join(tobari.ErrResourceSourceRecoveryRequired, err)
+		}
+		return errors.Join(os.RemoveAll(backup), syncDirectory(filepath.Dir(dir)))
+	case !finalPresent && !stagePresent && backupPresent:
+		return errors.Join(os.Rename(backup, dir), syncDirectory(filepath.Dir(dir)))
+	default:
+		return tobari.ErrResourceSourceMissing
+	}
+}
+
+func validFingerprint(value string) bool {
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == sha256.Size && hex.EncodeToString(decoded) == value
+}
+
 func (s *Store) PublishContext(ctx context.Context, source tobari.ContextSource) error {
 	if err := source.Validate(); err != nil {
 		return err

@@ -1,8 +1,16 @@
-Runtime mobile
+✓ Runtime source created
 
-    Reference  018bcfe5-687b-7000-8000-000000000088
-    Kind       managed
-    Source     /tmp/tobari-test/runtimes/mobile/source
-    Source rules no group/other permissions · 1,024 files · 256 directories · 32 MiB/file · 64 MiB total
-    Status     draft · edit the current source
-    Next       tobari runtime build --id 018bcfe5-687b-7000-8000-000000000088
+mobile
+  Status         ! draft · ready to edit
+  Source         /tmp/tobari-test/runtimes/mobile/source
+  Next           tobari runtime assist --id 018bcfe5-687b-7000-8000-000000000088 — Edit this Runtime source with an isolated coding agent.
+
+Manual path
+  Edit           /tmp/tobari-test/runtimes/mobile/source
+  Then           tobari runtime build --id 018bcfe5-687b-7000-8000-000000000088
+
+Details
+  Reference      018bcfe5-687b-7000-8000-000000000088
+  Kind           managed
+  Permissions    owner only
+  Source limits  1,024 files · 256 directories · 32 MiB/file · 64 MiB total

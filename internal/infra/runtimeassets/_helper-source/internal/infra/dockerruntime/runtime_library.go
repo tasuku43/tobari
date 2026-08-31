@@ -23,13 +23,14 @@ import (
 )
 
 const (
-	runtimeSourceFileMode  = 0o600
-	maxRuntimeSourceFiles  = 1024
-	maxRuntimeSourceDirs   = 256
-	maxRuntimeSourceFile   = int64(32 * 1024 * 1024)
-	maxRuntimeSourceTotal  = int64(64 * 1024 * 1024)
-	runtimeSourceCopySize  = 128 * 1024
-	maxRuntimeMetadataSize = int64(64 * 1024)
+	runtimeSourceFileMode      = 0o600
+	maxRuntimeSourceFiles      = 1024
+	maxRuntimeSourceDirs       = 256
+	maxRuntimeSourceFile       = int64(32 * 1024 * 1024)
+	maxRuntimeSourceTotal      = int64(64 * 1024 * 1024)
+	runtimeSourceCopySize      = 128 * 1024
+	maxRuntimeMetadataSize     = int64(64 * 1024)
+	standardRuntimeImagePrefix = "tobari-runtime:base-"
 )
 
 const managedRuntimeTemplate = `# This directory is the complete build context for this Tobari Runtime.
@@ -169,6 +170,48 @@ func (r *Runtime) standardRuntimeManifest() (tobari.RuntimeManifest, error) {
 			CreatedAt: time.Unix(0, 0).UTC(),
 		}},
 	}, nil
+}
+
+// validateExactStandardRuntimeBinding accepts both the standard Runtime
+// compiled into this binary and an older source-addressed binding retained by
+// immutable Template authority. The image name is the source identity and the
+// revision is deterministically bound to that exact name, so no ambient tag or
+// current-binary fallback participates in historical resolution.
+func (r *Runtime) validateExactStandardRuntimeBinding(binding tobari.RuntimeBinding) error {
+	if err := binding.Validate(); err != nil {
+		return err
+	}
+	if binding.RuntimeID != tobari.StandardRuntimeID || binding.Name != tobari.StandardRuntimeName || binding.Ordinal != 1 {
+		return fmt.Errorf("standard Runtime binding identity is not canonical")
+	}
+	// The resolver's current exact manifest remains direct authority. A binding
+	// outside that manifest is historical and therefore must carry the portable
+	// source-addressed identity that can be validated without ambient state.
+	current, err := r.standardRuntimeManifest()
+	if err != nil {
+		return err
+	}
+	currentBinding, err := current.Binding(1)
+	if err != nil {
+		return err
+	}
+	if reflect.DeepEqual(currentBinding, binding) {
+		return nil
+	}
+	sourceID, ok := strings.CutPrefix(binding.Image, standardRuntimeImagePrefix)
+	if !ok || len(sourceID) != sha256.Size*2 {
+		return fmt.Errorf("standard Runtime binding image is not source-addressed")
+	}
+	for _, character := range sourceID {
+		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')) {
+			return fmt.Errorf("standard Runtime binding image source identity is invalid")
+		}
+	}
+	digest := sha256.Sum256([]byte("tobari-standard-runtime\x00" + binding.Image))
+	if binding.Revision != "sha256:"+hex.EncodeToString(digest[:]) {
+		return fmt.Errorf("standard Runtime binding revision does not match its exact image")
+	}
+	return nil
 }
 
 func (r *Runtime) resolveRuntimeBinding(selection string) (tobari.RuntimeBinding, error) {
@@ -1437,6 +1480,9 @@ func (r *Runtime) publishManagedRuntimeManifestRevision(_ context.Context, journ
 }
 
 func (r *Runtime) resumeManagedRuntimePublicationLocked(ctx context.Context, journal runtimeBuildJournal) (tobari.RuntimeManifest, error) {
+	if err := r.validateManagedRuntimeBuildCompatibility(ctx, journal.ImageDigest); err != nil {
+		return tobari.RuntimeManifest{}, fmt.Errorf("Runtime build publication compatibility requires reconciliation: %w", err)
+	}
 	for {
 		switch journal.Phase {
 		case runtimeBuildPhaseBuilt:
@@ -1573,6 +1619,13 @@ func (r *Runtime) BuildManagedRuntime(ctx context.Context, name string, diagnost
 // Migration uses it under its broader migration lock; public entry points
 // acquire that lock exactly once before crossing this boundary.
 func (r *Runtime) buildManagedRuntimeLifecycleLocked(ctx context.Context, name, expectedReference string, diagnostics io.Writer) (tobari.RuntimeReport, error) {
+	return r.buildManagedRuntimeLifecycleLockedFromSource(ctx, name, expectedReference, diagnostics, "", "")
+}
+
+// buildManagedRuntimeLifecycleLockedFromSource binds Configurator builds to
+// one immutable, already-digested source snapshot. It requires the same
+// installation lifecycle lock as the ordinary managed Runtime build.
+func (r *Runtime) buildManagedRuntimeLifecycleLockedFromSource(ctx context.Context, name, expectedReference string, diagnostics io.Writer, exactSource, exactRevision string) (tobari.RuntimeReport, error) {
 	if err := ctx.Err(); err != nil {
 		return tobari.RuntimeReport{}, err
 	}
@@ -1604,9 +1657,19 @@ func (r *Runtime) buildManagedRuntimeLifecycleLocked(ctx context.Context, name, 
 			return r.rollbackRuntimeBuildBeforeDocker(ctx, err, journal)
 		}
 		snapshot := journal.SnapshotPath
-		revision, err := copyRuntimeSource(ctx, manifest.SourcePath, snapshot)
+		buildSource := manifest.SourcePath
+		if exactSource != "" {
+			if exactRevision == "" {
+				return r.rollbackRuntimeBuildBeforeDocker(ctx, fmt.Errorf("exact Runtime build revision is missing"), journal)
+			}
+			buildSource = exactSource
+		}
+		revision, err := copyRuntimeSource(ctx, buildSource, snapshot)
 		if err != nil {
 			return r.rollbackRuntimeBuildBeforeDocker(ctx, err, journal)
+		}
+		if exactRevision != "" && revision != exactRevision {
+			return r.rollbackRuntimeBuildBeforeDocker(ctx, tobari.ErrResourceSourceChanged, journal)
 		}
 		if err := r.syncRuntimeBuildSnapshot(snapshot); err != nil {
 			return r.rollbackRuntimeBuildBeforeDocker(ctx, err, journal)
@@ -1644,6 +1707,9 @@ func (r *Runtime) buildManagedRuntimeLifecycleLocked(ctx context.Context, name, 
 			if existing.Revision == revision {
 				observedDigest, inspectErr := r.inspectManagedRuntimeBuildEvidence(ctx, existing.Image, manifest.ID, revision)
 				if inspectErr != nil || observedDigest != existing.ImageDigest {
+					return r.rollbackRuntimeBuildBeforeDocker(ctx, tobari.ErrRuntimeNotReady, journal)
+				}
+				if err := r.validateManagedRuntimeBuildCompatibility(ctx, observedDigest); err != nil {
 					return r.rollbackRuntimeBuildBeforeDocker(ctx, tobari.ErrRuntimeNotReady, journal)
 				}
 				result = tobari.RuntimeReport{Task: tobari.TaskRuntimeBuildV1, Runtime: manifest, NoChange: true}
@@ -1690,11 +1756,11 @@ func (r *Runtime) buildManagedRuntimeLifecycleLocked(ctx context.Context, name, 
 		if err := r.runner.Run(ctx, args, os.Environ(), nil, stream, stream); err != nil {
 			return r.retainRuntimeBuildFailure(ctx, journal, fmt.Errorf("build Runtime: %w: %s", err, boundedDiagnostic(tail.Bytes())))
 		}
-		if err := r.validateCompatibleImage(ctx, image); err != nil {
-			return r.retainRuntimeBuildFailure(ctx, journal, err)
-		}
 		imageDigest, err := r.inspectManagedRuntimeBuildEvidence(ctx, image, manifest.ID, revision, journal.AttemptID)
 		if err != nil {
+			return r.retainRuntimeBuildFailure(ctx, journal, err)
+		}
+		if err := r.validateManagedRuntimeBuildCompatibility(ctx, imageDigest); err != nil {
 			return r.retainRuntimeBuildFailure(ctx, journal, err)
 		}
 		if err := r.freezeRuntimeBuildSnapshot(snapshot); err != nil {

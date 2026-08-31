@@ -537,6 +537,9 @@ const formattedDanger = "\x1b[%dm"
 const cursor = "\x1b[2K"
 const eraseDisplay = "\x1b[2J"
 const cursorHome = "\x1b[H"
+const cursorSave = "\x1b[s"
+const cursorRestore = "\x1b[u"
+const eraseBelow = "\x1b[0J"
 const alternateScreenEnter = "\x1b[?1049h"
 const alternateScreenExit = "\x1b[?1049l"
 `)
@@ -544,8 +547,8 @@ const alternateScreenExit = "\x1b[?1049l"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 {
-		t.Fatalf("violations = %#v, want direct and formatted semantic-style violations", got)
+	if len(got) != 4 {
+		t.Fatalf("violations = %#v, want direct/formatted semantic-style and alternate-screen violations", got)
 	}
 	for _, item := range got {
 		if item.To != "ANSI SGR" || !strings.Contains(item.Reason, "semantic tokens") {

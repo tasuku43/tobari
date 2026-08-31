@@ -23,7 +23,7 @@ The harness is the executable counterpart of the theses, product contract, archi
 | `gateway` | `task gateway:test` | Enforcement-point feedback | Exact classifier-admission inventory/evidence gate, source-built Gateway image with hash-locked dependencies, exact runtime-input snapshot membership/bytes, and the complete addon/parser test suite |
 | `authbroker` | `task authbroker:test` | Research credential-boundary feedback | Exact runtime-input snapshot membership/bytes, strict broker/provider/root-key Go tests, Python daemon/vault/protocol tests in the pinned image environment, and Auth Broker image metadata |
 | `integration` | `task integration:test` | Research real runtime boundary | The `task build:dev` three-service topology, kernel/network enforcement, Broker isolation, live Gateway/OPA transport and activation, Host Loopback, and resource lifecycle canaries |
-| `runtime-release` | `task runtime:release` | Standard release container gate | Policy and Gateway checks only; explicitly excludes deferred Auth Broker and `task build:dev` integration tests |
+| `runtime-release` | `task runtime:release` | Standard release container gate | Policy, Gateway, and cold release-surface first-use on one explicit non-default Docker context; explicitly excludes deferred Auth Broker and `task build:dev` integration tests |
 | `runtime` | `task runtime:test` | Complete research container gate | Policy, Gateway, Auth Broker image/protocol, and research integration coverage |
 
 The integration script reports named phase start/completion and elapsed time
@@ -75,12 +75,23 @@ prove the fresh authority is both byte-embedded and trusted by the wrapper.
 The cold first-use integration scenario owns no Runtime prerequisite. It builds
 a release-surface binary, starts before the XDG config/state/data parent
 directories themselves exist and with absent exact standard Runtime/Gateway
-tags, drives the reviewed bare `tobari` entry through a PTY, requires a real
-Workspace shell handoff and bounded `exit`, then repeats the bare entry to prove
-re-entry. It then invokes the same release binary from a descendant, proves
+tags, drives the bare `tobari` entry through its deterministic Manual setup
+review, proves cold authority and immutable Runtime preparation, then
+requires a real Workspace shell handoff and bounded `exit`. It repeats bare
+entry to prove re-entry. Focused Runtime/Gateway tests, rather than this cold
+shell script, enforce Workspace direct-egress denial. It then invokes the
+same release binary from a descendant and proves
 that the nearest containing root is offered and reused without new authority,
-proves that explicit create-here produces a distinct nested Context/Workspace,
+stops that exact parent test container, proves that explicit create-here from a
+stopped ancestor produces a distinct nested Context/Workspace,
 and verifies both attachments start at the invocation's descendant directory.
+Focused application, Store, Runtime, CLI, crash-replay, and hostile-state tests
+cover task assistance agent selection, authority-bound attachment, one-Home
+mount, retained draft, immutable submission review, Runtime source-only CAS,
+policy-only validation, and Template Stage/Plan/Apply without requiring a provider account. Native Codex and
+Claude sign-in compatibility remains a bounded manual observation rather than
+an unattended release gate; the harness must not claim provider continuity it
+does not execute.
 The scenario refuses a Docker context that already
 contains either exact tag and retains successfully built images as reusable
 cache; it never masks, retags, or deletes an ambient image. An explicitly
@@ -109,7 +120,11 @@ The research build additionally checks `io.tobari.auth-broker-api=1`.
 only source inputs and no generated Tobari-owned release output. The release
 surface rejects component locks and registry publication, and verifies every
 CLI archive carries the requested source revision. Local image tags are derived
-from their embedded recipes.
+from their embedded recipes. Focused component tests retain an older exact
+standard binding across a newer resolver; cover Context entry, status,
+Configurator Freeze, and Template Plan/Apply with that owner-authoritative
+binding; reject incompatible or drifting immutable image evidence; and prove a
+historical binding never triggers reconstruction, pull, or silent rebinding.
 
 The focused `scripts/check-runtime-base.sh` workflow step validates the canonical
 `runtimes/base` metadata and consolidated per-platform artifact lock, the Dockerfile's common
@@ -265,6 +280,12 @@ Direct invocation is supported for automation:
 ./scripts/check.sh runtime-release
 ```
 
+The `first-use`, `integration`, `runtime`, and `runtime-release` profiles require
+`TOBARI_INTEGRATION_DOCKER_CONTEXT` (or an already exported non-default
+`DOCKER_CONTEXT`). Aggregate profiles activate that exact context before any
+component check so Policy, Gateway, and lifecycle evidence cannot split across
+an ambient daemon and the selected integration daemon.
+
 Every profile starts with a local-toolchain preflight after the gate sanitizes its Go environment. The preflight requires the exact Go version declared by `go.mod` under `GOTOOLCHAIN=local` and verifies the selected binary, its reported version, `GOVERSION`, `GOROOT`, `GOTOOLDIR`, and the compiler in that tool directory as one installation. A mismatch fails once with those values and remediation guidance before formatting, tests, downloads, or release builds begin.
 
 The `fast`, `full`, `security`, and `public` profiles also require the exact
@@ -370,25 +391,58 @@ processing. A passing policy test with a workflow that requires users to become
 Docker or OPA operators is evidence for a thesis revision or follow-up UX
 slice, not evidence that the product outcome is complete.
 
-The desired routine journey remains CWD-first: enter a reusable Workspace, work
-freely within the declared root and network boundary, receive a useful
+The desired routine journey remains CWD-first: on fresh first use complete the
+deterministic Manual review and enter a reusable Workspace; create a concrete
+Runtime source or accumulate reviewed Policy Memory evidence; optionally invoke
+the corresponding task-scoped agent assistance; review only that source through
+the trusted host; work freely within the declared root and network boundary;
+receive a useful
 secret-free denial, approve the minimum exact or reviewed single-segment
 template permission through a trusted host
 action, and retry. Human presentation may simplify this journey only while the
 catalog, opaque-reference, effect, mutation, and fail-closed contracts remain
 unchanged.
-The first-entry evaluator is mechanically fixed to exactly seven rows: fresh
-first use; stopped Engine or cluster; interrupted or partial authority;
-explicit entry and retry; truthful progress and Next; idempotent convergence;
-and final repository integration. One presentation-independent fixture proves
-an interactive empty-authority root renders the recommended no-authority draft,
-then composes the canonical final default pair, final cluster, Context entry,
-and child handoff in order. Customize changes the same complete draft.
+The first-entry evaluator retains its seven rows for deterministic fresh first use; stopped
+Engine or cluster; interrupted or partial authority; explicit entry and retry;
+truthful progress and Next; idempotent convergence; and final repository
+integration. Separate assistance domain, application, Store, Runtime, and CLI
+contract tests cover Runtime and policy selectors, pre-mutation handoff
+cancellation, Context execution-Runtime binding, host-owned launch facts, draft
+retention, direct-egress/mount isolation, exact Home-path agreement, shared
+attachment exclusion, frozen target submission, generated task/language
+guidance, the exact fixed initial positional prompt for both pinned agents, and
+final-review non-authority. Recovery tests separately prove durable exact Apply
+confirmation, no agent restart for a confirmed Runtime no-op, authority-fenced
+Runtime/Template publication verification, policy Stage precedence, caller-
+cancellation-independent settlement including cancellation before Invoker
+admission, exact durable-Plan Apply recovery without agent/review/re-Plan, and
+confirmed settlement-incomplete classification. Stage-lease lifetime and
+Context-binding predicate tests keep
+both unconfirmed and confirmed policy tasks protected from Context deletion
+until Stage settlement. Fresh-root composition tests independently prove
+that Manual review composes the canonical final default pair, final cluster,
+Context entry, and child handoff without Configurator calls.
 Negative fixtures prove invalid root/direct-child rejection, non-TTY zero
 setup, cancellation/EOF/render failure zero later calls, concurrent authority
 drift rejection, confirmed Template/Context retention after cluster failure,
 missing custom Runtime-material refusal, canonical standard materialization,
 and retry without a second Runtime choice.
+Existing-Workspace tests additionally fix entry-specific progress labels,
+zero-stage exact-current direct handoff after coherent read-only entry
+classification that excludes volatile attachment status, mutation-free
+current-only entry including byte-exact preservation of recovery residue,
+exact-missing standard-image and stopped-protection fallback
+to the canonical staged recovery flow,
+declared exclusive-Home busy faults, shared same-Context Workspace leases,
+exclusive Configurator and retirement exclusion, per-borrower global-session
+lease lifetime when the first owner closes first, no entry-versus-settlement
+self-conflict, read-only exact-current confirmation, owner-first borrower
+exclusion of runtime repair before a durable decision, production-shaped root
+and explicit-entry busy faults, root/cluster Gateway-build faults, and Windows compilation of
+the shared-lock boundary. A maintainer may additionally replay root,
+descendant, explicit Context, concurrent direct-command, owner-first close,
+borrower continuation, and deletion drain against an isolated Docker Context;
+that observation supplements rather than replaces the repository gates.
 
 The same semantic fixtures drive line-oriented stderr, failure, cancellation,
 status, help, narrow/NO_COLOR projections, and agent-readiness answers. They fix
@@ -605,6 +659,9 @@ The test suite has complementary levels:
   through colored TTY, `NO_COLOR` TTY, and redirected text. Their checks fix
   required facts, exact Next argv, unsupported-inference canaries, one task
   invocation, and zero external processing. Catalog
+  tests additionally fix lifecycle collection counts, human-anchor-before-ref
+  card ordering, explicit empty collections, command-success versus resource-
+  lifecycle separation, and primary Next versus subordinate manual paths.
   validation rejects every text-producing command that omits the shared
   semantic-token presentation declaration. The
   deterministic CLI-experience evaluator additionally fixes the terminal-owned
@@ -615,8 +672,12 @@ The test suite has complementary levels:
   rule/target/detail so the gate is stable and reviewable. The
   Workspace selector tests cover the dependency-free raw key state machine,
   bounded scrolling, no redraw during repeated idle VTIME polls, exactly-once
-  alternate-screen restoration, wrap-independent home-and-clear repaint with
-  no logical-row cursor movement, English status rendering, and ANSI-free numbered-input
+  inline column-zero cursor restoration, negative DEC-1049 canaries, a small
+  screen-state model for bottom-edge scroll plus wrapping, a resize no-old-
+  origin control-sequence test, unknown-size append-only fallback,
+  conservative Unicode width, wrapped-row
+  pre-reservation and saved-origin/below-origin repaint, one-owner fail-closed finish,
+  final-frame scrollback retention, English status rendering, and ANSI-free numbered-input
   fallback. Catalog routing tests cover bare canonical namespace help plus no
   more than three deterministic, exact-selector typo suggestions. Interactive
   entry tests preserve the Bash or exact direct-command
@@ -692,15 +753,20 @@ The test suite has complementary levels:
   and missing common runtime failure declarations.
 - Reference-graph tests connect discover producers to act consumers by kind and exact field/argument declarations.
 - Opaque-ID round-trip tests pass discovery output unchanged into action input.
-- CWD-owned lifecycle integration creates same-root/different-Template Contexts and
-  independent-root Workspaces, then proves their actual containers, networks,
+- CWD-owned lifecycle integration creates same-root/different-Template Workspaces
+  for location-free Contexts and independent-root Workspaces, then proves their actual containers, networks,
   and XDG homes are distinct while Gateway, OPA, and public CA state are
   shared. It retains one partial container/network cleanup followed by exact
   public deletion, principal-registry cleanup, cluster-down refusal while
   Workspaces remain, and final owned-resource purge. Ancestor selection,
   repeated/concurrent creation, drift reconciliation, child exit semantics,
   and attachment guards are owned by deterministic domain, application,
-  infrastructure, and CLI tests.
+  infrastructure, and CLI tests. Mount-guard fixtures additionally prove that
+  a live read-write strict ancestor blocks a new or stopped descendant before
+  start, while same-root, descendant, read-only/stopped ancestor, and an
+  already-running exact target remain admissible; malformed, foreign,
+  duplicate, oversized, or contradictory Docker evidence fails closed and a
+  newly created blocked target is removed.
 - Lifecycle target-safety tests prove root, status, and delete expose no
   Template/Context selector; bind destructive actions through exact opaque
   references where required; keep root selection CWD-first; and prove
@@ -890,7 +956,7 @@ The test suite has complementary levels:
   review, explicit Apply, manual refresh with staged-set discard, and
   pre-Apply cancellation. They prove zero mutation before final confirmation,
   unchanged opaque review-item IDs, separate attachment/persistent lifetimes,
-  alternate-screen restoration before mutation, and an outcome-first receipt
+  inline raw-input/cursor restoration before mutation, and an outcome-first receipt
   with authoritative revision and ordered rule identities. Redirected and JSON
   review remain read-only. A handler-reachability canary proves the public
   Catalog reaches \`runFinalPolicyReview\`; source ownership checks reject the
@@ -1028,17 +1094,18 @@ Every strong statement should identify its enforcement path.
 | Domain-owned Catalog vocabulary | Caller-immutable canonical ordered sets consumed by domain validation and every inventoried exact Catalog field path, plus ledger-pinned constructor/output fixtures for semantic branches and explicit-empty correlations |
 | Catalog completeness | Whole-catalog contract tests |
 | Public executable composition | Exact whole-public-catalog Program/path-to-production-handler mapping across the release and attachment helpers; targeted nonzero Go execution evidence for each exact release/helper handler (never a global coverage percentage); focused CLI behavior assertions for public mutation projections; and an explicit release-binary scenario for root-owned environment, terminal, or adapter-composition journeys that cannot be proved by ordinary handler dispatch |
-| Semantic terminal presentation | Zero-violation deterministic CLI-experience evaluation covering terminal-owned named colors, six semantic tokens, reviewed markers, shared spinner ownership, `NO_COLOR` document parity, raw-journey continuity, public-handler reachability, and predecessor-owner absence; ledger-pinned typed fixtures across colored TTY, redirected text, scoped empty, warning, failure, and neutral cancellation; alternate-screen restoration; bounded namespace/suggestion tests; and AST lint rejecting style-dependent structure or direct ANSI SGR outside the shared style layer |
+| Semantic terminal presentation | Zero-violation deterministic CLI-experience evaluation covering terminal-owned named colors, six semantic tokens, reviewed markers, shared spinner ownership, `NO_COLOR` document parity, raw-journey continuity, public-handler reachability, and predecessor-owner absence; ledger-pinned typed fixtures across colored TTY, redirected text, scoped empty, warning, failure, and neutral cancellation; inline saved-origin redraw, final-frame retention, cursor restoration, and negative DEC-1049 canaries; bounded namespace/suggestion tests; and AST lint rejecting style-dependent structure or direct ANSI SGR outside the shared style layer |
 | Output delivery versus collection coverage | Independent finite enums and catalog tests, including complete bounded/differential windows and paged exhaustive traversal |
 | Operationally closed supported outcome | Reviewed agent-readiness transcript with zero undeclared external reconstruction, plus task-owned deterministic-composition tests and declared field extraction |
 | Request-bound semantic result | Per-capability domain/application tests for declared task identity and every applicable request dimension, including scope, state, contextual-kind, empty-result, no-partial-result, and negative-inference fixtures where applicable |
 | Action target composition | Reachable reference-graph validation and byte-preserving round trips for reference-bound acts; complete and exclusive declarations for command-bound fixed targets; reference-free fixed reads/writes; and fixed-create canaries that allow only distinct confirmed child-resource refs while rejecting consumed refs and escaped scope refs |
 | Recursive produced references | One bounded `OutputField.Fields`/`Items` traversal with deterministic dot/`[]` paths; forcing-shape, duplicate/cursor-collision, reachability, scoped-help, and workflow tests; typed inputs remain the consumed-reference authority |
 | Side-effect ordering | Fake adapter counters and failure-before-I/O tests |
-| Ancestor Workspace choice | Typed nearest-first candidate fixtures, selector key/fallback tests, locked stale-choice checks, zero-downstream-call cancellation tests, and a release-binary real-Docker PTY canary proving descendant-CWD ancestor reuse versus explicit nested creation |
+| Ancestor Workspace choice | Typed nearest-first candidate fixtures, selector key/fallback tests, locked stale-choice checks, zero-downstream-call cancellation tests, and a release-binary real-Docker PTY canary proving descendant-CWD ancestor reuse versus explicit nested creation after the exact parent test container is stopped |
 | Session-versus-Workspace lifecycle | Child exit-status preservation, host stderr guidance, stdout/stderr ownership, logical-state-after-exit, and explicit delete tests |
 | Attached-session deletion guard | Docker Exec ID observation, guard-before-delete negative tests, force override, and stable structured fault/help contract |
 | Context/Workspace lifecycle target safety | Exact opaque-reference round trips, duplicate/empty parser rejection, unknown/stale zero-I/O counters, immutable Context binding, explicit attachment states, typed `end_active_session`, and frozen presentation evidence |
+| Docker bind-source identity | Canonical XDG-root and short-temporary-root derivation, dangling-management-symlink and delimiter/control rejection, legacy/final ProjectRoot revalidation before existing start and after create, unstarted-container cleanup on drift, bounded networkless fresh-cluster visibility/type probe inventory, store-level zero-decision/zero-named-mutation failures, and required shared-context lifecycle replay |
 | One Context per canonical root/Template pair and one Workspace per Context | Domain duplicate-index validation, exact Context binding checks, repeated create rejection, same-root/different-Template Contexts, and concurrent convergence |
 | Custom image isolation | Runtime-API inspection plus exact create-argv and Docker integration tests |
 | Agent executable/home separation | Runtimechecker path assertions, local image builds with a home overlay, and Tobari smoke tests for each agent command |
@@ -1058,11 +1125,11 @@ Every strong statement should identify its enforcement path.
 | Workspace Template Git identity boundary | Closed pair/source domain tests, planned whole-Template source publication and direct-writer absence, exact two-key global Git argv with an absolute executable and exact `HOME`/optional `XDG_CONFIG_HOME` plus fixed-control environment allowlist, project-owned config-directory and `PATH`/loader/shell-startup canaries, timeout/output/framing/unsafe-value bounds, malicious local-include exclusion, private atomic Workspace projection encoding, symlink and existing-file size checks, read-only directory mount and system-scope precedence, excluded helper/signing/auth/path keys, absent/incomplete-pair behavior, and secret-/personal-data-free faults and fixtures |
 | Workspace Template Workspace bootstrap boundary | Closed AWS IAM Identity Center plus dependent EKS schemas, AWS-only revision compatibility, composed semantic digest/generation/diff tests, fixed host AWS and Kubernetes configuration-file regular-file/size bounds, shared parse/resolve paths for exact preparation and typed discovery, available/unavailable candidate invariants, shared-session and matching-profile fixtures, malformed/duplicate/unsafe whole-file zero-partial-result canaries, selected-reference and exact `aws eks get-token` validation, unknown/helper/credential/cache/proxy/TLS/file-reference/arbitrary-exec/alternate-path/symlink rejection, secret-free reports, selected-semantic drift rejection with unrelated-profile tolerance, atomic Workspace Template replacement, exact private `.aws/config` plus canonical `.kube/config` bytes, create-before-publication rollback, no credentials/cache projection, predecessor-schema rejection, existing-Workspace byte preservation, dependency-aware removal, and `not_configured`/`not_applied`/`current`/`older` status coverage |
 | Template create and copy remain distinct | Fixed-target `template create --name` with closed source-access and bounded exact GraphQL endpoint inputs; reference-bound `template copy --from ... --name`; fresh unpublished ID/source with null base revision; exact source revision revalidation; no lineage or lower-lifetime state; zero active authority/reconciliation before Plan/Apply; and invalid/incomplete/cancellation/drift/collision zero-publication canaries |
-| Guided first Workspace entry | No-authority draft transcript; exact Template publication/default selection/Context creation/cluster/standard-Runtime preparation/entry checkpoints; five stages and seven states; partial-success recovery; noninteractive fresh zero-mutation; default shell; exact positional-only child argv/status; cancellation settlement; idempotent repeat convergence; exact `builtin/standard` revision parsing through the real legacy guard; and one release-CI real-Docker public-command scenario from absent Tobari config/state roots and absent exact Tobari images through confirmed Workspace entry, exact-root re-entry, descendant ancestor reuse, and explicit nested creation |
-| Shared Runtime revision boundary | Fixed Runtime-catalog target contracts; typed `--copy-source-from standard|NAME`; no reference/lineage binding or `--base` alias; fresh-ID/empty-history atomic creation; bounded owner-only source copying; snapshot-before-BuildKit ordering; compatibility/image-digest validation; failed/no-op history preservation; zero Template/Context/Workspace writes during create/build; RuntimeID+digest references; and explicit-entry reconciliation with home preservation |
+| Guided first Workspace entry | No-authority draft transcript; exact Template publication/default selection/Context creation/cluster/standard-Runtime preparation/entry checkpoints; five stages and seven states; partial-success recovery; noninteractive fresh zero-mutation; default shell; exact positional-only child argv/status; cancellation settlement; idempotent repeat convergence; exact `builtin/standard` revision parsing through the real legacy guard; and one release-CI real-Docker public-command scenario from absent Tobari config/state roots and absent exact Tobari images through confirmed Workspace entry, exact-root re-entry, descendant ancestor reuse, and explicit stopped-ancestor nested creation |
+| Shared Runtime revision boundary | Fixed Runtime-catalog target contracts; typed `--copy-source-from standard|NAME`; no reference/lineage binding or `--base` alias; fresh-ID/empty-history atomic creation; bounded owner-only source copying; snapshot-before-BuildKit ordering; one timeout-/byte-bounded compatibility and identity contract; immutable-ID binding after ownership evidence; volume-free, oversized-metadata, and mutable-retag canaries; NoChange compatibility revalidation with precondition/none rollback; build and restore publication recovery revalidation at retained journal phases before mutation; post-build incompatibility as retained mutation/partial authority; failed/no-op history preservation; zero Template/Context/Workspace writes during create/build; RuntimeID+digest references; and explicit-entry reconciliation with home preservation |
 | Managed Runtime lifecycle closure | Exact Runtime/revision/prune-plan reference graph; strict closed `runtime.yaml` plus editable `source/` config and separate immutable state; complete coherent catalog/protection/journal/snapshot/material observation; current/retained Template plus Workspace applied/pending/observed protection; standard and cross-Runtime active-lifecycle rejection; canonical selector, content correlation, shared/foreign-use preservation, bounded Docker output/calls, and zero-create reads; immutable-source restore; non-forced prune; phase-aware two-root create/delete quarantine journals with restart settlement at every rename/sync boundary; monotonic terminal receipts, same-name and interruption replay; one-confirmation review recovery; nullable reclaimable bytes and unknown last-used; exact human/JSON/fault/help contracts; no revision delete, global prune, Docker-ID authority, or Runtime-specific produced-reference walker |
-| Gateway source and image boundary | Canonical-source/snapshot byte comparison, pinned mitmproxy parent, signed nftables/iproute dependency inventory, canonical-source unit tests, source API-1/role labels, transparent-only listener and fixed network-guard entrypoint, explicit rejection of non-transparent ingress, absence of proxy environment/port exceptions, content-addressed development selection, Gateway-only lock validation, immutable digest/platform/entrypoint release preflight, non-root resident process, and validation/release workflow permission separation |
-| Research Auth Broker source and image boundary | Canonical-source/snapshot byte comparison, canonical Python tests in the pinned image environment, provider-CLI absence including Codex/Claude, source API-1/role labels, content-addressed development selection, absence from the release lock/publication workflow, non-root Dockerfile, and validation workflow permission separation |
+| Gateway source and image boundary | Canonical-source/snapshot byte comparison, pinned mitmproxy parent, signed nftables/iproute dependency inventory, canonical-source unit tests, source API-1/role labels, transparent-only listener and fixed network-guard entrypoint, explicit rejection of non-transparent ingress, absence of proxy environment/port exceptions, content-addressed development selection, Gateway-only lock validation, bounded immutable digest/platform/entrypoint/volume metadata preflight, exact inherited-CA-only `Config.Volumes` allowlist with Compose tmpfs shadow, mutable-tag retag canary, non-root resident process, and validation/release workflow permission separation |
+| Research Auth Broker source and image boundary | Canonical-source/snapshot byte comparison, canonical Python tests in the pinned image environment, provider-CLI absence including Codex/Claude, source API-1/role labels, content-addressed development selection, absence from the release lock/publication workflow, bounded volume-free metadata and immutable-ID execution canaries, non-root Dockerfile, and validation workflow permission separation |
 | Context-owned encrypted research credentials | Root-key backend tests, strict owner/mode/symlink checks, AES-GCM schema/ContextID AAD canaries, atomic vault replacement, missing-key-with-vault rejection, and secret-free outputs |
 | Cluster teardown mode recovery | Exact-mode active-journal rejection; retained-down-to-purge explicit upgrade; completed-purge-to-retained dominance only after stopped-runtime and purged-volume revalidation; recreated-volume negative canary; repeat-completion zero-removal assertions; and a real-Docker lifecycle sequence covering purge followed by ordinary down |
 | Authentication state survives cluster teardown | Exact down/purge resource assertions, preserved vault/key canaries, and subsequent cluster-up unlock/status proof |
@@ -1092,7 +1159,7 @@ Every strong statement should identify its enforcement path.
 | Protocol-classifier admission completeness | Exact discovery of `gateway/addon/*_request.py`; one harness row per source; Gateway import/call binding; positive, collision, malformed-local-failure, minimal-policy-projection, privacy-exclusion, no-ordinary-HTTP-fallback, zero-downstream, and finite deterministic adversarial-corpus evidence; parser network/file/dynamic-code/executable-I/O rejection; negative validator fixtures for missing rows/dimensions/evidence, unbounded corpus, and parser I/O |
 | Workspace Template source access | Required manifest/catalog field, omission-default tests, immutable runtime spec/hash, Docker inspect/reconciliation, read-only mutation/Git-metadata denial, writable home/tmpfs, no writable alias, and same-root observation |
 | Workspace Template-owned policy data | Strict normalization/digest/snapshot tests, dedicated binary catalog with unique family IDs, explicit pinned client versions, positive append-only contract revisions, one current contract, core-only new agent-ready snapshots, complete historical readiness stripping, current binary projection into existing agent-ready Workspace Templates without rewrite, `claude_ready`, `codex_ready`, `gh_ready`, custom-runtime `twg_ready`, and custom-runtime `pup_ready` exact native-authentication grants plus native discovery grants, GitHub GraphQL `query` / `viewer` endpoint/baseline with mutation/sibling/mixed-root/HTTP canaries, TWG exact device-code/token/revoke, site inventory, stable manifest, and GraphQL `query` / `me` endpoint/baseline with method/REST/beta-manifest/installer/download and neighboring-Atlassian canaries, pup exact US1 DCR/token POSTs with neighboring host/path/method/product canaries, method-deny zero-overlay canaries, one safe evaluation template, exact MCP endpoint and initialize/list baseline, exact tool-name action review with payload canaries, acquisition/file-transfer/update exclusions, exact-Deny precedence, fixed-baseline schema canaries, GET-without-safe-claim contract, and terminal zero-candidate/DNS/Broker/upstream calls |
-| Context/Workspace principal and credential scope | Owner-only atomic registry, exact Workspace-source/Gateway endpoint and network uniqueness, forged Context/Workspace/SNI/authority and unknown-principal denial, source-spoof canaries, live drift detection, Context-owned Broker tests, copied-handle cross-Context canaries, fixed-evaluator canaries, and multi-Context Docker integration |
+| Context/Workspace principal and credential scope | Owner-only atomic registry, exact Workspace-source/Gateway endpoint and network uniqueness, forged Context/Workspace/SNI/authority and unknown-principal denial, source-spoof canaries, live drift detection, exact stopped-principal retention bound to prior aggregate/container/spec/configured-IP/network/Gateway/registry evidence with dead/ID/IP/attachment/registry drift rejection, Context-owned Broker tests, copied-handle cross-Context canaries, fixed-evaluator canaries, and multi-Context Docker integration |
 | Standard native Workspace authentication boundary | Release-surface empty authentication-projection and full runtime-reconciliation tests prove zero Auth Broker inspection/control calls and no research auth-registry creation; the attached-session suite adds a closed Claude/Codex/GitHub CLI/AWS CLI/TWG/pup browser union, one binary-owned read-only opener, exact `BROWSER`/`GH_BROWSER`/`xdg-open` projection, and a dedicated schema-v1 Unix-socket/non-TTY Docker exec protocol; a shared closed query-field schema enforces required singleton values, rejects invalid definitions and unknown fields, and dispatches provider-owned validators; exact mandatory URL fields, individually reviewed optional selectors, device targets, provider clients or bounded DCR IDs, scope ceilings, state/PKCE/callback shapes including AWS's commercial-region/default-scope dynamic callback and pup 1.10.7's optional UUID-shaped `dd_oid`, complete 110-scope ceiling, and four fixed ports, direct Docker terminal ownership, fixed login/setup argv and pass-through, zero-listener device paths, dynamic non-privileged host-loopback-only callback relay to the label-verified selected Workspace, duplicate-key/unknown-field/version/size/replay/neighbor canaries, opaque callback canaries, and cleanup; the research-surface suite separately retains project-bound handle and file projection coverage |
 | Transparent attached-child terminal ownership | Direct-stream coverage plus Unix PTY literal-`0x1d`, delayed-input, resize, exact-status, output-failure, and terminal-restoration tests; root human-help rejects any `Ctrl+]` or Trusted Host Review shortcut; excluded capability/catalog absence; and independent Permission Inbox raw-terminal tests |
 | Atomic multi-Template policy activation | Source and projection locks, Workspace Template namespace rejection, complete all-Context OPA validation, content-addressed atomic publication, stale-revision rejection, known-good rollback, and invalid/concurrent mutation tests |
@@ -1109,6 +1176,7 @@ Every strong statement should identify its enforcement path.
 | Agent recovery | Catalog fault declarations, exact-path/help-selector executable grammar tests, and structured error snapshots |
 | Bounded agent discovery | Fixed root-index shape, 512-byte per-command entry validation, 100-command growth/selection tests, and a derived-scale grouped-workflow whole-response budget with edge-equivalence checks |
 | Bounded-autonomy adoption | Agent-readiness first-use and denial-to-retry transcripts record command count, discovery rounds, external-processing count, and the concrete next action; a reviewed human-handoff scorecard identifies setup friction as product evidence |
+| Task-scoped agent assistance | Public Runtime/policy Catalog and production-handler reachability; deterministic fresh-root absence of agent selection; color/no-color inline selector and handoff; pre-mutation Back/cancel; Runtime-assist negative CWD/Workspace/Context observation with installation standard Runtime and per-agent Home; explicit policy `--context` round trip with exact Context Runtime and Memory; target editable-source digest in Runtime draft identity; lifecycle/store-fenced image-ID resolution; disconnected immutable-ID-only container create and complete-role inspection; direct-egress single task-owned Home mount; selected-agent native-login bridge; fixed initial positional prompts; scoped Workspace/Configurator attachment exclusion; metadata-first task reservation, same-agent retained-draft exclusion, durable frozen submission settlement, post-materialization Runtime-preparation failure classified as task-scoped retained material, and post-publication generation recovery; immutable target freeze; Runtime source-only base CAS with typed drift and zero build/revision mutation; exact deterministic V2 pre-release aggregate receipt exclusion without adoption or deletion; shared pre-mutation readiness fault parity between implementation and both assist Catalog contracts; exact policy knowledge-pack bytes, read-only Policy Memory evidence, non-policy equality rejection, one-Context Stage, Plan/fingerprint/final-confirmation Apply, cancellation discard, and crash replay; hostile output projection; selected native-state-root and environment contracts; bounded manual native-login compatibility observation; plus cold release-binary deterministic Manual setup, entry, re-entry, and descendant/nested selection |
 | Work-packet lifecycle consistency | Repository validation of finite status, terminal-retention rule, all GFM completion checkboxes, CommonMark fence handling, explicit non-template acyclic supersession, and regular-file paths |
 | Local Go consistency | Gate preflight comparison of required/reported/compiler versions and GOROOT/GOTOOLDIR, with a mixed-installation shell fixture |
 | External text structure | Visible-projection unit/E2E tests plus scoped I/O trust metadata; printable meaning remains explicitly out of scope |
@@ -1118,6 +1186,14 @@ Every strong statement should identify its enforcement path.
 | Public capability coverage | Exact bidirectional match between capability ledger and catalog `CapabilityID` values |
 | External schema compatibility | Vendored fixture, generator, and drift test |
 | Secret or private-data exclusion | Repository policy, scanner, and synthetic fixtures |
+
+For the task-assistance row, the required browser-control negative is exercised at
+Runtime preparation, before image pull/build or any later Docker call. The
+post-ready loss canaries cover both the Docker control process and the host
+request/response relay for ordinary Workspace and Configurator attachments.
+Clean cancellation/bridge loss remains confirmed retained material through the
+mutation Invoker; bounded immutable-ID cleanup exhaustion is separately fixed
+as `configuration_cleanup_incomplete` with partial change state.
 | Reproducible generation | Regenerate and require a clean diff |
 | Artifact integrity | Deterministic multi-entry packer, independent reopen verifier, exact supporting-file extraction, build metadata inspection, checksums, and install tests |
 | Documentation command | Execute or parse the canonical snippet where practical |

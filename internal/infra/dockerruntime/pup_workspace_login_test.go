@@ -154,7 +154,10 @@ func TestPupWorkspaceLoginBridgeRelaysOnlyToSelectedWorkspace(t *testing.T) {
 	server, client := net.Pipe()
 	defer client.Close()
 	listener := &singleConnectionListener{connection: server, closed: make(chan struct{})}
-	bridge := newWorkspaceLoginBridge(context.Background(), &Runtime{runner: runner, browser: browser}, container, projectID)
+	bridge, err := newWorkspaceLoginBridge(context.Background(), &Runtime{runner: runner, browser: browser}, container, projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var listenedAddress string
 	bridge.listen = func(address string) (net.Listener, error) { listenedAddress = address; return listener, nil }
 	target := syntheticPupWorkspaceAuthorizationURLWithOrg(
@@ -178,7 +181,7 @@ func TestPupWorkspaceLoginBridgeRelaysOnlyToSelectedWorkspace(t *testing.T) {
 	}
 	runner.mu.Lock()
 	defer runner.mu.Unlock()
-	if len(runner.runs) != 1 || !containsArgSequence(runner.runs[0], container, "python3", "-c", workspaceLoopbackProxyProgram, "8000") {
+	if len(runner.runs) != 1 || !containsArgSequence(runner.runs[0], strings.Repeat("a", 64), "python3", "-c", workspaceLoopbackProxyProgram, "8000") {
 		t.Fatalf("relay argv = %q", runner.runs)
 	}
 }

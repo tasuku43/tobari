@@ -50,7 +50,10 @@ func (s *Service) Plan(ctx context.Context) (tobari.InstallationMigrationPlan, e
 		return tobari.InstallationMigrationPlan{}, migrationFault(err, false)
 	}
 	if err := plan.Validate(); err != nil {
-		return tobari.InstallationMigrationPlan{}, fault.Wrap(fault.KindContract, "invalid_installation_migration_plan", "installation migration plan is invalid", false, err)
+		return tobari.InstallationMigrationPlan{}, fault.WithClassification(
+			fault.Wrap(fault.KindContract, "invalid_installation_migration_plan", "installation migration plan is invalid", false, err),
+			fault.PhaseVerification, fault.ChangeUnknown,
+		)
 	}
 	return plan, nil
 }
@@ -70,7 +73,10 @@ func (s *Service) Apply(ctx context.Context, intent operation.Intent, planRef st
 			return migrationFault(err, true)
 		}
 		if err := value.Validate(); err != nil || value.PlanRef != planRef {
-			return fault.Wrap(fault.KindContract, "invalid_installation_migration_result", "installation migration result is invalid", false, err)
+			return fault.WithClassification(
+				fault.Wrap(fault.KindContract, "invalid_installation_migration_result", "installation migration result is invalid", false, err),
+				fault.PhaseVerification, fault.ChangeUnknown,
+			)
 		}
 		result = value
 		return nil

@@ -37,7 +37,24 @@ type localBaseBuildRunner struct {
 	outputs []runnerCall
 }
 
-func (r *localBaseBuildRunner) Run(_ context.Context, args, _ []string, _ io.Reader, _, _ io.Writer) error {
+func (r *localBaseBuildRunner) Run(_ context.Context, args, _ []string, _ io.Reader, out, errOut io.Writer) error {
+	if len(args) >= 5 && args[0] == "image" && args[1] == "inspect" {
+		r.outputs = append(r.outputs, runnerCall{args: append([]string{}, args...)})
+		if strings.Contains(args[3], tobari.RuntimeImageAPILabel) {
+			_, _ = out.Write(compatibleImageInspection())
+			return nil
+		}
+		built := false
+		for _, call := range r.runs {
+			built = built || len(call.args) >= 2 && call.args[0] == "buildx" && call.args[1] == "build"
+		}
+		if !built {
+			_, _ = io.WriteString(errOut, "Error: No such image: "+args[4]+"\n")
+			return errors.New("image not found")
+		}
+		_, _ = io.WriteString(out, "sha256:"+strings.Repeat("c", 64)+"\n")
+		return nil
+	}
 	r.runs = append(r.runs, runnerCall{args: append([]string{}, args...)})
 	return nil
 }
@@ -111,6 +128,12 @@ func (r *rollbackClusterUpRunner) bindPredecessor(state tobari.State) {
 func (r *rollbackClusterUpRunner) Run(
 	ctx context.Context, args, environment []string, input io.Reader, output, errorOutput io.Writer,
 ) error {
+	if r.prepareImagesErr != nil && len(args) >= 2 && args[0] == "image" && args[1] == "inspect" &&
+		strings.Contains(strings.Join(args, " "), tobari.RuntimeImageAPILabel) {
+		err := r.prepareImagesErr
+		r.prepareImagesErr = nil
+		return err
+	}
 	r.runs = append(r.runs, runnerCall{args: append([]string{}, args...)})
 	if slices.Contains(args, "tobari-policy-publish") {
 		r.policyPublishes = append(r.policyPublishes, strings.Join(args, " "))
@@ -446,6 +469,10 @@ func appliedClusterTestPayloadForProfile(
 }
 
 func (r *clusterUpProgressRunner) Run(_ context.Context, args, environment []string, _ io.Reader, out, errorOutput io.Writer) error {
+	if len(args) > 0 && args[0] == "version" {
+		_, _ = io.WriteString(out, `{"Arch":"arm64","Os":"linux"}`)
+		return nil
+	}
 	if _, _, ok := freshListResource(args); ok {
 		return nil
 	}
@@ -455,6 +482,34 @@ func (r *clusterUpProgressRunner) Run(_ context.Context, args, environment []str
 			identity = "sha256:" + strings.Repeat("3", 64)
 		}
 		_, _ = io.WriteString(out, identity+"\n")
+		return nil
+	}
+	if len(args) == 5 && args[0] == "image" && args[1] == "inspect" && strings.Contains(args[3], tobari.RuntimeImageAPILabel) {
+		_, _ = out.Write(compatibleImageInspection())
+		return nil
+	}
+	if len(args) == 5 && args[0] == "image" && args[1] == "inspect" && args[2] == "--format" && args[3] == componentImageInspectFormat {
+		image := args[4]
+		var metadata string
+		switch image {
+		case "tobari-auth-broker:dev":
+			r.events = append(r.events, "auth-broker-image")
+			metadata = authBrokerMetadata("arm64", "")
+		case "tobari-gateway:dev":
+			r.events = append(r.events, "gateway-image")
+			metadata = gatewayMetadata("arm64", "")
+		default:
+			if strings.Contains(image, "openpolicyagent/opa") {
+				metadata = `{"Id":"sha256:` + strings.Repeat("2", 64) + `","RepoDigests":[],"Architecture":"arm64","Os":"linux","Config":{"Labels":{}}}`
+			} else {
+				source, err := runtimeassets.ExposureHelperSourceVersion()
+				if err != nil {
+					return err
+				}
+				metadata = fmt.Sprintf(`{"Id":"sha256:%s","RepoDigests":[],"Architecture":"arm64","Os":"linux","Config":{"Labels":{"io.tobari.exposure-helper-api":"1","io.tobari.exposure-helper-source":%q,"io.tobari.permission-helper-api":"1","io.tobari.permission-helper-source":%q}}}`, strings.Repeat("a", 64), source, source)
+			}
+		}
+		_, _ = io.WriteString(out, metadata)
 		return nil
 	}
 	if len(args) >= 3 && args[0] == "inspect" && args[2] == appliedClusterInspectTemplate {
@@ -718,7 +773,7 @@ func TestClusterUpWithProgressReportsEachRuntimeStageInOrder(t *testing.T) {
 	joinedEnvironment := strings.Join(runner.composeEnvironment, "\n")
 	bindings := []string{"TOBARI_GATEWAY_IMAGE=" + testGatewayDigest}
 	if brokerRuntimeEnabled {
-		bindings = append(bindings, "TOBARI_AUTH_BROKER_IMAGE=tobari-auth-broker:dev")
+		bindings = append(bindings, "TOBARI_AUTH_BROKER_IMAGE=sha256:"+strings.Repeat("3", 64))
 	}
 	for _, binding := range bindings {
 		if strings.Count(joinedEnvironment, binding) != 1 {
@@ -2291,6 +2346,21 @@ func (r *policyProbeRunner) Output(_ context.Context, args, _ []string) ([]byte,
 }
 
 func (r *recordingRunner) Run(_ context.Context, args, _ []string, in io.Reader, out, _ io.Writer) error {
+	if len(args) >= 2 && args[0] == "image" && args[1] == "inspect" {
+		data, err := r.Output(context.Background(), args, nil)
+		if err == nil && len(args) >= 4 && args[3] == "{{.Id}}" {
+			var observed struct {
+				ID string `json:"id"`
+			}
+			if json.Unmarshal(data, &observed) == nil && observed.ID != "" {
+				data = []byte(observed.ID + "\n")
+			}
+		}
+		if len(data) > 0 {
+			_, _ = out.Write(data)
+		}
+		return err
+	}
 	r.runs = append(r.runs, runnerCall{args: append([]string{}, args...)})
 	if in != nil {
 		data, err := io.ReadAll(in)
@@ -2317,6 +2387,9 @@ func (r *recordingRunner) Output(_ context.Context, args, _ []string) ([]byte, e
 	if r.outputErr == nil && len(r.outputData) == 0 && len(args) >= 3 &&
 		args[0] == "exec" && args[1] == opaContainer && args[2] == "/opa" {
 		return []byte("true"), nil
+	}
+	if r.outputErr == nil && len(r.outputData) == 0 && strings.Contains(strings.Join(args, " "), `"identity_ok"`) {
+		return []byte(`{"id":"` + strings.Repeat("a", 64) + `","identity_ok":true}`), nil
 	}
 	if r.outputErr == nil && len(r.outputData) == 0 && len(args) > 0 &&
 		(args[0] == "inspect" || (args[0] == "volume" && len(args) > 1 && args[1] == "inspect")) {
@@ -2561,6 +2634,123 @@ func TestResolveRuntimeHomesUsesXDGAndPortableFallbacks(t *testing.T) {
 	gotConfig, gotState, err = resolveRuntimeHomes("", "", func() (string, error) { return home, nil })
 	if err != nil || gotConfig != filepath.Join(home, ".config") || gotState != filepath.Join(home, ".local", "state") {
 		t.Fatalf("fallback (%q,%q,%v)", gotConfig, gotState, err)
+	}
+}
+
+func TestRuntimeCanonicalizesSymlinkedXDGRootsBeforeDockerBindPublication(t *testing.T) {
+	realParent := t.TempDir()
+	canonicalParent, err := filepath.EvalSymlinks(realParent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliasParent := filepath.Join(t.TempDir(), "xdg-alias")
+	if err := os.Symlink(realParent, aliasParent); err != nil {
+		t.Skipf("create XDG parent symlink: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(aliasParent, "config"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(aliasParent, "state"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(aliasParent, "data"))
+	runtime, err := New(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, observation := range map[string]struct{ got, want string }{
+		"configuration": {got: runtime.configDirectory, want: filepath.Join(canonicalParent, "config", "tobari")},
+		"state":         {got: runtime.stateDirectory, want: filepath.Join(canonicalParent, "state", "tobari")},
+		"data":          {got: runtime.dataDirectory, want: filepath.Join(canonicalParent, "data", "tobari")},
+	} {
+		if observation.got != observation.want {
+			t.Fatalf("%s root = %q, want %q", name, observation.got, observation.want)
+		}
+		if _, statErr := os.Lstat(observation.want); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("%s root was created during read-only construction: %v", name, statErr)
+		}
+	}
+
+	gateway := filepath.Join(runtime.stateDirectory, "cluster-projections", "revision", "gateway.json")
+	environment, err := runtime.composeEnvironmentForTransport(
+		tobari.State{GatewayConfig: gateway, AssetVersion: "test-asset"},
+		tobari.PermissionSessionTransportUnix,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := map[string]string{}
+	for _, entry := range environment {
+		key, value, present := strings.Cut(entry, "=")
+		if present && strings.HasPrefix(key, "TOBARI_") {
+			selected[key] = value
+		}
+	}
+	for key, want := range map[string]string{
+		"TOBARI_GATEWAY_CONFIG":             gateway,
+		"TOBARI_PRINCIPAL_DIR":              runtime.principalRegistryDirectory(),
+		"TOBARI_HOST_LOOPBACK_DIR":          runtime.hostLoopbackDirectory(),
+		"TOBARI_INTERACTIVE_ATTACHMENT_DIR": runtime.interactiveAttachmentDirectory(),
+		"TOBARI_PERMISSION_INGESTION_DIR":   runtime.interactiveAttachmentSocketDirectory(),
+	} {
+		if got := selected[key]; got != want {
+			t.Fatalf("compose bind source %s = %q, want %q", key, got, want)
+		}
+		if strings.Contains(selected[key], aliasParent) {
+			t.Fatalf("compose bind source %s retained symlinked XDG parent", key)
+		}
+	}
+	canonicalShortTemporary, err := filepath.EvalSymlinks("/tmp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if socketDirectory := runtime.interactiveAttachmentSocketDirectory(); filepath.Dir(socketDirectory) != canonicalShortTemporary {
+		t.Fatalf("permission socket bind root = %q, want canonical short root %q", filepath.Dir(socketDirectory), canonicalShortTemporary)
+	}
+	for _, source := range []string{
+		runtime.projectHomePath("01912345-6789-7abc-8def-0123456789ab"),
+		filepath.Join(runtime.dataDirectory, "profiles", "standard"),
+		filepath.Join(runtime.stateDirectory, "runtime", "asset", "helpers", "tobari-expose"),
+	} {
+		if strings.HasPrefix(source, aliasParent+string(filepath.Separator)) {
+			t.Fatalf("Workspace bind source retained symlinked XDG parent: %q", source)
+		}
+	}
+}
+
+func TestRuntimeRejectsDanglingSymlinkedXDGRoot(t *testing.T) {
+	parent := t.TempDir()
+	dangling := filepath.Join(parent, "dangling-xdg")
+	missing := filepath.Join(parent, "missing-target")
+	if err := os.Symlink(missing, dangling); err != nil {
+		t.Skipf("create dangling XDG symlink: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dangling, "config"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(dangling, "state"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(dangling, "data"))
+	if _, err := New(context.Background()); err == nil {
+		t.Fatal("Runtime accepted a dangling XDG management root")
+	}
+	if _, err := os.Lstat(missing); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Runtime construction created the dangling XDG target: %v", err)
+	}
+}
+
+func TestRuntimeRejectsUnsafeDockerBindSyntaxInXDGRoot(t *testing.T) {
+	for _, suffix := range []string{"comma,parent", "control\nparent"} {
+		t.Run(strings.ReplaceAll(suffix, "\n", "newline"), func(t *testing.T) {
+			parent := filepath.Join(t.TempDir(), suffix)
+			if err := os.Mkdir(parent, 0o700); err != nil {
+				t.Skipf("create unsafe-syntax XDG parent: %v", err)
+			}
+			t.Setenv("XDG_CONFIG_HOME", filepath.Join(parent, "config"))
+			t.Setenv("XDG_STATE_HOME", filepath.Join(parent, "state"))
+			t.Setenv("XDG_DATA_HOME", filepath.Join(parent, "data"))
+			if _, err := New(context.Background()); err == nil {
+				t.Fatal("Runtime accepted an XDG root unsafe for Docker bind syntax")
+			}
+			for _, directory := range []string{"config", "state", "data"} {
+				if _, err := os.Lstat(filepath.Join(parent, directory)); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("Runtime construction created %s before rejecting unsafe bind syntax: %v", directory, err)
+				}
+			}
+		})
 	}
 }
 
@@ -3431,7 +3621,8 @@ func TestValidateCompatibleImageRequiresRuntimeContract(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()
-			runner := &recordingRunner{outputData: []byte(test.configuration)}
+			configuration := strings.Replace(test.configuration, "{", `{"id":"sha256:`+strings.Repeat("c", 64)+`",`, 1)
+			runner := &recordingRunner{outputData: []byte(configuration)}
 			runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
 			err := runtime.validateCompatibleImage(context.Background(), "workbench:dev")
 			if (err != nil) != test.wantErr {

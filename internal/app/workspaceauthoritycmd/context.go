@@ -27,7 +27,7 @@ type ContextDraftReadPort interface {
 }
 
 type ContextDraftCreatePort interface {
-	CreateContextDraftByTemplateReference(context.Context, string, string) (tobari.ContextDraft, error)
+	CreateContextDraftByTemplateReference(context.Context, string) (tobari.ContextDraft, error)
 }
 type ContextPlanPort interface {
 	PlanContextSourceByReference(context.Context, string) (tobari.ContextActivationPlan, error)
@@ -40,12 +40,23 @@ type ContextEnterPort interface {
 	EnterContextByReference(context.Context, string, tobari.WorkspaceSessionRequest, io.Reader, io.Writer, io.Writer) (tobari.ContextEntryPublication, error)
 }
 
+type RootedContextEnterPort interface {
+	EnterContextByReferenceAtRoot(context.Context, string, string, tobari.WorkspaceSessionRequest, io.Reader, io.Writer, io.Writer) (tobari.ContextEntryPublication, error)
+}
+
 type DefaultPairContextEnterPort interface {
 	EnterFinalDefaultPair(context.Context, tobari.FinalDefaultPairObservation, string, tobari.WorkspaceSessionRequest, io.Reader, io.Writer, io.Writer) (tobari.ContextEntryPublication, error)
 }
 
 type DefaultPairContextEnterProgressPort interface {
 	EnterFinalDefaultPairWithProgress(context.Context, tobari.FinalDefaultPairObservation, string, tobari.WorkspaceSessionRequest, tobari.FirstEntryProgressSink, io.Reader, io.Writer, io.Writer) (tobari.ContextEntryPublication, error)
+}
+
+// CurrentDefaultPairContextEnterPort is the mutation-free steady-entry seam.
+// Implementations may only borrow a Workspace after exact live confirmation;
+// they must not prepare, build, reconcile, or publish authority.
+type CurrentDefaultPairContextEnterPort interface {
+	EnterCurrentFinalDefaultPair(context.Context, tobari.FinalDefaultPairObservation, string, tobari.WorkspaceSessionRequest, io.Reader, io.Writer, io.Writer) (tobari.ContextEntryPublication, error)
 }
 
 type ContextDeletePort interface {
@@ -227,21 +238,18 @@ func (s *ContextService) Show(ctx context.Context, contextRef string) (ContextVi
 	return view, nil
 }
 
-func (s *ContextService) CreateDraft(ctx context.Context, intent operation.Intent, templateRef, projectRoot string) (ContextDraftView, error) {
+func (s *ContextService) CreateDraft(ctx context.Context, intent operation.Intent, templateRef string) (ContextDraftView, error) {
 	if s == nil || portcheck.IsNil(s.draftCreate) {
 		return ContextDraftView{}, missingPort("Context draft create")
 	}
 	if _, err := tobari.ParseWorkspaceTemplateRef(templateRef); err != nil {
 		return ContextDraftView{}, invalidFault("invalid_template_ref", "Workspace Template reference is invalid", err, "template list")
 	}
-	if err := tobari.ValidateCanonicalRoot(projectRoot); err != nil {
-		return ContextDraftView{}, invalidFault("invalid_project_root", "Project root is invalid", err, "status")
-	}
 	target := operation.TargetRef{Kind: tobari.ContextReferenceKind, ParentID: templateRef}
 	request := execution.Request{Intent: intent, ExpectedCommand: TaskContextCreate, ExpectedEffect: operation.EffectCreate, ExpectedTarget: target, ExpectedImpact: ContextCreateImpact()}
 	var result ContextDraftView
 	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		draft, err := s.draftCreate.CreateContextDraftByTemplateReference(actionContext, templateRef, projectRoot)
+		draft, err := s.draftCreate.CreateContextDraftByTemplateReference(actionContext, templateRef)
 		if err != nil {
 			return contextMutationFault(err)
 		}
@@ -336,11 +344,26 @@ func (s *ContextService) Enter(ctx context.Context, intent operation.Intent, con
 	return s.runEntry(ctx, intent, contextRef, session, in, out, errOut, nil)
 }
 
+func (s *ContextService) EnterAtRoot(ctx context.Context, intent operation.Intent, contextRef, projectRoot string, session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer) (ContextEntryResult, error) {
+	if err := tobari.ValidateCanonicalRoot(projectRoot); err != nil {
+		return ContextEntryResult{}, invalidFault("invalid_root", "Workspace Project root is invalid", err, "help context enter")
+	}
+	return s.runEntryWithProgress(ctx, intent, contextRef, session, in, out, errOut, nil, projectRoot, nil, false)
+}
+
 func (s *ContextService) EnterDefaultPair(ctx context.Context, intent operation.Intent, observation tobari.FinalDefaultPairObservation, session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer) (ContextEntryResult, error) {
 	return s.EnterDefaultPairWithProgress(ctx, intent, observation, observation.ProjectRoot, session, nil, in, out, errOut)
 }
 
 func (s *ContextService) EnterDefaultPairWithProgress(ctx context.Context, intent operation.Intent, observation tobari.FinalDefaultPairObservation, invocationRoot string, session tobari.WorkspaceSessionRequest, progress tobari.FirstEntryProgressSink, in io.Reader, out, errOut io.Writer) (ContextEntryResult, error) {
+	return s.enterDefaultPair(ctx, intent, observation, invocationRoot, session, progress, false, in, out, errOut)
+}
+
+func (s *ContextService) EnterCurrentDefaultPair(ctx context.Context, intent operation.Intent, observation tobari.FinalDefaultPairObservation, invocationRoot string, session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer) (ContextEntryResult, error) {
+	return s.enterDefaultPair(ctx, intent, observation, invocationRoot, session, nil, true, in, out, errOut)
+}
+
+func (s *ContextService) enterDefaultPair(ctx context.Context, intent operation.Intent, observation tobari.FinalDefaultPairObservation, invocationRoot string, session tobari.WorkspaceSessionRequest, progress tobari.FirstEntryProgressSink, currentOnly bool, in io.Reader, out, errOut io.Writer) (ContextEntryResult, error) {
 	if err := observation.Validate(); err != nil || observation.Context == nil {
 		if err == nil {
 			err = fmt.Errorf("default-pair Context is absent")
@@ -355,14 +378,14 @@ func (s *ContextService) EnterDefaultPairWithProgress(ctx context.Context, inten
 		return ContextEntryResult{}, invalidFault("invalid_context_ref", "Context reference is invalid", err, "status")
 	}
 	value := observation.Clone()
-	return s.runEntryWithProgress(ctx, intent, contextRef, session, in, out, errOut, &value, invocationRoot, progress)
+	return s.runEntryWithProgress(ctx, intent, contextRef, session, in, out, errOut, &value, invocationRoot, progress, currentOnly)
 }
 
 func (s *ContextService) runEntry(ctx context.Context, intent operation.Intent, contextRef string, session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer, defaultPair *tobari.FinalDefaultPairObservation) (ContextEntryResult, error) {
-	return s.runEntryWithProgress(ctx, intent, contextRef, session, in, out, errOut, defaultPair, "", nil)
+	return s.runEntryWithProgress(ctx, intent, contextRef, session, in, out, errOut, defaultPair, "", nil, false)
 }
 
-func (s *ContextService) runEntryWithProgress(ctx context.Context, intent operation.Intent, contextRef string, session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer, defaultPair *tobari.FinalDefaultPairObservation, invocationRoot string, progress tobari.FirstEntryProgressSink) (ContextEntryResult, error) {
+func (s *ContextService) runEntryWithProgress(ctx context.Context, intent operation.Intent, contextRef string, session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer, defaultPair *tobari.FinalDefaultPairObservation, invocationRoot string, progress tobari.FirstEntryProgressSink, currentOnly bool) (ContextEntryResult, error) {
 	if s == nil || portcheck.IsNil(s.enter) {
 		return ContextEntryResult{}, missingPort("Context entry")
 	}
@@ -380,9 +403,21 @@ func (s *ContextService) runEntryWithProgress(ctx context.Context, intent operat
 		var publication tobari.ContextEntryPublication
 		var err error
 		if defaultPair == nil {
-			publication, err = s.enter.EnterContextByReference(actionContext, contextRef, session, in, out, errOut)
+			if invocationRoot == "" {
+				publication, err = s.enter.EnterContextByReference(actionContext, contextRef, session, in, out, errOut)
+			} else if port, ok := s.enter.(RootedContextEnterPort); ok && !portcheck.IsNil(port) {
+				publication, err = port.EnterContextByReferenceAtRoot(actionContext, contextRef, invocationRoot, session, in, out, errOut)
+			} else {
+				return missingPort("rooted Context entry")
+			}
 		} else {
-			if port, ok := s.enter.(DefaultPairContextEnterProgressPort); ok && !portcheck.IsNil(port) {
+			if currentOnly {
+				port, ok := s.enter.(CurrentDefaultPairContextEnterPort)
+				if !ok || portcheck.IsNil(port) {
+					return missingPort("current final default-pair entry")
+				}
+				publication, err = port.EnterCurrentFinalDefaultPair(actionContext, defaultPair.Clone(), invocationRoot, session, in, out, errOut)
+			} else if port, ok := s.enter.(DefaultPairContextEnterProgressPort); ok && !portcheck.IsNil(port) {
 				publication, err = port.EnterFinalDefaultPairWithProgress(actionContext, defaultPair.Clone(), invocationRoot, session, progress, in, out, errOut)
 			} else {
 				port, ok := s.enter.(DefaultPairContextEnterPort)
@@ -453,23 +488,29 @@ func contextMutationFault(err error) error {
 	case errors.Is(err, tobari.ErrResourceSourceInvalid):
 		return fault.WithClassification(fault.New(fault.KindInvalidInput, "resource_source_invalid", "The exact Context source does not satisfy its strict schema", false, fault.NextAction{Command: "context list", Reason: "Rediscover the retained Context and correct the typed source diagnostic."}), fault.PhasePrecondition, fault.ChangeNone)
 	case errors.Is(err, tobari.ErrResourceSourceModified):
-		return fault.WithClassification(fault.New(fault.KindRejected, "context_identity_immutable", "Context identity fields are immutable after creation", false, fault.NextAction{Command: "context list", Reason: "Rediscover the current binding; another Project root or Template requires a fresh Context."}), fault.PhasePrecondition, fault.ChangeNone)
+		return fault.WithClassification(fault.New(fault.KindRejected, "context_identity_immutable", "Context identity fields are immutable after creation", false, fault.NextAction{Command: "context list", Reason: "Rediscover the current binding; another Template requires a fresh Context."}), fault.PhasePrecondition, fault.ChangeNone)
+	case errors.Is(err, tobari.ErrWorkspaceTemplateChangePlanStale):
+		return fault.WithClassification(fault.New(fault.KindRejected, "context_activation_plan_stale", "The reviewed Context activation plan no longer matches source or active authority", false, fault.NextAction{Command: "context list", Reason: "Discover the Context again, then create and review a fresh exact activation plan."}), fault.PhasePrecondition, fault.ChangeNone)
 	case errors.Is(err, tobari.ErrWorkspaceTemplateNotFound):
 		return fault.WithClassification(fault.New(fault.KindNotFound, "template_not_found", "Workspace Template no longer exists", false, fault.NextAction{Command: "template list", Reason: "Discover current Template authority."}), fault.PhasePrecondition, fault.ChangeNone)
 	case errors.Is(err, tobari.ErrContextBindingExists):
 		return fault.WithClassification(fault.New(fault.KindRejected, "context_exists", "the Project and Workspace Template already have a Context", false, fault.NextAction{Command: "context list", Reason: "Use the existing Context reference."}), fault.PhasePrecondition, fault.ChangeNone)
 	case errors.Is(err, tobari.ErrContextBindingNotFound):
 		return fault.WithClassification(fault.New(fault.KindNotFound, "context_not_found", "Context no longer exists", false, fault.NextAction{Command: "context list", Reason: "Discover current Context authority."}), fault.PhasePrecondition, fault.ChangeNone)
+	case errors.Is(err, tobari.ErrWorkspaceEntryObservationUnavailable) && errors.Is(err, tobari.ErrContextBindingProtected):
+		return fault.WithClassification(fault.Wrap(fault.KindUnavailable, "workspace_entry_busy", "Workspace entry is temporarily blocked by a live Workspace session or an exclusive Context Home operation", true, err, fault.NextAction{Command: "status", Reason: "Read current authority, then retry after the blocking Workspace session, Configurator, or Context Home retirement finishes."}), fault.PhasePrecondition, fault.ChangeNone)
 	case errors.Is(err, tobari.ErrContextBindingProtected):
 		return fault.WithClassification(fault.New(fault.KindRejected, "context_in_use", "Context still owns a Workspace, attachment, or research credential", false, fault.NextAction{Command: "context list", Reason: "Remove the exact blocking authority before Context deletion."}), fault.PhasePrecondition, fault.ChangeNone)
 	case errors.Is(err, tobari.ErrWorkspaceEntryReconciliationConfirmed):
 		return fault.WithClassification(fault.Wrap(fault.KindUnavailable, "workspace_entry_attachment_unavailable", "Workspace entry reconciliation is confirmed, but the interactive attachment did not start", false, err, fault.NextAction{Command: "context list", Reason: "Discover the confirmed Context authority before another explicit entry."}), fault.PhaseAttachment, fault.ChangeConfirmed)
 	case errors.Is(err, tobari.ErrWorkspaceEntryInterrupted):
-		return fault.WithClassification(fault.Wrap(fault.KindUnavailable, "workspace_entry_interrupted", "Workspace entry reconciliation requires exact same-Context recovery", false, err, fault.NextAction{Command: "status", Reason: "Read the preserved entry decision, then repeat the exact same-Context entry command."}), fault.PhaseMutation, fault.ChangePartial)
+		return fault.WithClassification(fault.Wrap(fault.KindUnavailable, "workspace_entry_interrupted", "Workspace entry reconciliation requires exact same-Context recovery", false, err, fault.NextAction{Command: "help context enter", Reason: "Inspect the entry contract, then repeat it with the same Context reference."}), fault.PhaseMutation, fault.ChangePartial)
 	case errors.Is(err, tobari.ErrWorkspaceEntryTemplatePolicyInactive):
 		return fault.WithClassification(fault.Wrap(fault.KindRejected, "workspace_entry_template_policy_inactive", "Workspace entry requires the current Template policy activation", false, err, fault.NextAction{Command: "cluster status", Reason: "Read the current Template policy activation before explicit cluster reconciliation."}), fault.PhasePrecondition, fault.ChangeNone)
 	case errors.Is(err, tobari.ErrWorkspaceEntryPolicyMemoryInactive):
 		return fault.WithClassification(fault.Wrap(fault.KindRejected, "workspace_entry_policy_memory_inactive", "Workspace entry requires the current Policy Memory activation", false, err, fault.NextAction{Command: "context list", Reason: "Discover current Context authority before explicit policy reconciliation."}), fault.PhasePrecondition, fault.ChangeNone)
+	case errors.Is(err, tobari.ErrWorkspaceEntryRuntimeNotCurrent), errors.Is(err, tobari.ErrWorkspaceEntryProtectionNotCurrent):
+		return fault.WithClassification(fault.Wrap(fault.KindUnavailable, "workspace_entry_repair_required", "Workspace entry requires canonical Runtime or protection recovery", true, err, fault.NextAction{Command: "tobari", Reason: "Repeat root entry so readiness and the staged recovery flow can reconcile the exact current Workspace."}), fault.PhasePrecondition, fault.ChangeNone)
 	case errors.Is(err, tobari.ErrWorkspaceRuntimePreparationUncertain):
 		return fault.WithClassification(fault.Wrap(fault.KindUnavailable, "workspace_runtime_preparation_uncertain", "Standard Runtime preparation did not reach a classified Workspace entry decision", false, err, fault.NextAction{Command: "status", Reason: "Read current authority and Runtime material before deciding whether to retry entry."}), fault.PhaseMutation, fault.ChangeUnknown)
 	case errors.Is(err, tobari.ErrWorkspaceEntryObservationUnavailable):

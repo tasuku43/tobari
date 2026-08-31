@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -20,6 +21,23 @@ import (
 )
 
 type finalAuthorityReadFixture struct{}
+
+type unavailableFinalProjectRoot struct{}
+
+type invalidFinalProjectRoot struct{}
+
+func (invalidFinalProjectRoot) CurrentDirectory(context.Context) (string, error) { return "/tmp", nil }
+func (invalidFinalProjectRoot) ResolveProjectRoot(context.Context, string) (string, error) {
+	return "relative/project", nil
+}
+
+func (unavailableFinalProjectRoot) CurrentDirectory(context.Context) (string, error) {
+	return "", errors.New("current directory unavailable")
+}
+
+func (unavailableFinalProjectRoot) ResolveProjectRoot(context.Context, string) (string, error) {
+	return "", errors.New("unexpected project root resolution")
+}
 
 type finalContextPlanErrorFixture struct{ err error }
 
@@ -55,14 +73,13 @@ type finalContextMutationCapture struct {
 	createCalls int
 	applyCalls  int
 	templateRef string
-	root        string
 	planRef     string
 	snapshot    tobari.ContextAuthoritySnapshot
 }
 
-func (f *finalContextMutationCapture) CreateContextDraftByTemplateReference(_ context.Context, templateRef, root string) (tobari.ContextDraft, error) {
+func (f *finalContextMutationCapture) CreateContextDraftByTemplateReference(_ context.Context, templateRef string) (tobari.ContextDraft, error) {
 	f.createCalls++
-	f.templateRef, f.root = templateRef, root
+	f.templateRef = templateRef
 	templateID, err := tobari.ParseWorkspaceTemplateRef(templateRef)
 	if err != nil {
 		return tobari.ContextDraft{}, err
@@ -70,7 +87,7 @@ func (f *finalContextMutationCapture) CreateContextDraftByTemplateReference(_ co
 	contextID := tobari.ContextID("01912345-6789-7abc-8def-0123456789b3")
 	revision := tobari.SemanticDigest("sha256:" + strings.Repeat("b", 64))
 	return tobari.ContextDraft{
-		Source:      tobari.ContextSource{SchemaVersion: tobari.ContextSourceSchemaVersion, ContextID: contextID, ProjectRoot: root, TemplateID: templateID},
+		Source:      tobari.ContextSource{SchemaVersion: tobari.ContextSourceSchemaVersion, ContextID: contextID, TemplateID: templateID},
 		Observation: tobari.ResourceSourceObservation{Path: "/config/tobari/contexts/01912345-6789-7abc-8def-0123456789b3/context.yaml", State: tobari.ResourceSourceModified, SourceRevision: &revision},
 	}, nil
 }
@@ -159,6 +176,18 @@ type finalAuthorityDeleteCounter struct{ calls int }
 
 type finalAuthorityMissingFixture struct{ finalAuthorityReadFixture }
 
+type finalInvalidReferencePorts struct{ finalAuthorityMissingFixture }
+
+func (finalInvalidReferencePorts) PlanWorkspaceTemplateSourceByReference(context.Context, string) (tobari.WorkspaceTemplateChangePlan, error) {
+	return tobari.WorkspaceTemplateChangePlan{}, errors.New("unexpected Template plan call")
+}
+func (finalInvalidReferencePorts) PlanWorkspaceTemplatePolicyMigrationByReference(context.Context, string) (tobari.WorkspaceTemplatePolicyMigrationPlan, error) {
+	return tobari.WorkspaceTemplatePolicyMigrationPlan{}, errors.New("unexpected Template migration plan call")
+}
+func (finalInvalidReferencePorts) PlanContextSourceByReference(context.Context, string) (tobari.ContextActivationPlan, error) {
+	return tobari.ContextActivationPlan{}, errors.New("unexpected Context plan call")
+}
+
 func (finalAuthorityMissingFixture) DeleteWorkspaceTemplateByReference(context.Context, string) (tobari.WorkspaceTemplateDeleteResult, error) {
 	return tobari.WorkspaceTemplateDeleteResult{}, tobari.ErrWorkspaceTemplateNotFound
 }
@@ -190,12 +219,17 @@ type finalFirstEntryFixture struct {
 	publication tobari.ContextEntryPublication
 	calls       int
 	session     tobari.WorkspaceSessionRequest
+	err         error
 }
 
 func (f *finalFirstEntryFixture) EnterContextByReference(_ context.Context, _ string, session tobari.WorkspaceSessionRequest, _ io.Reader, _, _ io.Writer) (tobari.ContextEntryPublication, error) {
 	f.calls++
 	f.session = session
-	return f.publication, nil
+	return f.publication, f.err
+}
+
+func (f *finalFirstEntryFixture) EnterContextByReferenceAtRoot(ctx context.Context, ref, _ string, session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer) (tobari.ContextEntryPublication, error) {
+	return f.EnterContextByReference(ctx, ref, session, in, out, errOut)
 }
 
 func TestFinalWorkspaceAuthorityCatalogOwnsExactReferenceGraph(t *testing.T) {
@@ -296,18 +330,31 @@ func TestFinalAuthorityCRUDCatalogDeclaresApplicationFaultClassifications(t *tes
 	}{
 		{path: "template list", code: "invalid_template_list", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
 		{path: "template show", code: "template_not_found", kind: fault.KindNotFound, phase: fault.PhaseObservation, change: fault.ChangeNotApplicable},
+		{path: "template show", code: "invalid_template_name", kind: fault.KindInvalidInput, phase: fault.PhasePrecondition, change: fault.ChangeNone},
 		{path: "template show", code: "invalid_template", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
+		{path: "template plan", code: "invalid_template_ref", kind: fault.KindInvalidInput, phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{path: "template migration plan", code: "invalid_template_ref", kind: fault.KindInvalidInput, phase: fault.PhasePrecondition, change: fault.ChangeNone},
 		{path: "template create", code: "invalid_template_create_result", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
+		{path: "template create", code: "invalid_standard_template_body", kind: fault.KindContract, phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{path: "template apply", code: "resource_source_recovery_required", kind: fault.KindUnavailable, phase: fault.PhaseMutation, change: fault.ChangePartial},
+		{path: "template migration apply", code: "resource_source_recovery_required", kind: fault.KindUnavailable, phase: fault.PhaseMutation, change: fault.ChangePartial},
 		{path: "template delete", code: "template_not_found", kind: fault.KindNotFound, phase: fault.PhasePrecondition, change: fault.ChangeNone},
 		{path: "template delete", code: "invalid_template_delete_result", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
 		{path: "context list", code: "invalid_context_list", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
 		{path: "context show", code: "context_not_found", kind: fault.KindNotFound, phase: fault.PhaseObservation, change: fault.ChangeNotApplicable},
+		{path: "context show", code: "invalid_context_ref", kind: fault.KindInvalidInput, phase: fault.PhasePrecondition, change: fault.ChangeNone},
 		{path: "context show", code: "invalid_context", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
+		{path: "context plan", code: "invalid_context_ref", kind: fault.KindInvalidInput, phase: fault.PhasePrecondition, change: fault.ChangeNone},
 		{path: "context create", code: "invalid_context_create_result", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
+		{path: "context enter", code: "invalid_context_ref", kind: fault.KindInvalidInput, phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{path: "context enter", code: "invalid_root", kind: fault.KindInvalidInput, phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{path: "context enter", code: "invalid_project_root_resolution", kind: fault.KindContract, phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{path: "context enter", code: "workspace_entry_cleanup_failed", kind: fault.KindUnavailable, phase: fault.PhaseMutation, change: fault.ChangePartial},
 		{path: "context delete", code: "context_not_found", kind: fault.KindNotFound, phase: fault.PhasePrecondition, change: fault.ChangeNone},
 		{path: "context delete", code: "invalid_context_delete_result", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
 		{path: "workspace list", code: "invalid_workspace_list", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
 		{path: "workspace status", code: "workspace_not_found", kind: fault.KindNotFound, phase: fault.PhaseObservation, change: fault.ChangeNotApplicable},
+		{path: "workspace status", code: "invalid_workspace_ref", kind: fault.KindInvalidInput, phase: fault.PhasePrecondition, change: fault.ChangeNone},
 		{path: "workspace status", code: "invalid_workspace", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
 		{path: "workspace delete", code: "workspace_not_found", kind: fault.KindNotFound, phase: fault.PhasePrecondition, change: fault.ChangeNone},
 		{path: "workspace delete", code: "invalid_workspace_delete_result", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
@@ -324,6 +371,96 @@ func TestFinalAuthorityCRUDCatalogDeclaresApplicationFaultClassifications(t *tes
 				t.Fatalf("%s %s = kind=%q phase=%q change=%q, want %q/%q/%q", test.path, test.code, declared.Kind, declared.Phase, declared.ChangeState, test.kind, test.phase, test.change)
 			}
 		})
+	}
+}
+
+func TestFinalContextEnterInterruptedRecoveryPreservesExplicitTargetWorkflow(t *testing.T) {
+	spec, found := DefaultCatalog().Lookup("context enter")
+	if !found {
+		t.Fatal("context enter is absent")
+	}
+	declared := commandErrorByCode(t, spec.Agent.Errors, "workspace_entry_interrupted")
+	if len(declared.NextActions) != 1 || declared.NextActions[0].Command != "help context enter" {
+		t.Fatalf("workspace entry interrupted recovery = %+v", declared.NextActions)
+	}
+}
+
+func TestFinalAuthorityReadInvalidReferencesNeverCollapseToUndeclaredContract(t *testing.T) {
+	fixture := finalInvalidReferencePorts{}
+	tests := []struct {
+		name string
+		args []string
+		wire func(*CLI)
+	}{
+		{name: "template plan", args: []string{"template", "plan", "--id", "garbage"}, wire: func(c *CLI) { c.finalTemplates = workspaceauthoritycmd.NewTemplateService(fixture) }},
+		{name: "template migration plan", args: []string{"template", "migration", "plan", "--id", "garbage"}, wire: func(c *CLI) { c.finalTemplates = workspaceauthoritycmd.NewTemplateService(fixture) }},
+		{name: "context show", args: []string{"context", "show", "--id", "garbage"}, wire: func(c *CLI) { c.finalContexts = workspaceauthoritycmd.NewContextService(fixture) }},
+		{name: "context plan", args: []string{"context", "plan", "--id", "garbage"}, wire: func(c *CLI) { c.finalContexts = workspaceauthoritycmd.NewContextService(fixture) }},
+		{name: "workspace status", args: []string{"workspace", "status", "--id", "garbage"}, wire: func(c *CLI) { c.finalWorkspaces = workspaceauthoritycmd.NewWorkspaceService(fixture) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+			test.wire(command)
+			if code := command.RunContext(context.Background(), test.args); code != ExitUsage {
+				t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			if !strings.Contains(stderr.String(), "invalid_") || strings.Contains(stderr.String(), "undeclared_fault_contract") {
+				t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
+func TestFinalAuthorityInvalidSelectorsNeverCollapseToUndeclaredContract(t *testing.T) {
+	fixture := finalInvalidReferencePorts{}
+	tests := []struct {
+		name string
+		args []string
+		wire func(*CLI)
+		code string
+	}{
+		{name: "template show name", args: []string{"template", "show", "--name=-invalid"}, wire: func(c *CLI) { c.finalTemplates = workspaceauthoritycmd.NewTemplateService(fixture) }, code: "invalid_template_name"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+			test.wire(command)
+			if code := command.RunContext(context.Background(), test.args); code != ExitUsage {
+				t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			if !strings.Contains(stderr.String(), test.code) || strings.Contains(stderr.String(), "undeclared_fault_contract") {
+				t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
+func TestFinalContextEnterInvalidRootNeverCollapsesToUndeclaredContract(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.finalContexts = workspaceauthoritycmd.NewContextService(finalInvalidReferencePorts{})
+	command.finalProjectRoot = unavailableFinalProjectRoot{}
+	if code := command.RunContext(context.Background(), []string{"--error-format=json", "context", "enter", "--id=ctx1_01912345-6789-7abc-8def-0123456789a2"}); code != ExitUsage {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !json.Valid(stderr.Bytes()) || !strings.Contains(stderr.String(), "invalid_root") || strings.Contains(stderr.String(), "undeclared_fault_contract") {
+		t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestFinalContextEnterInvalidResolvedRootNeverCollapsesToUndeclaredContract(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.finalContexts = workspaceauthoritycmd.NewContextService(finalInvalidReferencePorts{})
+	command.finalProjectRoot = invalidFinalProjectRoot{}
+	if code := command.RunContext(context.Background(), []string{"--error-format=json", "context", "enter", "--id=ctx1_01912345-6789-7abc-8def-0123456789a2"}); code != ExitContract {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !json.Valid(stderr.Bytes()) || !strings.Contains(stderr.String(), "invalid_project_root_resolution") || strings.Contains(stderr.String(), "undeclared_fault_contract") {
+		t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }
 
@@ -483,12 +620,11 @@ func TestFinalContextCreateAndApplyHandlersBindTheirExactPublicScopes(t *testing
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
 	command.finalContexts = workspaceauthoritycmd.NewContextService(capture)
-	command.finalProjectRoot = firstUseIntegrationProjectRoot{root: "/workspace/new-context"}
 	if code := command.RunContext(context.Background(), []string{"context", "create", "--template", templateRef, "--format=json"}); code != ExitOK {
 		t.Fatalf("create code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	if capture.createCalls != 1 || capture.templateRef != templateRef || capture.root != "/workspace/new-context" || !strings.Contains(stdout.String(), `"lifecycle":"draft"`) {
-		t.Fatalf("create calls=%d template=%q root=%q stdout=%q", capture.createCalls, capture.templateRef, capture.root, stdout.String())
+	if capture.createCalls != 1 || capture.templateRef != templateRef || !strings.Contains(stdout.String(), `"lifecycle":"draft"`) {
+		t.Fatalf("create calls=%d template=%q stdout=%q", capture.createCalls, capture.templateRef, stdout.String())
 	}
 
 	capture.snapshot, _, _, _, _ = finalDesiredActiveSnapshotFixture(t, false)
@@ -501,6 +637,15 @@ func TestFinalContextCreateAndApplyHandlersBindTheirExactPublicScopes(t *testing
 	}
 	if capture.applyCalls != 1 || capture.planRef != planRef || !strings.Contains(stdout.String(), `"changed":true`) {
 		t.Fatalf("apply calls=%d plan=%q stdout=%q", capture.applyCalls, capture.planRef, stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := command.RunContext(context.Background(), []string{"context", "apply", "--plan", planRef}); code != ExitOK {
+		t.Fatalf("human apply code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Template revision") {
+		t.Fatalf("human apply mislabeled desired Template revision: %q", stdout.String())
 	}
 }
 
@@ -687,7 +832,7 @@ func TestFinalEmptyAuthorityListsEmitSchemaOneExplicitArrays(t *testing.T) {
 }
 
 func TestFinalAuthorityJSONOmitsAbsentLowerLifetimeAuthority(t *testing.T) {
-	contextValue := finalContextProjection{Lifecycle: "active", ContextRef: "ctx1_01912345-6789-7abc-8def-0123456789a2", ContextID: "01912345-6789-7abc-8def-0123456789a2", TemplateID: "01912345-6789-7abc-8def-0123456789a1", TemplateName: "standard", ProjectRoot: "/workspace/example", DesiredTemplateGeneration: 1, DesiredTemplateRevision: "sha256:" + strings.Repeat("b", 64), DesiredTemplatePolicySliceDigest: "sha256:" + strings.Repeat("c", 64), CurrentPolicyMemoryRevision: "sha256:" + strings.Repeat("a", 64), SourcePath: "/tmp/tobari/contexts/01912345-6789-7abc-8def-0123456789a2/context.yaml", SourceState: string(tobari.ResourceSourceInSync), SourceRevision: stringPointer("sha256:" + strings.Repeat("d", 64)), ActiveRevision: "sha256:" + strings.Repeat("d", 64)}
+	contextValue := finalContextProjection{Lifecycle: "active", ContextRef: "ctx1_01912345-6789-7abc-8def-0123456789a2", ContextID: "01912345-6789-7abc-8def-0123456789a2", TemplateID: "01912345-6789-7abc-8def-0123456789a1", TemplateName: "standard", DesiredTemplateGeneration: 1, DesiredTemplateRevision: "sha256:" + strings.Repeat("b", 64), DesiredTemplatePolicySliceDigest: "sha256:" + strings.Repeat("c", 64), CurrentPolicyMemoryRevision: "sha256:" + strings.Repeat("a", 64), SourcePath: "/tmp/tobari/contexts/01912345-6789-7abc-8def-0123456789a2/context.yaml", SourceState: string(tobari.ResourceSourceInSync), SourceRevision: stringPointer("sha256:" + strings.Repeat("d", 64)), ActiveRevision: "sha256:" + strings.Repeat("d", 64)}
 	encoded, err := finalAuthorityOutput("context show", "context", contextValue, successFormatJSON, nil)
 	if err != nil {
 		t.Fatalf("context JSON error = %v", err)
@@ -703,13 +848,13 @@ func TestFinalAuthorityJSONOmitsAbsentLowerLifetimeAuthority(t *testing.T) {
 	if _, exists := projected["workspace_id"]; exists {
 		t.Fatalf("absent Workspace was serialized: %s", encoded)
 	}
-	wantContext := `{"context":{"context_ref":"ctx1_01912345-6789-7abc-8def-0123456789a2","context_id":"01912345-6789-7abc-8def-0123456789a2","workspace_template_id":"01912345-6789-7abc-8def-0123456789a1","template_name":"standard","project_root":"/workspace/example","desired_template_generation":1,"desired_template_revision":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","desired_template_policy_slice_digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","active_template_policy_slice_digest":null,"current_policy_memory_revision":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","active_policy_memory_revision":null,"applied_entry":null,"source_path":"/tmp/tobari/contexts/01912345-6789-7abc-8def-0123456789a2/context.yaml","source_state":"in_sync","source_revision":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","active_revision":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},"schema_version":1}` + "\n"
+	wantContext := `{"context":{"context_ref":"ctx1_01912345-6789-7abc-8def-0123456789a2","context_id":"01912345-6789-7abc-8def-0123456789a2","workspace_template_id":"01912345-6789-7abc-8def-0123456789a1","template_name":"standard","desired_template_generation":1,"desired_template_revision":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","desired_template_policy_slice_digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","active_template_policy_slice_digest":null,"current_policy_memory_revision":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","active_policy_memory_revision":null,"applied_entry":null,"source_path":"/tmp/tobari/contexts/01912345-6789-7abc-8def-0123456789a2/context.yaml","source_state":"in_sync","source_revision":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","active_revision":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},"schema_version":1}` + "\n"
 	wantContext = strings.Replace(wantContext, `{"context":{`, `{"context":{"lifecycle":"active",`, 1)
 	if got := string(encoded); got != wantContext {
 		t.Fatalf("context JSON = %q, want %q", got, wantContext)
 	}
 
-	workspaceValue := finalWorkspaceProjection{WorkspaceRef: "wsp1_01912345-6789-7abc-8def-0123456789a3", WorkspaceID: "01912345-6789-7abc-8def-0123456789a3", ContextID: contextValue.ContextID, TemplateID: contextValue.TemplateID, TemplateName: contextValue.TemplateName, ProjectRoot: contextValue.ProjectRoot, WorkspaceHome: "/workspace/home", Applied: false}
+	workspaceValue := finalWorkspaceProjection{WorkspaceRef: "wsp1_01912345-6789-7abc-8def-0123456789a3", WorkspaceID: "01912345-6789-7abc-8def-0123456789a3", ContextID: contextValue.ContextID, TemplateID: contextValue.TemplateID, TemplateName: contextValue.TemplateName, ProjectRoot: "/workspace/example", WorkspaceHome: "/workspace/home", Applied: false}
 	encoded, err = finalAuthorityOutput("workspace status", "workspace", workspaceValue, successFormatJSON, nil)
 	if err != nil {
 		t.Fatalf("workspace JSON error = %v", err)
@@ -752,7 +897,7 @@ func TestFinalContextProjectionKeepsDesiredActiveAndAppliedAxesIndependent(t *te
 	wantKeys := []string{
 		"active_policy_memory_revision", "active_revision", "active_template_policy_slice_digest", "applied_entry", "context_id", "context_ref",
 		"current_policy_memory_revision", "desired_template_generation", "desired_template_policy_slice_digest", "desired_template_revision",
-		"lifecycle", "project_root", "source_path", "source_revision", "source_state", "template_name", "workspace_id", "workspace_template_id",
+		"lifecycle", "source_path", "source_revision", "source_state", "template_name", "workspace_id", "workspace_template_id",
 	}
 	if got := sortedJSONKeys(document.Context); !reflect.DeepEqual(got, wantKeys) {
 		t.Fatalf("context keys = %v, want %v; output=%s", got, wantKeys, encoded)
@@ -930,7 +1075,7 @@ func TestFinalContextEnterHelpAndInvocationPermitFirstEntrySettlement(t *testing
 	memoryReceipt := tobari.PolicyMemoryActivationReceipt{ContextID: contextID, Revision: memory.Revision}
 	activeMemory := memory.Clone()
 	applied := tobari.WorkspaceAppliedEntry{ContextID: contextID, TemplateID: templateID, TemplateRevision: revision.Revision, EntrySliceDigest: revision.Slices.EntrySliceDigest, RuntimeID: tobari.StandardRuntimeID, RuntimeRevision: revision.Slices.RuntimeRevision, ResolvedSpec: digest("7"), ReconciledAt: time.Unix(1, 0).UTC()}
-	snapshot := tobari.ContextAuthoritySnapshot{Context: tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, ProjectRoot: "/workspace/example", TemplateID: templateID}, Template: template, PolicyMemory: memory, ActiveTemplatePolicy: &templateReceipt, ActivePolicyMemory: &activeMemory, ActivePolicyMemoryRef: &memoryReceipt,
+	snapshot := tobari.ContextAuthoritySnapshot{Context: tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: templateID}, Template: template, PolicyMemory: memory, ActiveTemplatePolicy: &templateReceipt, ActivePolicyMemory: &activeMemory, ActivePolicyMemoryRef: &memoryReceipt,
 		Workspace: &tobari.WorkspaceBinding{SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: workspaceID, ContextID: contextID, ProjectRoot: "/workspace/example", Home: "/workspace/home", CreationDefaults: revision.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied}}
 	if err := snapshot.Validate(); err != nil {
 		t.Fatal(err)
@@ -939,6 +1084,7 @@ func TestFinalContextEnterHelpAndInvocationPermitFirstEntrySettlement(t *testing
 	var out, errOut bytes.Buffer
 	command := newCLI(strings.NewReader(""), &out, &errOut, DefaultCatalog(), nil)
 	command.finalContexts = workspaceauthoritycmd.NewContextService(port)
+	command.finalProjectRoot = firstUseIntegrationProjectRoot{root: "/workspace/example"}
 	spec, _ := command.catalog.Lookup("context enter")
 	if help := string(renderCommandHelp(spec)); strings.Contains(help, "already active") || strings.Contains(help, "cluster up") {
 		t.Fatalf("first-entry help retained an external activation prerequisite: %s", help)
@@ -957,6 +1103,21 @@ func TestFinalContextEnterHelpAndInvocationPermitFirstEntrySettlement(t *testing
 	}
 }
 
+func TestFinalContextEnterEmitsDeclaredWorkspaceBusyFault(t *testing.T) {
+	const contextRef = "ctx1_01912345-6789-7abc-8def-0123456789a2"
+	port := &finalFirstEntryFixture{err: errors.Join(tobari.ErrWorkspaceEntryObservationUnavailable, tobari.ErrContextBindingProtected)}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.finalContexts = workspaceauthoritycmd.NewContextService(port)
+	command.finalProjectRoot = firstUseIntegrationProjectRoot{root: "/workspace/example"}
+	if code := command.RunContext(context.Background(), []string{"context", "enter", "--id", contextRef}); code != ExitUnavailable {
+		t.Fatalf("context enter exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "workspace_entry_busy") || strings.Contains(stderr.String(), "undeclared_fault_contract") {
+		t.Fatalf("context enter busy fault=%q", stderr.String())
+	}
+}
+
 func TestFinalContextEnterPreservesChildStatusAndReportsSecondaryCleanup(t *testing.T) {
 	snapshot := finalCurrentContextEntrySnapshotFixture(t)
 	contextRef, err := tobari.ContextRef(snapshot.Context.ID)
@@ -972,6 +1133,7 @@ func TestFinalContextEnterPreservesChildStatusAndReportsSecondaryCleanup(t *test
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
 	command.finalContexts = workspaceauthoritycmd.NewContextService(port)
+	command.finalProjectRoot = firstUseIntegrationProjectRoot{root: "/workspace/example"}
 	if code := command.RunContext(context.Background(), []string{"context", "enter", "--id", contextRef, "--", "codex", "exec"}); code != 29 {
 		t.Fatalf("child exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -1084,7 +1246,7 @@ func finalDesiredActiveSnapshotFixture(t *testing.T, active bool) (tobari.Contex
 	if err != nil || !changed {
 		t.Fatalf("advance Policy Memory: changed=%t err=%v", changed, err)
 	}
-	binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, ProjectRoot: "/workspace/example", TemplateID: templateID}
+	binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: templateID}
 	snapshot := tobari.ContextAuthoritySnapshot{Context: binding, Template: template, PolicyMemory: memoryB}
 	applied := tobari.WorkspaceAppliedEntry{
 		ContextID: contextID, TemplateID: templateID, TemplateRevision: revisionA.Revision, EntrySliceDigest: revisionA.Slices.EntrySliceDigest,
@@ -1096,7 +1258,7 @@ func finalDesiredActiveSnapshotFixture(t *testing.T, active bool) (tobari.Contex
 		activeMemory := memoryA.Clone()
 		memoryReceipt := tobari.PolicyMemoryActivationReceipt{ContextID: contextID, Revision: memoryA.Revision}
 		workspace := tobari.WorkspaceBinding{
-			SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: workspaceID, ContextID: contextID, ProjectRoot: binding.ProjectRoot,
+			SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: workspaceID, ContextID: contextID, ProjectRoot: "/workspace/example",
 			Home: "/workspace/home", CreationDefaults: revisionA.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied,
 		}
 		snapshot.ActiveTemplatePolicy = &templateReceipt
@@ -1173,4 +1335,38 @@ func findFinalOutputField(fields []OutputField, name string) (OutputField, bool)
 		}
 	}
 	return OutputField{}, false
+}
+
+func TestFinalAuthorityMutationRecoveryContractPreservesPreconditionClassification(t *testing.T) {
+	declaredCount := 0
+	for _, spec := range DefaultCatalog().Commands() {
+		for _, declared := range spec.Agent.Errors {
+			if declared.Code != "final_authority_mutation_recovery_required" {
+				continue
+			}
+			declaredCount++
+			if declared.Kind != fault.KindUnavailable || declared.Phase != fault.PhasePrecondition || declared.ChangeState != fault.ChangeNone {
+				t.Errorf("%s final-authority recovery = %+v", spec.Path, declared)
+			}
+		}
+	}
+	if declaredCount == 0 {
+		t.Fatal("Catalog has no final-authority mutation recovery declaration")
+	}
+}
+
+func TestFinalTemplateApplyDeclaresPostPublicationVerificationFailure(t *testing.T) {
+	spec, found := DefaultCatalog().Lookup("template apply")
+	if !found {
+		t.Fatal("Catalog lacks template apply")
+	}
+	for _, declared := range spec.Agent.Errors {
+		if declared.Code == "invalid_template_apply_result" {
+			if declared.Kind != fault.KindContract || declared.Phase != fault.PhaseVerification || declared.ChangeState != fault.ChangeUnknown {
+				t.Fatalf("template apply result verification = %+v", declared)
+			}
+			return
+		}
+	}
+	t.Fatal("template apply lacks invalid_template_apply_result")
 }

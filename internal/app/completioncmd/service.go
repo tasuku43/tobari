@@ -74,7 +74,7 @@ func (s *Service) contextNames(ctx context.Context) ([]string, error) {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, err
 		}
-		return nil, fault.Wrap(fault.KindInternal, "completion_manifest_read_failed", "Workspace Manifest completion candidates could not be read", false, err)
+		return nil, fault.Wrap(fault.KindInternal, "completion_template_read_failed", "Workspace Template completion candidates could not be read", false, err)
 	}
 	if err := result.Validate(); err != nil {
 		return nil, fault.Wrap(fault.KindContract, "invalid_completion_candidates", "Workspace Manifest completion candidates are invalid", false, err)

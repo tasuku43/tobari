@@ -12,16 +12,25 @@ const (
 )
 
 const (
-	statusHomePathEntry             = "tobari"
-	statusHomePathTemplateList      = "template list"
-	statusHomePathClusterStatus     = "cluster status"
-	statusHomePathClusterUp         = "cluster up"
-	statusHomePathDoctor            = "doctor"
-	statusHomePathReviewRuntimes    = "review runtimes"
-	statusHomePathReviewPermissions = "review permissions"
-	statusHomePathReviewServices    = "review services"
-	statusHomeGuidanceWaitForDetach = "wait_for_detach"
-	statusHomeGuidanceContinue      = "continue_attached"
+	statusHomePathEntry                 = "tobari"
+	statusHomePathTemplateList          = "template list"
+	statusHomePathClusterStatus         = "cluster status"
+	statusHomePathClusterUp             = "cluster up"
+	statusHomePathDoctor                = "doctor"
+	statusHomePathReviewRuntimes        = "review runtimes"
+	statusHomePathReviewPermissions     = "review permissions"
+	statusHomePathReviewServices        = "review services"
+	statusHomePathHelpContextEnter      = "help context enter"
+	statusHomePathHelpContextDelete     = "help context delete"
+	statusHomePathHelpWorkspaceDelete   = "help workspace delete"
+	statusHomePathHelpPolicyAllow       = "help policy allow"
+	statusHomePathHelpPolicyDeny        = "help policy deny"
+	statusHomePathHelpPolicyReset       = "help policy reset"
+	statusHomePathHelpReviewPermissions = "help review permissions"
+	statusHomePathHelpClusterUp         = "help cluster up"
+	statusHomePathHelpClusterDown       = "help cluster down"
+	statusHomeGuidanceWaitForDetach     = "wait_for_detach"
+	statusHomeGuidanceContinue          = "continue_attached"
 )
 
 // StatusHomeRecoveryPaths exposes the exact Catalog tasks owned by schema 3
@@ -37,6 +46,15 @@ func StatusHomeRecoveryPaths() []string {
 		statusHomePathReviewRuntimes,
 		statusHomePathReviewPermissions,
 		statusHomePathReviewServices,
+		statusHomePathHelpContextEnter,
+		statusHomePathHelpContextDelete,
+		statusHomePathHelpWorkspaceDelete,
+		statusHomePathHelpPolicyAllow,
+		statusHomePathHelpPolicyDeny,
+		statusHomePathHelpPolicyReset,
+		statusHomePathHelpReviewPermissions,
+		statusHomePathHelpClusterUp,
+		statusHomePathHelpClusterDown,
 	}
 }
 
@@ -315,7 +333,7 @@ func NewStatusHomeSnapshot(collection WorkspaceAuthorityCollection, present bool
 		return StatusHomeSnapshot{}, err
 	}
 	for _, snapshot := range snapshots {
-		if snapshot.Context.ProjectRoot != root {
+		if snapshot.Workspace == nil || snapshot.Workspace.ProjectRoot != root {
 			continue
 		}
 		if snapshot.Context.TemplateID == selected.ID {
@@ -463,8 +481,28 @@ func (s *StatusHomeSnapshot) deriveAttentionAndNext() {
 }
 
 func statusHomeMutationRecoveryPath(observation *FinalAuthorityMutationObservation) string {
-	if observation != nil && observation.Operation == "context-entry" {
-		return statusHomePathEntry
+	if observation == nil {
+		return statusHomePathDoctor
+	}
+	switch observation.Operation {
+	case "context-entry":
+		return statusHomePathHelpContextEnter
+	case "context-delete":
+		return statusHomePathHelpContextDelete
+	case "workspace-delete", "workspace-delete-force":
+		return statusHomePathHelpWorkspaceDelete
+	case "policy-allow":
+		return statusHomePathHelpPolicyAllow
+	case "policy-deny":
+		return statusHomePathHelpPolicyDeny
+	case "policy-reset":
+		return statusHomePathHelpPolicyReset
+	case "policy-apply-reviewed":
+		return statusHomePathHelpReviewPermissions
+	case "cluster-reconcile":
+		return statusHomePathHelpClusterUp
+	case "cluster-down":
+		return statusHomePathHelpClusterDown
 	}
 	return statusHomePathDoctor
 }

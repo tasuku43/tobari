@@ -76,6 +76,16 @@ func finalAuthorityMigrationRequiredFault(err error, phase fault.Phase, change f
 }
 
 func finalAuthorityMutationRecoveryFault(err error) (error, bool) {
+	if errors.Is(err, tobari.ErrFinalAuthorityNotFound) {
+		return fault.WithClassification(fault.Wrap(
+			fault.KindNotFound,
+			"authority_not_found",
+			"Final authority is not initialized; this mutation cannot run yet.",
+			false,
+			err,
+			fault.NextAction{Command: "tobari", Reason: "Initialize final authority through the canonical first-use flow."},
+		), fault.PhasePrecondition, fault.ChangeNone), true
+	}
 	if !errors.Is(err, tobari.ErrFinalAuthorityMutationRecoveryRequired) {
 		return nil, false
 	}

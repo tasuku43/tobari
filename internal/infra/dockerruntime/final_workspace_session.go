@@ -93,6 +93,11 @@ func (r *Runtime) ConfirmNoFinalWorkspaceSessions(ctx context.Context) error {
 	if r == nil {
 		return fmt.Errorf("Docker runtime is unavailable")
 	}
+	release, err := r.acquireNoWorkspaceSessionsFence(ctx)
+	if err != nil {
+		return fmt.Errorf("confirm no live Workspace attachment: %w", err)
+	}
+	defer release()
 	return r.withInteractiveAttachmentLock(ctx, func() error {
 		if err := requirePrivateDirectory(r.interactiveAttachmentDirectory()); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
@@ -265,24 +270,36 @@ type FinalWorkspaceSessionOwner struct {
 	invocationRoot string
 	principal      interactiveWorkspacePrincipal
 	attachment     *interactiveWorkspaceAttachment
+	releaseSession func() error
 	runMu          sync.Mutex
 	runStarted     bool
+	closeOnce      sync.Once
+	closeErr       error
 }
 
 type finalWorkspaceContainerObservation struct {
-	ID        string `json:"id"`
-	Owner     string `json:"owner"`
-	Component string `json:"component"`
-	Workspace string `json:"workspace"`
-	Role      string `json:"role"`
-	Spec      string `json:"spec"`
-	Running   bool   `json:"running"`
-	Health    string `json:"health"`
+	ID             string `json:"id"`
+	Owner          string `json:"owner"`
+	Component      string `json:"component"`
+	Workspace      string `json:"workspace"`
+	Role           string `json:"role"`
+	Spec           string `json:"spec"`
+	State          string `json:"state,omitempty"`
+	Running        bool   `json:"running"`
+	Health         string `json:"health"`
+	ConfiguredIPv4 string `json:"configured_ipv4,omitempty"`
+}
+
+func (o finalWorkspaceContainerObservation) validateIdentityFor(workspaceID tobari.WorkspaceID, resolvedSpec tobari.SemanticDigest, exactContainerID string) error {
+	if o.Owner != ownerValue || o.Component != "tobari" || o.Workspace != string(workspaceID) || o.Role != projectWorkRole ||
+		o.Spec != string(resolvedSpec) || !runtimeLifecycleContainerID.MatchString(o.ID) || exactContainerID != "" && o.ID != exactContainerID {
+		return fmt.Errorf("final Workspace container does not match its exact AppliedEntry authority")
+	}
+	return nil
 }
 
 func (o finalWorkspaceContainerObservation) validateFor(workspaceID tobari.WorkspaceID, resolvedSpec tobari.SemanticDigest, exactContainerID string) error {
-	if o.Owner != ownerValue || o.Component != "tobari" || o.Workspace != string(workspaceID) || o.Role != projectWorkRole ||
-		o.Spec != string(resolvedSpec) || !o.Running || o.Health != "healthy" || !runtimeLifecycleContainerID.MatchString(o.ID) || exactContainerID != "" && o.ID != exactContainerID {
+	if err := o.validateIdentityFor(workspaceID, resolvedSpec, exactContainerID); err != nil || !o.Running || o.Health != "healthy" {
 		return fmt.Errorf("final Workspace container does not match its exact AppliedEntry authority")
 	}
 	return nil
@@ -334,12 +351,16 @@ func (r *Runtime) BeginFinalWorkspaceSession(ctx context.Context, binding tobari
 	if err := r.confirmFinalWorkspaceContainer(ctx, binding); err != nil {
 		return nil, err
 	}
+	releaseSession, err := r.acquireWorkspaceSessionAttachment(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("acquire final Workspace session fence: %w", err)
+	}
 	attachment, err := r.beginInteractiveWorkspaceAttachmentForPrincipal(ctx, principal)
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(err, releaseSession())
 	}
 	return &FinalWorkspaceSessionOwner{
-		runtime: r, binding: binding.Clone(), invocationRoot: invocationRoot, principal: principal, attachment: attachment,
+		runtime: r, binding: binding.Clone(), invocationRoot: invocationRoot, principal: principal, attachment: attachment, releaseSession: releaseSession,
 	}, nil
 }
 
@@ -393,7 +414,10 @@ func (o *FinalWorkspaceSessionOwner) Close(ctx context.Context) error {
 	if o == nil || o.attachment == nil {
 		return nil
 	}
-	return o.attachment.Close(ctx)
+	o.closeOnce.Do(func() {
+		o.closeErr = errors.Join(o.attachment.Close(ctx), o.releaseSession())
+	})
+	return o.closeErr
 }
 
 // ObserveFinalWorkspaceSession reads the one canonical WP07 registry under

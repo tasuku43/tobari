@@ -50,6 +50,9 @@ provides repository recovery. Embedded `cluster up` builds the same name only
 when it is absent and uses embedded release recovery. A channel is preparation
 and recovery identity, not a second image-name authority. Equal exact source
 identity may reuse the same local material name; unequal identity cannot alias.
+An immutable Template may retain an older exact standard binding after the CLI
+changes. Entry validates and reuses that exact local material; it neither
+rebuilds the old name from new source nor silently replaces the binding.
 
 There is no active unversioned `tobari-runtime:base` authority and no mutable
 `tobari-runtime:dev` standard Runtime dependency. Existing final-authority
@@ -68,11 +71,13 @@ material, but an explicit portable image selector must equal its binding/report
 material; contradictory selector/material pairs are rejected before
 presentation.
 
-Before use, the selected standard or custom image still passes the existing
-API, role, user, entrypoint, architecture, and helper compatibility checks.
-Helpers are extracted only from the verified selected standard image into
-owner-only host state and mounted read-only into both standard and custom
-Workspaces. Custom Runtime images do not provide or determine Tobari helpers.
+Before use, the selected standard or custom image still passes the exact
+runtime API, lifetime, user, entrypoint, and volume-free filesystem
+compatibility checks. Host-side helpers are Tobari-owned assets extracted only from the
+current verified canonical standard image into owner-only host state and
+mounted read-only into both standard and custom Workspaces. A retained
+historical or custom Runtime image neither provides nor determines those
+helpers.
 
 The integration scenario derives its default custom base from the canonical
 source-addressed name. It may build a missing image only when the requested

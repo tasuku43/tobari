@@ -66,6 +66,7 @@ services:
       - no-new-privileges:true
     tmpfs:
       - /tmp:size=64m,mode=1777
+      - ${TOBARI_GATEWAY_INHERITED_CA_PATH}:size=1m,mode=0700
     logging:
       driver: json-file
       options:

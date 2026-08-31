@@ -121,10 +121,13 @@ func (w *terminalContextCreateWizard) ComposeSeeded(
 		restore, rawErr := w.mode.Enter(in)
 		if rawErr == nil {
 			selection, composeErr := w.composeRaw(ctx, in, out, seed)
-			finishSelectorScreen(out, 0)
+			finishErr := finishSelectorScreen(out, 0)
 			restoreErr := restore()
 			if composeErr != nil {
-				return contextCreateSelection{}, composeErr
+				return contextCreateSelection{}, errors.Join(composeErr, finishErr, restoreErr)
+			}
+			if finishErr != nil {
+				return contextCreateSelection{}, finishErr
 			}
 			if restoreErr != nil {
 				return contextCreateSelection{}, restoreErr

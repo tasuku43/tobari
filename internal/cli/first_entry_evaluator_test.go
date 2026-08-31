@@ -68,7 +68,7 @@ func verifyFirstEntryEvaluatorRow(t *testing.T, id string, answer struct {
 		if code := command.RunContext(context.Background(), []string{"--", "claude"}); code != ExitOK {
 			t.Fatalf("fresh entry exit=%d stderr=%q", code, stderr.String())
 		}
-		if reviewer.calls != 1 || readiness.calls != 1 || cluster.calls != 1 || pair.resolveCalls != 1 || pair.entryCalls != 1 || stdout.Len() != 0 || !reflect.DeepEqual(*order, []string{"observe", "review", "readiness", "template body", "resolve", "cluster", "refresh", "entry"}) {
+		if reviewer.calls != 1 || readiness.calls != 1 || cluster.calls != 1 || pair.resolveCalls != 1 || pair.entryCalls != 1 || stdout.Len() != 0 || !reflect.DeepEqual(*order, []string{"observe", "readiness", "review", "template body", "resolve", "cluster", "refresh", "entry"}) {
 			t.Fatalf("fresh boundary order=%v review=%d readiness=%d cluster=%d resolve=%d entry=%d", *order, reviewer.calls, readiness.calls, cluster.calls, pair.resolveCalls, pair.entryCalls)
 		}
 		assertEvaluatorStages(t, answer.ExpectedStages)
@@ -81,7 +81,7 @@ func verifyFirstEntryEvaluatorRow(t *testing.T, id string, answer struct {
 		if code := command.RunContext(context.Background(), nil); code != ExitUnavailable {
 			t.Fatalf("stopped engine exit=%d stderr=%q", code, stderr.String())
 		}
-		if !reflect.DeepEqual(*order, []string{"observe", "review", "readiness"}) || reviewer.calls != 1 || pair.resolveCalls != 0 || cluster.calls != 0 || stdout.Len() != 0 || !humanOutputHasRow(stderr.String(), "Change state", answer.ExpectedChangeState) {
+		if !reflect.DeepEqual(*order, []string{"observe", "readiness"}) || reviewer.calls != 0 || pair.resolveCalls != 0 || cluster.calls != 0 || stdout.Len() != 0 || !humanOutputHasRow(stderr.String(), "Change state", answer.ExpectedChangeState) {
 			t.Fatalf("stopped engine crossed boundary order=%v resolve=%d cluster=%d stdout=%q stderr=%q", *order, pair.resolveCalls, cluster.calls, stdout.String(), stderr.String())
 		}
 		assertEvaluatorNext(t, stderr.String(), answer.ExpectedNext)
@@ -130,6 +130,7 @@ func verifyFirstEntryEvaluatorRow(t *testing.T, id string, answer struct {
 		var stdout, stderr bytes.Buffer
 		command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
 		command.finalContexts = workspaceauthoritycmd.NewContextService(port)
+		command.finalProjectRoot = firstUseIntegrationProjectRoot{root: "/workspace/example"}
 		argv := []string{"codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "echo unchanged"}
 		invocation := append([]string{"context", "enter", "--id", contextRef, "--"}, argv...)
 		if code := command.RunContext(context.Background(), invocation); code != 23 {

@@ -40,7 +40,7 @@ func finalProjectionCollectionFixture(t *testing.T, workspaceID tobari.Workspace
 		t.Fatal(err)
 	}
 	template := tobari.WorkspaceTemplate{SchemaVersion: tobari.WorkspaceTemplateSchemaVersion, ID: finalProjectionTemplateID, Name: "restricted", Current: revision, Retained: []tobari.WorkspaceTemplateRevision{revision.Clone()}}
-	contextBinding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: finalProjectionContextID, ProjectRoot: "/workspace/example", TemplateID: finalProjectionTemplateID}
+	contextBinding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: finalProjectionContextID, TemplateID: finalProjectionTemplateID}
 	ruleBody := tobari.PolicyMemoryRuleBody{
 		PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP},
 		Match:                  tobari.PolicyMatchExact, Host: "api.example.dev", Port: 443, Method: "GET", Path: "/remembered",
@@ -67,7 +67,7 @@ func finalProjectionCollectionFixture(t *testing.T, workspaceID tobari.Workspace
 		}
 		workspaces = append(workspaces, tobari.WorkspaceBinding{
 			SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: workspaceID, ContextID: contextBinding.ID,
-			ProjectRoot: contextBinding.ProjectRoot, Home: "/workspace/home-" + string(workspaceID), CreationDefaults: revision.Slices.CreationDefaultsDigest,
+			ProjectRoot: "/workspace/example", Home: "/workspace/home-" + string(workspaceID), CreationDefaults: revision.Slices.CreationDefaultsDigest,
 			LastSuccessfulEntry: &applied,
 		})
 	}

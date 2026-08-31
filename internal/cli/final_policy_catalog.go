@@ -81,7 +81,6 @@ func finalPolicyRuleFields() []OutputField {
 		{Name: "match", Type: OutputFieldTypeString, Description: "Exact or reviewed path-template match.", Enum: tobari.PolicyMatchValues()},
 		{Name: "context", Type: OutputFieldTypeString, Description: "Owning Template display name for the final Context."},
 		{Name: "template", Type: OutputFieldTypeString, Description: "Owning Template display name."},
-		{Name: "project_root", Type: OutputFieldTypeString, Description: "Canonical owning Project root."},
 		{Name: "body", Type: OutputFieldTypeObject, Description: "Complete remembered rule body.", Fields: finalPolicyRuleBodyFields()},
 		{Name: "context_id", Type: OutputFieldTypeString, Description: "Exact final Context identity."},
 		{Name: "workspace_template_id", Type: OutputFieldTypeString, Description: "Exact final Workspace Template identity."},
@@ -110,7 +109,7 @@ func finalPolicyReadErrors(path string) []CommandError {
 
 func finalPolicyMutationErrors(path, recovery string) []CommandError {
 	return mutationCommandErrors(path, recovery,
-		declaredCommandError(fault.KindUnavailable, "final_authority_mutation_recovery_required", false, "status", "Read and recover the preserved final-authority decision through the exact initiating command; do not remove authority files manually."),
+		classifiedCommandError(fault.KindUnavailable, "final_authority_mutation_recovery_required", false, fault.PhasePrecondition, fault.ChangeNone, "status", "Read and recover the preserved final-authority decision through the exact initiating command; do not remove authority files manually."),
 		declaredCommandError(fault.KindRejected, "legacy_state_present", false, "doctor", "Reset or recreate this pre-release installation before using final Policy Memory."),
 		declaredCommandError(fault.KindInvalidInput, "invalid_policy_candidate_ref", false, "policy candidates", "Use an emitted candidate reference unchanged."),
 		declaredCommandError(fault.KindInvalidInput, "invalid_policy_rule_ref", false, "policy rules", "Use an emitted rule reference unchanged."),
@@ -119,6 +118,18 @@ func finalPolicyMutationErrors(path, recovery string) []CommandError {
 		declaredCommandError(fault.KindContract, "invalid_policy_memory_result", false, recovery, "Reconcile the confirmed final Policy Memory result."),
 		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the final Policy Memory adapter."),
 	)
+}
+
+func finalPolicyReviewInteractiveErrors() []CommandError {
+	return []CommandError{
+		classifiedCommandError(fault.KindInternal, "policy_review_terminal_failed", false, fault.PhasePresentation, fault.ChangeNotApplicable, "help review permissions", "Inspect the trusted-terminal requirements before reopening the Permission Inbox."),
+		classifiedCommandError(fault.KindInternal, "terminal_restore_failed", false, fault.PhasePresentation, fault.ChangeNotApplicable, "help review permissions", "Restore the trusted terminal before reopening the Permission Inbox."),
+		classifiedCommandError(fault.KindInternal, "terminal_input_failed", false, fault.PhasePresentation, fault.ChangeNotApplicable, "help review permissions", "Inspect the trusted-terminal requirements before reopening the Permission Inbox."),
+		classifiedCommandError(fault.KindInternal, "invalid_policy_review_result", false, fault.PhaseVerification, fault.ChangeUnknown, "policy candidates", "Rediscover the current candidate set before another review."),
+		classifiedCommandError(fault.KindContract, "invalid_policy_review_set", false, fault.PhaseVerification, fault.ChangeNone, "policy candidates", "Rediscover the current candidate set before staging another review."),
+		classifiedCommandError(fault.KindRejected, "policy_review_scope_mixed", false, fault.PhasePrecondition, fault.ChangeNone, "policy candidates", "Rediscover candidates, then apply attachment-scoped and persistent decisions separately."),
+		classifiedCommandError(fault.KindContract, "invalid_catalog", false, fault.PhasePrecondition, fault.ChangeNone, "help review permissions", "Repair the internal reviewed-set Apply contract."),
+	}
 }
 
 func finalPolicyCandidatesSpec() CommandSpec {
@@ -133,7 +144,7 @@ func finalPolicyReviewSpec() CommandSpec {
 	return CommandSpec{Path: "review permissions", Summary: "Review final Policy Memory candidates", Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{
 		CapabilityID: "policy.learning", Outcome: "Inspect the coherent final pending set without rediscovering predecessor denial logs", Inputs: []CommandInput{formatInput()},
 		Output:        CommandOutput{Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens, Fields: finalPolicyCandidateFields(), Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive, JSONEnvelope: "policy_review", JSONEnvelopeType: OutputFieldTypeArray, JSONSchemaVersion: tobari.WorkspaceAuthorityPolicyReadSchemaVersion},
-		Prerequisites: []string{}, Errors: append(finalPolicyReadErrors("review permissions"), declaredCommandError(fault.KindUnavailable, "final_policy_review_unavailable", false, "policy candidates", "Use direct exact decisions until the complete reviewed-set owner is configured.")),
+		Prerequisites: []string{}, Errors: append(append(finalPolicyReadErrors("review permissions"), finalPolicyReviewInteractiveErrors()...), declaredCommandError(fault.KindUnavailable, "final_policy_review_unavailable", false, "policy candidates", "Use direct exact decisions until the complete reviewed-set owner is configured.")),
 	}, handler: runFinalPolicyReview}
 }
 

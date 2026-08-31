@@ -54,11 +54,14 @@ func TestWorkspaceBrowserChannelOpensValidatedTargetAndReturnsExactResponse(t *t
 	}
 	runner := &codexBridgeRunner{projectID: projectID}
 	browser := &recordingBrowser{}
-	bridge := newWorkspaceLoginBridge(context.Background(), &Runtime{runner: runner, browser: browser}, container, projectID)
+	bridge, err := newWorkspaceLoginBridge(context.Background(), &Runtime{runner: runner, browser: browser}, container, projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	requestReader, requestWriter := io.Pipe()
 	responseReader, responseWriter := io.Pipe()
 	channel := &workspaceBrowserChannel{requestIn: requestReader, response: responseWriter}
-	go channel.serve(bridge)
+	go func() { _ = channel.serve(bridge) }()
 	defer channel.close()
 	_, _ = io.WriteString(requestWriter, workspaceBrowserReadyFrame+"\n")
 
@@ -85,11 +88,14 @@ func TestWorkspaceBrowserChannelRejectsMalformedAndUnreviewedTargets(t *testing.
 	}
 	runner := &codexBridgeRunner{projectID: projectID}
 	browser := &recordingBrowser{}
-	bridge := newWorkspaceLoginBridge(context.Background(), &Runtime{runner: runner, browser: browser}, container, projectID)
+	bridge, err := newWorkspaceLoginBridge(context.Background(), &Runtime{runner: runner, browser: browser}, container, projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	requestReader, requestWriter := io.Pipe()
 	responseReader, responseWriter := io.Pipe()
 	channel := &workspaceBrowserChannel{requestIn: requestReader, response: responseWriter}
-	go channel.serve(bridge)
+	go func() { _ = channel.serve(bridge) }()
 	defer channel.close()
 	reader := bufio.NewReader(responseReader)
 	_, _ = io.WriteString(requestWriter, workspaceBrowserReadyFrame+"\n")
@@ -120,11 +126,14 @@ func TestWorkspaceBrowserBridgeCapsUniqueHostOpenAttempts(t *testing.T) {
 		t.Fatal(err)
 	}
 	browser := &recordingBrowser{}
-	bridge := newWorkspaceLoginBridge(
+	bridge, err := newWorkspaceLoginBridge(
 		context.Background(),
 		&Runtime{runner: &codexBridgeRunner{projectID: projectID}, browser: browser},
 		container, projectID,
 	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer bridge.close()
 	for index := range workspaceLoginURLBudget + 1 {
 		target := fmt.Sprintf("https://auth.atlassian.com/oauth/activate?user_code=CODE-%04d", index)
@@ -144,6 +153,38 @@ type recordingWorkspaceBrowserControlRunner struct {
 	started    chan struct{}
 	release    <-chan struct{}
 	exitBefore error
+}
+
+type relayLossWorkspaceBrowserControlRunner struct {
+	started chan struct{}
+	stopped chan struct{}
+	release chan struct{}
+}
+
+func (r *relayLossWorkspaceBrowserControlRunner) Run(
+	context.Context, []string, []string, io.Reader, io.Writer, io.Writer,
+) error {
+	return nil
+}
+
+func (r *relayLossWorkspaceBrowserControlRunner) Output(context.Context, []string, []string) ([]byte, error) {
+	return nil, nil
+}
+
+func (r *relayLossWorkspaceBrowserControlRunner) RunWorkspaceBrowserControl(
+	ctx context.Context, _ []string, _ []string, _ io.Reader, out io.Writer, _ io.Writer,
+) error {
+	if _, err := io.WriteString(out, workspaceBrowserReadyFrame+"\n"); err != nil {
+		return err
+	}
+	close(r.started)
+	<-r.release
+	if closer, ok := out.(io.Closer); ok {
+		_ = closer.Close()
+	}
+	<-ctx.Done()
+	close(r.stopped)
+	return ctx.Err()
 }
 
 func (r *recordingWorkspaceBrowserControlRunner) Run(
@@ -247,6 +288,65 @@ func TestWorkspaceBrowserChannelRejectsControlExitBeforeReadiness(t *testing.T) 
 	)
 	if err == nil || channel != nil || !strings.Contains(err.Error(), "before readiness") {
 		t.Fatalf("start result = (%+v, %v), want readiness failure", channel, err)
+	}
+}
+
+func TestWorkspaceBrowserControlExitAfterReadinessCancelsAttachedCommand(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	channel := &workspaceBrowserChannel{result: make(chan error, 1)}
+	started := make(chan struct{})
+	stopped := make(chan struct{})
+	run := func() error {
+		close(started)
+		<-ctx.Done()
+		close(stopped)
+		return ctx.Err()
+	}
+	go func() {
+		<-started
+		channel.result <- errors.New("synthetic post-ready control exit")
+	}()
+	err := runWithAttachedBrowserControl(context.Background(), cancel, channel, run)
+	if !errors.Is(err, tobari.ErrNativeLoginBridgeUnavailable) {
+		t.Fatalf("post-ready control exit error=%v", err)
+	}
+	select {
+	case <-stopped:
+	default:
+		t.Fatal("attached Workspace command was not canceled")
+	}
+}
+
+func TestWorkspaceBrowserHostRelayLossAfterReadinessCancelsAttachedCommand(t *testing.T) {
+	runner := &relayLossWorkspaceBrowserControlRunner{started: make(chan struct{}), stopped: make(chan struct{}), release: make(chan struct{})}
+	controlContext, cancelControl := context.WithCancel(context.Background())
+	defer cancelControl()
+	channel, err := (&Runtime{runner: runner}).startWorkspaceBrowserChannel(controlContext, &workspaceLoginBridge{}, "workspace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer channel.close()
+	close(runner.release)
+	attachedContext, cancelAttached := context.WithCancel(context.Background())
+	attachedStopped := make(chan struct{})
+	err = runWithAttachedBrowserControl(context.Background(), cancelAttached, channel, func() error {
+		<-attachedContext.Done()
+		close(attachedStopped)
+		return attachedContext.Err()
+	})
+	if !errors.Is(err, tobari.ErrNativeLoginBridgeUnavailable) {
+		t.Fatalf("host relay loss error=%v", err)
+	}
+	select {
+	case <-attachedStopped:
+	default:
+		t.Fatal("attached Workspace command was not canceled after host relay loss")
+	}
+	select {
+	case <-runner.stopped:
+	case <-time.After(time.Second):
+		t.Fatal("Docker control process was not canceled after host relay loss")
 	}
 }
 

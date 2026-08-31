@@ -34,15 +34,28 @@ parts: each Workspace can host concurrent processes, cannot reach the Internet o
 another Workspace directly, never receives a real host-managed credential, and is
 selected from the canonical current directory rather than a user-managed name,
 root flag, or container identifier; and the user can reach that boundary
-without becoming a Docker or policy operator. On the release surface, users
-authenticate the pinned agent CLI inside the Workspace and its tool-owned state
-persists only in that Workspace home; host credentials are never inherited.
+without becoming a Docker or policy operator. Fresh first use remains a
+deterministic Tobari-owned setup journey; it does not depend on a coding-agent
+conversation. A task-scoped Configurator may use direct Internet access to
+assist one explicit Runtime-source or static-policy editing task. Runtime
+assistance is installation-owned: one Runtime reference selects the target,
+the built-in standard Runtime selects the editor, and one agent-specific
+installation Home is its only mutable data mount. Policy assistance instead
+consumes one explicit Context reference and uses that Context's exact Runtime
+and complete managed Home. Neither path depends on ambient CWD. Configurator is
+not a Workspace and receives no Project, host Home, unrelated managed Home,
+active authority, Docker socket, or arbitrary host execution. The host freezes
+one task-typed submission after the container exits; task validation, review,
+and canonical Apply consume that immutable value, never reread mutable Home,
+and only the host writes canonical desired or active configuration. On the
+release surface, host credentials are never inherited.
 
 Tobari is the product, executable, and ownership adjective. A Workspace
-Template is the reusable setup; a Context is the durable canonical-Project-root
-plus Template binding and Policy Memory owner; a Workspace is the replaceable
-isolated instance and home owned by that Context. Project names the selected
-host source directory; it is not a second name for any authority identity.
+Template is the reusable setup; a Context is a location-free durable Template
+binding and Policy Memory owner; a Workspace is the replaceable isolated
+instance that alone binds one canonical Project root to one Context and its
+managed Home. Project names the selected host source directory; it is not a
+second name for any authority identity.
 An attached standard session may bridge only the closed reviewed native browser
 login union for pinned Claude Code, Codex, GitHub CLI, AWS CLI,
 custom-runtime TWG, and custom-runtime pup.
@@ -201,25 +214,46 @@ through exact ownership checks.
   typed policy data and deterministic review/reset guidance, never executable
   policy source.
 - The human first-use route starts with the CWD-first `tobari` entry. On an
-  interactive terminal with empty final Template/Context authority, that one
-  route owns the one-screen recommended review of canonical Project root,
-  direct source effect, effective Access, exact standard Runtime, absent host
-  import, and selected session. The recommended draft has no identity or
-  authority. Start revalidates the empty final collection, publishes and
-  selects the default Workspace Template through the canonical final authority
-  boundary, creates this Project's Context, composes canonical `cluster up`,
-  reconciles the Workspace through explicit entry, and hands off once.
-  Customize changes the same complete Template draft before publication; it is
-  not Template copy and creates no lineage. After selection, that same entry
-  mutation owns exact local materialization of the canonical built-in standard
-  Runtime when its source-addressed image is absent. Custom Runtime
-  preparation remains an independent explicit host workflow and is never
-  inferred from entry.
-  After review and before the first mutation, Start performs the closed generic
+  interactive terminal with empty final Template/Context authority, Tobari
+  validates the canonical Project, checks Docker, and runs one deterministic
+  host-owned setup journey. It explains and reviews source access, network
+  posture, exact Runtime, optional typed Workspace bootstrap, shell, and Git
+  defaults before canonical Template/Context publication and Workspace entry.
+  Fresh first use neither asks for an agent nor starts a Configurator.
+- Agent assistance begins only after the user has named a concrete task. The
+  shared public form is `tobari <target> assist`; the first targets are Runtime
+  source and static Template policy. `assist` always means an isolated Codex or
+  Claude Code session and never means manual editing. Runtime assistance
+  consumes only the exact Runtime reference plus optional agent choice and uses
+  the built-in standard editor Runtime and installation-owned agent Home.
+  Static-policy assistance consumes an explicit Context reference and derives
+  its exact Template, execution Runtime, managed Home, evidence revision,
+  validator, and canonical publication path. Neither command selects authority
+  from ambient CWD. Manual editing remains separately visible through the
+  canonical source path. Context is the location-free Template binding and
+  Policy Memory owner, not something an agent is asked to configure.
+
+- Tobari-owned TUI is inline. Styled selectors, raw-key navigation, bounded
+  scrolling, and semantic color remain part of the CLI, but Tobari does not
+  enter DEC private-mode alternate screen 1049 or clear main-screen scrollback.
+  The shared renderer measures and reserves the wrapped physical frame before
+  saving its cursor origin, re-reserves on same-size interaction changes, and
+  never restores an origin across resize. Unknown-size and oversized frames
+  remain truthful through complete append-only rendering rather than guessed
+  geometry. It leaves the final frame in terminal history and restores a
+  column-zero cursor exactly once. A native child may own its own
+  terminal modes only after explicit handoff; Tobari neither overlays nor
+  emulates that live child and resumes inline presentation after it returns.
+  Before Workspace Docker mutation, root performs the closed generic
   Docker CLI/Engine/selected-context/Compose readiness profile required for the
-  promised Workspace outcome. Failure creates no Template, Context, cluster,
-  Workspace, or Docker state and points to `doctor`; Tobari does not identify
-  or manage the provider behind Docker.
+  promised outcome. Before the first confirmed setup mutation, failure creates
+  no Template, Context, Configurator, cluster, Workspace, or Docker state and
+  points to `doctor`. A later explicit assist task performs its own readiness
+  and disclosure before materialization; afterward it may retain only the exact
+  target-scoped non-authoritative working copy and its declared installation-
+  or Context-owned managed Home.
+  Tobari does not identify or
+  manage the provider behind Docker.
   The journey reports exactly five checkpoint-local stages on Tobari-owned
   stderr: requirements, Context resolution, protection, Workspace preparation,
   and child handoff. Progress is invocation-only and grants no authority. A
@@ -332,6 +366,24 @@ terminate at the transparent listener. Gateway alone joins every Workspace netwo
 control and egress networks; OPA joins only control. Kernel forwarding remains
 disabled, so neither path is direct egress.
 
+Configurator is a distinct non-Workspace topology. It may join one ordinary
+external network because its task is to reach the selected
+agent service and assist one explicit bounded editing task. That permission
+is coupled to a closed container role and mount contract: one complete declared
+managed Home as the only mutable data mount—installation-owned per agent for
+Runtime assistance and Context-owned for policy assistance—an optional fixed
+read-only helper, no Project or host/unrelated Home, no active
+authority, no Docker socket, no host network, and no added capability. The
+chooser explicitly states that network protection is off and the whole managed
+Home is read-write. A Runtime image, project file, environment value, or
+Template cannot select this topology.
+
+The optional helper is the same binary-owned native-login opener used by an
+attached Workspace. Configurator selects only the chosen Codex or Claude Code
+authorization contract, transports its request over a separate bounded control
+stream, and relays one opaque localhost callback only when that exact contract
+declares it. It is not a generic URL, command, filesystem, or Docker bridge.
+
 ### Consequences
 
 - Proxy bypass has no route to an external upstream.
@@ -350,6 +402,10 @@ disabled, so neither path is direct egress.
   helper may receive only `CAP_NET_ADMIN` while sharing one verified container
   network namespace; it receives no mounts, secrets, executable selector, or
   Docker socket and exits before user entry.
+- Configurator direct egress never becomes a Workspace route, Gateway bypass,
+  Template policy rule, learned permission, reusable network profile, or
+  arbitrary Docker option. Configurator lifecycle and tests prove its exact
+  non-Workspace role before network attachment.
 - Reviewed native loopback login is the separate no-capability exception: while
   one interactive host session is attached, a strict pinned-client observer may
   bind only a validated Codex, GitHub CLI, AWS CLI, or custom-runtime pup authorization
@@ -386,10 +442,16 @@ disabled, so neither path is direct egress.
   zero pre-policy DNS/upstream calls, source-principal isolation, direct egress,
   direct OPA access, and traffic during Gateway or OPA failure do not succeed.
 - Read-only cluster observation validates the live Gateway/OPA shared-network
-  joins and every registered Workspace/Gateway endpoint pair. A stopped
-  component, detached required network, stale endpoint, or missing live
-  principal binding makes the projection unready so ordinary root entry
-  composes explicit cluster reconciliation before Workspace mutation.
+  joins and every registered Workspace/Gateway endpoint pair. A stopped shared
+  component, detached required network, stale endpoint, or missing principal
+  binding makes the projection unready so ordinary root entry composes explicit
+  cluster reconciliation before Workspace mutation. An exactly stopped
+  Workspace may retain only its previously published principal row while its
+  owned container identity/spec, configured static address, network, live
+  Gateway attachment, and owner-only registry row all still match; any drift
+  fails closed. This retained row grants no running source endpoint and lets a
+  safe stopped-ancestor nested entry update the global policy without restarting
+  the ancestor.
 - Runtime specification tests reject privileged mode, host networking, Docker
   socket mounts, broad host-home mounts, and missing fixed resource bounds.
 - Runtime integration inspects CPU, memory, PID, and log limits after creation
@@ -399,13 +461,18 @@ disabled, so neither path is direct egress.
   replace the CLI-owned isolation arguments. Runtime API compatibility includes
   the bootstrap needed to execute Tobari's fixed Workspace lifetime command.
 
-## Thesis 3: Native Workspace authentication is standard; brokering is research
+## Thesis 3: Native Context/Workspace authentication is standard; brokering is research
 
 Tobari does not inherit host authentication material. The release surface
 declares no provider bindings, provider projection, credential handles, vault,
-root key, companion, or Auth Broker service. A pinned agent CLI performs its
-native login inside the Workspace and owns the resulting state in that
-Workspace's persistent home. Gateway removes client authentication and cookies
+root key, companion, or Auth Broker service. Codex, Claude Code, and other
+Runtime-provided tools perform native login into one complete managed Home.
+Workspace and policy-assistance state is scoped first to a configuration draft
+and then to its published Context; Runtime assistance uses a separate stable
+installation-owned Home per selected agent. A Home is mounted only into its
+declared Configurator or Workspace boundary. Configurator receives no host or
+unrelated managed Home. Gateway removes client
+authentication and cookies
 from OPA input and audit, asks policy about the ordinary HTTP effect, and
 forwards the original values only after allow.
 For pinned Codex, GitHub CLI, and AWS CLI, native local parity also includes ADR 0046's
@@ -441,9 +508,11 @@ exist only when the research surface is compiled.
   A thesis-declared narrow projection may instead read and re-encode only its
   fixed non-secret scalar allowlist. It never transfers the source file, path,
   include directive, executable setting, credential, or an undeclared key.
-- Tool-owned credential state is available to every process in the same
-  Workspace by design, survives runtime-container recreation, and is removed by
-  the explicit Workspace delete operation.
+- Tool-owned credential state in the complete managed Home is available to
+  every process in the same Context's Configurator and Workspace by design and
+  survives Workspace replacement. Adopted state is removed by exact Context
+  deletion, not Workspace deletion. Unadopted draft cleanup is deferred; the
+  current slice retains it for deterministic recovery.
 - Client authentication and cookie values are redacted from OPA input, Gateway
   audit, denial projections, and CLI output. In the research surface, a declared binding rejects a real
   Workspace credential before OPA as non-learnable `broker_auth_required`; a
@@ -586,9 +655,10 @@ binding. A Workspace is selected
 from the canonical current directory: an exact indexed root is reused directly;
 when only ancestor roots exist, the interactive root command presents every
 containing root nearest-first and an explicit create-here option. A new nested
-root is never implicit. Every selected Workspace binds exactly one
-Context-owned root with its Workspace Template-selected access, one dedicated internal network, and one persistent XDG-owned home
-directory.
+root is never implicit. Every selected Workspace alone owns one canonical
+Project root and binds exactly one location-free Context, its Workspace
+Template-selected access, one dedicated internal network, and one persistent
+XDG-owned home directory.
 
 ### Consequences
 
@@ -598,6 +668,12 @@ directory.
   only after the authority-free recommended Template/Context review confirms
   Start. It then revalidates the exact selected Context, reconciles only that
   Workspace through Context entry, and hands off the child.
+- Shared-component and Workspace-helper image validation is bounded and closes
+  over Docker's declared volume defaults before create. Execution consumes the
+  immutable image ID from that same observation; mutable selectors cannot
+  retarget a validated decision. Only Gateway's exact inherited CA path may be
+  declared because reviewed Compose tmpfs shadows it; the other component,
+  managed Runtime, and helper images are volume-free.
 - The logical record owns a generated stable internal ID, canonical root,
   last reconciled compatible runtime image, profile, XDG home, and diagnostic
   runtime identifiers. Container or network loss never changes logical
@@ -614,14 +690,27 @@ directory.
   --confirm=delete`. Deletion with an attached session is rejected unless the
   host explicitly adds `--force`; there is no
   user-facing stopped or paused Workspace state.
-- Bare `status` and `tobari` select the nearest canonical Context root and then
-  apply the installation default Template within that root. `workspace list`
+- Multiple host terminals may concurrently borrow the same exact
+  Context/Workspace. Each borrower holds a shared Context/Project Home fence
+  and its own installation-wide live-session fence until close. Configurator
+  materialization and ordinary Context/Workspace retirement require the
+  corresponding exclusive fence; Gateway or cluster replacement requires the
+  installation-wide exclusive fence. Entry confirmation happens before the
+  live-session fence is acquired so reconciliation never conflicts with its
+  own borrower. If exact-current confirmation misses, runtime repair acquires
+  that installation-wide fence exclusively before recording a decision; a
+  surviving borrower therefore yields a retryable no-change busy result.
+- Bare `status` and `tobari` select the nearest canonical Workspace root and
+  then resolve that Workspace's Context. At a new root, first use creates a
+  fresh Context from the installation default Template before creating its
+  Workspace. `workspace list`
   discovers exact Workspace references; `workspace status` and `workspace
   delete` consume one unchanged reference and never rediscover by CWD or name.
-- A canonical root plus stable Workspace Template identity is a unique Context
-  key. One Context owns at most one replaceable Workspace. Repeated or
-  concurrent creation for the same Context converges to one logical Workspace;
-  the same root may have independent Contexts for different Templates.
+- A Context identity is independent from every Project root. One Context owns
+  at most one replaceable Workspace, and the Workspace alone owns the canonical
+  root. Repeated or concurrent creation for the same Context converges to one
+  logical Workspace; the same root may have independent Workspaces whose
+  Contexts bind different Templates.
 - Each Workspace is permanently bound to one Context. That Context resolves
   its bound Workspace Template's exact Runtime revision for entry; the
   Workspace records only the last-successful AppliedEntry and observation
@@ -696,8 +785,15 @@ name prefix or broad Docker query as authority.
   transition to Workspace absence is the reference-bound `workspace delete`
   action, guarded by active-session detection and optionally overridden with
   `--force`.
-- `workspace delete` removes one exact container, network, home directory, and
-  Workspace record when no session is attached. An attached session rejects
+- A Configurator attachment is a separate transient owner around one declared
+  managed Home and one target-scoped working copy. Runtime assistance uses its
+  installation-owned agent Home; policy assistance uses one existing Context
+  Home. Attachment exit removes its
+  container, network, helper transport, and tmpfs but may retain the exact
+  non-authoritative task draft for resume. It never creates or adopts a Context
+  Home and cannot retarget a retained draft after target or base drift.
+- `workspace delete` removes one exact container, network, Workspace runtime
+  directory, and Workspace record while preserving Context Home. An attached session rejects
   ordinary deletion and `--force` explicitly overrides that guard. It can continue
   after partial runtime cleanup and never selects by a Docker name or prefix.
 - `cluster down` refuses to remove shared enforcement while any Workspace remains;
@@ -830,7 +926,9 @@ test, lint, policy test, or integration scenario.
   build missing images on the user's Docker host, and validate them before
   mutation. The standard Runtime uses `tobari-runtime:base-<source-id>` in
   both resolver channels: equal exact checked source identity selects equal
-  local material. Bare and explicit Context entry invoke that closed standard
+  local material. A newer binary does not invalidate an immutable Template's
+  older exact source-addressed binding: entry reuses that verified local image
+  without rebuilding it or silently rebinding the Template. Bare and explicit Context entry invoke that closed standard
   preparation boundary before immutable Workspace planning; custom Runtime
   material remains explicit. The resolver channel still owns preparation and
   recovery.
@@ -854,6 +952,10 @@ test, lint, policy test, or integration scenario.
   channels, unequal identities cannot alias, and cluster preflight rejects an
   API mismatch before state or Docker mutation.
 - `.harness/capabilities.json` classifies every supported and excluded outcome.
+- Configurator tests make direct egress, the single complete mutable managed-Home
+  mount, exact read-only native-login opener, cross-Context isolation,
+  task-target binding, frozen-submission review/Apply, and separate manual
+  source editing executable claims rather than prose exceptions.
 - CI delegates to repository scripts rather than duplicating commands.
 
 ## Thesis 8: Denial is a safe policy-development interface
@@ -983,10 +1085,10 @@ typed boundary: cluster projection at `cluster up`, entry state at explicit
 Workspace entry, session defaults for a later child session, and creation
 defaults once for a new Workspace home.
 
-A Context is the durable immutable binding between one canonical Project root
-and one WorkspaceTemplateID, and owns Policy Memory. A Workspace is the
-replaceable applied instance and home owned by one Context. It permanently
-records ContextID, its create-once state, the last successful AppliedEntry, and
+A Context is a location-free durable immutable binding to one
+WorkspaceTemplateID and owns Policy Memory. A Workspace is the replaceable
+applied instance that alone binds one canonical Project root to one Context and
+managed Home. It permanently records ContextID, its create-once state, the last successful AppliedEntry, and
 at most one bounded latest failed or unknown reconciliation. Desired,
 last-successful applied, and currently observed facts remain separate. Tobari
 has no resident controller: only explicit Workspace entry and `cluster up`
@@ -1060,6 +1162,12 @@ OPA allow.
 - Source access describes only the direct live source bind. Read-only does not
   make the writable home or tmpfs read-only and does not provide a snapshot;
   host or same-root read-write Workspace Template changes remain observable.
+  Already-mounted overlapping roots retain that live-file behavior, but a new
+  or stopped descendant Workspace cannot materialize while a strict-ancestor
+  read-write Workspace is live: the ancestor could otherwise exchange the
+  descendant path while Docker resolves its bind mount and expose a different
+  host root. Tobari rejects that entry before start rather than mutating the
+  ancestor Workspace.
 - Template source shell and Git fields own the Workspace Template's narrow
   non-secret host session defaults. They are resolved for later Workspace entry
   or child sessions and never rewrite the Workspace home. Human/agent edits
@@ -1240,6 +1348,15 @@ active snapshot. Static Template policy, immutable Context identity, dynamic
 Context Policy Memory, Runtime build source, and Workspace/activation state
 retain separate owners and lifetimes. User-owned roots contain typed data, not
 Rego or another executable evaluator.
+
+Configurator may retain one owner-only task draft below its declared managed
+Home. Runtime assistance uses an installation-owned agent Home; static-policy
+assistance uses the explicitly referenced Context's complete managed Home. Its persistence, native tool state,
+direct egress, copied evidence, or agent prose grants no authority. Only a
+target-specific host freeze followed by existing typed source, Plan, and Apply
+boundaries can move validated desired intent into active authority. Static
+policy assistance cannot rewrite Context Policy Memory, and Runtime-source
+publication cannot imply or replay Runtime build.
 
 Mechanical enforcement covers strict schemas and closed file sets, source/
 active drift states, concurrent-edit fencing, opaque-reference Apply, absence

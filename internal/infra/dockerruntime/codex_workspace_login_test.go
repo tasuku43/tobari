@@ -61,14 +61,21 @@ func TestParseCodexLoginAuthorizationURLAllowsOnlyReviewedSemantics(t *testing.T
 }
 
 type codexBridgeRunner struct {
-	projectID string
-	mu        sync.Mutex
-	runs      [][]string
+	projectID  string
+	resourceID string
+	mu         sync.Mutex
+	runs       [][]string
 }
 
 func (r *codexBridgeRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
 	joined := strings.Join(args, " ")
+	resourceID := r.resourceID
+	if resourceID == "" {
+		resourceID = strings.Repeat("a", 64)
+	}
 	switch {
+	case strings.Contains(joined, `"identity_ok"`) || strings.Contains(joined, ".Id"):
+		return []byte(fmt.Sprintf(`{"id":%q,"identity_ok":%t}`, resourceID, strings.Contains(joined, r.projectID))), nil
 	case strings.Contains(joined, ownerLabel):
 		return []byte(ownerValue), nil
 	case strings.Contains(joined, projectIDLabel):
@@ -116,7 +123,10 @@ func TestCodexWorkspaceLoginBridgeOpensAndRelaysOnlyToSelectedWorkspace(t *testi
 	server, client := net.Pipe()
 	defer client.Close()
 	listener := &singleConnectionListener{connection: server, closed: make(chan struct{})}
-	bridge := newWorkspaceLoginBridge(context.Background(), &Runtime{runner: runner, browser: browser}, container, projectID)
+	bridge, err := newWorkspaceLoginBridge(context.Background(), &Runtime{runner: runner, browser: browser}, container, projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var listenedAddress string
 	bridge.listen = func(address string) (net.Listener, error) { listenedAddress = address; return listener, nil }
 	target := syntheticCodexAuthorizationURLWithPort(strings.Repeat("c", 43), strings.Repeat("s", 43), 27890)
@@ -138,7 +148,7 @@ func TestCodexWorkspaceLoginBridgeOpensAndRelaysOnlyToSelectedWorkspace(t *testi
 	}
 	runner.mu.Lock()
 	defer runner.mu.Unlock()
-	if len(runner.runs) != 1 || !containsArgSequence(runner.runs[0], container, "python3", "-c", workspaceLoopbackProxyProgram, "27890") {
+	if len(runner.runs) != 1 || !containsArgSequence(runner.runs[0], strings.Repeat("a", 64), "python3", "-c", workspaceLoopbackProxyProgram, "27890") {
 		t.Fatalf("relay argv = %q", runner.runs)
 	}
 }
@@ -159,7 +169,10 @@ func TestCodexWorkspaceLoginBridgeFailsClosedBeforeBrowserOpen(t *testing.T) {
 		{name: "browser failure", browser: &recordingBrowser{err: errors.New("opener unavailable")}, listen: func(string) (net.Listener, error) { return net.Listen("tcp4", "127.0.0.1:0") }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			bridge := newWorkspaceLoginBridge(context.Background(), &Runtime{runner: &codexBridgeRunner{projectID: projectID}, browser: test.browser}, container, projectID)
+			bridge, err := newWorkspaceLoginBridge(context.Background(), &Runtime{runner: &codexBridgeRunner{projectID: projectID}, browser: test.browser}, container, projectID)
+			if err != nil {
+				t.Fatal(err)
+			}
 			bridge.listen = test.listen
 			if bridge.trigger(target) {
 				t.Fatal("failed bridge reported success")
@@ -169,5 +182,27 @@ func TestCodexWorkspaceLoginBridgeFailsClosedBeforeBrowserOpen(t *testing.T) {
 				t.Fatalf("port collision opened browser: %q", test.browser.targets)
 			}
 		})
+	}
+}
+
+func TestWorkspaceLoginBridgeRejectsContainerIdentityDriftBeforeBrowserOpen(t *testing.T) {
+	projectID := "018bcfe5-687b-7000-8000-000000000001"
+	container, _, err := tobari.ProjectResourceNames(projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &codexBridgeRunner{projectID: projectID}
+	browser := &recordingBrowser{}
+	bridge, err := newWorkspaceLoginBridge(context.Background(), &Runtime{runner: runner, browser: browser}, container, projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bridge.close()
+	runner.resourceID = strings.Repeat("d", 64)
+	if bridge.trigger(syntheticCodexAuthorizationURL(strings.Repeat("c", 43), strings.Repeat("s", 43))) {
+		t.Fatal("identity-drifted Workspace opened native login")
+	}
+	if len(browser.targets) != 0 {
+		t.Fatalf("identity-drifted Workspace opened browser: %q", browser.targets)
 	}
 }

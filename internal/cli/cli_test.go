@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -427,6 +428,33 @@ func TestCanceledContextStopsBeforeDownstreamCall(t *testing.T) {
 	}
 	if inspector.calls != 0 || stdout.Len() != 0 || !humanOutputHasRow(stderr.String(), "Code", "operation_canceled") {
 		t.Fatalf("calls = %d, stdout = %q, stderr = %q", inspector.calls, stdout.String(), stderr.String())
+	}
+}
+
+func TestOversizedArgvFailuresRemainBoundedStructuredJSON(t *testing.T) {
+	oversized := strings.Repeat("x", 4096)
+	tests := []struct {
+		name    string
+		catalog Catalog
+		args    []string
+	}{
+		{name: "global option", catalog: DefaultCatalog(), args: []string{"--error-format=json", "--" + oversized}},
+		{name: "command argument", catalog: DefaultCatalog(), args: []string{"--error-format=json", "status", oversized}},
+		{name: "help selector", catalog: DefaultCatalog(), args: []string{"--error-format=json", "help", oversized}},
+		{name: "helper command argument", catalog: DefaultCatalog().ForProgram(ExposureProgramName), args: []string{"--error-format=json", "status", oversized}},
+		{name: "helper help selector", catalog: DefaultCatalog().ForProgram(ExposureProgramName), args: []string{"--error-format=json", "help", oversized}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			command := newCLI(strings.NewReader(""), &stdout, &stderr, test.catalog, nil)
+			if code := command.RunContext(context.Background(), test.args); code != ExitUsage {
+				t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			if stdout.Len() != 0 || !json.Valid(stderr.Bytes()) || strings.Contains(stderr.String(), "undeclared_fault_contract") || len(stderr.Bytes()) > 2048 {
+				t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
+			}
+		})
 	}
 }
 
@@ -931,6 +959,14 @@ func TestDoctorRejectsArgumentsBeforeInspection(t *testing.T) {
 }
 
 func TestE2EDoctorUsesProductionRuntimeAdapter(t *testing.T) {
+	// Production adapter composition must not inherit the developer's live
+	// release/research authority. In particular, a release-surface first-use
+	// session is intentionally incompatible with a research-tagged authority
+	// reader, while this adapter smoke test runs under both build profiles.
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
 	var stdout, stderr bytes.Buffer
 	command := New(context.Background(), strings.NewReader(""), &stdout, &stderr)
 	code := runCLI(command, []string{"doctor"})

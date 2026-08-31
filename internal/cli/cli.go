@@ -10,6 +10,7 @@ import (
 
 	"github.com/tasuku43/tobari/internal/app/authcmd"
 	"github.com/tasuku43/tobari/internal/app/completioncmd"
+	"github.com/tasuku43/tobari/internal/app/configuratorcmd"
 	"github.com/tasuku43/tobari/internal/app/contextcmd"
 	"github.com/tasuku43/tobari/internal/app/doctorcmd"
 	"github.com/tasuku43/tobari/internal/app/installationmigrationcmd"
@@ -22,6 +23,7 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
+	"github.com/tasuku43/tobari/internal/infra/configuratorstore"
 	"github.com/tasuku43/tobari/internal/infra/dockerruntime"
 	"github.com/tasuku43/tobari/internal/infra/systemdoctor"
 	"github.com/tasuku43/tobari/internal/infra/terminal"
@@ -71,8 +73,11 @@ func (a *finalPolicyAuthorityAdapter) DenyPolicyCandidateByReference(ctx context
 type finalDefaultPairEntry interface {
 	Select(context.Context, io.Reader, io.Writer) (workspaceauthoritycmd.SelectedDefaultPair, error)
 	ResolveSelected(context.Context, operation.Intent, *tobari.WorkspaceTemplateBody, workspaceauthoritycmd.SelectedDefaultPair) (workspaceauthoritycmd.DefaultPairResolution, error)
+	ResolveSelectedWithTemplateID(context.Context, operation.Intent, *tobari.WorkspaceTemplateBody, tobari.WorkspaceTemplateID, workspaceauthoritycmd.SelectedDefaultPair) (workspaceauthoritycmd.DefaultPairResolution, error)
+	ResolveSelectedWithConfiguratorIDs(context.Context, operation.Intent, *tobari.WorkspaceTemplateBody, tobari.WorkspaceTemplateID, tobari.ContextID, workspaceauthoritycmd.SelectedDefaultPair) (workspaceauthoritycmd.DefaultPairResolution, error)
 	RefreshAfterCluster(context.Context, workspaceauthoritycmd.DefaultPairResolution, workspaceauthoritycmd.FinalClusterReconciliation) (workspaceauthoritycmd.DefaultPairResolution, error)
 	EnterResolved(context.Context, workspaceauthoritycmd.DefaultPairResolution, tobari.WorkspaceSessionRequest, tobari.FirstEntryProgressSink, io.Reader, io.Writer, io.Writer) (workspaceauthoritycmd.ContextEntryResult, error)
+	EnterResolvedCurrent(context.Context, workspaceauthoritycmd.DefaultPairResolution, tobari.WorkspaceSessionRequest, io.Reader, io.Writer, io.Writer) (workspaceauthoritycmd.ContextEntryResult, error)
 }
 
 type finalWorkspaceEntryReadiness interface {
@@ -135,17 +140,22 @@ type CLI struct {
 	finalDefaultPair      finalDefaultPairEntry
 	finalEntryReadiness   finalWorkspaceEntryReadiness
 	finalClusterCLIState
-	finalProjectRoot     finalProjectRootAuthority
-	config               contextConfigurationWizard
-	contextCreate        contextCreateWizard
-	firstUse             recommendedFirstUseReviewer
-	runtimeChoice        runtimeChoiceWizard
-	authLogin            authLoginProviderSelector
-	serviceNotify        func(io.Writer, string) error
-	interactive          func(io.Reader, io.Writer, io.Writer) bool
-	firstUseTemplateBody func(context.Context) (tobari.WorkspaceTemplateBody, error)
-	firstUseCustomize    func(context.Context, tobari.RecommendedFirstUseDraft) (tobari.WorkspaceTemplateBody, error)
-	noColor              bool
+	finalProjectRoot       finalProjectRootAuthority
+	config                 contextConfigurationWizard
+	contextCreate          contextCreateWizard
+	firstUse               recommendedFirstUseReviewer
+	firstUseSetup          firstUseSetupSelector
+	configuratorReview     configuratorSubmissionReviewer
+	configuratorPlanReview configuratorPlanReviewer
+	configurator           *configuratorcmd.Service
+	runtimeChoice          runtimeChoiceWizard
+	authLogin              authLoginProviderSelector
+	serviceNotify          func(io.Writer, string) error
+	serviceReviewMode      terminal.Mode
+	interactive            func(io.Reader, io.Writer, io.Writer) bool
+	firstUseTemplateBody   func(context.Context) (tobari.WorkspaceTemplateBody, error)
+	firstUseCustomize      func(context.Context, tobari.RecommendedFirstUseDraft) (tobari.WorkspaceTemplateBody, error)
+	noColor                bool
 }
 
 // New builds the production CLI with the Docker-backed Tobari runtime.
@@ -156,6 +166,8 @@ func New(lifetime context.Context, in io.Reader, out, errOut io.Writer) *CLI {
 	command.config = newContextConfigurationWizardWithStyle(!command.noColor)
 	command.contextCreate = newContextCreateWizardWithStyle(!command.noColor)
 	command.firstUse = newRecommendedFirstUseReviewerWithStyle(!command.noColor)
+	command.firstUseSetup = newFirstUseSetupSelectorWithStyle(!command.noColor)
+	command.configuratorReview = newConfiguratorSubmissionReviewerWithStyle(!command.noColor)
 	command.runtimeChoice = newRuntimeChoiceWizardWithStyle(!command.noColor)
 	command.authLogin = newAuthLoginProviderSelectorWithStyle(!command.noColor)
 	command.serviceNotify = terminal.WriteServiceReviewNotification
@@ -196,17 +208,34 @@ func New(lifetime context.Context, in io.Reader, out, errOut io.Writer) *CLI {
 		command.doctor = doctorcmd.New(systemdoctor.New(err))
 		return command
 	}
+	configuratorRoot, err := runtime.ConfiguratorRoot()
+	if err != nil {
+		command.doctor = doctorcmd.New(systemdoctor.New(err))
+		return command
+	}
+	contextHomeRoot, err := runtime.ContextHomeRoot()
+	if err != nil {
+		command.doctor = doctorcmd.New(systemdoctor.New(err))
+		return command
+	}
+	configuratorDrafts, err := configuratorstore.New(configuratorRoot, contextHomeRoot, mutator, runtime)
+	if err != nil {
+		command.doctor = doctorcmd.New(systemdoctor.New(err))
+		return command
+	}
 	resources, err := workspaceauthorityresources.New(
 		authorityStore, mutator, sourceStore,
 		runtime.ObserveInstallationRuntimeMigration,
 		func(ctx context.Context, collection tobari.WorkspaceAuthorityCollection, recovery bool) (workspaceauthoritystore.InstallationMigrationSourceStage, error) {
 			return runtime.PrepareInstallationRuntimeMigration(ctx, collection, recovery)
 		},
+		runtime,
 	)
 	if err != nil {
 		command.doctor = doctorcmd.New(systemdoctor.New(err))
 		return command
 	}
+	command.configurator = configuratorcmd.New(configuratorDrafts, runtime, resources, resources)
 	finalAuthDoctor, err := configureFinalContextAuth(command, lifetime, authorityStore, mutator, runtime)
 	if err != nil {
 		command.doctor = doctorcmd.New(systemdoctor.New(err))
@@ -237,7 +266,7 @@ func New(lifetime context.Context, in io.Reader, out, errOut io.Writer) *CLI {
 		command.doctor = doctorcmd.New(systemdoctor.New(err))
 		return command
 	}
-	entry, err := workspaceauthoritystore.NewContextEntryAdapter(mutator, runtime, runtime, sessions, lifetime)
+	entry, err := workspaceauthoritystore.NewContextEntryAdapter(mutator, runtime, runtime, sessions, lifetime, resources)
 	if err != nil {
 		command.doctor = doctorcmd.New(systemdoctor.New(err))
 		return command
@@ -603,7 +632,7 @@ func parseRootOptions(args []string) (rootOptions, []string, error) {
 				return options, args[index:], nil
 			}
 			if strings.HasPrefix(argument, "--") {
-				return options, nil, fmt.Errorf("unknown global option %q", argument)
+				return options, nil, fmt.Errorf("unknown global option %q", boundedHumanCommand(argument))
 			}
 			return options, args[index:], nil
 		}

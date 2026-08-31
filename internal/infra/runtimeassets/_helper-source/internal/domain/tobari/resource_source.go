@@ -24,7 +24,7 @@ var (
 
 const (
 	WorkspaceTemplateSourceSchemaVersion      = "tobari.dev/template/v1"
-	ContextSourceSchemaVersion                = "tobari.dev/context/v1"
+	ContextSourceSchemaVersion                = "tobari.dev/context/v2"
 	WorkspaceTemplatePolicySchemaVersion      = "tobari.dev/template-policy/v1"
 	WorkspaceTemplatePolicyAlphaSchemaVersion = "tobari.dev/template-policy/v1alpha1"
 )
@@ -494,7 +494,6 @@ func semanticDigestPointer(value SemanticDigest) *SemanticDigest {
 type ContextSource struct {
 	SchemaVersion string              `json:"schema"`
 	ContextID     ContextID           `json:"context_id"`
-	ProjectRoot   string              `json:"project_root"`
 	TemplateID    WorkspaceTemplateID `json:"workspace_template_id"`
 }
 
@@ -505,7 +504,6 @@ func NewContextSource(binding ContextBinding) (ContextSource, error) {
 	source := ContextSource{
 		SchemaVersion: ContextSourceSchemaVersion,
 		ContextID:     binding.ID,
-		ProjectRoot:   binding.ProjectRoot,
 		TemplateID:    binding.TemplateID,
 	}
 	return source, source.Validate()
@@ -518,7 +516,6 @@ func (s ContextSource) Validate() error {
 	binding := ContextBinding{
 		SchemaVersion: ContextBindingSchemaVersion,
 		ID:            s.ContextID,
-		ProjectRoot:   s.ProjectRoot,
 		TemplateID:    s.TemplateID,
 	}
 	return binding.Validate()
@@ -531,7 +528,7 @@ func (s ContextSource) ValidateFor(binding ContextBinding) error {
 	if err := binding.Validate(); err != nil {
 		return err
 	}
-	if s.ContextID != binding.ID || s.ProjectRoot != binding.ProjectRoot || s.TemplateID != binding.TemplateID {
+	if s.ContextID != binding.ID || s.TemplateID != binding.TemplateID {
 		return fmt.Errorf("Context source does not match its immutable active binding")
 	}
 	return nil
@@ -576,7 +573,6 @@ type ContextActivationPlan struct {
 	PlanRef              string                      `json:"plan_ref"`
 	ContextRef           string                      `json:"context_ref"`
 	SourceFingerprint    string                      `json:"source_fingerprint"`
-	ProjectRoot          string                      `json:"project_root"`
 	TemplateRef          string                      `json:"template_ref"`
 	TemplateRevision     SemanticDigest              `json:"template_revision"`
 	DuplicateBinding     bool                        `json:"duplicate_binding"`
@@ -623,14 +619,11 @@ func NewContextActivationPlan(collection WorkspaceAuthorityCollection, source Co
 			noOp = true
 			continue
 		}
-		if record.Context.ProjectRoot == source.ProjectRoot && record.Context.TemplateID == source.TemplateID {
-			return ContextActivationPlan{}, ErrContextBindingExists
-		}
 	}
 	contextRef, _ := ContextRef(source.ContextID)
 	templateRef, _ := WorkspaceTemplateRef(source.TemplateID)
 	plan := ContextActivationPlan{SchemaVersion: ContextActivationPlanSchemaVersion, ContextRef: contextRef, SourceFingerprint: fingerprint,
-		ProjectRoot: source.ProjectRoot, TemplateRef: templateRef, TemplateRevision: template.Current.Revision, DuplicateBinding: false, NoOp: noOp,
+		TemplateRef: templateRef, TemplateRevision: template.Current.Revision, DuplicateBinding: false, NoOp: noOp,
 		SourceAccess: template.Current.Body.Boundary.SourceAccess, Runtime: template.Current.Body.EntryDefaults.Runtime,
 		Boundary: template.Current.Body.Boundary.Clone(), Semantic: template.Current.Body.Policy.Clone(), NewPolicyMemoryOwner: source.ContextID,
 		BoundaryFingerprint: template.Current.Slices.BoundaryFingerprint, PolicySliceDigest: template.Current.Slices.PolicySliceDigest}
@@ -673,7 +666,7 @@ func (p ContextActivationPlan) Validate() error {
 	if err != nil || parsed != id || p.NewPolicyMemoryOwner != id {
 		return fmt.Errorf("Context activation plan identity is invalid")
 	}
-	if ValidateCanonicalRoot(p.ProjectRoot) != nil || p.TemplateRevision.Validate() != nil || p.BoundaryFingerprint.Validate() != nil || p.PolicySliceDigest.Validate() != nil || p.SourceAccess.Validate() != nil || p.Runtime.Validate() != nil || p.Boundary.Validate() != nil || p.Semantic.Validate(p.Boundary) != nil {
+	if p.TemplateRevision.Validate() != nil || p.BoundaryFingerprint.Validate() != nil || p.PolicySliceDigest.Validate() != nil || p.SourceAccess.Validate() != nil || p.Runtime.Validate() != nil || p.Boundary.Validate() != nil || p.Semantic.Validate(p.Boundary) != nil {
 		return fmt.Errorf("Context activation plan authority is invalid")
 	}
 	if _, err := ParseWorkspaceTemplateRef(p.TemplateRef); err != nil {

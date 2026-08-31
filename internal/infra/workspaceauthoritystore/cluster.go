@@ -21,6 +21,7 @@ type ClusterAdapter struct {
 }
 
 type finalClusterSettlementAuthority interface {
+	PreflightFinalClusterAuthority(context.Context, tobari.WorkspacePolicyProjection) error
 	ReconcileFinalClusterAuthorityWithIdentity(context.Context, tobari.WorkspaceAuthorityCollection, tobari.WorkspaceAuthorityCollection, string, string) (tobari.PolicyProjectionIdentity, error)
 	ConfirmFinalClusterAuthoritySettled(context.Context, tobari.WorkspaceAuthorityCollection, tobari.PolicyProjectionIdentity) error
 }
@@ -46,12 +47,17 @@ func (a *ClusterAdapter) Reconcile(ctx context.Context) (tobari.WorkspaceAuthori
 		finalClusterReconciliationOperation,
 		finalClusterAuthorityTarget,
 		func(decision effectDecision) bool { return decision.ClusterPlan != nil },
-		func(current tobari.WorkspaceAuthorityCollection, _ bool) (effectPlan, error) {
+		func(current tobari.WorkspaceAuthorityCollection, active bool) (effectPlan, error) {
 			transition, err := tobari.PlanWorkspaceAuthorityClusterReconciliation(current)
 			if err != nil {
 				return effectPlan{}, err
 			}
 			plan := transition.Plan
+			if !active {
+				if err := a.settlement.PreflightFinalClusterAuthority(ctx, plan.Projection); err != nil {
+					return effectPlan{}, err
+				}
+			}
 			return effectPlan{
 				next:     transition.Next,
 				decision: effectDecision{ClusterPlan: &plan},

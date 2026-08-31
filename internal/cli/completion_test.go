@@ -63,6 +63,7 @@ func TestCompletionPlansCatalogCommandWords(t *testing.T) {
 		words   []string
 		want    []string
 	}{
+		{name: "first word boundary", current: 1, words: []string{"garbage"}, want: []string{}},
 		{name: "root prefix", current: 2, words: []string{"tobari", "temp"}, want: []string{"candidate:template"}},
 		{name: "root choices", current: 2, words: []string{"tobari", "c"}, want: []string{"candidate:cluster", "candidate:completion", "candidate:context"}},
 		{name: "nested prefix", current: 3, words: []string{"tobari", "template", "a"}, want: []string{"candidate:apply"}},
@@ -124,6 +125,17 @@ func TestCompletionCandidatesCommandEmitsBoundedTSV(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "\\t") {
 		t.Fatalf("TSV structure was escaped: %q", stdout.String())
+	}
+}
+
+func TestCompletionCandidatesFirstWordBoundaryDoesNotPanic(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), passingInspector("unused"))
+	if code := runCLI(command, []string{"completion", "candidates", "--current=1", "garbage"}); code != ExitOK {
+		t.Fatalf("code = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
 	}
 }
 

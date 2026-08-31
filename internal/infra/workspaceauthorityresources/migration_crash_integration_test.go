@@ -129,7 +129,7 @@ func realResourcesMigrationCollection(t *testing.T, configRoot string) tobari.Wo
 		t.Fatal(err)
 	}
 	contextID := tobari.ContextID("01912345-6789-7abc-8def-0123456789c3")
-	contextBinding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, ProjectRoot: "/workspace/custom-runtime", TemplateID: id}
+	contextBinding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: id}
 	memory, _, err := tobari.PublishPolicyMemory(contextID, []tobari.PolicyMemoryRule{}, nil)
 	if err != nil {
 		t.Fatal(err)

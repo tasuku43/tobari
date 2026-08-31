@@ -508,9 +508,20 @@ func (r *Runtime) prepareFinalGatewaySettlement(
 	if err != nil {
 		return finalGatewaySettlementJournal{}, err
 	}
-	principals, networks, gateway, opa, err := r.observeFinalGatewaySettlementCandidate(ctx, plan)
+	registryBefore, err := r.readProjectPrincipalRegistry()
 	if err != nil {
 		return finalGatewaySettlementJournal{}, err
+	}
+	principals, networks, gateway, opa, err := r.observeFinalGatewaySettlementCandidate(ctx, plan, previousActive, activePresent, registryBefore)
+	if err != nil {
+		return finalGatewaySettlementJournal{}, err
+	}
+	registry, err := r.readProjectPrincipalRegistry()
+	if err != nil {
+		return finalGatewaySettlementJournal{}, err
+	}
+	if !sameProjectPrincipalRegistry(registryBefore, registry) {
+		return finalGatewaySettlementJournal{}, fmt.Errorf("final Gateway principal authority changed during complete observation")
 	}
 	aggregate, policyDigest, gatewayDigest, err := r.buildFinalSettlementArtifacts(ctx, plan)
 	if err != nil {
@@ -527,10 +538,6 @@ func (r *Runtime) prepareFinalGatewaySettlement(
 		return finalGatewaySettlementJournal{}, err
 	}
 	_ = state // state is reconstructed from the journaled closure during replacement.
-	registry, err := r.readProjectPrincipalRegistry()
-	if err != nil {
-		return finalGatewaySettlementJournal{}, err
-	}
 	candidate := finalGatewaySettlementCandidate{
 		Plan: plan.Clone(), ReviewedSetDigest: reviewedSetDigest, Principals: principals, GatewayNetworks: networks,
 		GatewayImageID: candidateGatewayImage, OPAImageID: candidateOPAImage, ReviewedGateway: gateway.ContainerID,
@@ -542,14 +549,11 @@ func (r *Runtime) prepareFinalGatewaySettlement(
 		if selectErr != nil {
 			return finalGatewaySettlementJournal{}, selectErr
 		}
-		if err := r.verifyAuthBrokerImage(ctx, selection.Image, selection.RequireDigest); err != nil {
-			return finalGatewaySettlementJournal{}, err
-		}
-		candidate.AuthBrokerImage = selection.Image
-		candidate.AuthBrokerImageID, err = r.resolveCandidateImageID(ctx, selection.Image)
+		candidate.AuthBrokerImageID, err = r.verifyAuthBrokerImage(ctx, selection.Image, selection.RequireDigest)
 		if err != nil {
 			return finalGatewaySettlementJournal{}, err
 		}
+		candidate.AuthBrokerImage = selection.Image
 		broker, missing, observeErr := r.observeAppliedClusterComponent(ctx, "auth-broker", authBrokerContainer)
 		if observeErr != nil {
 			return finalGatewaySettlementJournal{}, observeErr
@@ -1447,13 +1451,13 @@ func (r *Runtime) restartFinalReplacementComponents(ctx context.Context, contain
 }
 
 func (r *Runtime) observeFinalGatewaySettlementCandidate(
-	ctx context.Context, plan tobari.WorkspacePolicyProjection,
+	ctx context.Context, plan tobari.WorkspacePolicyProjection, previous finalPolicyActivationRecord, previousPresent bool, registry projectPrincipalRegistry,
 ) ([]FinalWorkspacePrincipalRow, []FinalGatewayNetworkAddress, appliedClusterComponentObservation, appliedClusterComponentObservation, error) {
-	firstPrincipals, firstNetworks, firstGateway, firstOPA, err := r.observeFinalGatewaySettlementCandidatePass(ctx, plan)
+	firstPrincipals, firstNetworks, firstGateway, firstOPA, err := r.observeFinalGatewaySettlementCandidatePass(ctx, plan, previous, previousPresent, registry)
 	if err != nil {
 		return nil, nil, appliedClusterComponentObservation{}, appliedClusterComponentObservation{}, err
 	}
-	secondPrincipals, secondNetworks, secondGateway, secondOPA, err := r.observeFinalGatewaySettlementCandidatePass(ctx, plan)
+	secondPrincipals, secondNetworks, secondGateway, secondOPA, err := r.observeFinalGatewaySettlementCandidatePass(ctx, plan, previous, previousPresent, registry)
 	if err != nil {
 		return nil, nil, appliedClusterComponentObservation{}, appliedClusterComponentObservation{}, err
 	}
@@ -1465,7 +1469,7 @@ func (r *Runtime) observeFinalGatewaySettlementCandidate(
 }
 
 func (r *Runtime) observeFinalGatewaySettlementCandidatePass(
-	ctx context.Context, plan tobari.WorkspacePolicyProjection,
+	ctx context.Context, plan tobari.WorkspacePolicyProjection, previous finalPolicyActivationRecord, previousPresent bool, registry projectPrincipalRegistry,
 ) ([]FinalWorkspacePrincipalRow, []FinalGatewayNetworkAddress, appliedClusterComponentObservation, appliedClusterComponentObservation, error) {
 	gateway, missing, err := r.observeAppliedClusterComponent(ctx, "gateway", gatewayContainer)
 	if missing && err == nil {
@@ -1513,15 +1517,29 @@ func (r *Runtime) observeFinalGatewaySettlementCandidatePass(
 		if err := r.verifyOwnedProjectResource(ctx, "network", network, string(authority.WorkspaceID), projectNetRole); err != nil {
 			return nil, nil, gateway, opa, err
 		}
-		observation, err := r.observeFinalWorkspaceContainer(ctx, container, authority)
-		if err != nil {
-			return nil, nil, gateway, opa, err
-		}
-		workspaceAddress, err := r.workspaceNetworkAddress(ctx, container, network)
+		observation, err := r.observeFinalWorkspaceContainer(ctx, container, network, authority)
 		if err != nil {
 			return nil, nil, gateway, opa, err
 		}
 		gatewayAddress := gateway.NetworkAddresses[network]
+		workspaceAddress := ""
+		var principal FinalWorkspacePrincipalRow
+		if observation.Running {
+			if err := observation.validateFor(authority.WorkspaceID, authority.AppliedEntry.ResolvedSpec, ""); err != nil {
+				return nil, nil, gateway, opa, err
+			}
+			workspaceAddress, err = r.workspaceNetworkAddress(ctx, container, network)
+			if err != nil {
+				return nil, nil, gateway, opa, err
+			}
+		} else {
+			principal, err = r.preserveStoppedFinalWorkspacePrincipal(ctx, authority, network, observation, gateway, previous, previousPresent, registry)
+			if err != nil {
+				return nil, nil, gateway, opa, err
+			}
+			workspaceAddress = principal.WorkspaceIP
+			gatewayAddress = principal.GatewayIP
+		}
 		if gatewayAddress == "" {
 			gatewayAddress, err = r.selectFinalGatewayNetworkAddress(ctx, network, workspaceAddress)
 			if err != nil {
@@ -1533,12 +1551,15 @@ func (r *Runtime) observeFinalGatewaySettlementCandidatePass(
 			return nil, nil, gateway, opa, fmt.Errorf("validate final Workspace network endpoints: %w", err)
 		}
 		networks[network] = gatewayAddress
-		rows = append(rows, FinalWorkspacePrincipalRow{
-			ContextID: authority.ContextID, WorkspaceID: authority.WorkspaceID, TemplateID: authority.TemplateID,
-			Presentation: authority.Presentation, ProjectRoot: authority.ProjectRoot,
-			ContainerID: observation.ID, ResolvedSpec: authority.AppliedEntry.ResolvedSpec,
-			WorkspaceIP: workspaceAddress, GatewayIP: gatewayAddress, Network: network,
-		})
+		if principal.WorkspaceID == "" {
+			principal = FinalWorkspacePrincipalRow{
+				ContextID: authority.ContextID, WorkspaceID: authority.WorkspaceID, TemplateID: authority.TemplateID,
+				Presentation: authority.Presentation, ProjectRoot: authority.ProjectRoot,
+				ContainerID: observation.ID, ResolvedSpec: authority.AppliedEntry.ResolvedSpec,
+				WorkspaceIP: workspaceAddress, GatewayIP: gatewayAddress, Network: network,
+			}
+		}
+		rows = append(rows, principal)
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].WorkspaceID < rows[j].WorkspaceID })
 	topology := make([]FinalGatewayNetworkAddress, 0, len(networks))
@@ -1552,13 +1573,15 @@ func (r *Runtime) observeFinalGatewaySettlementCandidatePass(
 	return rows, topology, gateway, opa, nil
 }
 
-func (r *Runtime) observeFinalWorkspaceContainer(ctx context.Context, container string, authority tobari.WorkspacePolicyPrincipalAuthority) (finalWorkspaceContainerObservation, error) {
+func (r *Runtime) observeFinalWorkspaceContainer(ctx context.Context, container, network string, authority tobari.WorkspacePolicyPrincipalAuthority) (finalWorkspaceContainerObservation, error) {
 	format := `{"id":{{json .Id}},"owner":{{json (index .Config.Labels "` + ownerLabel + `")}},` +
 		`"component":{{json (index .Config.Labels "` + componentLabel + `")}},` +
 		`"workspace":{{json (index .Config.Labels "` + projectIDLabel + `")}},` +
 		`"role":{{json (index .Config.Labels "` + projectRoleLabel + `")}},` +
 		`"spec":{{json (index .Config.Labels "` + projectSpecLabel + `")}},` +
-		`"running":{{json .State.Running}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}"none"{{end}}}`
+		`"state":{{json .State.Status}},"running":{{json .State.Running}},` +
+		`"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}"none"{{end}},` +
+		`"configured_ipv4":{{with index .NetworkSettings.Networks "` + network + `"}}{{if .IPAMConfig}}{{json .IPAMConfig.IPv4Address}}{{else}}""{{end}}{{else}}""{{end}}}`
 	output, err := r.runner.Output(ctx, []string{"container", "inspect", "--format", format, container}, os.Environ())
 	if err != nil {
 		return finalWorkspaceContainerObservation{}, fmt.Errorf("observe final Workspace container: %w: %s", err, boundedDiagnostic(output))
@@ -1567,10 +1590,63 @@ func (r *Runtime) observeFinalWorkspaceContainer(ctx context.Context, container 
 	if err := decodeStrictJSON(output, &observed); err != nil {
 		return observed, err
 	}
-	if err := observed.validateFor(authority.WorkspaceID, authority.AppliedEntry.ResolvedSpec, ""); err != nil {
+	if err := observed.validateIdentityFor(authority.WorkspaceID, authority.AppliedEntry.ResolvedSpec, ""); err != nil {
 		return observed, err
 	}
 	return observed, nil
+}
+
+func (r *Runtime) preserveStoppedFinalWorkspacePrincipal(
+	ctx context.Context,
+	authority tobari.WorkspacePolicyPrincipalAuthority,
+	network string,
+	observation finalWorkspaceContainerObservation,
+	gateway appliedClusterComponentObservation,
+	previous finalPolicyActivationRecord,
+	previousPresent bool,
+	registry projectPrincipalRegistry,
+) (FinalWorkspacePrincipalRow, error) {
+	if !previousPresent || observation.Running || observation.State != "exited" ||
+		observation.validateIdentityFor(authority.WorkspaceID, authority.AppliedEntry.ResolvedSpec, "") != nil {
+		return FinalWorkspacePrincipalRow{}, fmt.Errorf("stopped final Workspace lacks exact prior principal authority")
+	}
+	var retained FinalWorkspacePrincipalRow
+	found := false
+	for _, candidate := range previous.Material.Principals {
+		if candidate.WorkspaceID != authority.WorkspaceID {
+			continue
+		}
+		if found {
+			return FinalWorkspacePrincipalRow{}, fmt.Errorf("stopped final Workspace prior principal authority is ambiguous")
+		}
+		retained, found = candidate, true
+	}
+	if !found || retained.validateFor(authority) != nil || retained.ContainerID != observation.ID || retained.Network != network ||
+		observation.ConfiguredIPv4 != retained.WorkspaceIP || gateway.NetworkAddresses[network] != retained.GatewayIP {
+		return FinalWorkspacePrincipalRow{}, fmt.Errorf("stopped final Workspace changed its retained principal authority")
+	}
+	bindingFound := false
+	wantBinding := retained.gatewayBinding()
+	for _, binding := range registry.Bindings {
+		if binding.ProjectID != string(authority.WorkspaceID) {
+			continue
+		}
+		if bindingFound || binding != wantBinding {
+			return FinalWorkspacePrincipalRow{}, fmt.Errorf("stopped final Workspace principal registry authority changed")
+		}
+		bindingFound = true
+	}
+	if !bindingFound {
+		return FinalWorkspacePrincipalRow{}, fmt.Errorf("stopped final Workspace principal registry authority is missing")
+	}
+	subnet, err := r.projectNetworkSubnet(ctx, network)
+	if err != nil {
+		return FinalWorkspacePrincipalRow{}, fmt.Errorf("validate stopped final Workspace network endpoints: %w", err)
+	}
+	if err := validateProjectNetworkEndpoints(subnet, retained.WorkspaceIP, retained.GatewayIP); err != nil {
+		return FinalWorkspacePrincipalRow{}, fmt.Errorf("validate stopped final Workspace network endpoints: %w", err)
+	}
+	return retained, nil
 }
 
 func (r *Runtime) selectFinalGatewayNetworkAddress(ctx context.Context, network, workspaceAddress string) (string, error) {
@@ -1718,7 +1794,7 @@ func (r *Runtime) prepareFinalGatewayComposeAuthority(
 	if err != nil {
 		return tobari.State{}, candidateComposeClosureReceipt{}, "", "", err
 	}
-	opaImageID, err := r.resolveCandidateImageID(ctx, versions["OPA_IMAGE"])
+	opaImageID, err := r.resolveVolumeSafeOPAImageID(ctx, versions["OPA_IMAGE"])
 	if err != nil {
 		return tobari.State{}, candidateComposeClosureReceipt{}, "", "", err
 	}

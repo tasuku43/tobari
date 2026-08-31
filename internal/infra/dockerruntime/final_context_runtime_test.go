@@ -2,6 +2,8 @@ package dockerruntime
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -19,11 +21,13 @@ type finalContextRuntimeRunner struct {
 	observations []string
 	calls        [][]string
 	err          error
+	diagnostic   string
 }
 
-func (r *finalContextRuntimeRunner) Run(_ context.Context, args, _ []string, _ io.Reader, stdout, _ io.Writer) error {
+func (r *finalContextRuntimeRunner) Run(_ context.Context, args, _ []string, _ io.Reader, stdout, stderr io.Writer) error {
 	r.calls = append(r.calls, append([]string{}, args...))
 	if r.err != nil {
+		_, _ = io.WriteString(stderr, r.diagnostic)
 		return r.err
 	}
 	if len(args) < 5 || args[0] != "image" || args[1] != "inspect" || len(r.observations) == 0 {
@@ -35,6 +39,42 @@ func (r *finalContextRuntimeRunner) Run(_ context.Context, args, _ []string, _ i
 	return err
 }
 
+func TestFinalContextLoginRuntimeClassifiesOnlyExactMissingStandardImageAsRepairable(t *testing.T) {
+	root := t.TempDir()
+	runner := &finalContextRuntimeRunner{err: errors.New("synthetic inspect failure")}
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	standard, err := runtime.standardRuntimeManifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := standard.Binding(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.diagnostic = "Error response from daemon: No such image: " + binding.Image + "\n"
+	if _, err := runtime.resolveFinalContextLoginRuntimeImage(context.Background(), binding); !errors.Is(err, tobari.ErrRuntimeNotReady) {
+		t.Fatalf("exact missing standard image error=%v", err)
+	}
+	for _, diagnostic := range []string{
+		"Error response from daemon: No such image: unrelated",
+		"Error response from daemon: No such image: " + binding.Image + "\nunrelated failure",
+		"synthetic Docker timeout",
+	} {
+		runner.diagnostic = diagnostic
+		if _, err := runtime.resolveFinalContextLoginRuntimeImage(context.Background(), binding); err == nil || errors.Is(err, tobari.ErrRuntimeNotReady) {
+			t.Fatalf("unknown diagnostic %q classified as repairable: %v", diagnostic, err)
+		}
+	}
+	historical := historicalStandardRuntimeBinding(strings.Repeat("1", 64))
+	runner.diagnostic = "Error response from daemon: No such image: " + historical.Image + "\n"
+	if _, err := runtime.resolveFinalContextLoginRuntimeImage(context.Background(), historical); err == nil || errors.Is(err, tobari.ErrRuntimeNotReady) {
+		t.Fatalf("historical missing image classified as rebuildable: %v", err)
+	}
+}
+
 func (*finalContextRuntimeRunner) Output(context.Context, []string, []string) ([]byte, error) {
 	return nil, errors.New("unexpected Output observation")
 }
@@ -42,6 +82,35 @@ func (*finalContextRuntimeRunner) Output(context.Context, []string, []string) ([
 func finalStandardRuntimeObservation(id, api, lifetime, user string, entrypoint string) string {
 	return fmt.Sprintf(`{"id":%q,"api":%q,"lifetime":%q,"user":%q,"entrypoint":%s}`,
 		id, api, lifetime, user, entrypoint)
+}
+
+func historicalStandardRuntimeBinding(sourceID string) tobari.RuntimeBinding {
+	image := standardRuntimeImagePrefix + sourceID
+	digest := sha256.Sum256([]byte("tobari-standard-runtime\x00" + image))
+	return tobari.RuntimeBinding{
+		RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Ordinal: 1,
+		Revision: "sha256:" + hex.EncodeToString(digest[:]), Image: image,
+	}
+}
+
+func TestFinalContextLoginRuntimeAcceptsExactHistoricalStandardMaterial(t *testing.T) {
+	imageID := "sha256:" + strings.Repeat("a", 64)
+	exact := finalStandardRuntimeObservation(imageID, tobari.RuntimeImageAPI, tobari.RuntimeImageLifetimeCommand, "tobari", `["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]`)
+	runner := &finalContextRuntimeRunner{observations: []string{exact, exact}}
+	runtime, err := newRuntime(filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := historicalStandardRuntimeBinding(strings.Repeat("1", 64))
+	resolved, err := runtime.resolveFinalContextLoginRuntimeImage(context.Background(), binding)
+	if err != nil || resolved != imageID || len(runner.calls) != 2 {
+		t.Fatalf("historical standard material=%q calls=%d err=%v", resolved, len(runner.calls), err)
+	}
+	for _, call := range runner.calls {
+		if call[len(call)-1] != binding.Image {
+			t.Fatalf("historical observation selected ambient image: %v", call)
+		}
+	}
 }
 
 func TestFinalContextLoginRuntimeUsesExactImmutableStandardMaterial(t *testing.T) {
@@ -70,6 +139,7 @@ func TestFinalContextLoginRuntimeUsesExactImmutableStandardMaterial(t *testing.T
 		{name: "wrong lifetime label", observations: []string{finalStandardRuntimeObservation(imageA, tobari.RuntimeImageAPI, "wrong", "tobari", `["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]`)}, wantCalls: 1},
 		{name: "wrong user", observations: []string{finalStandardRuntimeObservation(imageA, tobari.RuntimeImageAPI, tobari.RuntimeImageLifetimeCommand, "root", `["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]`)}, wantCalls: 1},
 		{name: "wrong entrypoint", observations: []string{finalStandardRuntimeObservation(imageA, tobari.RuntimeImageAPI, tobari.RuntimeImageLifetimeCommand, "tobari", `["/bin/sh"]`)}, wantCalls: 1},
+		{name: "declared writable volume", observations: []string{strings.TrimSuffix(exact, "}") + `,"volumes":{"/data":{}}}`}, wantCalls: 1},
 		{name: "non digest image id", observations: []string{finalStandardRuntimeObservation("runtime:latest", tobari.RuntimeImageAPI, tobari.RuntimeImageLifetimeCommand, "tobari", `["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]`)}, wantCalls: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {

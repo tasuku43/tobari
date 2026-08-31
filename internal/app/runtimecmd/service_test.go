@@ -97,6 +97,9 @@ func (f *runtimeFake) ResolveRuntimeReference(_ context.Context, reference strin
 	}
 	return f.manifest, nil
 }
+func (f *runtimeFake) ObserveManagedRuntimeSourceRevision(context.Context, string) (tobari.SemanticDigest, error) {
+	return tobari.SemanticDigest("sha256:" + strings.Repeat("d", 64)), nil
+}
 
 func TestRuntimeBuildRejectsStandardReferenceBeforeBuildAdapter(t *testing.T) {
 	fake := &runtimeFake{manifest: runtimeFixture()}
@@ -643,8 +646,19 @@ func TestRuntimePruneApplyRejectsInvalidResultAsPartial(t *testing.T) {
 	fake := &runtimeFake{manifest: runtimeFixture(), pruneResults: []tobari.RuntimePruneResult{result}}
 	_, err := New(fake).ApplyPrune(context.Background(), runtimePruneIntent(requested), requested)
 	public, ok := fault.PublicCopy(err)
-	if !ok || public.Code != "invalid_runtime_retirement_result" || public.Phase != fault.PhaseVerification || public.ChangeState != fault.ChangePartial || fake.pruneCalls != 1 {
+	if !ok || public.Code != "invalid_runtime_retirement_result_partial" || public.Phase != fault.PhaseVerification || public.ChangeState != fault.ChangePartial || fake.pruneCalls != 1 {
 		t.Fatalf("invalid Runtime prune result = %+v/%v calls=%d", public, err, fake.pruneCalls)
+	}
+}
+
+func TestRuntimePruneApplyRejectsInvalidConfirmedResultAsConfirmed(t *testing.T) {
+	result := runtimePruneResultFixture(tobari.RuntimePruneApplied)
+	result.ReceiptRevision = 0
+	fake := &runtimeFake{manifest: runtimeFixture(), pruneResults: []tobari.RuntimePruneResult{result}}
+	_, err := New(fake).ApplyPrune(context.Background(), runtimePruneIntent(result.PlanRef), result.PlanRef)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "invalid_runtime_retirement_result_confirmed" || public.Phase != fault.PhaseVerification || public.ChangeState != fault.ChangeConfirmed || fake.pruneCalls != 1 {
+		t.Fatalf("invalid confirmed Runtime prune result = %+v/%v calls=%d", public, err, fake.pruneCalls)
 	}
 }
 
@@ -881,5 +895,16 @@ func TestRuntimeBuildPreservesReviewedSourceValidationFault(t *testing.T) {
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Code != "runtime_source_invalid" || public.Kind != fault.KindRejected || public.Retryable || strings.Contains(public.Message, privateCause.Error()) {
 		t.Fatalf("public source fault = %+v/%v", public, err)
+	}
+}
+
+func TestRuntimeBuildClassifiesNoChangeCompatibilityDriftBeforeMutation(t *testing.T) {
+	fake := &runtimeFake{manifest: runtimeFixture(), buildErr: tobari.ErrRuntimeNotReady}
+	service := New(fake)
+	intent := operation.Intent{Command: "runtime build", Effect: operation.EffectWrite, Target: operation.TargetRef{Kind: tobari.RuntimeReferenceKind, ID: tobari.RuntimeRef(fake.manifest.ID)}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}
+	_, err := service.Build(context.Background(), intent, fake.manifest.ID, nil)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "runtime_not_ready" || public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone {
+		t.Fatalf("NoChange compatibility drift = %+v/%v", public, err)
 	}
 }

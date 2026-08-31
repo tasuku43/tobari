@@ -6,7 +6,7 @@
 - Scope: Product, domain, CLI, architecture, security, state, clean break,
   harness, and public boundary
 - Revises: ADR 0084 at its repository-authored configuration seam
-- Related: ADR 0087 and ADR 0080
+- Related: ADR 0087, ADR 0080, and ADR 0092
 - Superseded by: None
 
 ## Context
@@ -73,9 +73,10 @@ static semantic policy. Apply snapshots and validates both as one source; no
 partial activation exists. `base_revision` is concurrency bookkeeping and is
 excluded from the semantic revision digest.
 
-`context.yaml` owns Context ID, canonical Project root, and Template ID. After
-creation those three values are immutable. A different root or Template needs
-a fresh Context ID; Policy Memory is never transferred implicitly.
+`context.yaml` schema v2 owns only Context ID and Template ID. Both values are
+immutable after creation. Project root belongs only to Workspace authority; a
+different Template needs a fresh Context ID, and Policy Memory is never
+transferred implicitly.
 
 Every document has one exact schema version. Ordinary reads reject unknown
 fields and unsupported schemas and never rewrite source. A future explicit

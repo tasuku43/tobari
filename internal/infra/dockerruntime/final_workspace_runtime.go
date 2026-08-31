@@ -93,12 +93,15 @@ func (r *Runtime) finalWorkspaceDirectory(id tobari.WorkspaceID) (string, error)
 	return filepath.Join(r.finalWorkspaceRuntimeRoot(), "workspaces", string(id)), nil
 }
 
-func (r *Runtime) finalWorkspaceHome(id tobari.WorkspaceID) (string, error) {
-	directory, err := r.finalWorkspaceDirectory(id)
+func (r *Runtime) finalContextHome(id tobari.ContextID) (string, error) {
+	if err := id.Validate(); err != nil {
+		return "", err
+	}
+	root, err := r.ContextHomeRoot()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(directory, "home"), nil
+	return filepath.Join(root, string(id), "home"), nil
 }
 
 func (r *Runtime) finalWorkspaceGitDirectory(id tobari.WorkspaceID) (string, error) {
@@ -125,16 +128,44 @@ func (r *Runtime) finalWorkspaceRetirementDecisionPath() string {
 	return filepath.Join(r.finalWorkspaceRuntimeRoot(), "retirement-active.json")
 }
 
-// WorkspaceHomeForID derives the final owner-only Workspace home solely from
-// the stable Workspace ID. It never consults predecessor instance/root state.
-func (r *Runtime) WorkspaceHomeForID(ctx context.Context, id tobari.WorkspaceID) (string, error) {
+// ContextHomeForID derives the final owner-only managed Home solely from the
+// stable Context ID. Workspace replacement never changes this path.
+func (r *Runtime) ContextHomeForID(ctx context.Context, id tobari.ContextID) (string, error) {
 	if r == nil {
 		return "", fmt.Errorf("Docker runtime is unavailable")
 	}
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	return r.finalWorkspaceHome(id)
+	return r.finalContextHome(id)
+}
+
+// RemoveContextHome removes only one exact Context-owned managed Home after
+// authority deletion has already proved that no Workspace remains.
+func (r *Runtime) RemoveContextHome(ctx context.Context, id tobari.ContextID) error {
+	if r == nil {
+		return fmt.Errorf("Docker runtime is unavailable")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	home, err := r.finalContextHome(id)
+	if err != nil {
+		return err
+	}
+	directory := filepath.Dir(home)
+	if err := requirePrivateDirectory(directory); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("Context Home owner is unsafe: %w", err)
+	}
+	if err := requirePrivateDirectory(home); err != nil {
+		return fmt.Errorf("Context Home is unsafe: %w", err)
+	}
+	if err := os.RemoveAll(directory); err != nil {
+		return fmt.Errorf("remove Context Home: %w", err)
+	}
+	return syncDirectoryIfPresent(filepath.Dir(directory))
 }
 
 // ResolveWorkspaceTemplateRuntimeRevision resolves one unchanged Runtime
@@ -154,6 +185,22 @@ func (r *Runtime) ResolveWorkspaceTemplateRuntimeRevision(ctx context.Context, r
 		return tobari.RuntimeBinding{}, err
 	}
 	return runtimeBindingFromLifecycle(snapshot, runtimeID, revision)
+}
+
+// ResolveRetainedWorkspaceTemplateRuntimeBinding validates only an exact
+// binding already carried by owner-authoritative Template history. It never
+// selects by name and never reconstructs missing historical material.
+func (r *Runtime) ResolveRetainedWorkspaceTemplateRuntimeBinding(ctx context.Context, binding tobari.RuntimeBinding) (tobari.RuntimeBinding, error) {
+	if err := ctx.Err(); err != nil {
+		return tobari.RuntimeBinding{}, err
+	}
+	if binding.RuntimeID != tobari.StandardRuntimeID {
+		return tobari.RuntimeBinding{}, tobari.ErrRuntimeRevisionNotFound
+	}
+	if err := r.validateExactStandardRuntimeBinding(binding); err != nil {
+		return tobari.RuntimeBinding{}, err
+	}
+	return binding, nil
 }
 
 func runtimeBindingFromLifecycle(snapshot tobari.RuntimeLifecycleSnapshot, runtimeID, revision string) (tobari.RuntimeBinding, error) {
@@ -200,6 +247,7 @@ func (r *Runtime) PlanWorkspaceEntry(
 	ctx context.Context,
 	snapshot tobari.ContextAuthoritySnapshot,
 	authority tobari.WorkspaceTemplateEntryAuthority,
+	projectRoot string,
 	workspaceID tobari.WorkspaceID,
 	reconciledAt time.Time,
 ) (tobari.WorkspaceEntryReconciliationPlan, error) {
@@ -218,9 +266,9 @@ func (r *Runtime) PlanWorkspaceEntry(
 	if reconciledAt.IsZero() || reconciledAt.Location() != time.UTC {
 		return tobari.WorkspaceEntryReconciliationPlan{}, fmt.Errorf("Workspace reconciliation time must be non-zero UTC")
 	}
-	resolvedRoot, err := r.ResolveProjectRoot(ctx, snapshot.Context.ProjectRoot)
-	if err != nil || resolvedRoot != snapshot.Context.ProjectRoot {
-		return tobari.WorkspaceEntryReconciliationPlan{}, fmt.Errorf("final Context project root is not exact: %w", err)
+	resolvedRoot, err := r.ResolveProjectRoot(ctx, projectRoot)
+	if err != nil || resolvedRoot != projectRoot {
+		return tobari.WorkspaceEntryReconciliationPlan{}, fmt.Errorf("Workspace project root is not exact: %w", err)
 	}
 	binding, image, imageID, err := r.resolveFinalWorkspaceRuntimeMaterial(ctx, authority.Runtime)
 	if err != nil {
@@ -229,7 +277,7 @@ func (r *Runtime) PlanWorkspaceEntry(
 	if !reflect.DeepEqual(binding, authority.Runtime) {
 		return tobari.WorkspaceEntryReconciliationPlan{}, fmt.Errorf("Template Runtime binding is not the exact coherent WP03 revision")
 	}
-	gitConfig, err := r.finalWorkspaceGitConfig(ctx, authority.SessionDefaults.GitIdentity, snapshot.Context.ProjectRoot)
+	gitConfig, err := r.finalWorkspaceGitConfig(ctx, authority.SessionDefaults.GitIdentity, projectRoot)
 	if err != nil {
 		return tobari.WorkspaceEntryReconciliationPlan{}, err
 	}
@@ -241,7 +289,7 @@ func (r *Runtime) PlanWorkspaceEntry(
 	if err != nil {
 		return tobari.WorkspaceEntryReconciliationPlan{}, err
 	}
-	spec, err := r.finalWorkspaceSpec(authority, creationDefaults, networkAuthority, snapshot.Context, workspaceID, image, imageID, gitConfig)
+	spec, err := r.finalWorkspaceSpec(authority, creationDefaults, networkAuthority, snapshot.Context, projectRoot, workspaceID, image, imageID, gitConfig)
 	if err != nil {
 		return tobari.WorkspaceEntryReconciliationPlan{}, err
 	}
@@ -249,13 +297,20 @@ func (r *Runtime) PlanWorkspaceEntry(
 	if err != nil {
 		return tobari.WorkspaceEntryReconciliationPlan{}, err
 	}
-	home, err := r.finalWorkspaceHome(workspaceID)
+	container, _, err := tobari.ProjectResourceNames(string(workspaceID))
+	if err != nil {
+		return tobari.WorkspaceEntryReconciliationPlan{}, err
+	}
+	if err := r.requireWorkspaceMountGuardBeforeMutation(ctx, projectRoot, container, string(workspaceID), string(resolvedSpec)); err != nil {
+		return tobari.WorkspaceEntryReconciliationPlan{}, err
+	}
+	home, err := r.finalContextHome(snapshot.Context.ID)
 	if err != nil {
 		return tobari.WorkspaceEntryReconciliationPlan{}, err
 	}
 	workspace := tobari.WorkspaceBinding{
 		SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: workspaceID,
-		ContextID: snapshot.Context.ID, ProjectRoot: snapshot.Context.ProjectRoot,
+		ContextID: snapshot.Context.ID, ProjectRoot: projectRoot,
 		Home: home, CreationDefaults: snapshot.Template.Current.Slices.CreationDefaultsDigest,
 	}
 	if snapshot.Workspace != nil {
@@ -455,6 +510,23 @@ func (r *Runtime) PrepareWorkspaceRuntimeMaterial(ctx context.Context, expected 
 	if err := expected.Validate(); err != nil {
 		return err
 	}
+	if expected.RuntimeID == tobari.StandardRuntimeID {
+		if err := r.validateExactStandardRuntimeBinding(expected); err != nil {
+			return err
+		}
+		canonical, err := r.defaultRuntimeImage()
+		if err != nil {
+			return err
+		}
+		// Only the current compiled source closure can be rebuilt. Historical
+		// exact material is retained authority and must already exist locally.
+		if expected.Image == canonical && r.imageResolver().ShouldBuildRuntimeImage(expected.Image) {
+			if err := r.ensureLocalBaseRuntimeImage(ctx, expected.Image); err != nil {
+				return errors.Join(tobari.ErrWorkspaceRuntimePreparationUncertain, err)
+			}
+		}
+		return nil
+	}
 	snapshot, _, err := r.readRuntimeLifecycleSnapshotLocked(ctx)
 	if err != nil {
 		return err
@@ -466,25 +538,6 @@ func (r *Runtime) PrepareWorkspaceRuntimeMaterial(ctx context.Context, expected 
 	if !reflect.DeepEqual(binding, expected) {
 		return fmt.Errorf("Runtime binding changed or is not canonical")
 	}
-	if binding.RuntimeID != tobari.StandardRuntimeID {
-		return nil
-	}
-	image, err := r.resolveBuiltinImageSelector(binding.Image)
-	if err != nil {
-		return err
-	}
-	canonical, err := r.defaultRuntimeImage()
-	if err != nil {
-		return err
-	}
-	if image != canonical {
-		return fmt.Errorf("builtin standard Runtime selected non-canonical material")
-	}
-	if r.imageResolver().ShouldBuildRuntimeImage(image) {
-		if err := r.ensureLocalBaseRuntimeImage(ctx, image); err != nil {
-			return errors.Join(tobari.ErrWorkspaceRuntimePreparationUncertain, err)
-		}
-	}
 	return nil
 }
 
@@ -495,30 +548,59 @@ func (r *Runtime) resolveFinalWorkspaceRuntimeMaterial(ctx context.Context, expe
 	if r.finalWorkspaceRuntimeMaterial != nil {
 		return r.finalWorkspaceRuntimeMaterial(ctx, expected)
 	}
-	snapshot, _, err := r.readRuntimeLifecycleSnapshotLocked(ctx)
-	if err != nil {
-		return tobari.RuntimeBinding{}, "", "", err
-	}
-	binding, err := runtimeBindingFromLifecycle(snapshot, expected.RuntimeID, expected.Revision)
-	if err != nil {
-		return tobari.RuntimeBinding{}, "", "", err
-	}
-	if !reflect.DeepEqual(binding, expected) {
-		return tobari.RuntimeBinding{}, "", "", fmt.Errorf("Runtime binding changed or is not canonical")
+	binding := expected
+	var authorityImageID string
+	if expected.RuntimeID == tobari.StandardRuntimeID {
+		if err := r.validateExactStandardRuntimeBinding(expected); err != nil {
+			return tobari.RuntimeBinding{}, "", "", err
+		}
+	} else {
+		snapshot, _, err := r.readRuntimeLifecycleSnapshotLocked(ctx)
+		if err != nil {
+			return tobari.RuntimeBinding{}, "", "", err
+		}
+		binding, err = runtimeBindingFromLifecycle(snapshot, expected.RuntimeID, expected.Revision)
+		if err != nil {
+			return tobari.RuntimeBinding{}, "", "", err
+		}
+		if !reflect.DeepEqual(binding, expected) {
+			return tobari.RuntimeBinding{}, "", "", fmt.Errorf("Runtime binding changed or is not canonical")
+		}
+		for _, manifest := range snapshot.Runtimes {
+			if manifest.ID != binding.RuntimeID {
+				continue
+			}
+			for _, revision := range manifest.Revisions {
+				if revision.Revision == binding.Revision {
+					authorityImageID = revision.ImageDigest
+					break
+				}
+			}
+		}
+		if !imageIDPattern.MatchString(authorityImageID) {
+			return tobari.RuntimeBinding{}, "", "", fmt.Errorf("managed Runtime image identity is unavailable")
+		}
 	}
 	image, err := r.resolveBuiltinImageSelector(binding.Image)
 	if err != nil {
 		return tobari.RuntimeBinding{}, "", "", err
 	}
-	if err := r.validateCompatibleImage(ctx, image); err != nil {
-		return tobari.RuntimeBinding{}, "", "", err
+	// Resolve identity and the complete compatibility contract from one inspect.
+	// Docker execution below uses this immutable ID, so a later tag reassignment
+	// cannot swap in material that was not reviewed here.
+	executionImage := image
+	if authorityImageID != "" {
+		executionImage = authorityImageID
 	}
-	imageID, err := r.compatibleImageID(ctx, image)
+	imageID, err := r.inspectFinalStandardRuntimeImage(ctx, executionImage)
 	if err != nil {
 		return tobari.RuntimeBinding{}, "", "", err
 	}
 	if !imageIDPattern.MatchString(imageID) {
 		return tobari.RuntimeBinding{}, "", "", fmt.Errorf("Runtime image identity is not immutable")
+	}
+	if authorityImageID != "" && imageID != authorityImageID {
+		return tobari.RuntimeBinding{}, "", "", fmt.Errorf("managed Runtime immutable image identity changed")
 	}
 	return binding, image, imageID, nil
 }
@@ -528,6 +610,7 @@ func (r *Runtime) finalWorkspaceSpec(
 	creationDefaults tobari.WorkspaceTemplateCreationDefaults,
 	networkAuthority tobari.WorkspaceRuntimeNetworkAuthority,
 	contextBinding tobari.ContextBinding,
+	projectRoot string,
 	workspaceID tobari.WorkspaceID,
 	image, imageID string,
 	gitConfig []byte,
@@ -537,7 +620,7 @@ func (r *Runtime) finalWorkspaceSpec(
 		return finalWorkspaceRuntimeSpec{}, err
 	}
 	runtimeDirectory := filepath.Join(r.stateDirectory, "runtime", version)
-	home, err := r.finalWorkspaceHome(workspaceID)
+	home, err := r.finalContextHome(contextBinding.ID)
 	if err != nil {
 		return finalWorkspaceRuntimeSpec{}, err
 	}
@@ -545,7 +628,7 @@ func (r *Runtime) finalWorkspaceSpec(
 	if err != nil {
 		return finalWorkspaceRuntimeSpec{}, err
 	}
-	workspaceRoot, err := r.projectContainerRoot(contextBinding.ProjectRoot)
+	workspaceRoot, err := r.projectContainerRoot(projectRoot)
 	if err != nil {
 		return finalWorkspaceRuntimeSpec{}, err
 	}
@@ -563,7 +646,7 @@ func (r *Runtime) finalWorkspaceSpec(
 		TemplateRevision: authority.TemplateRevision, EntrySlice: authority.EntrySliceDigest,
 		RuntimeID: authority.Runtime.RuntimeID, RuntimeRevision: tobari.SemanticDigest(authority.Runtime.Revision),
 		ImageSelector: image, ImageID: imageID, AssetVersion: version, RuntimeDirectory: runtimeDirectory,
-		ProjectRoot: contextBinding.ProjectRoot, WorkspaceRoot: workspaceRoot, WorkspaceHome: home,
+		ProjectRoot: projectRoot, WorkspaceRoot: workspaceRoot, WorkspaceHome: home,
 		GitDirectory: gitDirectory, GitConfigDigest: tobari.SemanticDigest("sha256:" + hex.EncodeToString(gitDigest[:])),
 		SourceAccess: authority.SourceAccess, AgentProfile: authority.AgentProfile,
 		ProfileDirectory: profile, ProfileDigest: profileDigest,
@@ -704,14 +787,23 @@ func (r *Runtime) ReconcileWorkspaceEntry(ctx context.Context, plan tobari.Works
 		if err != nil {
 			return err
 		}
-		contextBinding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: plan.Workspace.ContextID, ProjectRoot: plan.Workspace.ProjectRoot, TemplateID: plan.Authority.TemplateID}
-		spec, err := r.finalWorkspaceSpec(plan.Authority, plan.CreationDefaults, plan.Network, contextBinding, plan.Workspace.ID, image, imageID, gitConfig)
+		contextBinding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: plan.Workspace.ContextID, TemplateID: plan.Authority.TemplateID}
+		spec, err := r.finalWorkspaceSpec(plan.Authority, plan.CreationDefaults, plan.Network, contextBinding, plan.Workspace.ProjectRoot, plan.Workspace.ID, image, imageID, gitConfig)
 		if err != nil {
 			return err
 		}
 		digest, err := finalWorkspaceSpecDigest(spec)
 		if err != nil || digest != plan.Applied.ResolvedSpec {
 			return fmt.Errorf("Workspace entry plan no longer matches exact runtime material: %w", err)
+		}
+		container, _, err := tobari.ProjectResourceNames(string(plan.Workspace.ID))
+		if err != nil {
+			return err
+		}
+		if err := r.requireWorkspaceMountGuardBeforeMutation(
+			ctx, plan.Workspace.ProjectRoot, container, string(plan.Workspace.ID), string(plan.Applied.ResolvedSpec),
+		); err != nil {
+			return err
 		}
 		if err := r.ensureFinalWorkspaceRuntimeRoot(); err != nil {
 			return err
@@ -1027,6 +1119,11 @@ func (r *Runtime) reconcileFinalWorkspaceDocker(ctx context.Context, plan tobari
 	if err != nil || network != spec.Network.Network || !reflect.DeepEqual(plan.Network, spec.Network) {
 		return "", fmt.Errorf("derive final Workspace Docker identity: %w", err)
 	}
+	if err := r.requireWorkspaceMountGuardBeforeMutation(
+		ctx, spec.ProjectRoot, container, string(plan.Workspace.ID), string(plan.Applied.ResolvedSpec),
+	); err != nil {
+		return "", err
+	}
 	if err := r.ensureExactFinalWorkspaceNetwork(ctx, plan.Workspace.ID, plan.Network); err != nil {
 		return "", err
 	}
@@ -1084,10 +1181,14 @@ func (r *Runtime) ensureExactFinalWorkspaceNetwork(ctx context.Context, id tobar
 }
 
 func (r *Runtime) ensureFinalWorkspaceContainer(ctx context.Context, plan tobari.WorkspaceEntryReconciliationPlan, spec finalWorkspaceRuntimeSpec, container, network, workspaceIP, gatewayIP string) error {
+	if err := r.validateExactProjectBindSource(ctx, spec.ProjectRoot); err != nil {
+		return err
+	}
 	exists, err := r.projectResourceExists(ctx, "container", container)
 	if err != nil {
 		return err
 	}
+	replace := false
 	if exists {
 		if err := r.verifyOwnedProjectResource(ctx, "container", container, string(plan.Workspace.ID), projectWorkRole); err != nil {
 			return err
@@ -1097,18 +1198,23 @@ func (r *Runtime) ensureFinalWorkspaceContainer(ctx context.Context, plan tobari
 			return err
 		}
 		if observedSpec != string(plan.Applied.ResolvedSpec) {
-			if output, removeErr := r.runner.Output(ctx, []string{"rm", "-f", container}, os.Environ()); removeErr != nil {
-				return fmt.Errorf("remove drifted final Workspace container: %w: %s", removeErr, boundedDiagnostic(output))
-			}
-			exists = false
+			replace = true
 		}
 	}
-	if exists {
-		if err := r.ensureProjectContainerNetwork(ctx, container, network); err != nil {
-			return err
-		}
+	if exists && !replace {
 		component, err := r.inspectContainer(ctx, projectWorkRole, container)
 		if err != nil {
+			return err
+		}
+		if component.State != "running" {
+			if err := r.requireNoLiveWritableWorkspaceAncestor(ctx, spec.ProjectRoot); err != nil {
+				return err
+			}
+			if err := r.validateExactProjectBindSource(ctx, spec.ProjectRoot); err != nil {
+				return fmt.Errorf("final Workspace bind source changed before starting existing container: %w", err)
+			}
+		}
+		if err := r.ensureProjectContainerNetwork(ctx, container, network); err != nil {
 			return err
 		}
 		if component.State != "running" {
@@ -1118,6 +1224,26 @@ func (r *Runtime) ensureFinalWorkspaceContainer(ctx context.Context, plan tobari
 			}
 		}
 		return r.confirmFinalWorkspaceContainerNetwork(ctx, container, network, workspaceIP, gatewayIP)
+	}
+	if replace {
+		if err := r.requireNoLiveWritableWorkspaceAncestor(ctx, spec.ProjectRoot); err != nil {
+			return err
+		}
+		if err := r.validateExactProjectBindSource(ctx, spec.ProjectRoot); err != nil {
+			return fmt.Errorf("final Workspace bind source changed before replacing existing container: %w", err)
+		}
+		if output, removeErr := r.runner.Output(ctx, []string{"rm", "-f", container}, os.Environ()); removeErr != nil {
+			return fmt.Errorf("remove drifted final Workspace container: %w: %s", removeErr, boundedDiagnostic(output))
+		}
+		exists = false
+	}
+	if !exists {
+		if err := r.requireNoLiveWritableWorkspaceAncestor(ctx, spec.ProjectRoot); err != nil {
+			return err
+		}
+		if err := r.validateExactProjectBindSource(ctx, spec.ProjectRoot); err != nil {
+			return fmt.Errorf("final Workspace bind source changed before container creation: %w", err)
+		}
 	}
 	uid, gid := currentIDs()
 	sourceMount := "type=bind,src=" + spec.ProjectRoot + ",dst=" + spec.WorkspaceRoot
@@ -1157,14 +1283,19 @@ func (r *Runtime) ensureFinalWorkspaceContainer(ctx context.Context, plan tobari
 	for _, environment := range spec.AuthEnvironment {
 		args = append(args, "--env", environment)
 	}
-	// Keep the reviewed managed Runtime selector as Docker's image argument.
-	// The immutable image ID remains part of the resolved plan and digest, while
-	// retaining the selector preserves the exact Runtime binding in inspection
-	// and matches the pre-release project container contract.
-	args = append(args, spec.ImageSelector)
+	// Execute the exact image content inspected by the plan. ImageSelector stays
+	// in the durable spec as binding evidence, but a mutable tag is never Docker's
+	// final execution authority.
+	args = append(args, spec.ImageID)
 	args = append(args, projectLifetimeCommand()...)
 	if output, err := r.runner.Output(ctx, args, os.Environ()); err != nil {
 		return fmt.Errorf("create final Workspace container: %w: %s", err, boundedDiagnostic(output))
+	}
+	if err := r.requireNoLiveWritableWorkspaceAncestor(ctx, spec.ProjectRoot); err != nil {
+		return r.removeUnstartedProjectContainer(ctx, container, err)
+	}
+	if err := r.validateExactProjectBindSource(ctx, spec.ProjectRoot); err != nil {
+		return r.removeUnstartedProjectContainer(ctx, container, fmt.Errorf("final Workspace bind source changed after container creation: %w", err))
 	}
 	if output, err := r.runner.Output(ctx, []string{"start", container}, os.Environ()); err != nil {
 		return fmt.Errorf("start final Workspace container: %w: %s", err, boundedDiagnostic(output))
@@ -1274,7 +1405,7 @@ func (r *Runtime) confirmFinalWorkspaceEntryRecord(ctx context.Context, record f
 	if err := record.Receipt.ValidateFor(record.Plan); err != nil {
 		return err
 	}
-	home, _ := r.finalWorkspaceHome(record.Plan.Workspace.ID)
+	home, _ := r.finalContextHome(record.Plan.Workspace.ContextID)
 	if home != record.Plan.Workspace.Home || requirePrivateDirectory(home) != nil {
 		return errors.Join(tobari.ErrWorkspaceEntryRuntimeNotCurrent, fmt.Errorf("final Workspace home is absent or unsafe"))
 	}
@@ -1292,6 +1423,21 @@ func (r *Runtime) ConfirmWorkspaceRetirementAllowed(ctx context.Context, workspa
 	if err := validateFinalWorkspaceBinding(workspace); err != nil {
 		return err
 	}
+	if !force {
+		release, err := r.acquireWorkspaceRetirementAttachment(ctx, workspace.ContextID, workspace.ProjectRoot)
+		if err != nil {
+			return err
+		}
+		defer release()
+	}
+	return r.confirmWorkspaceRetirementAllowedLocked(ctx, workspace, force)
+}
+
+// confirmWorkspaceRetirementAllowedLocked runs after the caller has acquired
+// the exact Context/Project retirement fence when force is false. Keeping the
+// lock acquisition out of this helper prevents Prepare's durable-decision
+// transaction from trying to reacquire its own nonblocking fence.
+func (r *Runtime) confirmWorkspaceRetirementAllowedLocked(ctx context.Context, workspace tobari.WorkspaceBinding, force bool) error {
 	state, _, err := r.observeFinalWorkspaceSessionOwner(ctx, workspace.ContextID, workspace.ID)
 	if err != nil {
 		return err
@@ -1313,7 +1459,7 @@ func (r *Runtime) ConfirmWorkspaceRetirementAllowed(ctx context.Context, workspa
 		}
 	}
 	directory, _ := r.finalWorkspaceDirectory(workspace.ID)
-	home, _ := r.finalWorkspaceHome(workspace.ID)
+	home, _ := r.finalContextHome(workspace.ContextID)
 	if workspace.Home != home || requirePrivateDirectory(directory) != nil || requirePrivateDirectory(home) != nil {
 		return fmt.Errorf("final Workspace private runtime state is missing or unsafe")
 	}
@@ -1352,6 +1498,15 @@ func (r *Runtime) PrepareWorkspaceRetirement(ctx context.Context, workspace toba
 	if err := validateFinalWorkspaceDecisionRef("workspace-retirement", workspace.ID, decisionRef); err != nil {
 		return err
 	}
+	var releaseAttachment func() error
+	if !force {
+		var err error
+		releaseAttachment, err = r.acquireWorkspaceRetirementAttachment(ctx, workspace.ContextID, workspace.ProjectRoot)
+		if err != nil {
+			return err
+		}
+		defer releaseAttachment()
+	}
 	return r.withProjectLock(ctx, func() error {
 		if err := r.requireNoPredecessorProjectJournal(); err != nil {
 			return err
@@ -1378,7 +1533,7 @@ func (r *Runtime) PrepareWorkspaceRetirement(ctx context.Context, workspace toba
 				return fmt.Errorf("another final Workspace retirement requires exact recovery")
 			}
 		} else {
-			if err := r.ConfirmWorkspaceRetirementAllowed(ctx, workspace, force); err != nil {
+			if err := r.confirmWorkspaceRetirementAllowedLocked(ctx, workspace, force); err != nil {
 				return err
 			}
 			if err := r.ensureFinalWorkspaceRuntimeRoot(); err != nil {
@@ -1468,16 +1623,16 @@ func (r *Runtime) CompleteWorkspaceRetirement(ctx context.Context, workspace tob
 			return err
 		}
 		directory, _ := r.finalWorkspaceDirectory(workspace.ID)
-		home, _ := r.finalWorkspaceHome(workspace.ID)
+		home, _ := r.finalContextHome(workspace.ContextID)
 		if workspace.Home != home {
 			return fmt.Errorf("final Workspace home crosses its stable identity")
 		}
 		if err := requirePrivateDirectory(directory); err == nil {
 			if err := requirePrivateDirectory(home); err != nil {
-				return fmt.Errorf("final Workspace home is unsafe during retirement: %w", err)
+				return fmt.Errorf("Context Home is unsafe during Workspace retirement: %w", err)
 			}
 			if err := os.RemoveAll(directory); err != nil {
-				return fmt.Errorf("remove final Workspace home and private runtime state: %w", err)
+				return fmt.Errorf("remove final Workspace private runtime state: %w", err)
 			}
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("final Workspace private state is unsafe during retirement: %w", err)

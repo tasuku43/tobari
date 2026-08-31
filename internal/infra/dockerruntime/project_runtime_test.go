@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/capabilitysurface"
@@ -54,6 +55,96 @@ func projectRuntimeContext(t *testing.T, runtime *Runtime, instance tobari.Works
 	}
 	manifest.ShellEnvironment = nil
 	return manifest
+}
+
+type workspaceImmutableIdentityRunner struct {
+	recordingRunner
+	mu             sync.Mutex
+	permissionArgs [][]string
+	browserArgs    [][]string
+	serviceArgs    [][]string
+}
+
+func (r *workspaceImmutableIdentityRunner) RunWorkspacePermissionControl(ctx context.Context, args, _ []string, input io.Reader, output, _ io.Writer) error {
+	r.mu.Lock()
+	r.permissionArgs = append(r.permissionArgs, append([]string{}, args...))
+	r.mu.Unlock()
+	if len(args) > 4 && args[4] == workspacePermissionSocketAbsentProgram {
+		return nil
+	}
+	if _, err := io.WriteString(output, `{"schema_version":1,"ready":true}`+"\n"); err != nil {
+		return err
+	}
+	_, err := io.Copy(io.Discard, input)
+	if err != nil && !errorsIsPipeClosure(err) {
+		return err
+	}
+	return ctx.Err()
+}
+
+func (r *workspaceImmutableIdentityRunner) RunWorkspaceBrowserControl(ctx context.Context, args, _ []string, input io.Reader, output, _ io.Writer) error {
+	r.mu.Lock()
+	r.browserArgs = append(r.browserArgs, append([]string{}, args...))
+	r.mu.Unlock()
+	if _, err := io.WriteString(output, workspaceBrowserReadyFrame+"\n"); err != nil {
+		return err
+	}
+	_, err := io.Copy(io.Discard, input)
+	if err != nil && !errorsIsPipeClosure(err) {
+		return err
+	}
+	return ctx.Err()
+}
+
+func (r *workspaceImmutableIdentityRunner) RunWorkspaceServiceControl(ctx context.Context, args, _ []string, input io.Reader, output, _ io.Writer) error {
+	r.mu.Lock()
+	r.serviceArgs = append(r.serviceArgs, append([]string{}, args...))
+	r.mu.Unlock()
+	if _, err := io.WriteString(output, `{"schema_version":1,"ready":true}`+"\n"); err != nil {
+		return err
+	}
+	_, err := io.Copy(io.Discard, input)
+	if err != nil && !errorsIsPipeClosure(err) {
+		return err
+	}
+	return ctx.Err()
+}
+
+func TestEnterProjectRuntimeBindsEveryAttachedExecToOneImmutableContainerID(t *testing.T) {
+	runner := &workspaceImmutableIdentityRunner{}
+	runtime, err := newRuntime(filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := projectRuntimeInstance(t, runtime)
+	manifest := projectRuntimeContext(t, runtime, instance)
+	if _, err := runtime.EnterProjectRuntime(context.Background(), instance, manifest, instance.Root, tobari.NewWorkspaceShellSession(), nil, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	containerName, _, err := tobari.ProjectResourceNames(instance.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	containerID := strings.Repeat("a", 64)
+	runner.mu.Lock()
+	all := append([][]string{}, runner.permissionArgs...)
+	all = append(all, runner.browserArgs...)
+	all = append(all, runner.serviceArgs...)
+	runner.mu.Unlock()
+	for _, call := range runner.runs {
+		all = append(all, call.args)
+	}
+	if len(all) < 4 {
+		t.Fatalf("attached exec coverage is incomplete: %v", all)
+	}
+	for _, args := range all {
+		if len(args) == 0 || args[0] != "exec" {
+			continue
+		}
+		if !slices.Contains(args, containerID) || slices.Contains(args, containerName) {
+			t.Fatalf("attached exec was not bound to immutable container ID: %v", args)
+		}
+	}
 }
 
 func TestInspectProjectRuntimeClassifiesDockerUnreachable(t *testing.T) {
@@ -174,10 +265,7 @@ func TestEnterProjectRuntimeMirrorsHostCWDPath(t *testing.T) {
 		t.Fatalf("EnterProjectRuntime() run count = %d, want 1", len(runner.runs))
 	}
 	want := "/workspace" + nested
-	container, _, err := tobari.ProjectResourceNames(instance.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	container := strings.Repeat("a", 64)
 	uid, gid := currentIDs()
 	capabilities, err := json.Marshal(tobari.NewHostLoopbackCapabilityProjection())
 	if err != nil {
@@ -274,10 +362,7 @@ func TestEnterProjectRuntimeRunsExactDirectArgvWithoutShell(t *testing.T) {
 		t.Fatalf("run count = %d, want 1", len(runner.runs))
 	}
 	args := runner.runs[0].args
-	container, _, err := tobari.ProjectResourceNames(instance.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	container := strings.Repeat("a", 64)
 	containerIndex := slices.Index(args, container)
 	if containerIndex < 0 {
 		t.Fatalf("Docker argv lacks container %q: %q", container, args)
@@ -790,7 +875,10 @@ func (r *projectExitRunner) Run(context.Context, []string, []string, io.Reader, 
 	return projectExitError{code: r.code}
 }
 
-func (r *projectExitRunner) Output(context.Context, []string, []string) ([]byte, error) {
+func (r *projectExitRunner) Output(_ context.Context, args []string, _ []string) ([]byte, error) {
+	if strings.Contains(strings.Join(args, " "), `"identity_ok"`) {
+		return []byte(`{"id":"` + strings.Repeat("a", 64) + `","identity_ok":true}`), nil
+	}
 	return nil, nil
 }
 
@@ -814,7 +902,8 @@ func (r *projectCleanupDriftRunner) Run(ctx context.Context, args []string, envi
 }
 
 func (r *projectReconcileRunner) Run(ctx context.Context, args []string, environment []string, _ io.Reader, out, errOut io.Writer) error {
-	if (len(args) >= 3 && args[0] == "inspect" && strings.Contains(args[2], ".NetworkSettings.Networks")) ||
+	if (len(args) >= 2 && args[0] == "image" && args[1] == "inspect") ||
+		(len(args) >= 3 && args[0] == "inspect" && strings.Contains(args[2], ".NetworkSettings.Networks")) ||
 		(len(args) >= 2 && args[0] == "network" && args[1] == "connect") {
 		data, err := r.Output(ctx, args, environment)
 		if err != nil {
@@ -853,11 +942,21 @@ func (r *projectReconcileRunner) Output(_ context.Context, args, _ []string) ([]
 	}
 	switch args[0] {
 	case "image":
+		if len(args) > 3 && strings.Contains(args[3], tobari.RuntimeImageAPILabel) {
+			if r.imageData != nil {
+				return append([]byte{}, r.imageData...), nil
+			}
+			id := r.imageID
+			if id == "" {
+				id = "sha256:" + strings.Repeat("c", 64)
+			}
+			return []byte(strings.Replace(string(compatibleImageInspection()), "sha256:"+strings.Repeat("c", 64), id, 1)), nil
+		}
 		if len(args) > 3 && strings.Contains(args[3], ".Id") {
 			if r.imageID != "" {
 				return []byte(r.imageID + "\n"), nil
 			}
-			return []byte("sha256:compatible-image\n"), nil
+			return []byte("sha256:" + strings.Repeat("c", 64) + "\n"), nil
 		}
 		if r.imageData != nil {
 			return append([]byte{}, r.imageData...), nil
@@ -992,7 +1091,7 @@ func TestEnsureProjectRuntimeReconcilesActiveContextImageForExistingWorkspace(t 
 	t.Parallel()
 	root := t.TempDir()
 	runner := &projectReconcileRunner{
-		imageID:         "sha256:new-runtime",
+		imageID:         "sha256:" + strings.Repeat("d", 64),
 		networkExists:   true,
 		containerExists: true,
 		containerSpec:   "sha256:old-spec",
@@ -1049,8 +1148,8 @@ func TestEnsureProjectRuntimeReconcilesActiveContextImageForExistingWorkspace(t 
 		}
 		if call[0] == "create" {
 			created = true
-			if !containsArgs(call, "runtime-new:latest") {
-				t.Fatalf("recreated container did not use active Context image: %v", call)
+			if !containsArgs(call, "sha256:"+strings.Repeat("d", 64)) || containsArgs(call, "runtime-new:latest") {
+				t.Fatalf("recreated container did not use immutable active Context image identity: %v", call)
 			}
 			if containsArgs(call, "runtime-old:latest") {
 				t.Fatalf("recreated container used old stored image: %v", call)
@@ -1117,7 +1216,7 @@ func TestEnsureProjectRuntimeCancellationBeforeDriftPreservesPrincipal(t *testin
 		t.Fatal(err)
 	}
 	inner.containerSpec, err = runtime.projectSpecHashWithAuthAndSourceAccess(
-		runtimeState(root), desired, profile, network, image, "sha256:compatible-image", authProjection, manifest.SourceAccess,
+		runtimeState(root), desired, profile, network, image, "sha256:"+strings.Repeat("c", 64), authProjection, manifest.SourceAccess,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1228,7 +1327,7 @@ func TestEnsureProjectRuntimeImageDriftFailurePreservesStoredImage(t *testing.T)
 		failOn: func(args []string) bool {
 			return len(args) > 0 && args[0] == "create"
 		},
-		imageID: "sha256:new-runtime",
+		imageID: "sha256:" + strings.Repeat("d", 64),
 	}
 	runtime, err := newRuntimeWithData(
 		filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), runner,
@@ -1311,7 +1410,7 @@ func TestEnsureProjectContainerRecreatesOnSpecDrift(t *testing.T) {
 	instance := tobari.Workspace{
 		SchemaVersion:         tobari.WorkspaceStateSchemaVersion,
 		ID:                    runner.instanceID,
-		Root:                  filepath.Join(t.TempDir(), "project"),
+		Root:                  canonicalTestDirectory(t),
 		WorkspaceManifestID:   "01912345-6789-7abc-8def-0123456789ad",
 		WorkspaceManifestName: "default",
 		Profile:               tobari.DefaultProfile,
@@ -1358,7 +1457,7 @@ func TestEnsureProjectContainerAppliesSharedResourceBounds(t *testing.T) {
 	instance := tobari.Workspace{
 		SchemaVersion: tobari.WorkspaceStateSchemaVersion,
 		ID:            runner.instanceID,
-		Root:          filepath.Join(t.TempDir(), "project"),
+		Root:          canonicalTestDirectory(t),
 		Profile:       tobari.DefaultProfile,
 		Image:         tobari.BuiltinImageSelector,
 	}

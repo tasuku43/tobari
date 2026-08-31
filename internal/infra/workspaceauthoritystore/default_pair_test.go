@@ -67,7 +67,7 @@ func TestDefaultPairAdapterReadsOnlyCompleteFinalAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := defaultPairRootFixture{cwd: collection.Contexts[0].Context.ProjectRoot, root: collection.Contexts[0].Context.ProjectRoot}
+	root := defaultPairRootFixture{cwd: collection.Workspaces[0].ProjectRoot, root: collection.Workspaces[0].ProjectRoot}
 	adapter, err := NewDefaultPairAdapter(store, root)
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +90,7 @@ func TestDefaultPairAdapterObservesAncestorCandidatesWithoutSelectingOrCreating(
 	if err != nil {
 		t.Fatal(err)
 	}
-	ancestor := collection.Contexts[0].Context.ProjectRoot
+	ancestor := collection.Workspaces[0].ProjectRoot
 	cwd := filepath.Join(ancestor, "src", "pkg")
 	adapter, err := NewDefaultPairAdapter(store, defaultPairRootFixture{cwd: cwd, root: cwd})
 	if err != nil {
@@ -100,7 +100,7 @@ func TestDefaultPairAdapterObservesAncestorCandidatesWithoutSelectingOrCreating(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selection.CanonicalCWD != cwd || !selection.RequiresChoice() || len(selection.Candidates) != 1 || selection.Candidates[0].Snapshot.Context.ProjectRoot != ancestor {
+	if selection.CanonicalCWD != cwd || !selection.RequiresChoice() || len(selection.Candidates) != 1 || selection.Candidates[0].Snapshot.Workspace.ProjectRoot != ancestor {
 		t.Fatalf("ancestor selection=%+v", selection)
 	}
 	after, present, err := store.ReadComplete(context.Background())
@@ -170,7 +170,7 @@ func TestInitializeFinalDefaultPairPublishesOneCompleteEnvelopeAndReplaysExactly
 		t.Fatalf("fresh initialization disposition mismatch: publication=%+v lifecycle=%d", publication, lifecycle.attempts.Load())
 	}
 	collection, present, err := store.ReadComplete(context.Background())
-	if err != nil || !present || len(collection.Templates) != 1 || len(collection.Contexts) != 1 || len(collection.Workspaces) != 0 || collection.DefaultTemplateID == nil || *collection.DefaultTemplateID != collection.Templates[0].ID || collection.Contexts[0].Context.ProjectRoot != "/workspace/fresh" {
+	if err != nil || !present || len(collection.Templates) != 1 || len(collection.Contexts) != 1 || len(collection.Workspaces) != 0 || collection.DefaultTemplateID == nil || *collection.DefaultTemplateID != collection.Templates[0].ID {
 		t.Fatalf("fresh complete envelope mismatch: present=%t collection=%+v err=%v", present, collection, err)
 	}
 	replay, err := mutator.seedFinalDefaultPairForLegacyMigration(context.Background(), "/workspace/fresh", body)
@@ -185,7 +185,7 @@ func TestInitializeFinalDefaultPairPublishesOneCompleteEnvelopeAndReplaysExactly
 func TestInitializeFinalDefaultPairPreservesExistingActiveWorkspaceOnExactNoOp(t *testing.T) {
 	existing := storeCollectionFixture(t)
 	store, mutator, lifecycle, _, _ := newMutationFixture(t, &existing)
-	publication, err := mutator.seedFinalDefaultPairForLegacyMigration(context.Background(), existing.Contexts[0].Context.ProjectRoot, existing.Templates[0].Current.Body)
+	publication, err := mutator.seedFinalDefaultPairForLegacyMigration(context.Background(), existing.Workspaces[0].ProjectRoot, existing.Templates[0].Current.Body)
 	if err != nil {
 		t.Fatal(err)
 	}

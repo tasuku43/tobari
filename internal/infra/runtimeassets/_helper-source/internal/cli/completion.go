@@ -136,7 +136,10 @@ func (c *CLI) planCompletion(ctx context.Context, current int, words []string) (
 		return nil, invalidCompletionRequest("word collection exceeds the bounded request size")
 	}
 
-	before := append([]string{}, words[1:current-1]...)
+	before := []string{}
+	if current > 1 {
+		before = append(before, words[1:current-1]...)
+	}
 	partial := words[current-1]
 	commandWords, activeRoot, valid := parseCompletionRoot(before)
 	if !valid {

@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+	"unicode"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -54,6 +56,9 @@ func (r *Runtime) resolveCanonicalRoot(ctx context.Context, value string) (strin
 }
 
 func (r *Runtime) validateProjectRoot(root string) error {
+	if containsDockerMountDelimiter(root) {
+		return fmt.Errorf("project root cannot be encoded as an exact Docker bind source")
+	}
 	if root == string(filepath.Separator) {
 		return fmt.Errorf("filesystem root cannot be a Tobari project root")
 	}
@@ -92,11 +97,42 @@ func (r *Runtime) validateProjectRoot(root string) error {
 	return nil
 }
 
+// validateExactProjectBindSource closes the path-resolution boundary again at
+// the Docker effect. A durable Workspace root is canonical authority, but an
+// overlapping read-write Workspace can still replace a nested directory after
+// planning. Docker's --mount syntax is comma-delimited, so accepting a comma
+// would also let one valid host path be parsed as another source plus options.
+func (r *Runtime) validateExactProjectBindSource(ctx context.Context, expected string) error {
+	if containsDockerMountDelimiter(expected) {
+		return fmt.Errorf("project bind source contains unsupported Docker mount syntax")
+	}
+	resolved, err := r.ResolveProjectRoot(ctx, expected)
+	if err != nil {
+		return fmt.Errorf("re-resolve project bind source: %w", err)
+	}
+	if resolved != expected {
+		return fmt.Errorf("project bind source changed from %q to %q", expected, resolved)
+	}
+	return nil
+}
+
+func containsDockerMountDelimiter(value string) bool {
+	return strings.ContainsRune(value, ',') || strings.IndexFunc(value, unicode.IsControl) >= 0
+}
+
 func isPathAncestor(ancestor, candidate string) bool {
 	return ancestor == candidate || (ancestor != string(filepath.Separator) && strings.HasPrefix(candidate, ancestor+string(filepath.Separator))) || ancestor == string(filepath.Separator)
 }
 
 func canonicalPathWithMissing(path string) (string, error) {
+	return canonicalPathWithMissingMode(path, true)
+}
+
+func canonicalPathWithMissingStrict(path string) (string, error) {
+	return canonicalPathWithMissingMode(path, false)
+}
+
+func canonicalPathWithMissingMode(path string, preserveDanglingSymlink bool) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("path is empty")
 	}
@@ -110,7 +146,7 @@ func canonicalPathWithMissing(path string) (string, error) {
 		if _, statErr := os.Lstat(current); statErr == nil {
 			resolved, evalErr := filepath.EvalSymlinks(current)
 			if evalErr != nil {
-				if !errors.Is(evalErr, os.ErrNotExist) {
+				if !preserveDanglingSymlink || !errors.Is(evalErr, os.ErrNotExist) {
 					return "", evalErr
 				}
 				// A dangling management symlink is still a protected lexical
@@ -234,8 +270,10 @@ func (r *Runtime) prepareActiveContextImage(ctx context.Context) error {
 }
 
 func (r *Runtime) ensureLocalBaseRuntimeImage(ctx context.Context, image string) error {
-	if _, err := r.runner.Output(ctx, []string{"image", "inspect", "--format", "{{.Id}}", image}, os.Environ()); err == nil {
+	if _, err := r.inspectRuntimeImageID(ctx, image); err == nil {
 		return nil
+	} else if !errors.Is(err, errRuntimeImageMissing) {
+		return err
 	}
 	version, err := runtimeassets.Version()
 	if err != nil {
@@ -305,41 +343,120 @@ func (r *Runtime) resolveBuiltinImageSelector(image string) (string, error) {
 }
 
 func (r *Runtime) validateCompatibleImage(ctx context.Context, image string) error {
-	output, err := r.runner.Output(
-		ctx,
-		[]string{
-			"image", "inspect", "--format",
-			`{"api":{{json (index .Config.Labels "` + tobari.RuntimeImageAPILabel + `")}},"lifetime":{{json (index .Config.Labels "` + tobari.RuntimeImageLifetimeLabel + `")}},"user":{{json .Config.User}},"entrypoint":{{json .Config.Entrypoint}}}`,
-			image,
-		},
-		os.Environ(),
-	)
+	_, err := r.resolveCompatibleImageID(ctx, image)
+	return err
+}
+
+var errRuntimeImageCompatibilityObservationBound = errors.New("Runtime image compatibility evidence exceeds the observation bound")
+var errRuntimeImageMissing = errors.New("Runtime image is missing")
+
+const runtimeImageInspectTimeout = 15 * time.Second
+
+type runtimeImageCompatibilityEvidence struct {
+	ID         string                     `json:"id"`
+	API        string                     `json:"api"`
+	Lifetime   string                     `json:"lifetime"`
+	User       string                     `json:"user"`
+	Entrypoint []string                   `json:"entrypoint"`
+	Volumes    map[string]json.RawMessage `json:"volumes"`
+}
+
+func (r *Runtime) inspectRuntimeImageCompatibility(ctx context.Context, image string) (runtimeImageCompatibilityEvidence, error) {
+	if tobari.ValidateImageSelector(image) != nil {
+		return runtimeImageCompatibilityEvidence{}, fmt.Errorf("Runtime image compatibility selector is invalid")
+	}
+	format := `{"id":{{json .Id}},` +
+		`"api":{{json (index .Config.Labels "` + tobari.RuntimeImageAPILabel + `")}},` +
+		`"lifetime":{{json (index .Config.Labels "` + tobari.RuntimeImageLifetimeLabel + `")}},` +
+		`"user":{{json .Config.User}},"entrypoint":{{json .Config.Entrypoint}},"volumes":{{json .Config.Volumes}}}`
+	stdout := &boundedBuffer{limit: 4096}
+	stderr := &boundedBuffer{limit: 4096}
+	inspectContext, cancel := context.WithTimeout(ctx, runtimeImageInspectTimeout)
+	defer cancel()
+	err := r.runner.Run(inspectContext, []string{"image", "inspect", "--format", format, image}, os.Environ(), nil, stdout, stderr)
+	if stdout.overflow || stderr.overflow {
+		return runtimeImageCompatibilityEvidence{}, errRuntimeImageCompatibilityObservationBound
+	}
 	if err != nil {
-		return fault.Wrap(
+		if isMissingRuntimeImageInspect(err, stderr.buffer.Bytes(), image) || isMissingRuntimeImageInspect(err, stdout.buffer.Bytes(), image) {
+			return runtimeImageCompatibilityEvidence{}, errRuntimeImageMissing
+		}
+		if ctx.Err() != nil {
+			return runtimeImageCompatibilityEvidence{}, ctx.Err()
+		}
+		return runtimeImageCompatibilityEvidence{}, fmt.Errorf("inspect Runtime image compatibility: %w: %s", err, boundedDiagnostic(stderr.buffer.Bytes()))
+	}
+	var evidence runtimeImageCompatibilityEvidence
+	if decodeStrictJSON(bytes.TrimSpace(stdout.buffer.Bytes()), &evidence) != nil {
+		return runtimeImageCompatibilityEvidence{}, fmt.Errorf("Runtime image compatibility evidence is malformed")
+	}
+	return evidence, nil
+}
+
+func (r *Runtime) inspectRuntimeImageID(ctx context.Context, image string) (string, error) {
+	if tobari.ValidateImageSelector(image) != nil {
+		return "", fmt.Errorf("Runtime image selector is invalid")
+	}
+	stdout := &boundedBuffer{limit: 4096}
+	stderr := &boundedBuffer{limit: 4096}
+	inspectContext, cancel := context.WithTimeout(ctx, runtimeImageInspectTimeout)
+	defer cancel()
+	err := r.runner.Run(inspectContext, []string{"image", "inspect", "--format", "{{.Id}}", image}, os.Environ(), nil, stdout, stderr)
+	if stdout.overflow || stderr.overflow {
+		return "", fmt.Errorf("Runtime image identity exceeds the observation bound")
+	}
+	if err != nil {
+		if isMissingRuntimeImageInspect(err, stderr.buffer.Bytes(), image) || isMissingRuntimeImageInspect(err, stdout.buffer.Bytes(), image) {
+			return "", errRuntimeImageMissing
+		}
+		return "", fmt.Errorf("inspect Runtime image identity: %w: %s", err, boundedDiagnostic(stderr.buffer.Bytes()))
+	}
+	id := strings.TrimSpace(stdout.buffer.String())
+	if tobari.ValidateDigest(id) != nil {
+		return "", fmt.Errorf("Runtime image identity is invalid")
+	}
+	return id, nil
+}
+
+func validRuntimeImageCompatibility(evidence runtimeImageCompatibilityEvidence) bool {
+	expectedEntrypoint := []string{"/usr/bin/tini", "--", "/usr/local/bin/tobari-entrypoint"}
+	return tobari.ValidateDigest(evidence.ID) == nil &&
+		evidence.API == tobari.RuntimeImageAPI &&
+		evidence.Lifetime == tobari.RuntimeImageLifetimeCommand &&
+		evidence.User == "tobari" &&
+		equalStrings(evidence.Entrypoint, expectedEntrypoint) && len(evidence.Volumes) == 0
+}
+
+func (r *Runtime) resolveCompatibleImageID(ctx context.Context, image string) (string, error) {
+	evidence, err := r.inspectRuntimeImageCompatibility(ctx, image)
+	if errors.Is(err, errRuntimeImageMissing) {
+		return "", fault.Wrap(
 			fault.KindUnavailable, "image_not_found",
 			"selected Tobari image is not available locally; build or pull it explicitly", false, err,
 			fault.NextAction{Command: "help tobari", Reason: "Read the compatible image contract."},
 		)
 	}
-	var configuration struct {
-		API        string   `json:"api"`
-		Lifetime   string   `json:"lifetime"`
-		User       string   `json:"user"`
-		Entrypoint []string `json:"entrypoint"`
+	if ctx.Err() != nil {
+		return "", ctx.Err()
 	}
-	expectedEntrypoint := []string{"/usr/bin/tini", "--", "/usr/local/bin/tobari-entrypoint"}
-	if err := json.Unmarshal(bytes.TrimSpace(output), &configuration); err != nil ||
-		configuration.API != tobari.RuntimeImageAPI ||
-		configuration.Lifetime != tobari.RuntimeImageLifetimeCommand ||
-		configuration.User != "tobari" ||
-		!equalStrings(configuration.Entrypoint, expectedEntrypoint) {
-		return fault.New(
+	if err != nil && !errors.Is(err, errRuntimeImageCompatibilityObservationBound) {
+		if public, ok := fault.PublicCopy(err); ok {
+			return "", public
+		}
+		return "", fault.Wrap(
+			fault.KindUnavailable, "runtime_image_unavailable",
+			"the selected Runtime image could not be inspected safely", true, err,
+			fault.NextAction{Command: "doctor", Reason: "Inspect Docker Engine and local image-store readiness."},
+		)
+	}
+	if err != nil || !validRuntimeImageCompatibility(evidence) {
+		return "", fault.New(
 			fault.KindRejected, "incompatible_image",
-			"selected image does not preserve the supported Tobari runtime API, lifetime command, user, and entrypoint", false,
+			"selected image does not preserve the supported Tobari runtime API, lifetime command, user, entrypoint, and volume-free filesystem contract", false,
 			fault.NextAction{Command: "help tobari", Reason: "Extend the documented Tobari runtime base."},
 		)
 	}
-	return nil
+	return evidence.ID, nil
 }
 
 func equalStrings(left, right []string) bool {

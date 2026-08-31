@@ -117,7 +117,7 @@ func storeCollectionFixture(t *testing.T) tobari.WorkspaceAuthorityCollection {
 	}
 	binding := tobari.ContextBinding{
 		SchemaVersion: tobari.ContextBindingSchemaVersion, ID: storeContextID,
-		ProjectRoot: "/workspace/example", TemplateID: storeTemplateID,
+		TemplateID: storeTemplateID,
 	}
 	memory, _, err := tobari.PublishPolicyMemory(storeContextID, []tobari.PolicyMemoryRule{}, nil)
 	if err != nil {
@@ -140,7 +140,7 @@ func storeCollectionFixture(t *testing.T) tobari.WorkspaceAuthorityCollection {
 	}
 	workspace := tobari.WorkspaceBinding{
 		SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: storeWorkspaceID, ContextID: storeContextID,
-		ProjectRoot: binding.ProjectRoot, Home: "/workspace/home", CreationDefaults: revision.Slices.CreationDefaultsDigest,
+		ProjectRoot: "/workspace/example", Home: "/workspace/home", CreationDefaults: revision.Slices.CreationDefaultsDigest,
 		LastSuccessfulEntry: &applied,
 	}
 	effect := tobari.PolicyCandidateEffect{
@@ -176,7 +176,7 @@ func TestWorkspaceAuthorityCollectionMakesWorkspaceHomeAnExclusiveOwnerBoundary(
 	if err != nil {
 		t.Fatal(err)
 	}
-	contextBinding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: secondContextID, ProjectRoot: collection.Contexts[0].Context.ProjectRoot, TemplateID: secondTemplateID}
+	contextBinding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: secondContextID, TemplateID: secondTemplateID}
 	templateReceipt := tobari.TemplatePolicyActivationReceipt{ContextID: secondContextID, TemplateID: secondTemplateID, PolicySliceDigest: secondTemplate.Current.Slices.PolicySliceDigest}
 	memoryReceipt := tobari.PolicyMemoryActivationReceipt{ContextID: secondContextID, Revision: memory.Revision}
 	activeMemory := memory.Clone()
@@ -188,7 +188,7 @@ func TestWorkspaceAuthorityCollectionMakesWorkspaceHomeAnExclusiveOwnerBoundary(
 	}
 	workspace := tobari.WorkspaceBinding{
 		SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: secondWorkspaceID, ContextID: secondContextID,
-		ProjectRoot: contextBinding.ProjectRoot, Home: collection.Workspaces[0].Home,
+		ProjectRoot: "/workspace/second", Home: collection.Workspaces[0].Home,
 		CreationDefaults: secondTemplate.Current.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied,
 	}
 	templates := append(collection.Templates, secondTemplate)

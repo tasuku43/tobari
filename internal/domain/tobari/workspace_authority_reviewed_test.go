@@ -178,7 +178,7 @@ func reviewedSecondContextFixture(
 	template := base.Templates[0]
 	binding := ContextBinding{
 		SchemaVersion: ContextBindingSchemaVersion, ID: contextID,
-		ProjectRoot: "/workspace/second", TemplateID: template.ID,
+		TemplateID: template.ID,
 	}
 	memory, _, err := PublishPolicyMemory(contextID, []PolicyMemoryRule{}, nil)
 	if err != nil {
@@ -200,7 +200,7 @@ func reviewedSecondContextFixture(
 	}
 	workspace := WorkspaceBinding{
 		SchemaVersion: WorkspaceBindingSchemaVersion, ID: workspaceID, ContextID: contextID,
-		ProjectRoot: binding.ProjectRoot, Home: "/workspace/second-home",
+		ProjectRoot: "/workspace/second", Home: "/workspace/second-home",
 		CreationDefaults: template.Current.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied,
 	}
 	effect := PolicyCandidateEffect{

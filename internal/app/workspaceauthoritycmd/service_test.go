@@ -24,6 +24,16 @@ const (
 	otherTemplateID  tobari.WorkspaceTemplateID = "01912345-6789-7abc-8def-0123456789a6"
 )
 
+func TestTemplateSourceRecoveryFaultRetainsPartialMutationState(t *testing.T) {
+	err := templateFault(tobari.ErrResourceSourceRecoveryRequired, func(error) error {
+		return errors.New("unexpected fallback")
+	})
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "resource_source_recovery_required" || public.Kind != fault.KindUnavailable || public.Phase != fault.PhaseMutation || public.ChangeState != fault.ChangePartial {
+		t.Fatalf("resource source recovery fault = %+v/%v", public, err)
+	}
+}
+
 func digest(c string) tobari.SemanticDigest {
 	return tobari.SemanticDigest("sha256:" + strings.Repeat(c, 64))
 }
@@ -49,7 +59,7 @@ func templateFixture(t *testing.T) tobari.WorkspaceTemplate {
 func snapshotFixture(t *testing.T, workspace, active bool) tobari.ContextAuthoritySnapshot {
 	t.Helper()
 	template := templateFixture(t)
-	binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, ProjectRoot: "/workspace/example", TemplateID: templateID}
+	binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: templateID}
 	memory, _, err := tobari.PublishPolicyMemory(contextID, []tobari.PolicyMemoryRule{}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +72,7 @@ func snapshotFixture(t *testing.T, workspace, active bool) tobari.ContextAuthori
 	}
 	if workspace {
 		applied := tobari.WorkspaceAppliedEntry{ContextID: contextID, TemplateID: templateID, TemplateRevision: template.Current.Revision, EntrySliceDigest: template.Current.Slices.EntrySliceDigest, RuntimeID: tobari.StandardRuntimeID, RuntimeRevision: template.Current.Slices.RuntimeRevision, ResolvedSpec: digest("7"), ReconciledAt: time.Unix(1, 0).UTC()}
-		value := tobari.WorkspaceBinding{SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: workspaceID, ContextID: contextID, ProjectRoot: binding.ProjectRoot, Home: "/workspace/home", CreationDefaults: template.Current.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied}
+		value := tobari.WorkspaceBinding{SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: workspaceID, ContextID: contextID, ProjectRoot: "/workspace/example", Home: "/workspace/home", CreationDefaults: template.Current.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied}
 		result.Workspace = &value
 	}
 	if err := result.Validate(); err != nil {
@@ -177,6 +187,16 @@ func (f *fakePort) CreateContextByTemplateReference(_ context.Context, ref, root
 }
 func (f *fakePort) EnterContextByReference(_ context.Context, ref string, _ tobari.WorkspaceSessionRequest, _ io.Reader, _ io.Writer, _ io.Writer) (tobari.ContextEntryPublication, error) {
 	f.calls++
+	f.lastRef = ref
+	if f.entryErr != nil {
+		return tobari.ContextEntryPublication{}, f.entryErr
+	}
+	return tobari.ContextEntryPublication{Snapshot: f.snapshot, Outcome: tobari.WorkspaceSessionOutcome{ExitCode: 0, CleanupIssues: []tobari.WorkspaceAttachmentCleanupIssue{}}}, nil
+}
+
+func (f *fakePort) EnterCurrentFinalDefaultPair(_ context.Context, observation tobari.FinalDefaultPairObservation, _ string, _ tobari.WorkspaceSessionRequest, _ io.Reader, _ io.Writer, _ io.Writer) (tobari.ContextEntryPublication, error) {
+	f.calls++
+	ref, _ := tobari.ContextRef(observation.Context.Context.ID)
 	f.lastRef = ref
 	if f.entryErr != nil {
 		return tobari.ContextEntryPublication{}, f.entryErr
@@ -356,6 +376,13 @@ func TestTemplateMutationFaultClassifiesUnknownOutcomeBeforeCLINormalization(t *
 	}
 }
 
+func TestContextMutationFaultClassifiesStaleActivationPlanBeforeMutation(t *testing.T) {
+	public, ok := fault.PublicCopy(contextMutationFault(tobari.ErrWorkspaceTemplateChangePlanStale))
+	if !ok || public.Code != "context_activation_plan_stale" || public.Kind != fault.KindRejected || public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone || public.Retryable {
+		t.Fatalf("stale Context activation fault=%#v ok=%t", public, ok)
+	}
+}
+
 func TestContextAndWorkspaceActionsUseOnlyExactRefs(t *testing.T) {
 	template := templateFixture(t)
 	contextRef, _ := tobari.ContextRef(contextID)
@@ -393,8 +420,9 @@ func TestContextEntryClassifiesSupportedAuthorityBoundariesWithoutUnknownMutatio
 		{name: "Policy Memory stale", err: tobari.ErrWorkspaceEntryPolicyMemoryInactive, code: "workspace_entry_policy_memory_inactive", phase: fault.PhasePrecondition, change: fault.ChangeNone},
 		{name: "standard Runtime preparation uncertain", err: errors.Join(tobari.ErrWorkspaceRuntimePreparationUncertain, errors.New("synthetic BuildKit failure")), code: "workspace_runtime_preparation_uncertain", phase: fault.PhaseMutation, change: fault.ChangeUnknown},
 		{name: "observation unavailable", err: errors.Join(tobari.ErrWorkspaceEntryObservationUnavailable, errors.New("synthetic private observation")), code: "workspace_entry_observation_unavailable", phase: fault.PhaseObservation, change: fault.ChangeNotApplicable},
+		{name: "exclusive Home operation", err: errors.Join(tobari.ErrWorkspaceEntryObservationUnavailable, tobari.ErrContextBindingProtected), code: "workspace_entry_busy", phase: fault.PhasePrecondition, change: fault.ChangeNone},
 		{name: "mutation recovery required", err: errors.Join(tobari.ErrFinalAuthorityMutationRecoveryRequired, errors.New("active decision")), code: "final_authority_mutation_recovery_required", phase: fault.PhasePrecondition, change: fault.ChangeNone},
-		{name: "durable decision interrupted", err: errors.Join(tobari.ErrWorkspaceEntryInterrupted, context.DeadlineExceeded), code: "workspace_entry_interrupted", phase: fault.PhaseMutation, change: fault.ChangePartial},
+		{name: "reconciliation fence release interrupted", err: errors.Join(tobari.ErrWorkspaceEntryInterrupted, errors.New("synthetic reconciliation fence release failure")), code: "workspace_entry_interrupted", phase: fault.PhaseMutation, change: fault.ChangePartial},
 		{name: "published before attachment", err: errors.Join(tobari.ErrWorkspaceEntryReconciliationConfirmed, context.Canceled), code: "workspace_entry_attachment_unavailable", phase: fault.PhaseAttachment, change: fault.ChangeConfirmed},
 		{name: "canceled before decision", err: errors.Join(tobari.ErrWorkspaceEntryCanceledBeforeDecision, context.Canceled), code: "workspace_entry_canceled", phase: fault.PhasePrecondition, change: fault.ChangeNone},
 	} {
@@ -410,6 +438,28 @@ func TestContextEntryClassifiesSupportedAuthorityBoundariesWithoutUnknownMutatio
 				t.Fatalf("recovery is not read-only: %#v", public.NextActions)
 			}
 		})
+	}
+}
+
+func TestCurrentDefaultPairEntryMapsRuntimeRepairSentinelForRootFallback(t *testing.T) {
+	snapshot := snapshotFixture(t, true, true)
+	template := snapshot.Template.Clone()
+	observation := tobari.FinalDefaultPairObservation{
+		SchemaVersion: tobari.FinalDefaultPairObservationSchemaVersion, CollectionPresent: true,
+		CollectionGeneration: 9, CollectionRevision: digest("9"), ProjectRoot: snapshot.Workspace.ProjectRoot,
+		DefaultTemplate: &template, Context: &snapshot,
+	}
+	if err := observation.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakePort{snapshot: snapshot, entryErr: errors.Join(tobari.ErrWorkspaceEntryRuntimeNotCurrent, tobari.ErrRuntimeNotReady)}
+	service := NewContextService(fake)
+	contextRef, _ := tobari.ContextRef(snapshot.Context.ID)
+	target := operation.TargetRef{Kind: tobari.WorkspaceReferenceKind, ParentID: contextRef}
+	_, err := service.EnterCurrentDefaultPair(context.Background(), intent(TaskContextEnter, operation.EffectCreate, target, ContextEnterImpact()), observation, observation.ProjectRoot, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "workspace_entry_repair_required" || public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone || !public.Retryable {
+		t.Fatalf("current Runtime repair fault=%#v ok=%t err=%v", public, ok, err)
 	}
 }
 
@@ -759,7 +809,6 @@ func rebindSnapshot(t *testing.T, source tobari.ContextAuthoritySnapshot, newCon
 	t.Helper()
 	result := source.Clone()
 	result.Context.ID = newContextID
-	result.Context.ProjectRoot = root
 	memory, _, err := tobari.PublishPolicyMemory(newContextID, []tobari.PolicyMemoryRule{}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -784,11 +833,10 @@ func rebindSnapshot(t *testing.T, source tobari.ContextAuthoritySnapshot, newCon
 	return result
 }
 
-func TestExhaustiveAuthorityListsRejectContradictoryBindings(t *testing.T) {
+func TestExhaustiveAuthorityListsRejectDuplicateContextIDs(t *testing.T) {
 	firstContext := snapshotFixture(t, false, false)
-	duplicatePair := rebindSnapshot(t, firstContext, otherContextID, firstContext.Context.ProjectRoot, otherWorkspaceID)
-	if _, err := NewContextList([]ContextSnapshot{firstContext, duplicatePair}); err == nil {
-		t.Fatal("duplicate Project and Template Context pair was accepted")
+	if _, err := NewContextList([]ContextSnapshot{firstContext, firstContext.Clone()}); err == nil {
+		t.Fatal("duplicate Context ID was accepted")
 	}
 
 	firstWorkspace := snapshotFixture(t, true, true)

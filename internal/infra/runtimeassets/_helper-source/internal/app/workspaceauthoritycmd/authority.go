@@ -225,10 +225,10 @@ func NewContextList(snapshots []ContextSnapshot) (ContextList, error) {
 		return ContextList{}, fmt.Errorf("Context collection Templates are inconsistent: %w", err)
 	}
 	sort.Slice(items, func(i, j int) bool {
-		if items[i].Snapshot.Context.ProjectRoot == items[j].Snapshot.Context.ProjectRoot {
+		if items[i].Snapshot.Template.Name == items[j].Snapshot.Template.Name {
 			return items[i].Snapshot.Context.ID < items[j].Snapshot.Context.ID
 		}
-		return items[i].Snapshot.Context.ProjectRoot < items[j].Snapshot.Context.ProjectRoot
+		return items[i].Snapshot.Template.Name < items[j].Snapshot.Template.Name
 	})
 	return ContextList{Items: items}, nil
 }

@@ -48,12 +48,12 @@ func (r *Runtime) RestoreManagedRuntimeByRevisionReference(ctx context.Context, 
 		}
 		if target.Availability == tobari.RuntimeAvailabilityAvailable {
 			selector := managedLibraryRuntimeImage(target.Name, target.RuntimeID, target.Revision)
-			if err := r.validateManagedRuntimeBuildCompatibility(lockContext, selector); err != nil {
-				return fmt.Errorf("%w: current image compatibility changed: %v", tobari.ErrRuntimeRetirementObservationUnknown, err)
-			}
 			digest, err := r.inspectManagedRuntimeBuildEvidence(lockContext, selector, target.RuntimeID, target.Revision)
 			if err != nil || digest != target.RecordedImageDigest {
 				return fmt.Errorf("%w: current image authority changed: %v", tobari.ErrRuntimeRetirementObservationUnknown, err)
+			}
+			if err := r.validateManagedRuntimeBuildCompatibility(lockContext, digest); err != nil {
+				return fmt.Errorf("%w: current image compatibility changed: %v", tobari.ErrRuntimeRetirementObservationUnknown, err)
 			}
 			result = runtimeRestoreResult(target, tobari.RuntimeAlreadyAvailable, tobari.RuntimeRestoreArtifactNotCreated)
 			return result.Validate()
@@ -131,11 +131,11 @@ func (r *Runtime) RestoreManagedRuntimeByRevisionReference(ctx context.Context, 
 			if err := r.runner.Run(lockContext, args, os.Environ(), nil, stream, stream); err != nil {
 				return r.retainRuntimeBuildFailure(lockContext, journal, fmt.Errorf("%w: rebuild Runtime revision: %v: %s", tobari.ErrRuntimeRevisionUnrestorable, err, boundedDiagnostic(tail.Bytes())))
 			}
-			if err := r.validateManagedRuntimeBuildCompatibility(lockContext, journal.StagingImage); err != nil {
-				return r.retainRuntimeBuildFailure(lockContext, journal, fmt.Errorf("%w: %v", tobari.ErrRuntimeRevisionUnrestorable, err))
-			}
 			imageDigest, err := r.inspectManagedRuntimeBuildEvidence(lockContext, journal.StagingImage, target.RuntimeID, target.Revision, journal.AttemptID)
 			if err != nil {
+				return r.retainRuntimeBuildFailure(lockContext, journal, fmt.Errorf("%w: %v", tobari.ErrRuntimeRevisionUnrestorable, err))
+			}
+			if err := r.validateManagedRuntimeBuildCompatibility(lockContext, imageDigest); err != nil {
 				return r.retainRuntimeBuildFailure(lockContext, journal, fmt.Errorf("%w: %v", tobari.ErrRuntimeRevisionUnrestorable, err))
 			}
 			if err := r.freezeRuntimeBuildSnapshot(journal.SnapshotPath); err != nil {
@@ -241,12 +241,12 @@ func (r *Runtime) observeAlreadyAvailableRuntimeRestore(ctx context.Context, ref
 	observationContext, cancel := context.WithTimeout(ctx, runtimeLifecycleWallBudget)
 	defer cancel()
 	selector := managedLibraryRuntimeImage(before.Name, before.RuntimeID, before.Revision)
-	if err := r.validateManagedRuntimeBuildCompatibility(observationContext, selector); err != nil {
-		return tobari.RuntimeRestoreResult{}, fmt.Errorf("%w: current image compatibility changed: %v", tobari.ErrRuntimeRetirementObservationUnknown, err)
-	}
 	digest, err := r.inspectManagedRuntimeBuildEvidence(observationContext, selector, before.RuntimeID, before.Revision)
 	if err != nil || digest != before.RecordedImageDigest {
 		return tobari.RuntimeRestoreResult{}, fmt.Errorf("%w: current image authority changed: %v", tobari.ErrRuntimeRetirementObservationUnknown, err)
+	}
+	if err := r.validateManagedRuntimeBuildCompatibility(observationContext, digest); err != nil {
+		return tobari.RuntimeRestoreResult{}, fmt.Errorf("%w: current image compatibility changed: %v", tobari.ErrRuntimeRetirementObservationUnknown, err)
 	}
 	afterSnapshot, _, err := r.ReadRuntimeLifecycleSnapshot(observationContext)
 	if err != nil {

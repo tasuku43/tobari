@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
@@ -48,6 +49,7 @@ type ContextCredentialAbsenceAuthority interface {
 // It is invoked only while the installation lifecycle lock is held.
 type WorkspaceTemplateRuntimeRevisionAuthority interface {
 	ResolveWorkspaceTemplateRuntimeRevision(context.Context, string) (tobari.RuntimeBinding, error)
+	ResolveRetainedWorkspaceTemplateRuntimeBinding(context.Context, tobari.RuntimeBinding) (tobari.RuntimeBinding, error)
 }
 
 type WorkspaceTemplateRunningWorkspaceAuthority interface {
@@ -300,7 +302,7 @@ func (d effectDecision) validate() error {
 		if d.ClusterPlan != nil || d.ClusterProjectionIdentity != nil || err != nil || d.EntryPlan == nil || d.EntryPlan.Workspace.ContextID != contextID || d.EntryPlan.Applied.ContextID != contextID || d.ContextID != nil || d.WorkspaceID != nil || d.Workspace != nil || d.Force != nil || d.Candidate != nil || d.RuleID != "" || d.Decision != "" || d.PreviousMemory != nil || d.ReviewedSet != nil || d.ReviewedPublication != nil || d.AuthDecision != nil || d.AuthResult != nil {
 			return fmt.Errorf("Context entry effect decision is invalid")
 		}
-		binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, ProjectRoot: d.EntryPlan.Workspace.ProjectRoot, TemplateID: d.EntryPlan.Applied.TemplateID}
+		binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: d.EntryPlan.Applied.TemplateID}
 		if d.EntryPlan.Workspace.ValidateFor(binding) != nil || d.EntryPlan.Applied.ValidateFor(binding) != nil || d.EntryPlan.Workspace.LastSuccessfulEntry == nil || *d.EntryPlan.Workspace.LastSuccessfulEntry != d.EntryPlan.Applied {
 			return fmt.Errorf("Context entry effect decision plan is invalid")
 		}
@@ -449,6 +451,7 @@ func (m *Mutator) seedFinalDefaultPairForLegacyMigration(ctx context.Context, pr
 		}
 		var next tobari.WorkspaceAuthorityCollection
 		var changed bool
+		var selectedContextID tobari.ContextID
 		if !present {
 			templateID, err := tobari.IssueWorkspaceTemplateID(m.clock().UTC(), m.entropy)
 			if err != nil {
@@ -470,7 +473,8 @@ func (m *Mutator) seedFinalDefaultPairForLegacyMigration(ctx context.Context, pr
 			if err != nil {
 				return current, false, err
 			}
-			binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, ProjectRoot: projectRoot, TemplateID: templateID}
+			binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: templateID}
+			selectedContextID = contextID
 			record := tobari.WorkspaceAuthorityContextRecord{Context: binding, PolicyMemory: memory}
 			next, changed, err = publishCollection(current, false, []tobari.WorkspaceTemplate{template}, []tobari.WorkspaceAuthorityContextRecord{record}, []tobari.WorkspaceBinding{}, []tobari.PolicyCandidateAuthority{}, &templateID)
 			if err != nil {
@@ -483,7 +487,25 @@ func (m *Mutator) seedFinalDefaultPairForLegacyMigration(ctx context.Context, pr
 			if previous.DefaultTemplate == nil {
 				return current, false, fmt.Errorf("selected default Template is unavailable")
 			}
-			if previous.Context != nil {
+			if previous.Context == nil {
+				snapshots, snapshotErr := current.ContextSnapshots()
+				if snapshotErr != nil {
+					return current, false, snapshotErr
+				}
+				for _, snapshot := range snapshots {
+					if snapshot.Context.TemplateID != previous.DefaultTemplate.ID || snapshot.Workspace != nil {
+						continue
+					}
+					if selectedContextID != "" {
+						return current, false, fmt.Errorf("default Template has multiple unattached Contexts")
+					}
+					selectedContextID = snapshot.Context.ID
+				}
+			}
+			if previous.Context != nil || selectedContextID != "" {
+				if previous.Context != nil {
+					selectedContextID = previous.Context.Context.ID
+				}
 				next, changed = current.Clone(), false
 			} else {
 				contextID, err := tobari.IssueContextID(m.clock().UTC(), m.entropy)
@@ -494,7 +516,8 @@ func (m *Mutator) seedFinalDefaultPairForLegacyMigration(ctx context.Context, pr
 				if err != nil {
 					return current, false, err
 				}
-				binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, ProjectRoot: projectRoot, TemplateID: previous.DefaultTemplate.ID}
+				binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: previous.DefaultTemplate.ID}
+				selectedContextID = contextID
 				contexts := append(cloneContextRecords(current.Contexts), tobari.WorkspaceAuthorityContextRecord{Context: binding, PolicyMemory: memory})
 				next, changed, err = publishCollection(current, true, current.Templates, contexts, current.Workspaces, current.PendingCandidates, current.DefaultTemplateID)
 				if err != nil {
@@ -505,6 +528,23 @@ func (m *Mutator) seedFinalDefaultPairForLegacyMigration(ctx context.Context, pr
 		confirmed, err := tobari.NewFinalDefaultPairObservation(next, true, projectRoot)
 		if err != nil {
 			return current, false, err
+		}
+		if confirmed.Context == nil {
+			snapshots, snapshotErr := next.ContextSnapshots()
+			if snapshotErr != nil {
+				return current, false, snapshotErr
+			}
+			for _, snapshot := range snapshots {
+				if snapshot.Context.ID == selectedContextID {
+					value := snapshot.Clone()
+					confirmed.Context = &value
+					break
+				}
+			}
+		}
+		if !changed && previous.Context == nil && confirmed.Context != nil {
+			value := confirmed.Context.Clone()
+			previous.Context = &value
 		}
 		publication = tobari.FinalDefaultPairPublication{Previous: previous.Clone(), Current: confirmed, Changed: changed}
 		if err := publication.ValidateFor(projectRoot, freshBody); err != nil {
@@ -647,7 +687,7 @@ func (m *Mutator) ApplyContextSourceByPlan(ctx context.Context, planRef string, 
 			result, err = m.store.ReadContextAuthorityByReference(lockedContext, plan.ContextRef)
 			return current, false, err
 		}
-		binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: id, ProjectRoot: source.ProjectRoot, TemplateID: source.TemplateID}
+		binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: id, TemplateID: source.TemplateID}
 		memory, _, err := tobari.PublishPolicyMemory(id, []tobari.PolicyMemoryRule{}, nil)
 		if err != nil {
 			return current, false, err
@@ -730,13 +770,9 @@ func (m *Mutator) planWorkspaceTemplateChange(
 	source tobari.WorkspaceTemplateSource, fingerprint string,
 ) (tobari.WorkspaceTemplateChangePlan, error) {
 	runtimeSource := source.Template.EntryDefaults.Runtime
-	runtimeRef := tobari.RuntimeRevisionRef(runtimeSource.ID, runtimeSource.Revision)
-	resolved, err := m.runtimeRevision.ResolveWorkspaceTemplateRuntimeRevision(ctx, runtimeRef)
+	resolved, err := m.resolveWorkspaceTemplateRuntimeForActiveTemplate(ctx, current, id, runtimeSource)
 	if err != nil {
 		return tobari.WorkspaceTemplateChangePlan{}, err
-	}
-	if !runtimeSource.Matches(resolved) {
-		return tobari.WorkspaceTemplateChangePlan{}, fmt.Errorf("Template source Runtime binding does not match exact immutable Runtime authority")
 	}
 	running := make(map[tobari.WorkspaceID]bool)
 	snapshots, err := current.ContextSnapshots()
@@ -774,6 +810,46 @@ func (m *Mutator) ResolveWorkspaceTemplateRuntimeSource(ctx context.Context, sou
 		return tobari.RuntimeBinding{}, fmt.Errorf("Template source Runtime binding does not match exact immutable Runtime authority")
 	}
 	return resolved, nil
+}
+
+// ResolveWorkspaceTemplateRuntimeSourceWithRetainedBinding permits one narrow
+// compatibility path: an owner-authoritative Template may retain an exact
+// standard Runtime revision that is no longer in the current binary's
+// one-revision standard catalog. It never admits a new or changed Runtime ref.
+func (m *Mutator) ResolveWorkspaceTemplateRuntimeSourceWithRetainedBinding(
+	ctx context.Context,
+	source tobari.RuntimeSourceRef,
+	retained tobari.RuntimeBinding,
+) (tobari.RuntimeBinding, error) {
+	resolved, err := m.ResolveWorkspaceTemplateRuntimeSource(ctx, source)
+	if err == nil {
+		return resolved, nil
+	}
+	if !errors.Is(err, tobari.ErrRuntimeRevisionNotFound) || !source.Matches(retained) {
+		return tobari.RuntimeBinding{}, err
+	}
+	resolved, retainedErr := m.runtimeRevision.ResolveRetainedWorkspaceTemplateRuntimeBinding(ctx, retained)
+	if retainedErr != nil || !reflect.DeepEqual(resolved, retained) {
+		if retainedErr == nil {
+			retainedErr = fmt.Errorf("retained Template Runtime binding changed during validation")
+		}
+		return tobari.RuntimeBinding{}, retainedErr
+	}
+	return resolved, nil
+}
+
+func (m *Mutator) resolveWorkspaceTemplateRuntimeForActiveTemplate(
+	ctx context.Context,
+	current tobari.WorkspaceAuthorityCollection,
+	id tobari.WorkspaceTemplateID,
+	source tobari.RuntimeSourceRef,
+) (tobari.RuntimeBinding, error) {
+	for _, template := range current.Templates {
+		if template.ID == id {
+			return m.ResolveWorkspaceTemplateRuntimeSourceWithRetainedBinding(ctx, source, template.Current.Body.EntryDefaults.Runtime)
+		}
+	}
+	return m.ResolveWorkspaceTemplateRuntimeSource(ctx, source)
 }
 
 // ApplyWorkspaceTemplateSourceByReference validates one complete file-backed
@@ -849,13 +925,9 @@ func (m *Mutator) ApplyWorkspaceTemplateSourceByReference(
 				}
 			}
 			runtimeSource := source.Template.EntryDefaults.Runtime
-			runtimeRef := tobari.RuntimeRevisionRef(runtimeSource.ID, runtimeSource.Revision)
-			resolved, err := m.runtimeRevision.ResolveWorkspaceTemplateRuntimeRevision(lockedContext, runtimeRef)
+			resolved, err := m.resolveWorkspaceTemplateRuntimeForActiveTemplate(lockedContext, current, id, runtimeSource)
 			if err != nil {
 				return current, false, err
-			}
-			if !runtimeSource.Matches(resolved) {
-				return current, false, fmt.Errorf("Template source Runtime binding does not match exact immutable Runtime authority")
 			}
 			body, err := source.Body(resolved)
 			if err != nil {
@@ -1209,16 +1281,11 @@ func (m *Mutator) seedContextForLegacyMigration(ctx context.Context, templateRef
 		if template == nil {
 			return current, false, tobari.ErrWorkspaceTemplateNotFound
 		}
-		for _, record := range current.Contexts {
-			if record.Context.ProjectRoot == projectRoot && record.Context.TemplateID == templateID {
-				return current, false, tobari.ErrContextBindingExists
-			}
-		}
 		id, err := tobari.IssueContextID(m.clock().UTC(), m.entropy)
 		if err != nil {
 			return current, false, err
 		}
-		binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: id, ProjectRoot: projectRoot, TemplateID: templateID}
+		binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: id, TemplateID: templateID}
 		memory, _, err := tobari.PublishPolicyMemory(id, []tobari.PolicyMemoryRule{}, nil)
 		if err != nil {
 			return current, false, err
@@ -1731,7 +1798,7 @@ func (m *Mutator) effectfulMutate(
 			return err
 		}
 		if !present {
-			return fmt.Errorf("effectful final-authority mutation requires an existing complete envelope")
+			return tobari.ErrFinalAuthorityNotFound
 		}
 		terminal, terminalPresent, err := m.readTerminalEffectDecision()
 		if err != nil {
@@ -1839,7 +1906,18 @@ func (m *Mutator) effectfulMutate(
 			return fmt.Errorf("confirm final Workspace authority selection before external effect: %w", err)
 		}
 		if err := plan.effect(lockedContext); err != nil {
-			return err
+			return fault.WithClassification(
+				fault.Wrap(
+					fault.KindUnavailable,
+					"final_authority_mutation_interrupted",
+					"The final-authority mutation crossed its durable decision boundary but external settlement did not complete.",
+					false,
+					err,
+					fault.NextAction{Command: "status", Reason: "Read the preserved decision and recover it through the exact initiating command."},
+				),
+				fault.PhaseMutation,
+				fault.ChangePartial,
+			)
 		}
 		completionContext, cancelCompletion := context.WithTimeout(m.lifetime, finalMutationSelectionSettlementTimeout)
 		defer cancelCompletion()

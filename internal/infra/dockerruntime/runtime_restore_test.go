@@ -337,3 +337,36 @@ func TestRuntimeRestorePublicationResumesEveryJournalBoundary(t *testing.T) {
 		}
 	}
 }
+
+func TestRuntimeRestorePublicationRecoveryRevalidatesImmutableImageCompatibilityBeforeMutation(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("c", 64)
+	runtime, runner, manifest := restoreRuntimeFixture(t, digest)
+	revision := manifest.Revisions[0]
+	runtime.runtimeBuildJournalWrite = func(_ runtimeBuildJournal, next runtimeBuildJournal) error {
+		if next.Phase == runtimeBuildPhaseFinalTagged {
+			return errors.New("synthetic restore publication interruption")
+		}
+		return writeAtomicJSON(runtime.runtimeBuildJournalPath(), next)
+	}
+	if _, err := runtime.RestoreManagedRuntimeByRevisionReference(context.Background(), tobari.RuntimeRevisionRef(manifest.ID, revision.Revision), nil); err == nil {
+		t.Fatal("restore publication interruption was hidden")
+	}
+	runtime.runtimeBuildJournalWrite = nil
+	before, err := runtime.readRuntimeBuildJournalObserved()
+	if err != nil || before == nil || before.Phase != runtimeBuildPhaseBuilt || !before.Restore {
+		t.Fatalf("interrupted restore publication journal = %+v/%v", before, err)
+	}
+	beforeRuns := len(runner.runs)
+	runner.compatibilityPayload = incompatibleRuntimeVolumeInspection("c")
+	if err := runtime.RecoverRuntimeBuildPublication(context.Background()); err == nil {
+		t.Fatal("incompatible restore publication recovery succeeded")
+	}
+	after, err := runtime.readRuntimeBuildJournalObserved()
+	if err != nil || after == nil || *after != *before {
+		t.Fatalf("restore compatibility failure changed journal: before=%+v after=%+v error=%v", before, after, err)
+	}
+	if len(runner.runs) != beforeRuns {
+		t.Fatalf("restore compatibility failure crossed publication mutation: %+v", runner.runs[beforeRuns:])
+	}
+	assertManagedCompatibilityTargetsImmutableID(t, runner)
+}

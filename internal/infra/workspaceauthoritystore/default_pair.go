@@ -92,6 +92,17 @@ func (a *DefaultPairAdapter) ObserveFinalDefaultPair(ctx context.Context, projec
 	return tobari.NewFinalDefaultPairObservation(collection, present, projectRoot)
 }
 
+func (a *DefaultPairAdapter) ObserveFinalDefaultPairContext(ctx context.Context, projectRoot string, contextID tobari.ContextID) (tobari.FinalDefaultPairObservation, error) {
+	if a == nil || a.store == nil {
+		return tobari.FinalDefaultPairObservation{}, fmt.Errorf("final default-pair Store is unavailable")
+	}
+	collection, present, err := a.store.ReadComplete(ctx)
+	if err != nil {
+		return tobari.FinalDefaultPairObservation{}, err
+	}
+	return tobari.NewFinalDefaultPairContextObservation(collection, present, projectRoot, contextID)
+}
+
 func (a *DefaultPairAdapter) ObserveMutationRecovery(ctx context.Context) (tobari.FinalAuthorityMutationObservation, error) {
 	if a == nil || a.store == nil {
 		return tobari.FinalAuthorityMutationObservation{}, fmt.Errorf("final mutation recovery authority is unavailable")

@@ -99,10 +99,10 @@ func NewFinalClusterDenialWindow(collection WorkspaceAuthorityCollection, tail i
 		contextBinding, contextFound := contexts[contextID]
 		workspace, workspaceFound := workspaces[workspaceID]
 		template, templateFound := templates[contextBinding.TemplateID]
-		if !contextFound || !workspaceFound || !templateFound || workspace.ContextID != contextID || workspace.ProjectRoot != contextBinding.ProjectRoot {
+		if !contextFound || !workspaceFound || !templateFound || workspace.ContextID != contextID {
 			return FinalClusterDenialWindow{}, fmt.Errorf("denial owner is absent from final authority")
 		}
-		item := FinalClusterDenial{ContextID: contextID, WorkspaceTemplateID: template.ID, TemplateName: template.Name, WorkspaceID: workspaceID, ProjectRoot: contextBinding.ProjectRoot, Denial: denial}
+		item := FinalClusterDenial{ContextID: contextID, WorkspaceTemplateID: template.ID, TemplateName: template.Name, WorkspaceID: workspaceID, ProjectRoot: workspace.ProjectRoot, Denial: denial}
 		if err := item.Validate(); err != nil {
 			return FinalClusterDenialWindow{}, err
 		}

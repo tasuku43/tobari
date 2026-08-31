@@ -123,7 +123,7 @@ func finalSessionBindingFixtureWithTemplateID(t *testing.T, templateID tobari.Wo
 		t.Fatal(err)
 	}
 	template := tobari.WorkspaceTemplate{SchemaVersion: tobari.WorkspaceTemplateSchemaVersion, ID: templateID, Name: templateName, Current: revision, Retained: []tobari.WorkspaceTemplateRevision{revision.Clone()}}
-	contextBinding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, ProjectRoot: projectRoot, TemplateID: template.ID}
+	contextBinding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: template.ID}
 	memory, _, err := tobari.PublishPolicyMemory(contextID, []tobari.PolicyMemoryRule{}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -196,17 +196,29 @@ func TestFinalWorkspaceSessionReusesCanonicalOwnerAndObservesExactLiveness(t *te
 	if state, err := runtime.ObserveFinalWorkspaceSession(context.Background(), identity); err != nil || state != FinalWorkspaceSessionLive {
 		t.Fatalf("live final session = %q, %v", state, err)
 	}
-	if err := borrower.Close(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if state, err := runtime.ObserveFinalWorkspaceSession(context.Background(), identity); err != nil || state != FinalWorkspaceSessionLive {
-		t.Fatalf("borrower close changed owner = %q, %v", state, err)
+	if err := runtime.ConfirmNoFinalWorkspaceSessions(context.Background()); !errors.Is(err, tobari.ErrContextBindingProtected) {
+		t.Fatalf("global fence ignored owner and borrower: %v", err)
 	}
 	if err := owner.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if state, err := runtime.ObserveFinalWorkspaceSession(context.Background(), identity); err != nil || state != FinalWorkspaceSessionAbsent {
+		t.Fatalf("owner close retained canonical owner = %q, %v", state, err)
+	}
+	if err := runtime.ConfirmNoFinalWorkspaceSessions(context.Background()); !errors.Is(err, tobari.ErrContextBindingProtected) {
+		t.Fatalf("global fence ignored borrower after owner close: %v", err)
+	}
+	if release, err := runtime.AcquireWorkspaceReconciliationFence(context.Background()); !errors.Is(err, tobari.ErrContextBindingProtected) || release != nil {
+		t.Fatalf("runtime repair crossed borrower after owner close: release=%v err=%v", release != nil, err)
+	}
+	if err := borrower.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if state, err := runtime.ObserveFinalWorkspaceSession(context.Background(), identity); err != nil || state != FinalWorkspaceSessionAbsent {
 		t.Fatalf("closed final session = %q, %v", state, err)
+	}
+	if err := runtime.ConfirmNoFinalWorkspaceSessions(context.Background()); err != nil {
+		t.Fatalf("global fence remained after final borrower close: %v", err)
 	}
 }
 

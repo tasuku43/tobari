@@ -2,6 +2,7 @@ package workspaceauthoritycmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 
@@ -140,14 +141,20 @@ func (s *FinalClusterService) Reconcile(ctx context.Context, intent operation.In
 	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
 		plan, identity, err := s.reconcile.Reconcile(actionContext)
 		if err != nil {
+			if _, ok := fault.PublicCopy(err); ok {
+				return err
+			}
 			if classified, ok := preReleaseLegacyMutationFault(err); ok {
 				return classified
 			}
 			if classified, ok := finalAuthorityMutationRecoveryFault(err); ok {
 				return classified
 			}
-			if _, ok := fault.PublicCopy(err); ok {
-				return err
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return fault.WithClassification(fault.Wrap(
+					fault.KindCanceled, "operation_canceled", "Final cluster reconciliation was canceled before a durable decision.", true, err,
+					fault.NextAction{Command: "cluster up", Reason: "Retry the same activation when ready."},
+				), fault.PhasePrecondition, fault.ChangeNone)
 			}
 			return unclassifiedMutationFault("final cluster reconciliation returned an unclassified outcome", err)
 		}

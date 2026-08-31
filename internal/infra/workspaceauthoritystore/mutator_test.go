@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
@@ -91,6 +92,13 @@ func (r *templateRuntimeRevisionFixture) ResolveWorkspaceTemplateRuntimeRevision
 		return tobari.RuntimeBinding{}, err
 	}
 	return tobari.RuntimeBinding{RuntimeID: id, Name: "managed", Revision: revision, Ordinal: 1, Image: "tobari-runtime-managed:aaaaaaaaaaaa"}, nil
+}
+
+func (r *templateRuntimeRevisionFixture) ResolveRetainedWorkspaceTemplateRuntimeBinding(_ context.Context, binding tobari.RuntimeBinding) (tobari.RuntimeBinding, error) {
+	if binding.Validate() != nil || binding.RuntimeID != tobari.StandardRuntimeID {
+		return tobari.RuntimeBinding{}, tobari.ErrRuntimeRevisionNotFound
+	}
+	return binding, nil
 }
 
 func (r *templateRuntimeRevisionFixture) ObserveStatusWorkspace(_ context.Context, snapshot tobari.ContextAuthoritySnapshot) (tobari.StatusWorkspaceObservation, error) {
@@ -348,7 +356,7 @@ func TestContextApplyRechecksSourceAtFinalPublicationFence(t *testing.T) {
 	existing := storeCollectionFixture(t)
 	store, mutator, _, _, _ := newMutationFixture(t, &existing)
 	id := tobari.ContextID("01912345-6789-7abc-8def-0123456789f1")
-	source := tobari.ContextSource{SchemaVersion: tobari.ContextSourceSchemaVersion, ContextID: id, ProjectRoot: "/workspace/new", TemplateID: existing.Templates[0].ID}
+	source := tobari.ContextSource{SchemaVersion: tobari.ContextSourceSchemaVersion, ContextID: id, TemplateID: existing.Templates[0].ID}
 	firstFingerprint := strings.Repeat("a", 64)
 	plan, err := tobari.NewContextActivationPlan(existing, source, firstFingerprint)
 	if err != nil {
@@ -512,7 +520,7 @@ func TestTemplateApplyStaleWhenRunningWorkspaceSetChangesAtEqualCount(t *testing
 		t.Fatal(err)
 	}
 	secondContext := tobari.WorkspaceAuthorityContextRecord{
-		Context:      tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: secondContextID, ProjectRoot: "/workspace/second", TemplateID: storeTemplateID},
+		Context:      tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: secondContextID, TemplateID: storeTemplateID},
 		PolicyMemory: secondMemory,
 	}
 	secondWorkspace := existing.Workspaces[0]
@@ -522,7 +530,7 @@ func TestTemplateApplyStaleWhenRunningWorkspaceSetChangesAtEqualCount(t *testing
 	}
 	secondWorkspace.ID = secondWorkspaceID
 	secondWorkspace.ContextID = secondContextID
-	secondWorkspace.ProjectRoot = secondContext.Context.ProjectRoot
+	secondWorkspace.ProjectRoot = "/workspace/second"
 	secondWorkspace.Home = "/workspace/second-home"
 	if secondWorkspace.LastSuccessfulEntry != nil {
 		secondWorkspace.LastSuccessfulEntry.ContextID = secondContextID
@@ -617,7 +625,7 @@ func twoContextReviewedCollection(t *testing.T) (tobari.WorkspaceAuthorityCollec
 	}
 	binding := tobari.ContextBinding{
 		SchemaVersion: tobari.ContextBindingSchemaVersion, ID: secondContextID,
-		ProjectRoot: first.Contexts[0].Context.ProjectRoot, TemplateID: secondTemplateID,
+		TemplateID: secondTemplateID,
 	}
 	templateReceipt := tobari.TemplatePolicyActivationReceipt{
 		ContextID: secondContextID, TemplateID: secondTemplateID,
@@ -637,7 +645,7 @@ func twoContextReviewedCollection(t *testing.T) (tobari.WorkspaceAuthorityCollec
 	}
 	secondWorkspace := tobari.WorkspaceBinding{
 		SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: secondWorkspaceID, ContextID: secondContextID,
-		ProjectRoot: binding.ProjectRoot, Home: "/workspace/home-" + string(secondWorkspaceID),
+		ProjectRoot: first.Workspaces[0].ProjectRoot, Home: "/workspace/home-" + string(secondWorkspaceID),
 		CreationDefaults: secondTemplate.Current.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied,
 	}
 	effect := first.PendingCandidates[0].Effect
@@ -783,6 +791,58 @@ func TestApplyWorkspaceTemplateSourcePublishesOneMovingHeadRevision(t *testing.T
 	}
 }
 
+func TestHistoricalStandardRuntimeBindingSurvivesTemplatePlanAndApply(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	store, mutator, _, _, _ := newMutationFixture(t, &existing)
+	runtime := mutator.runtimeRevision.(*templateRuntimeRevisionFixture)
+	runtime.err = tobari.ErrRuntimeRevisionNotFound
+	active := existing.Templates[0]
+	source, err := tobari.NewWorkspaceTemplateSource(active)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source.Policy.Semantic.Protocols.HTTP.Generic.Allow.Rules[0].Path = "/historical-edited"
+	fingerprint := strings.Repeat("8", 64)
+	templateRef, _ := tobari.WorkspaceTemplateRef(active.ID)
+	plan, err := mutator.PlanWorkspaceTemplateSourceByReference(context.Background(), templateRef, func(context.Context) (tobari.WorkspaceTemplateSource, string, error) {
+		return source.Clone(), fingerprint, nil
+	})
+	if err != nil {
+		t.Fatalf("plan retained standard binding: %v", err)
+	}
+	publication, err := mutator.ApplyWorkspaceTemplateSourceByReference(context.Background(), plan.PlanRef, func(context.Context) (tobari.WorkspaceTemplateSource, string, error) {
+		return source.Clone(), fingerprint, nil
+	})
+	if err != nil || !publication.Changed || publication.ResolvedRuntime == nil || *publication.ResolvedRuntime != active.Current.Body.EntryDefaults.Runtime {
+		t.Fatalf("changed retained publication=%+v err=%v", publication, err)
+	}
+	if err := mutator.CompleteWorkspaceTemplateApplySettlement(plan.PlanRef); err != nil {
+		t.Fatal(err)
+	}
+
+	current, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present {
+		t.Fatalf("read changed authority: present=%t err=%v", present, err)
+	}
+	noOpSource, err := tobari.NewWorkspaceTemplateSource(current.Templates[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	noOpFingerprint := strings.Repeat("9", 64)
+	noOpPlan, err := mutator.PlanWorkspaceTemplateSourceByReference(context.Background(), templateRef, func(context.Context) (tobari.WorkspaceTemplateSource, string, error) {
+		return noOpSource.Clone(), noOpFingerprint, nil
+	})
+	if err != nil {
+		t.Fatalf("plan retained no-op: %v", err)
+	}
+	noOp, err := mutator.ApplyWorkspaceTemplateSourceByReference(context.Background(), noOpPlan.PlanRef, func(context.Context) (tobari.WorkspaceTemplateSource, string, error) {
+		return noOpSource.Clone(), noOpFingerprint, nil
+	})
+	if err != nil || noOp.Changed || noOp.ResolvedRuntime == nil || *noOp.ResolvedRuntime != active.Current.Body.EntryDefaults.Runtime {
+		t.Fatalf("no-op retained publication=%+v err=%v", noOp, err)
+	}
+}
+
 func TestApplyWorkspaceTemplateSourceFencesConcurrentBytesAndStaleBase(t *testing.T) {
 	for _, test := range []struct {
 		name  string
@@ -870,8 +930,8 @@ func TestMutatorContextCreateDeleteAndWorkspaceRetirementPreserveOwners(t *testi
 	existing := storeCollectionFixture(t)
 	store, mutator, _, deletion, _ := newMutationFixture(t, &existing)
 	templateRef, _ := tobari.WorkspaceTemplateRef(storeTemplateID)
-	if _, err := mutator.seedContextForLegacyMigration(context.Background(), templateRef, "/workspace/example"); !errors.Is(err, tobari.ErrContextBindingExists) {
-		t.Fatalf("duplicate Context err=%v", err)
+	if _, err := mutator.seedContextForLegacyMigration(context.Background(), templateRef, "/workspace/example"); err != nil {
+		t.Fatalf("location-free Context sharing a Template failed: %v", err)
 	}
 
 	workspaceRef, _ := tobari.WorkspaceRef(storeWorkspaceID)
@@ -880,7 +940,7 @@ func TestMutatorContextCreateDeleteAndWorkspaceRetirementPreserveOwners(t *testi
 		t.Fatalf("workspace result=%#v retired=%#v err=%v", workspaceResult, deletion.retired, err)
 	}
 	afterWorkspace, _, err := store.ReadComplete(context.Background())
-	if err != nil || len(afterWorkspace.Workspaces) != 0 || len(afterWorkspace.Contexts) != 1 || len(afterWorkspace.PendingCandidates) != 0 {
+	if err != nil || len(afterWorkspace.Workspaces) != 0 || len(afterWorkspace.Contexts) != 2 || len(afterWorkspace.PendingCandidates) != 0 {
 		t.Fatalf("after Workspace=%#v err=%v", afterWorkspace, err)
 	}
 	if afterWorkspace.Contexts[0].PolicyMemory.Revision != existing.Contexts[0].PolicyMemory.Revision {
@@ -894,7 +954,7 @@ func TestMutatorContextCreateDeleteAndWorkspaceRetirementPreserveOwners(t *testi
 		t.Fatalf("Context result=%#v checks=%#v err=%v", contextResult, deletion.credentialChecks, err)
 	}
 	afterContext, _, err := store.ReadComplete(context.Background())
-	if err != nil || len(afterContext.Contexts) != 0 || len(afterContext.Workspaces) != 0 || len(afterContext.Templates) != 1 {
+	if err != nil || len(afterContext.Contexts) != 1 || len(afterContext.Workspaces) != 0 || len(afterContext.Templates) != 1 {
 		t.Fatalf("after Context=%#v err=%v", afterContext, err)
 	}
 }
@@ -939,6 +999,26 @@ func TestContextDeleteSettlementDecisionResumesAndReplaysExactOutcome(t *testing
 	replayed, err := mutator.DeleteContextByReference(context.Background(), contextRef)
 	if err != nil || !replayed.Deleted || replayed.ContextID != storeContextID || settlement.contextDeleteCalls != calls || settlement.contextDeleteConfirms != 1 {
 		t.Fatalf("terminal Context replay=%#v settlements=%d confirms=%d err=%v", replayed, settlement.contextDeleteCalls, settlement.contextDeleteConfirms, err)
+	}
+}
+
+func TestContextDeleteClassifiesInterruptedExternalSettlement(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	store, mutator, _, _, _ := newMutationFixture(t, &existing)
+	workspaceRef, _ := tobari.WorkspaceRef(storeWorkspaceID)
+	if _, err := mutator.DeleteWorkspaceByReference(context.Background(), workspaceRef, true); err != nil {
+		t.Fatal(err)
+	}
+	mutator.settlement.(*finalSettlementFixture).err = errors.New("private settlement detail")
+	contextRef, _ := tobari.ContextRef(storeContextID)
+	_, err := mutator.DeleteContextByReference(context.Background(), contextRef)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "final_authority_mutation_interrupted" || public.Kind != fault.KindUnavailable || public.Phase != fault.PhaseMutation || public.ChangeState != fault.ChangePartial || strings.Contains(public.Message, "private settlement detail") {
+		t.Fatalf("fault = %+v, %v", public, err)
+	}
+	current, _, readErr := store.ReadComplete(context.Background())
+	if readErr != nil || contextRecordIndex(current, storeContextID) < 0 {
+		t.Fatalf("interrupted Context delete published authority: %#v, %v", current, readErr)
 	}
 }
 

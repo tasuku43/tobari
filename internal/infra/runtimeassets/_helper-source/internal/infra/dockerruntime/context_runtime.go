@@ -480,15 +480,10 @@ func (r *Runtime) BuildRuntimeWithProgress(
 		}); err != nil {
 			return fmt.Errorf("build Context runtime: %w: %s", err, boundedDiagnostic(tail.Bytes()))
 		}
-		if err := runRuntimeBuildStage(progress, buildProgress, tobari.RuntimeBuildStageValidate, func() error {
-			return r.validateCompatibleImage(ctx, image)
-		}); err != nil {
-			return err
-		}
 		var imageDigest string
-		err = runRuntimeBuildStage(progress, buildProgress, tobari.RuntimeBuildStageInspect, func() error {
+		err = runRuntimeBuildStage(progress, buildProgress, tobari.RuntimeBuildStageValidate, func() error {
 			var inspectErr error
-			imageDigest, inspectErr = r.inspectImageDigest(ctx, image)
+			imageDigest, inspectErr = r.resolveCompatibleImageID(ctx, image)
 			return inspectErr
 		})
 		if err != nil {
@@ -607,13 +602,9 @@ func (b *runtimeBuildDiagnosticTail) Bytes() []byte {
 }
 
 func (r *Runtime) inspectImageDigest(ctx context.Context, image string) (string, error) {
-	output, err := r.runner.Output(ctx, []string{"image", "inspect", "--format", "{{.Id}}", image}, os.Environ())
+	digest, err := r.inspectRuntimeImageID(ctx, image)
 	if err != nil {
-		return "", fmt.Errorf("inspect built Context runtime: %w: %s", err, boundedDiagnostic(output))
-	}
-	digest := strings.TrimSpace(string(output))
-	if err := tobari.ValidateDigest(digest); err != nil {
-		return "", fmt.Errorf("built Context runtime returned invalid image identity: %w", err)
+		return "", fmt.Errorf("inspect built Context runtime: %w", err)
 	}
 	return digest, nil
 }

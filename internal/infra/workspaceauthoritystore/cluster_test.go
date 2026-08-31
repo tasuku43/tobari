@@ -8,18 +8,29 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 type clusterSettlementFixture struct {
 	*finalSettlementFixture
-	calls       int
-	confirms    int
-	onSettle    func()
-	previous    tobari.WorkspaceAuthorityCollection
-	settled     tobari.WorkspaceAuthorityCollection
-	operation   string
-	decisionRef string
+	calls        int
+	preflights   int
+	preflightErr error
+	confirms     int
+	onSettle     func()
+	previous     tobari.WorkspaceAuthorityCollection
+	settled      tobari.WorkspaceAuthorityCollection
+	operation    string
+	decisionRef  string
+}
+
+func (s *clusterSettlementFixture) PreflightFinalClusterAuthority(_ context.Context, plan tobari.WorkspacePolicyProjection) error {
+	if err := plan.Validate(); err != nil {
+		return err
+	}
+	s.preflights++
+	return s.preflightErr
 }
 
 func (s *clusterSettlementFixture) ReconcileFinalClusterAuthority(
@@ -149,10 +160,41 @@ func TestClusterAdapterPersistsCurrentAxisReceiptsAndReplaysTerminalConfirmation
 	if err := identity.Validate(); err != nil {
 		t.Fatalf("settled cluster identity: %v", err)
 	}
+	if settlement.preflights != 1 {
+		t.Fatalf("fresh cluster preflights=%d, want 1", settlement.preflights)
+	}
 
 	replayed, replayedIdentity, err := adapter.Reconcile(context.Background())
 	if err != nil || !reflect.DeepEqual(replayed, plan) || replayedIdentity != identity || settlement.calls != 1 || settlement.confirms != 1 {
 		t.Fatalf("terminal replay plan=%#v identity=%#v calls=%d confirms=%d err=%v", replayed, replayedIdentity, settlement.calls, settlement.confirms, err)
+	}
+}
+
+func TestClusterAdapterBindPreflightFailurePrecedesDurableDecision(t *testing.T) {
+	previous := inactiveClusterCollection(t)
+	store, mutator, adapter, settlement := newClusterAdapterFixture(t, previous)
+	settlement.preflightErr = fault.WithClassification(fault.New(
+		fault.KindRejected, "cluster_resource_conflict", "Docker bind source is unavailable", false,
+		fault.NextAction{Command: "doctor", Reason: "Share the exact host path."},
+	), fault.PhasePrecondition, fault.ChangeNone)
+
+	if _, _, err := adapter.Reconcile(context.Background()); err == nil {
+		t.Fatal("bind preflight failure was reported as complete")
+	} else if public, ok := fault.PublicCopy(err); !ok || public.Code != "cluster_resource_conflict" || public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone {
+		t.Fatalf("bind preflight fault = %#v, public=%t", public, ok)
+	}
+	current, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present || !reflect.DeepEqual(current, previous) {
+		t.Fatalf("preflight changed final authority: present=%t current=%#v err=%v", present, current, err)
+	}
+	if settlement.preflights != 1 || settlement.calls != 0 {
+		t.Fatalf("preflight calls=%d settlement calls=%d", settlement.preflights, settlement.calls)
+	}
+	if _, active, err := mutator.readEffectDecision(); err != nil || active {
+		t.Fatalf("preflight published durable decision: active=%t err=%v", active, err)
+	}
+	if _, err := os.Lstat(mutationStagePath(store.root)); !os.IsNotExist(err) {
+		t.Fatalf("preflight published durable stage: %v", err)
 	}
 }
 
@@ -187,9 +229,10 @@ func TestClusterAdapterRecoversPostEffectPreEnvelopeAndBlocksUnrelatedMutation(t
 	}
 
 	mutator.rename = realRename
+	settlement.preflightErr = fmt.Errorf("active durable decision must not repeat fresh preflight")
 	plan, _, err := adapter.Reconcile(context.Background())
-	if err != nil || settlement.calls != 2 {
-		t.Fatalf("cluster recovery plan=%#v calls=%d err=%v", plan, settlement.calls, err)
+	if err != nil || settlement.calls != 2 || settlement.preflights != 1 {
+		t.Fatalf("cluster recovery plan=%#v calls=%d preflights=%d err=%v", plan, settlement.calls, settlement.preflights, err)
 	}
 	current, present, err = store.ReadComplete(context.Background())
 	if err != nil || !present || plan.ValidateTransition(previous, current) != nil {

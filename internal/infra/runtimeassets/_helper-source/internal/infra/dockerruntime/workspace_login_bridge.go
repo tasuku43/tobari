@@ -3,12 +3,15 @@ package dockerruntime
 import (
 	"context"
 	"crypto/sha256"
+	"fmt"
 	"io"
 	"net"
 	"os"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 const (
@@ -37,11 +40,13 @@ while True:
 type workspaceCallbackListener func(string) (net.Listener, error)
 
 type workspaceLoginBridge struct {
-	ctx       context.Context
-	runtime   *Runtime
-	container string
-	projectID string
-	listen    workspaceCallbackListener
+	ctx          context.Context
+	runtime      *Runtime
+	container    string
+	projectID    string
+	listen       workspaceCallbackListener
+	selectTarget func(string) (workspaceLoginBrowserAction, bool)
+	verify       func() error
 
 	mu       sync.Mutex
 	listener net.Listener
@@ -49,16 +54,45 @@ type workspaceLoginBridge struct {
 	seen     map[[sha256.Size]byte]struct{}
 }
 
-func newWorkspaceLoginBridge(ctx context.Context, runtime *Runtime, container, projectID string) *workspaceLoginBridge {
-	return &workspaceLoginBridge{
-		ctx: ctx, runtime: runtime, container: container, projectID: projectID,
+func newWorkspaceLoginBridge(ctx context.Context, runtime *Runtime, container, projectID string) (*workspaceLoginBridge, error) {
+	containerID, err := runtime.requireOwnedProjectContainerID(ctx, container, projectID, projectWorkRole)
+	if err != nil {
+		return nil, err
+	}
+	bridge := &workspaceLoginBridge{
+		ctx: ctx, runtime: runtime, container: containerID, projectID: projectID,
 		listen: func(address string) (net.Listener, error) { return net.Listen("tcp4", address) },
 		seen:   make(map[[sha256.Size]byte]struct{}),
 	}
+	bridge.selectTarget = parseWorkspaceLoginBrowserAction
+	bridge.verify = func() error {
+		observedID, err := runtime.requireOwnedProjectContainerID(ctx, containerID, projectID, projectWorkRole)
+		if err != nil || observedID != containerID {
+			return fmt.Errorf("selected Workspace container identity changed: %w", err)
+		}
+		return nil
+	}
+	return bridge, nil
+}
+
+func newConfiguratorLoginBridge(ctx context.Context, runtime *Runtime, container string, agent tobari.ConfiguratorAgent) *workspaceLoginBridge {
+	bridge := &workspaceLoginBridge{
+		ctx: ctx, runtime: runtime, container: container,
+		listen: func(address string) (net.Listener, error) { return net.Listen("tcp4", address) },
+		seen:   make(map[[sha256.Size]byte]struct{}),
+	}
+	bridge.selectTarget = func(target string) (workspaceLoginBrowserAction, bool) {
+		return parseConfiguratorLoginBrowserAction(agent, target)
+	}
+	bridge.verify = func() error { return runtime.verifyOwnedConfiguratorContainer(ctx, container) }
+	return bridge
 }
 
 func (b *workspaceLoginBridge) trigger(target string) bool {
-	action, ok := parseWorkspaceLoginBrowserAction(target)
+	if b == nil || b.selectTarget == nil || b.verify == nil {
+		return false
+	}
+	action, ok := b.selectTarget(target)
 	if !ok {
 		return false
 	}
@@ -74,7 +108,7 @@ func (b *workspaceLoginBridge) trigger(target string) bool {
 		return true
 	}
 	b.mu.Unlock()
-	if err := b.runtime.verifyOwnedProjectResource(b.ctx, "container", b.container, b.projectID, projectWorkRole); err != nil {
+	if err := b.verify(); err != nil {
 		return false
 	}
 	if !action.relayCallback {
@@ -98,6 +132,10 @@ func (b *workspaceLoginBridge) trigger(target string) bool {
 	b.mu.Unlock()
 
 	go b.serve(listener, action.callbackPort)
+	if err := b.verify(); err != nil {
+		b.closeListener(listener)
+		return false
+	}
 	if err := b.runtime.browser.Open(b.ctx, target); err != nil {
 		b.closeListener(listener)
 		return false
@@ -130,6 +168,9 @@ func (b *workspaceLoginBridge) serve(listener net.Listener, callbackPort int) {
 	_ = listener.Close()
 	defer connection.Close()
 	_ = connection.SetDeadline(time.Now().Add(2 * time.Minute))
+	if err := b.verify(); err != nil {
+		return
+	}
 	uid, gid := currentIDs()
 	args := []string{
 		"exec", "-i", "--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),

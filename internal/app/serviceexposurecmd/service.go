@@ -72,7 +72,10 @@ func (s *Service) Request(ctx context.Context, intent operation.Intent, port int
 		return tobari.ServiceExposure{}, err
 	}
 	if err := result.Validate(); err != nil {
-		return tobari.ServiceExposure{}, fault.Wrap(fault.KindContract, "invalid_service_exposure", "service exposure result is invalid", false, err)
+		return tobari.ServiceExposure{}, fault.WithClassification(
+			fault.Wrap(fault.KindContract, "invalid_service_exposure_result", "service exposure result is invalid", false, err),
+			fault.PhaseVerification, fault.ChangeUnknown,
+		)
 	}
 	return result, nil
 }
@@ -139,7 +142,10 @@ func (s *Service) Allow(ctx context.Context, intent operation.Intent, requestID 
 		return tobari.ServiceExposure{}, err
 	}
 	if err := result.Validate(); err != nil {
-		return tobari.ServiceExposure{}, fault.Wrap(fault.KindContract, "invalid_service_exposure", "service exposure result is invalid", false, err)
+		return tobari.ServiceExposure{}, fault.WithClassification(
+			fault.Wrap(fault.KindContract, "invalid_service_exposure_result", "service exposure result is invalid", false, err),
+			fault.PhaseVerification, fault.ChangeUnknown,
+		)
 	}
 	return result, nil
 }

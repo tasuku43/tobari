@@ -45,7 +45,7 @@ func TestFinalPolicyCandidateAdapterReadsAfterMultipleContextPolicyAllows(t *tes
 	firstRecord.ActivePolicyMemory = &firstActive
 	firstRecord.ActivePolicyMemoryRef = &tobari.PolicyMemoryActivationReceipt{ContextID: storeContextID, Revision: firstMemory.Revision}
 
-	secondBinding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: secondContextID, ProjectRoot: collection.Contexts[0].Context.ProjectRoot, TemplateID: secondTemplateID}
+	secondBinding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: secondContextID, TemplateID: secondTemplateID}
 	secondMemory, _, err := tobari.PublishPolicyMemory(secondContextID, []tobari.PolicyMemoryRule{newRule(secondContextID, "/brokered-second")}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +58,7 @@ func TestFinalPolicyCandidateAdapterReadsAfterMultipleContextPolicyAllows(t *tes
 	}
 	secondWorkspace := tobari.WorkspaceBinding{
 		SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: secondWorkspaceID, ContextID: secondContextID,
-		ProjectRoot: secondBinding.ProjectRoot, Home: "/workspace/home-second", CreationDefaults: secondTemplate.Current.Slices.CreationDefaultsDigest,
+		ProjectRoot: "/workspace/second", Home: "/workspace/home-second", CreationDefaults: secondTemplate.Current.Slices.CreationDefaultsDigest,
 		LastSuccessfulEntry: &tobari.WorkspaceAppliedEntry{
 			ContextID: secondContextID, TemplateID: secondTemplateID, TemplateRevision: secondTemplate.Current.Revision,
 			EntrySliceDigest: secondTemplate.Current.Slices.EntrySliceDigest, RuntimeID: secondTemplate.Current.Slices.RuntimeID,

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -107,13 +108,13 @@ func runFinalPolicyReviewInteractive(ctx context.Context, c *CLI, snapshot tobar
 	mode := terminal.New()
 	if restore, rawErr := mode.Enter(c.In); rawErr == nil {
 		result, selectErr := selectFinalPolicyReviewRaw(ctx, snapshot, c.In, c.Out, humanStyleAllowed(ctx, c, c.Out))
-		finishSelectorScreen(c.Out, result.lines)
+		finishErr := finishSelectorScreen(c.Out, result.lines)
 		restoreErr := restore()
-		if selectErr != nil {
-			return c.fail(ctx, selectErr)
-		}
 		if restoreErr != nil {
-			return c.fail(ctx, fault.Wrap(fault.KindInternal, "terminal_restore_failed", "Permission Inbox terminal state could not be restored", false, restoreErr))
+			restoreErr = fault.WithClassification(fault.Wrap(fault.KindInternal, "terminal_restore_failed", "Permission Inbox terminal state could not be restored", false, restoreErr), fault.PhasePresentation, fault.ChangeNotApplicable)
+		}
+		if interactionErr := finalPolicyReviewInteractionError(selectErr, finishErr, restoreErr); interactionErr != nil {
+			return c.fail(ctx, interactionErr)
 		}
 		switch result.kind {
 		case finalPolicyReviewRawCancel:
@@ -127,10 +128,39 @@ func runFinalPolicyReviewInteractive(ctx context.Context, c *CLI, snapshot tobar
 		case finalPolicyReviewRawApply:
 			return applyFinalPolicyReviewSet(ctx, c, snapshot, result.staged)
 		default:
-			return c.fail(ctx, fault.New(fault.KindInternal, "invalid_policy_review_result", "Permission Inbox returned an invalid interaction result", false))
+			return c.fail(ctx, fault.WithClassification(fault.New(fault.KindInternal, "invalid_policy_review_result", "Permission Inbox returned an invalid interaction result", false), fault.PhaseVerification, fault.ChangeUnknown))
 		}
 	}
 	return runFinalPolicyReviewInteractiveLine(ctx, c, snapshot)
+}
+
+func finalPolicyReviewInteractionError(values ...error) error {
+	for _, value := range values {
+		if public, ok := fault.PublicCopy(value); ok {
+			return public
+		}
+	}
+	combined := errors.Join(values...)
+	if combined == nil {
+		return nil
+	}
+	if errors.Is(combined, context.Canceled) || errors.Is(combined, context.DeadlineExceeded) {
+		allCancellation := true
+		for _, value := range values {
+			if value != nil && !errors.Is(value, context.Canceled) && !errors.Is(value, context.DeadlineExceeded) {
+				allCancellation = false
+				break
+			}
+		}
+		if allCancellation {
+			return combined
+		}
+	}
+	return fault.WithClassification(
+		fault.Wrap(fault.KindInternal, "policy_review_terminal_failed", "Permission Inbox terminal interaction failed", false, combined),
+		fault.PhasePresentation,
+		fault.ChangeNotApplicable,
+	)
 }
 
 func runFinalPolicyReviewInteractiveLine(ctx context.Context, c *CLI, snapshot tobari.PolicyMemoryReviewSnapshot) int {
@@ -143,7 +173,7 @@ func runFinalPolicyReviewInteractiveLine(ctx context.Context, c *CLI, snapshot t
 		}
 		line, err := reader.ReadString('\n')
 		if err != nil && err != io.EOF {
-			return c.fail(ctx, fault.Wrap(fault.KindInternal, "terminal_input_failed", "Permission Inbox input could not be read", false, err))
+			return c.fail(ctx, fault.WithClassification(fault.Wrap(fault.KindInternal, "terminal_input_failed", "Permission Inbox input could not be read", false, err), fault.PhasePresentation, fault.ChangeNotApplicable))
 		}
 		choice := strings.TrimSpace(line)
 		if choice == "" && err == io.EOF {
@@ -190,7 +220,7 @@ func runFinalPolicyReviewInteractiveLine(ctx context.Context, c *CLI, snapshot t
 			_, _ = io.WriteString(c.Out, "Apply this complete reviewed set? [y/N]\n")
 			confirmation, confirmErr := reader.ReadString('\n')
 			if confirmErr != nil && confirmErr != io.EOF {
-				return c.fail(ctx, fault.Wrap(fault.KindInternal, "terminal_input_failed", "Permission Inbox confirmation could not be read", false, confirmErr))
+				return c.fail(ctx, fault.WithClassification(fault.Wrap(fault.KindInternal, "terminal_input_failed", "Permission Inbox confirmation could not be read", false, confirmErr), fault.PhasePresentation, fault.ChangeNotApplicable))
 			}
 			if strings.TrimSpace(confirmation) != "y" {
 				continue
@@ -210,18 +240,18 @@ func applyFinalPolicyReviewSet(ctx context.Context, c *CLI, snapshot tobari.Poli
 		item, found := finalPolicyReviewItemByID(snapshot, id)
 		if found && item.AttachmentCandidate != nil {
 			if len(staged) != 1 {
-				return c.fail(ctx, fault.New(fault.KindRejected, "policy_review_scope_mixed", "one Apply cannot mix persistent and attachment-scoped decisions", false, fault.NextAction{Command: "review permissions", Reason: "Apply attachment-scoped decisions separately."}))
+				return c.fail(ctx, fault.WithClassification(fault.New(fault.KindRejected, "policy_review_scope_mixed", "one Apply cannot mix persistent and attachment-scoped decisions", false, fault.NextAction{Command: "review permissions", Reason: "Apply attachment-scoped decisions separately."}), fault.PhasePrecondition, fault.ChangeNone))
 			}
 			return runFinalPolicyReviewAttachment(ctx, c, item.ID, decision)
 		}
 	}
 	set, setErr := snapshot.ReviewedSet(staged)
 	if setErr != nil {
-		return c.fail(ctx, fault.Wrap(fault.KindContract, "invalid_policy_review_set", "Reviewed Permission Inbox set is invalid", false, setErr))
+		return c.fail(ctx, fault.WithClassification(fault.Wrap(fault.KindContract, "invalid_policy_review_set", "Reviewed Permission Inbox set is invalid", false, setErr), fault.PhaseVerification, fault.ChangeNone))
 	}
 	apply, found := c.catalog.lookupRegistered("policy apply-reviewed")
 	if !found || apply.Agent.Mutation == nil || apply.Agent.FixedTarget == nil {
-		return c.fail(ctx, fault.New(fault.KindContract, "invalid_catalog", "reviewed Policy Memory Apply contract is missing", false))
+		return c.fail(ctx, fault.WithClassification(fault.New(fault.KindContract, "invalid_catalog", "reviewed Policy Memory Apply contract is missing", false), fault.PhasePrecondition, fault.ChangeNone))
 	}
 	intent := operation.Intent{Command: apply.Path, Effect: apply.Effect, Target: operation.TargetRef{Kind: apply.Agent.FixedTarget.Kind, ParentID: apply.Agent.FixedTarget.ID}, Impact: apply.Agent.Mutation.Impact}
 	actionCtx := withCommandPath(ctx, apply.Path)
@@ -452,6 +482,22 @@ func emitFinalPolicyReviewedPublication(ctx context.Context, c *CLI, command Com
 	for _, decision := range publication.AppliedDecisions {
 		text.row(string(decision.Decision), decision.ReviewItemID+" · "+decision.RuleID+" · "+string(decision.Match), humanStatusToken(string(decision.Decision)))
 	}
+	contextRef := ""
+	for _, decision := range publication.AppliedDecisions {
+		if contextRef == "" {
+			contextRef = decision.ContextRef
+			continue
+		}
+		if contextRef != decision.ContextRef {
+			contextRef = ""
+			break
+		}
+	}
+	if contextRef != "" {
+		text.next("policy assist --context "+contextRef, "Use reviewed Policy Memory as evidence for a reusable static Template policy.")
+	} else {
+		text.next("context list", "Choose the exact Context whose reviewed Policy Memory should inform a reusable static Template policy.")
+	}
 	output, err := finalPolicyOutput(command.Path, "result", result, format, text.bytes())
 	if err != nil {
 		return c.fail(ctx, err)
@@ -481,7 +527,6 @@ func finalPolicyCandidatesText(result tobari.PolicyCandidateAuthorityList, color
 	for _, item := range result.Items {
 		output.subsection(safeExternalText(item.TemplateName))
 		output.nestedRow("ID", item.ID, styleText)
-		output.nestedRow("Project", safeExternalText(item.ProjectRoot), styleText)
 		output.nestedRow("Request", finalPolicyEffectSummary(item.Effect.PolicyProtocolIdentity, item.Effect.Method, item.Effect.Host, item.Effect.Port, item.Effect.Path), styleWarning)
 	}
 	output.next("review permissions", "Inspect and decide these requests interactively.")
@@ -499,7 +544,6 @@ func finalPolicyRulesText(result tobari.PolicyMemoryRuleList, color bool) []byte
 		output.subsection(safeExternalText(item.TemplateName))
 		output.nestedRow("Decision", string(item.Decision), humanStatusToken(string(item.Decision)))
 		output.nestedRow("Rule", item.ID, styleText)
-		output.nestedRow("Project", safeExternalText(item.ProjectRoot), styleText)
 		output.nestedRow("Request", finalPolicyEffectSummary(item.Body.PolicyProtocolIdentity, item.Body.Method, item.Body.Host, item.Body.Port, item.Body.Path), styleText)
 	}
 	return output.bytes()

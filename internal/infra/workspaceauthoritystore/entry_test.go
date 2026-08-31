@@ -1,6 +1,7 @@
 package workspaceauthoritystore
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,29 +18,124 @@ import (
 )
 
 type entryRuntimeFixture struct {
-	prepareCalls   int
-	planCalls      int
-	reconcileCalls int
-	confirmCalls   int
-	reconcileErr   error
-	confirmErr     error
-	confirmErrors  []error
-	blockConfirm   bool
-	reuseApplied   bool
-	onConfirm      func()
-	onReconcile    func()
-	resolvedSpec   tobari.SemanticDigest
-	containerID    string
-	homes          map[tobari.WorkspaceID]string
-	prepareErr     error
-	prepared       []tobari.RuntimeBinding
+	prepareCalls             int
+	planCalls                int
+	reconcileCalls           int
+	confirmCalls             int
+	reconcileErr             error
+	confirmErr               error
+	confirmErrors            []error
+	blockConfirm             bool
+	reuseApplied             bool
+	onConfirm                func()
+	onReconcile              func()
+	resolvedSpec             tobari.SemanticDigest
+	containerID              string
+	homes                    map[tobari.ContextID]string
+	prepareErr               error
+	planErr                  error
+	prepared                 []tobari.RuntimeBinding
+	attachmentHeld           bool
+	attachmentGets           int
+	attachmentPuts           int
+	reconcileFenceErr        error
+	reconcileFenceReleaseErr error
+	reconcileFenceGets       int
+	reconcileFencePuts       int
 }
 
-func (r *entryRuntimeFixture) WorkspaceHomeForID(_ context.Context, id tobari.WorkspaceID) (string, error) {
+type sharedEntryRuntimeFixture struct {
+	*entryRuntimeFixture
+	mu        sync.Mutex
+	borrowers int
+}
+
+func (r *sharedEntryRuntimeFixture) AcquireWorkspaceEntryAttachment(_ context.Context, _ tobari.ContextID, _ string) (func() error, error) {
+	r.mu.Lock()
+	r.borrowers++
+	r.mu.Unlock()
+	return func() error {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.borrowers--
+		return nil
+	}, nil
+}
+
+func (r *sharedEntryRuntimeFixture) borrowerCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.borrowers
+}
+
+func (r *sharedEntryRuntimeFixture) acquireExclusiveHomeOperation() error {
+	if r.borrowerCount() != 0 {
+		return tobari.ErrContextBindingProtected
+	}
+	return nil
+}
+
+type blockingEntrySessionAuthority struct {
+	mu      sync.Mutex
+	owners  []*blockingEntrySessionOwner
+	started chan int
+}
+
+type blockingEntrySessionOwner struct {
+	authority *blockingEntrySessionAuthority
+	index     int
+	release   chan struct{}
+	closeOnce sync.Once
+}
+
+func (s *blockingEntrySessionAuthority) BeginWorkspaceSession(context.Context, tobari.WorkspaceSessionBinding, string) (WorkspaceSessionOwner, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	owner := &blockingEntrySessionOwner{authority: s, index: len(s.owners), release: make(chan struct{})}
+	s.owners = append(s.owners, owner)
+	return owner, nil
+}
+
+func (o *blockingEntrySessionOwner) Run(context.Context, tobari.WorkspaceSessionRequest, io.Reader, io.Writer, io.Writer) (tobari.WorkspaceSessionOutcome, error) {
+	o.authority.started <- o.index
+	<-o.release
+	return tobari.WorkspaceSessionOutcome{ExitCode: 0, CleanupIssues: []tobari.WorkspaceAttachmentCleanupIssue{}}, nil
+}
+
+func (o *blockingEntrySessionOwner) Close(context.Context) error {
+	o.closeOnce.Do(func() {})
+	return nil
+}
+
+func (r *entryRuntimeFixture) AcquireWorkspaceEntryAttachment(_ context.Context, _ tobari.ContextID, _ string) (func() error, error) {
+	if r.attachmentHeld {
+		return nil, tobari.ErrContextBindingProtected
+	}
+	r.attachmentHeld = true
+	r.attachmentGets++
+	return func() error {
+		r.attachmentHeld = false
+		r.attachmentPuts++
+		return nil
+	}, nil
+}
+
+func (r *entryRuntimeFixture) AcquireWorkspaceReconciliationFence(_ context.Context) (func() error, error) {
+	r.reconcileFenceGets++
+	if r.reconcileFenceErr != nil {
+		return nil, r.reconcileFenceErr
+	}
+	return func() error {
+		r.reconcileFencePuts++
+		return r.reconcileFenceReleaseErr
+	}, nil
+}
+
+func (r *entryRuntimeFixture) ContextHomeForID(_ context.Context, id tobari.ContextID) (string, error) {
 	if home, exists := r.homes[id]; exists {
 		return home, nil
 	}
-	return "/workspace/home-" + string(id), nil
+	return "/context/home-" + string(id), nil
 }
 
 func (r *entryRuntimeFixture) PrepareWorkspaceRuntimeMaterial(_ context.Context, binding tobari.RuntimeBinding) error {
@@ -47,14 +144,17 @@ func (r *entryRuntimeFixture) PrepareWorkspaceRuntimeMaterial(_ context.Context,
 	return r.prepareErr
 }
 
-func (r *entryRuntimeFixture) PlanWorkspaceEntry(_ context.Context, snapshot tobari.ContextAuthoritySnapshot, authority tobari.WorkspaceTemplateEntryAuthority, workspaceID tobari.WorkspaceID, reconciledAt time.Time) (tobari.WorkspaceEntryReconciliationPlan, error) {
+func (r *entryRuntimeFixture) PlanWorkspaceEntry(_ context.Context, snapshot tobari.ContextAuthoritySnapshot, authority tobari.WorkspaceTemplateEntryAuthority, projectRoot string, workspaceID tobari.WorkspaceID, reconciledAt time.Time) (tobari.WorkspaceEntryReconciliationPlan, error) {
 	r.planCalls++
+	if r.planErr != nil {
+		return tobari.WorkspaceEntryReconciliationPlan{}, r.planErr
+	}
 	if err := authority.ValidateFor(snapshot.Template.Current); err != nil {
 		return tobari.WorkspaceEntryReconciliationPlan{}, err
 	}
 	workspace := tobari.WorkspaceBinding{
 		SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: workspaceID, ContextID: snapshot.Context.ID,
-		ProjectRoot: snapshot.Context.ProjectRoot, Home: "/workspace/home-" + string(workspaceID), CreationDefaults: snapshot.Template.Current.Slices.CreationDefaultsDigest,
+		ProjectRoot: projectRoot, Home: "/context/home-" + string(snapshot.Context.ID), CreationDefaults: snapshot.Template.Current.Slices.CreationDefaultsDigest,
 	}
 	if snapshot.Workspace != nil {
 		workspace = *snapshot.Workspace
@@ -134,11 +234,24 @@ func (r *entryRuntimeFixture) receipt(plan tobari.WorkspaceEntryReconciliationPl
 }
 
 type templateActivationFixture struct {
-	calls int
-	err   error
+	calls      int
+	err        error
+	memory     *policyActivationFixture
+	current    *bool
+	observeErr error
 }
 
-func (a *templateActivationFixture) ConfirmTemplatePolicyActive(_ context.Context, collection tobari.WorkspaceAuthorityCollection, contextID tobari.ContextID, receipt tobari.TemplatePolicyActivationReceipt) error {
+func (a *templateActivationFixture) ObserveWorkspacePolicyAxesCurrent(context.Context, tobari.WorkspaceAuthorityCollection, tobari.ContextID, tobari.TemplatePolicyActivationReceipt, tobari.PolicyMemoryActivationReceipt) (bool, error) {
+	if a.observeErr != nil {
+		return false, a.observeErr
+	}
+	if a.current != nil {
+		return *a.current, nil
+	}
+	return true, nil
+}
+
+func (a *templateActivationFixture) ConfirmWorkspacePolicyAxesActive(_ context.Context, collection tobari.WorkspaceAuthorityCollection, contextID tobari.ContextID, templateReceipt tobari.TemplatePolicyActivationReceipt, memoryReceipt tobari.PolicyMemoryActivationReceipt) error {
 	a.calls++
 	if a.err != nil {
 		return a.err
@@ -147,7 +260,16 @@ func (a *templateActivationFixture) ConfirmTemplatePolicyActive(_ context.Contex
 	if err != nil {
 		return err
 	}
-	return receipt.ValidateFor(snapshot.Context, snapshot.Template.Current)
+	if err := templateReceipt.ValidateFor(snapshot.Context, snapshot.Template.Current); err != nil {
+		return err
+	}
+	if snapshot.ActivePolicyMemory == nil || snapshot.ActivePolicyMemoryRef == nil || memoryReceipt != *snapshot.ActivePolicyMemoryRef || memoryReceipt.Revision != snapshot.ActivePolicyMemory.Revision {
+		return fmt.Errorf("Policy Memory active receipt mismatch")
+	}
+	if a.memory != nil {
+		a.memory.confirmCalls++
+	}
+	return nil
 }
 
 type entrySessionFixture struct {
@@ -160,6 +282,7 @@ type entrySessionFixture struct {
 	closeErr  error
 	outcome   tobari.WorkspaceSessionOutcome
 	handoffs  int
+	onRun     func()
 }
 
 type defaultPairContextEntryPort interface {
@@ -185,6 +308,9 @@ func (s *entrySessionFixture) BeginWorkspaceSession(_ context.Context, binding t
 
 func (s *entrySessionFixture) Run(_ context.Context, _ tobari.WorkspaceSessionRequest, _ io.Reader, _, _ io.Writer) (tobari.WorkspaceSessionOutcome, error) {
 	s.run++
+	if s.onRun != nil {
+		s.onRun()
+	}
 	if s.lifecycle.held.Load() {
 		return tobari.WorkspaceSessionOutcome{}, fmt.Errorf("interactive session retained installation lifecycle lock")
 	}
@@ -205,27 +331,88 @@ func (s *entrySessionFixture) Close(context.Context) error {
 	return s.closeErr
 }
 
+type entryPublicationBarrierFixture struct{ err error }
+
+func (f entryPublicationBarrierFixture) CheckContextEntryPublicationBarrier(context.Context, tobari.ContextID) error {
+	return f.err
+}
+
 func newEntryFixture(t *testing.T, collection tobari.WorkspaceAuthorityCollection) (*Store, *Mutator, *ContextEntryAdapter, *mutationLifecycle, *entryRuntimeFixture, *templateActivationFixture, *policyActivationFixture, *entrySessionFixture) {
 	t.Helper()
 	store, mutator, lifecycle, _, memory := newMutationFixture(t, &collection)
-	runtime := &entryRuntimeFixture{homes: map[tobari.WorkspaceID]string{}}
+	runtime := &entryRuntimeFixture{homes: map[tobari.ContextID]string{}}
 	for _, workspace := range collection.Workspaces {
-		runtime.homes[workspace.ID] = workspace.Home
+		runtime.homes[workspace.ContextID] = workspace.Home
 	}
-	templatePolicy := &templateActivationFixture{}
+	templatePolicy := &templateActivationFixture{memory: memory}
 	sessions := &entrySessionFixture{lifecycle: lifecycle, outcome: tobari.WorkspaceSessionOutcome{ExitCode: 7}}
-	adapter, err := NewContextEntryAdapter(mutator, runtime, templatePolicy, sessions, context.Background())
+	adapter, err := NewContextEntryAdapter(mutator, runtime, templatePolicy, sessions, context.Background(), entryPublicationBarrierFixture{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return store, mutator, adapter, lifecycle, runtime, templatePolicy, memory, sessions
 }
 
+func TestContextEntryPublicationBarrierRejectsBeforeRuntimeMutation(t *testing.T) {
+	collection := storeCollectionFixture(t)
+	_, _, adapter, _, runtime, _, _, sessions := newEntryFixture(t, collection)
+	adapter.publicationBarrier = entryPublicationBarrierFixture{err: tobari.ErrContextBindingProtected}
+	ref, err := tobari.ContextRef(collection.Contexts[0].Context.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.EnterContextByReference(context.Background(), ref, tobari.NewWorkspaceShellSession(), nil, io.Discard, io.Discard); !errors.Is(err, tobari.ErrContextBindingProtected) {
+		t.Fatalf("publication barrier error=%v", err)
+	}
+	if runtime.prepareCalls != 0 || runtime.planCalls != 0 || runtime.reconcileCalls != 0 || sessions.begin != 0 {
+		t.Fatalf("barrier performed runtime/session effects: prepare=%d plan=%d reconcile=%d begin=%d", runtime.prepareCalls, runtime.planCalls, runtime.reconcileCalls, sessions.begin)
+	}
+}
+
+func TestContextEntryRuntimeRepairIsRejectedBeforeDecisionWhileAnotherWorkspaceSessionIsLive(t *testing.T) {
+	collection := storeCollectionFixture(t)
+	_, mutator, adapter, _, runtime, _, _, sessions := newEntryFixture(t, collection)
+	runtime.reconcileFenceErr = tobari.ErrContextBindingProtected
+	contextRef, _ := tobari.ContextRef(storeContextID)
+	if _, err := adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); !errors.Is(err, tobari.ErrContextBindingProtected) {
+		t.Fatalf("live borrower repair error=%v", err)
+	}
+	if runtime.planCalls != 1 || runtime.reconcileCalls != 0 || runtime.reconcileFenceGets != 1 || sessions.begin != 0 {
+		t.Fatalf("live borrower repair mutated plan/reconcile/fence/session=%d/%d/%d/%d", runtime.planCalls, runtime.reconcileCalls, runtime.reconcileFenceGets, sessions.begin)
+	}
+	if decision, active, err := mutator.readEffectDecision(); err != nil || active {
+		t.Fatalf("live borrower repair created decision=%#v active=%t err=%v", decision, active, err)
+	}
+}
+
+func TestContextEntryReconciliationFenceReleaseFailurePreservesDecisionAndSkipsSettlement(t *testing.T) {
+	collection := storeCollectionFixture(t)
+	_, mutator, adapter, _, runtime, _, _, sessions := newEntryFixture(t, collection)
+	runtime.reconcileFenceReleaseErr = errors.New("synthetic reconciliation fence release failure")
+	contextRef, _ := tobari.ContextRef(storeContextID)
+	_, err := adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard)
+	if !errors.Is(err, tobari.ErrWorkspaceEntryInterrupted) || !strings.Contains(err.Error(), "synthetic reconciliation fence release failure") {
+		t.Fatalf("reconciliation fence release error=%v", err)
+	}
+	if runtime.reconcileCalls != 1 || runtime.confirmCalls != 0 || runtime.reconcileFenceGets != 1 || runtime.reconcileFencePuts != 1 || sessions.begin != 0 {
+		t.Fatalf("release failure crossed settlement: reconcile=%d confirm=%d fence=%d/%d begin=%d", runtime.reconcileCalls, runtime.confirmCalls, runtime.reconcileFenceGets, runtime.reconcileFencePuts, sessions.begin)
+	}
+	decision, active, readErr := mutator.readEffectDecision()
+	if readErr != nil || !active || decision.Operation != "context-entry" || decision.Target != contextRef {
+		t.Fatalf("decision=%#v active=%t err=%v", decision, active, readErr)
+	}
+}
+
 func TestContextEntryConfirmsIndependentAxesBeforePublishingAppliedEntryAndRunsOutsideLock(t *testing.T) {
 	previous := storeCollectionFixture(t)
 	store, _, adapter, lifecycle, runtime, templatePolicy, memory, sessions := newEntryFixture(t, previous)
 	contextRef, _ := tobari.ContextRef(storeContextID)
-	publication, err := adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard)
+	sessions.onRun = func() {
+		if !runtime.attachmentHeld {
+			t.Fatal("Workspace attachment lease was released before the live session")
+		}
+	}
+	publication, err := adapter.EnterContextByReferenceAtRoot(context.Background(), contextRef, "/workspace/example", tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,6 +431,330 @@ func TestContextEntryConfirmsIndependentAxesBeforePublishingAppliedEntryAndRunsO
 	}
 	if sessions.begin != 1 || sessions.run != 1 || sessions.close != 1 || lifecycle.held.Load() {
 		t.Fatalf("session=%d/%d/%d lifecycle-held=%t", sessions.begin, sessions.run, sessions.close, lifecycle.held.Load())
+	}
+	if runtime.attachmentGets != 1 || runtime.attachmentPuts != 1 || runtime.attachmentHeld {
+		t.Fatalf("attachment lease get/put/held=%d/%d/%t", runtime.attachmentGets, runtime.attachmentPuts, runtime.attachmentHeld)
+	}
+}
+
+func TestCurrentContextEntryConfirmsAndBorrowsWithoutAnotherReconciliationDecision(t *testing.T) {
+	previous := storeCollectionFixture(t)
+	store, _, adapter, _, runtime, _, _, sessions := newEntryFixture(t, previous)
+	contextRef, _ := tobari.ContextRef(storeContextID)
+	if _, err := adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	confirmed, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present {
+		t.Fatalf("confirmed collection present=%t err=%v", present, err)
+	}
+	if _, err := adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	after, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present || after.Generation != confirmed.Generation || after.Revision != confirmed.Revision {
+		t.Fatalf("steady entry changed authority: before=%d/%s after=%d/%s present=%t err=%v", confirmed.Generation, confirmed.Revision, after.Generation, after.Revision, present, err)
+	}
+	if runtime.planCalls != 1 || runtime.reconcileCalls != 1 || runtime.confirmCalls != 3 {
+		t.Fatalf("steady entry plan/reconcile/confirm=%d/%d/%d", runtime.planCalls, runtime.reconcileCalls, runtime.confirmCalls)
+	}
+	if sessions.begin != 3 || sessions.run != 3 || sessions.close != 3 {
+		t.Fatalf("steady sessions begin/run/close=%d/%d/%d", sessions.begin, sessions.run, sessions.close)
+	}
+}
+
+func TestCurrentDefaultPairEntryBorrowsWithoutRuntimePreparationOrReconciliation(t *testing.T) {
+	previous := storeCollectionFixture(t)
+	store, mutator, adapter, _, runtime, _, _, sessions := newEntryFixture(t, previous)
+	contextRef, _ := tobari.ContextRef(storeContextID)
+	if _, err := adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	baseSettlement := mutator.settlement.(*finalSettlementFixture)
+	mutator.settlement = &clusterSettlementFixture{finalSettlementFixture: baseSettlement}
+	cluster, err := NewClusterAdapter(mutator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := cluster.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	current, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present {
+		t.Fatalf("current authority present=%t err=%v", present, err)
+	}
+	observation, err := tobari.NewFinalDefaultPairObservation(current, true, "/workspace/example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepareBefore, reconcileBefore, planBefore, confirmBefore := runtime.prepareCalls, runtime.reconcileCalls, runtime.planCalls, runtime.confirmCalls
+	if _, err := adapter.EnterCurrentFinalDefaultPair(context.Background(), observation, observation.ProjectRoot, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	after, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present || after.Generation != current.Generation || after.Revision != current.Revision {
+		t.Fatalf("steady borrow changed authority: before=%d/%s after=%d/%s present=%t err=%v", current.Generation, current.Revision, after.Generation, after.Revision, present, err)
+	}
+	if runtime.prepareCalls != prepareBefore || runtime.reconcileCalls != reconcileBefore || runtime.planCalls != planBefore+1 || runtime.confirmCalls != confirmBefore+1 {
+		t.Fatalf("steady borrow prepare/reconcile/plan/confirm=%d/%d/%d/%d before=%d/%d/%d/%d", runtime.prepareCalls, runtime.reconcileCalls, runtime.planCalls, runtime.confirmCalls, prepareBefore, reconcileBefore, planBefore, confirmBefore)
+	}
+	if sessions.begin != 2 || sessions.run != 2 || sessions.close != 2 {
+		t.Fatalf("steady sessions begin/run/close=%d/%d/%d", sessions.begin, sessions.run, sessions.close)
+	}
+}
+
+func TestCurrentDefaultPairEntryLeavesRecoveryArtifactsByteExact(t *testing.T) {
+	previous := storeCollectionFixture(t)
+	store, mutator, adapter, _, runtime, _, _, sessions := newEntryFixture(t, previous)
+	current, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present {
+		t.Fatalf("current authority present=%t err=%v", present, err)
+	}
+	observation, err := tobari.NewFinalDefaultPairObservation(current, true, "/workspace/example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := mutator.effectDecisionTempPath()
+	want := []byte("preserved exact recovery bytes")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, want, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prepareBefore, reconcileBefore, planBefore, confirmBefore, beginBefore := runtime.prepareCalls, runtime.reconcileCalls, runtime.planCalls, runtime.confirmCalls, sessions.begin
+	if _, err := adapter.EnterCurrentFinalDefaultPair(context.Background(), observation, observation.ProjectRoot, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); !errors.Is(err, tobari.ErrWorkspaceEntryObservationUnavailable) {
+		t.Fatalf("recovery residue error=%v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(got, want) {
+		t.Fatalf("recovery residue=%q err=%v", got, err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("recovery residue mode=%v err=%v", info.Mode(), err)
+	}
+	if runtime.prepareCalls != prepareBefore || runtime.reconcileCalls != reconcileBefore || runtime.planCalls != planBefore || runtime.confirmCalls != confirmBefore || sessions.begin != beginBefore {
+		t.Fatalf("residue path mutated runtime/session prepare=%d/%d reconcile=%d/%d plan=%d/%d confirm=%d/%d begin=%d/%d", runtime.prepareCalls, prepareBefore, runtime.reconcileCalls, reconcileBefore, runtime.planCalls, planBefore, runtime.confirmCalls, confirmBefore, sessions.begin, beginBefore)
+	}
+}
+
+func TestCurrentDefaultPairEntryMapsRuntimePlanNotReadyToCanonicalRepair(t *testing.T) {
+	previous := storeCollectionFixture(t)
+	store, mutator, adapter, _, runtime, _, _, sessions := newEntryFixture(t, previous)
+	contextRef, _ := tobari.ContextRef(storeContextID)
+	if _, err := adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	baseSettlement := mutator.settlement.(*finalSettlementFixture)
+	mutator.settlement = &clusterSettlementFixture{finalSettlementFixture: baseSettlement}
+	cluster, err := NewClusterAdapter(mutator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := cluster.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	current, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present {
+		t.Fatalf("current authority present=%t err=%v", present, err)
+	}
+	observation, err := tobari.NewFinalDefaultPairObservation(current, true, "/workspace/example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepareBefore, reconcileBefore, planBefore, beginBefore := runtime.prepareCalls, runtime.reconcileCalls, runtime.planCalls, sessions.begin
+	runtime.planErr = tobari.ErrRuntimeNotReady
+	if _, err := adapter.EnterCurrentFinalDefaultPair(context.Background(), observation, observation.ProjectRoot, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); !errors.Is(err, tobari.ErrWorkspaceEntryRuntimeNotCurrent) || !errors.Is(err, tobari.ErrRuntimeNotReady) {
+		t.Fatalf("current Runtime repair disposition=%v", err)
+	}
+	if runtime.prepareCalls != prepareBefore || runtime.reconcileCalls != reconcileBefore || runtime.planCalls != planBefore+1 || sessions.begin != beginBefore {
+		t.Fatalf("current Runtime classification mutated prepare/reconcile/plan/begin=%d/%d %d/%d %d/%d %d/%d", runtime.prepareCalls, prepareBefore, runtime.reconcileCalls, reconcileBefore, runtime.planCalls, planBefore, sessions.begin, beginBefore)
+	}
+}
+
+func TestCurrentDefaultPairEntryPreservesEveryRecoveryArtifactCombination(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		keepActive bool
+		keepStage  bool
+	}{
+		{name: "active only", keepActive: true},
+		{name: "stage only", keepStage: true},
+		{name: "active and stage", keepActive: true, keepStage: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			previous := storeCollectionFixture(t)
+			store, mutator, adapter, _, runtime, _, _, sessions := newEntryFixture(t, previous)
+			current, present, err := store.ReadComplete(context.Background())
+			if err != nil || !present {
+				t.Fatalf("current authority present=%t err=%v", present, err)
+			}
+			observation, err := tobari.NewFinalDefaultPairObservation(current, true, "/workspace/example")
+			if err != nil {
+				t.Fatal(err)
+			}
+			runtime.reconcileErr = errors.New("stop after durable recovery artifacts")
+			contextRef, _ := tobari.ContextRef(storeContextID)
+			_, _ = adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard)
+			activePath, stagePath := mutator.effectDecisionPath(), mutationStagePath(mutator.store.root)
+			if !test.keepActive {
+				if err := os.Remove(activePath); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if !test.keepStage {
+				if err := os.Remove(stagePath); err != nil {
+					t.Fatal(err)
+				}
+			}
+			paths := []string{}
+			if test.keepActive {
+				paths = append(paths, activePath)
+			}
+			if test.keepStage {
+				paths = append(paths, stagePath)
+			}
+			type artifact struct {
+				data []byte
+				mode os.FileMode
+			}
+			before := map[string]artifact{}
+			for _, path := range paths {
+				data, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				info, err := os.Lstat(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				before[path] = artifact{data: data, mode: info.Mode()}
+			}
+			planBefore, confirmBefore, beginBefore := runtime.planCalls, runtime.confirmCalls, sessions.begin
+			if _, err := adapter.EnterCurrentFinalDefaultPair(context.Background(), observation, observation.ProjectRoot, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); err == nil || (!errors.Is(err, tobari.ErrWorkspaceEntryObservationUnavailable) && !errors.Is(err, tobari.ErrWorkspaceEntryInterrupted)) {
+				t.Fatalf("recovery residue error=%v", err)
+			}
+			for path, want := range before {
+				got, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				info, err := os.Lstat(path)
+				if err != nil || !bytes.Equal(got, want.data) || info.Mode() != want.mode {
+					t.Fatalf("artifact %s data=%q mode=%v err=%v", filepath.Base(path), got, info.Mode(), err)
+				}
+			}
+			if runtime.planCalls != planBefore || runtime.confirmCalls != confirmBefore || sessions.begin != beginBefore {
+				t.Fatalf("residue path crossed plan/confirm/session: %d/%d %d/%d %d/%d", runtime.planCalls, planBefore, runtime.confirmCalls, confirmBefore, sessions.begin, beginBefore)
+			}
+		})
+	}
+}
+
+func TestCurrentContextEntryBorrowsWhileCompletedClusterReceiptAndAnotherWorkspaceSessionExist(t *testing.T) {
+	previous := storeCollectionFixture(t)
+	_, mutator, adapter, _, runtime, _, _, sessions := newEntryFixture(t, previous)
+	contextRef, _ := tobari.ContextRef(storeContextID)
+	if _, err := adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	baseSettlement, ok := mutator.settlement.(*finalSettlementFixture)
+	if !ok {
+		t.Fatalf("settlement fixture type=%T", mutator.settlement)
+	}
+	clusterSettlement := &clusterSettlementFixture{finalSettlementFixture: baseSettlement}
+	mutator.settlement = clusterSettlement
+	cluster, err := NewClusterAdapter(mutator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := cluster.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	terminal, present, err := mutator.readTerminalEffectDecision()
+	if err != nil || !present || terminal.Operation != finalClusterReconciliationOperation {
+		t.Fatalf("cluster terminal=%#v present=%t err=%v", terminal, present, err)
+	}
+	reconcileCalls := runtime.reconcileCalls
+	reconcileFenceGets := runtime.reconcileFenceGets
+	runtime.reconcileFenceErr = tobari.ErrContextBindingProtected
+	if _, err := adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); err != nil {
+		t.Fatalf("shared steady entry was blocked by a live Workspace session: %v", err)
+	}
+	if runtime.reconcileCalls != reconcileCalls || runtime.reconcileFenceGets != reconcileFenceGets || runtime.confirmCalls < 2 {
+		t.Fatalf("steady entry reconciled behind terminal receipt: reconcile=%d/%d fence=%d/%d confirm=%d", runtime.reconcileCalls, reconcileCalls, runtime.reconcileFenceGets, reconcileFenceGets, runtime.confirmCalls)
+	}
+	if sessions.begin != 2 || sessions.run != 2 || sessions.close != 2 {
+		t.Fatalf("shared sessions begin/run/close=%d/%d/%d", sessions.begin, sessions.run, sessions.close)
+	}
+}
+
+func TestCurrentContextEntryKeepsTwoLiveBorrowersAndExclusiveHomeOperationsBlockedUntilLastClose(t *testing.T) {
+	previous := storeCollectionFixture(t)
+	_, mutator, establishment, _, baseRuntime, templatePolicy, _, _ := newEntryFixture(t, previous)
+	contextRef, _ := tobari.ContextRef(storeContextID)
+	if _, err := establishment.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	baseSettlement := mutator.settlement.(*finalSettlementFixture)
+	mutator.settlement = &clusterSettlementFixture{finalSettlementFixture: baseSettlement}
+	cluster, err := NewClusterAdapter(mutator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := cluster.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	baseRuntime.reconcileFenceErr = tobari.ErrContextBindingProtected
+	sharedRuntime := &sharedEntryRuntimeFixture{entryRuntimeFixture: baseRuntime}
+	sessions := &blockingEntrySessionAuthority{started: make(chan int, 2)}
+	adapter, err := NewContextEntryAdapter(mutator, sharedRuntime, templatePolicy, sessions, context.Background(), entryPublicationBarrierFixture{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	type result struct{ err error }
+	results := make(chan result, 2)
+	enter := func() {
+		_, err := adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard)
+		results <- result{err: err}
+	}
+	go enter()
+	if index := <-sessions.started; index != 0 {
+		t.Fatalf("first live owner index=%d", index)
+	}
+	go enter()
+	if index := <-sessions.started; index != 1 {
+		t.Fatalf("second live owner index=%d", index)
+	}
+	if borrowers := sharedRuntime.borrowerCount(); borrowers != 2 {
+		t.Fatalf("live shared borrowers=%d", borrowers)
+	}
+	if err := sharedRuntime.acquireExclusiveHomeOperation(); !errors.Is(err, tobari.ErrContextBindingProtected) {
+		t.Fatalf("exclusive Home operation crossed two live borrowers: %v", err)
+	}
+	close(sessions.owners[0].release)
+	if result := <-results; result.err != nil {
+		t.Fatalf("first owner exit: %v", result.err)
+	}
+	if borrowers := sharedRuntime.borrowerCount(); borrowers != 1 {
+		t.Fatalf("first close released all borrowers: %d", borrowers)
+	}
+	if err := sharedRuntime.acquireExclusiveHomeOperation(); !errors.Is(err, tobari.ErrContextBindingProtected) {
+		t.Fatalf("exclusive Home operation crossed remaining borrower: %v", err)
+	}
+	close(sessions.owners[1].release)
+	if result := <-results; result.err != nil {
+		t.Fatalf("second owner exit: %v", result.err)
+	}
+	if borrowers := sharedRuntime.borrowerCount(); borrowers != 0 {
+		t.Fatalf("last close retained borrower: %d", borrowers)
+	}
+	if err := sharedRuntime.acquireExclusiveHomeOperation(); err != nil {
+		t.Fatalf("exclusive Home operation remained blocked after last close: %v", err)
 	}
 }
 
@@ -315,7 +826,7 @@ func TestContextEntryKeepsCustomRuntimePreparationObservationReadOnly(t *testing
 func TestDefaultPairEntryRechecksExactReceiptInsideLifecycleLockBeforeRuntimeEffect(t *testing.T) {
 	previous := storeCollectionFixture(t)
 	store, _, adapter, lifecycle, runtime, templatePolicy, memory, sessions := newEntryFixture(t, previous)
-	expected, err := tobari.NewFinalDefaultPairObservation(previous, true, previous.Contexts[0].Context.ProjectRoot)
+	expected, err := tobari.NewFinalDefaultPairObservation(previous, true, previous.Workspaces[0].ProjectRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +860,7 @@ func TestDefaultPairEntryRechecksExactReceiptInsideLifecycleLockBeforeRuntimeEff
 func TestDefaultPairEntryProgressEndsBeforeSessionStreamHandoff(t *testing.T) {
 	previous := storeCollectionFixture(t)
 	_, _, adapter, _, _, _, _, sessions := newEntryFixture(t, previous)
-	expected, err := tobari.NewFinalDefaultPairObservation(previous, true, previous.Contexts[0].Context.ProjectRoot)
+	expected, err := tobari.NewFinalDefaultPairObservation(previous, true, previous.Workspaces[0].ProjectRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,7 +892,7 @@ func TestContextEntryInactiveActivationSettlesWithinParentAction(t *testing.T) {
 	}
 	store, mutator, adapter, _, runtime, _, _, sessions := newEntryFixture(t, collection)
 	contextRef, _ := tobari.ContextRef(storeContextID)
-	publication, err := adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard)
+	publication, err := adapter.EnterContextByReferenceAtRoot(context.Background(), contextRef, "/workspace/example", tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,7 +949,7 @@ func TestContextEntryInterruptionPreservesLastSuccessfulAndSameRefResumesExactDe
 		t.Fatalf("different mutation was not excluded: %v", err)
 	}
 	runtime.reconcileErr = nil
-	publication, err := adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard)
+	publication, err := adapter.EnterContextByReferenceAtRoot(context.Background(), contextRef, "/workspace/example", tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard)
 	if err != nil || publication.Snapshot.Workspace == nil || runtime.planCalls != 1 || runtime.reconcileCalls != 2 || sessions.run != 1 {
 		t.Fatalf("resume publication=%#v plan=%d reconcile=%d run=%d err=%v", publication, runtime.planCalls, runtime.reconcileCalls, sessions.run, err)
 	}
@@ -502,28 +1013,28 @@ func TestContextEntryNoOpDecisionInterruptedBeforeReconcileStillExecutesIdempote
 	}
 }
 
-func TestContextEntryNoOpDecisionInterruptedAfterReconcileConvergesThroughSameEffect(t *testing.T) {
+func TestContextEntryNoOpObservationTimeoutRemainsReadOnlyAndRetryable(t *testing.T) {
 	collection := storeCollectionFixture(t)
 	_, mutator, adapter, _, runtime, _, _, sessions := newEntryFixture(t, collection)
 	runtime.reuseApplied = true
 	adapter.settlementTimeout = 20 * time.Millisecond
 	runtime.blockConfirm = true
 	contextRef, _ := tobari.ContextRef(storeContextID)
-	if _, err := adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); !errors.Is(err, tobari.ErrWorkspaceEntryInterrupted) {
-		t.Fatalf("post-reconcile interruption error=%v", err)
+	if _, err := adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, tobari.ErrWorkspaceEntryInterrupted) {
+		t.Fatalf("read-only confirmation timeout error=%v", err)
 	}
-	if runtime.reconcileCalls != 1 || sessions.begin != 0 {
-		t.Fatalf("post-reconcile effects=%d session=%d", runtime.reconcileCalls, sessions.begin)
+	if runtime.reconcileCalls != 0 || sessions.begin != 0 {
+		t.Fatalf("read-only confirmation performed effects=%d session=%d", runtime.reconcileCalls, sessions.begin)
 	}
-	if decision, active, err := mutator.readEffectDecision(); err != nil || !active || decision.PreviousGeneration != decision.NextGeneration {
-		t.Fatalf("decision=%#v active=%t err=%v", decision, active, err)
+	if decision, active, err := mutator.readEffectDecision(); err != nil || active {
+		t.Fatalf("read-only confirmation created decision=%#v active=%t err=%v", decision, active, err)
 	}
 	runtime.blockConfirm = false
 	if _, err := adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if runtime.planCalls != 1 || runtime.reconcileCalls != 2 || runtime.confirmCalls != 2 || sessions.run != 1 {
-		t.Fatalf("idempotent recovery plan=%d reconcile=%d confirm=%d run=%d", runtime.planCalls, runtime.reconcileCalls, runtime.confirmCalls, sessions.run)
+	if runtime.planCalls != 2 || runtime.reconcileCalls != 0 || runtime.confirmCalls != 2 || sessions.run != 1 {
+		t.Fatalf("read-only retry plan=%d reconcile=%d confirm=%d run=%d", runtime.planCalls, runtime.reconcileCalls, runtime.confirmCalls, sessions.run)
 	}
 }
 
@@ -662,12 +1173,12 @@ func TestContextEntryCreatesFreshWorkspaceAndBindsCreationDefaults(t *testing.T)
 	}
 	_, _, adapter, _, _, _, _, _ := newEntryFixture(t, collection)
 	contextRef, _ := tobari.ContextRef(storeContextID)
-	publication, err := adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard)
+	publication, err := adapter.EnterContextByReferenceAtRoot(context.Background(), contextRef, "/workspace/example", tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
 	workspace := publication.Snapshot.Workspace
-	if workspace == nil || workspace.ID == storeWorkspaceID || workspace.Home != "/workspace/home-"+string(workspace.ID) || workspace.CreationDefaults != publication.Snapshot.Template.Current.Slices.CreationDefaultsDigest {
+	if workspace == nil || workspace.ID == storeWorkspaceID || workspace.Home != "/context/home-"+string(workspace.ContextID) || workspace.CreationDefaults != publication.Snapshot.Template.Current.Slices.CreationDefaultsDigest {
 		t.Fatalf("new Workspace=%#v", workspace)
 	}
 }

@@ -165,7 +165,7 @@ func finalCurrentDenials(
 		workspace, workspaceFound := workspaces[workspaceID]
 		templateName := templates[record.Context.TemplateID]
 		if contextErr != nil || workspaceErr != nil || !contextFound || !workspaceFound ||
-			workspace.ContextID != contextID || record.Context.ProjectRoot != denial.ProjectRoot ||
+			workspace.ContextID != contextID ||
 			workspace.ProjectRoot != denial.ProjectRoot || templateName != denial.WorkspaceManifestName {
 			continue
 		}

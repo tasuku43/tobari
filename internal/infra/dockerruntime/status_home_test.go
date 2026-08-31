@@ -74,6 +74,44 @@ func TestObserveStatusRuntimeDoesNotAcquireOrRequireMutationLock(t *testing.T) {
 	}
 }
 
+func TestObserveStatusRuntimeReportsExactHistoricalStandardMaterialReady(t *testing.T) {
+	root := t.TempDir()
+	runner := &finalContextRuntimeRunner{observations: []string{finalStandardRuntimeObservation(
+		"sha256:"+strings.Repeat("c", 64), tobari.RuntimeImageAPI, tobari.RuntimeImageLifetimeCommand,
+		"tobari", `["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]`,
+	)}}
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := historicalStandardRuntimeBinding(strings.Repeat("4", 64))
+	result, err := runtime.ObserveStatusRuntime(context.Background(), binding)
+	if err != nil || result.Authority != tobari.StatusRuntimeAuthorityReady || result.Availability != tobari.RuntimeAvailabilityAvailable || result.Compatibility != tobari.StatusNativeCompatible {
+		t.Fatalf("historical Runtime status=%+v err=%v", result, err)
+	}
+	if len(runner.calls) != 1 || runner.calls[0][len(runner.calls[0])-1] != binding.Image {
+		t.Fatalf("historical Runtime Docker calls=%v", runner.calls)
+	}
+}
+
+func TestObserveStatusRuntimeReportsWritableVolumeImageIncompatible(t *testing.T) {
+	root := t.TempDir()
+	observation := finalStandardRuntimeObservation(
+		"sha256:"+strings.Repeat("d", 64), tobari.RuntimeImageAPI, tobari.RuntimeImageLifetimeCommand,
+		"tobari", `["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]`,
+	)
+	runner := &finalContextRuntimeRunner{observations: []string{strings.TrimSuffix(observation, "}") + `,"volumes":{"/data":{}}}`}}
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := historicalStandardRuntimeBinding(strings.Repeat("6", 64))
+	result, err := runtime.ObserveStatusRuntime(context.Background(), binding)
+	if err != nil || result.Authority != tobari.StatusRuntimeAuthorityReady || result.Availability != tobari.RuntimeAvailabilityAvailable || result.Compatibility != tobari.StatusNativeIncompatible {
+		t.Fatalf("writable-volume Runtime status=%+v err=%v", result, err)
+	}
+}
+
 func TestObserveStatusServicesReturnsOnlyTypedEmptySummaryWithoutCreatingOwnerState(t *testing.T) {
 	root := t.TempDir()
 	runtime, err := newRuntimeWithData(filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), &recordingRunner{})

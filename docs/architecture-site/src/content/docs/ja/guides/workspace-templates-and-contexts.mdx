@@ -1,12 +1,12 @@
 ---
 title: Workspace Template と Context
-description: レビュー済みの設定を再利用し、ContextでProjectへ結び付け、置換可能なWorkspaceへ入ります。
+description: レビュー済みの設定をlocation-freeなContextで再利用し、Project-boundなWorkspaceへ入ります。
 ---
 
 **Workspace Template** はインストール内で再利用する設定です。
-**Context** はcanonical Project rootとTemplateを結び付け、そのProjectの
-Policy Memory（記憶した判断）を所有します。**Workspace** はContextに属する
-置換可能な実行環境と永続homeです。
+**Context** はlocation-freeなauthorityをTemplateへ結び付け、Policy Memory
+（記憶した判断）を所有します。**Workspace** はContextに属し、canonical
+Project rootをbindする置換可能な実行環境です。
 
 ## Templateを発見する
 
@@ -51,12 +51,17 @@ tobari template default set --id TEMPLATE_REF
 default selectionが影響するのはbare root entryとbare `status`だけです。
 既存ContextやWorkspaceを付け替えません。
 
-## Projectへ結び付けて入る
+## Contextを作成し、WorkspaceをProjectへ結び付ける
 
-Project rootから実行します。
+Contextの作成はlocation-freeなので、どのdirectoryからでも実行できます。
 
 ```sh
 tobari context create --template TEMPLATE_REF
+```
+
+そのContextのWorkspaceをbindまたは再利用して入る操作は、Project rootから実行します。
+
+```sh
 tobari context enter --id CONTEXT_REF
 ```
 

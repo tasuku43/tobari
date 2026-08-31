@@ -46,8 +46,34 @@ func TestFirstEntryProgressUsesExistingContextLabelWithoutClaimingMutation(t *te
 	if err := progress.Finish(tobari.FirstEntryStageSucceeded); err != nil {
 		t.Fatal(err)
 	}
-	if got := output.String(); got != "Tobari · Starting Workspace\n\n✓ Use Context\n" {
+	if got := output.String(); got != "Tobari · Entering Workspace\n\n✓ Use Context\n" {
 		t.Fatalf("existing Context checkpoint = %q", got)
+	}
+}
+
+func TestFirstEntryProgressPresentsExistingWorkspaceAsEntryNotSetup(t *testing.T) {
+	var output bytes.Buffer
+	progress := newFirstEntryProgressWithTiming(&output, true, false, false, firstEntryProgressTiming{
+		antiFlicker: time.Hour, elapsed: 2 * time.Hour, waitReason: 3 * time.Hour, heartbeat: time.Hour,
+	})
+	for _, stage := range tobari.FirstEntryStages() {
+		if err := progress.Start(stage); err != nil {
+			t.Fatal(err)
+		}
+		if err := progress.Finish(tobari.FirstEntryStageSucceeded); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := output.String()
+	for _, want := range []string{"Tobari · Entering Workspace", "✓ Check environment", "✓ Use Context", "✓ Ensure protection", "✓ Ensure Workspace", "✓ Enter Workspace"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("existing Workspace progress lacks %q: %q", want, got)
+		}
+	}
+	for _, forbidden := range []string{"Starting Workspace", "Save setup", "Prepare protection", "Prepare Workspace"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("existing Workspace progress still presents setup label %q: %q", forbidden, got)
+		}
 	}
 }
 

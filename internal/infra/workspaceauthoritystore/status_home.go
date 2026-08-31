@@ -137,8 +137,8 @@ func nearestStatusProjectRoot(collection tobari.WorkspaceAuthorityCollection, pr
 	}
 	selected := cwdRoot
 	selectedDepth := -1
-	for _, record := range collection.Contexts {
-		candidate := record.Context.ProjectRoot
+	for _, workspace := range collection.Workspaces {
+		candidate := workspace.ProjectRoot
 		relative, err := filepath.Rel(candidate, cwdRoot)
 		if err != nil {
 			return "", fmt.Errorf("compare status Project roots: %w", err)
@@ -163,7 +163,7 @@ func statusSelectedSnapshot(collection tobari.WorkspaceAuthorityCollection, pres
 		return nil, err
 	}
 	for _, snapshot := range snapshots {
-		if snapshot.Context.ProjectRoot == root && snapshot.Context.TemplateID == *collection.DefaultTemplateID {
+		if snapshot.Workspace != nil && snapshot.Workspace.ProjectRoot == root && snapshot.Context.TemplateID == *collection.DefaultTemplateID {
 			copy := snapshot.Clone()
 			return &copy, nil
 		}

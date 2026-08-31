@@ -125,6 +125,37 @@ func TestObserveFinalRuntimeMaterialsRejectsNonCanonicalTemplateBinding(t *testi
 	}
 }
 
+func TestObserveFinalRuntimeMaterialsAcceptsExactHistoricalStandardBinding(t *testing.T) {
+	root := t.TempDir()
+	runner := &lifecycleObservationRunner{images: map[string]lifecycleImageFixture{}, containers: map[string]runtimeContainerObservation{}}
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := historicalStandardRuntimeBinding(strings.Repeat("3", 64))
+	base := finalProjectionCollectionFixture(t, "")
+	template := base.Templates[0]
+	body := template.Current.Body.Clone()
+	body.EntryDefaults.Runtime = binding
+	revision, err := tobari.NewWorkspaceTemplateRevision(template.ID, 1, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template.Current = revision
+	template.Retained = []tobari.WorkspaceTemplateRevision{revision.Clone()}
+	collection, _, err := tobari.PublishWorkspaceAuthorityCollection(
+		[]tobari.WorkspaceTemplate{template}, base.Contexts, base.Workspaces, base.PendingCandidates, base.DefaultTemplateID, nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindFinalRuntimeProtectionCollection(t, runtime, collection, true)
+	observed, err := runtime.ObserveFinalRuntimeMaterials(context.Background(), collection)
+	if err != nil || len(observed) != 1 || !reflect.DeepEqual(observed[0], binding) {
+		t.Fatalf("historical standard bindings=%+v err=%v", observed, err)
+	}
+}
+
 func TestObserveFinalRuntimeMaterialsFreshEmptyIsExactZeroWrite(t *testing.T) {
 	root := t.TempDir()
 	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &lifecycleObservationRunner{})

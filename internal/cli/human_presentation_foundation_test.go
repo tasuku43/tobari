@@ -348,9 +348,9 @@ func TestCatalogWideHumanPresentationIsDeclared(t *testing.T) {
 	t.Parallel()
 	catalog := DefaultCatalog()
 	commands := catalog.Commands()
-	want := 56
+	want := 58
 	if len(authCommandSpecs()) != 0 {
-		want = 61
+		want = 63
 	}
 	if got := len(commands); got != want {
 		t.Fatalf("catalog command count = %d, want %d; update the human presentation inventory", got, want)
@@ -455,6 +455,24 @@ func TestRawSelectorsDoNotRedrawDuringIdlePollsAndRestoreTerminal(t *testing.T) 
 				t.Fatalf("terminal restore count = %d, output = %q", got, output.String())
 			}
 		})
+	}
+}
+
+func TestPolicyRuleDetailBackKeepsOneInlineCleanupOwner(t *testing.T) {
+	t.Parallel()
+	report := tobari.PolicyRuleReport{Task: tobari.TaskPolicyRules, PolicyProjectionIdentity: testCLIProjectionIdentity(strings.Repeat("a", 64)), Items: []tobari.PolicyRule{{
+		ID: "prl_0123456789abcdef0123456789abcdef", Decision: tobari.PolicyDecisionAllow, Match: tobari.PolicyMatchExact,
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/example",
+		Host: "api.example.com", Port: 443, Method: "GET", Path: "/v1/example",
+	}}}
+	var output bytes.Buffer
+	decision, err := selectPolicyRulesRaw(context.Background(), report, strings.NewReader("\rbq"), &output, false)
+	if err != nil || !decision.Canceled {
+		t.Fatalf("decision=%+v error=%v output=%q", decision, err, output.String())
+	}
+	if got := strings.Count(output.String(), selectorCursorShow); got != 1 {
+		t.Fatalf("detail back cursor cleanup count=%d output=%q", got, output.String())
 	}
 }
 

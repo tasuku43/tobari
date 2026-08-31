@@ -18,6 +18,7 @@ import (
 type RuntimePort interface {
 	CreateRuntime(context.Context, string, tobari.RuntimeCopySource) (tobari.RuntimeReport, error)
 	ResolveRuntimeReference(context.Context, string) (tobari.RuntimeManifest, error)
+	ObserveManagedRuntimeSourceRevision(context.Context, string) (tobari.SemanticDigest, error)
 	BuildManagedRuntimeByReference(context.Context, string, io.Writer) (tobari.RuntimeReport, error)
 	ReadRuntimeLifecycleSnapshot(context.Context) (tobari.RuntimeLifecycleSnapshot, time.Time, error)
 	ReadRuntimeBuildRecovery(context.Context) (tobari.RuntimeBuildRecovery, bool, error)
@@ -285,14 +286,16 @@ func (s *Service) ApplyPrune(ctx context.Context, intent operation.Intent, planR
 		}
 		if err := applied.Validate(); err != nil || applied.PlanRef != planRef {
 			change := fault.ChangePartial
+			code := "invalid_runtime_retirement_result_partial"
 			if applied.PlanRef == planRef && (applied.State == tobari.RuntimePruneApplied || applied.State == tobari.RuntimePruneAlreadyApplied) {
 				change = fault.ChangeConfirmed
+				code = "invalid_runtime_retirement_result_confirmed"
 			}
 			if err == nil {
 				err = fmt.Errorf("Runtime prune result does not match the reviewed plan")
 			}
 			return fault.WithClassification(
-				fault.Wrap(fault.KindContract, "invalid_runtime_retirement_result", "Runtime prune result is invalid", false, err,
+				fault.Wrap(fault.KindContract, code, "Runtime prune result is invalid", false, err,
 					fault.NextAction{Command: "runtime prune dry-run", Reason: "Reconcile the current Runtime lifecycle state."}),
 				fault.PhaseVerification, change,
 			)
@@ -653,6 +656,84 @@ func (s *Service) BindingByReference(ctx context.Context, runtimeRef string, ord
 	return binding, nil
 }
 
+// ResolveManagedReference binds an assist task to one opaque Runtime
+// reference without requiring a built head revision.
+func (s *Service) ResolveManagedReference(ctx context.Context, runtimeRef string) (tobari.RuntimeManifest, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.RuntimeManifest{}, err
+	}
+	if err := tobari.ValidateRuntimeRef(runtimeRef); err != nil {
+		return tobari.RuntimeManifest{}, fault.WithClassification(
+			fault.Wrap(fault.KindInvalidInput, "invalid_runtime_ref", "Runtime reference is invalid", false, err,
+				fault.NextAction{Command: "runtime list", Reason: "Use one managed Runtime reference unchanged."}),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
+	}
+	manifest, err := s.runtime.ResolveRuntimeReference(ctx, runtimeRef)
+	if errors.Is(err, tobari.ErrRuntimeNotFound) {
+		return tobari.RuntimeManifest{}, fault.WithClassification(
+			fault.New(fault.KindNotFound, "runtime_not_found", "the referenced Runtime does not exist", false,
+				fault.NextAction{Command: "runtime list", Reason: "Choose an existing managed Runtime."}),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
+	}
+	if err != nil {
+		return tobari.RuntimeManifest{}, runtimeSourceObservationFault(err)
+	}
+	if err := manifest.Validate(); err != nil {
+		return tobari.RuntimeManifest{}, fault.WithClassification(
+			fault.Wrap(fault.KindContract, "invalid_runtime_source_manifest", "Runtime source authority returned an invalid manifest", false, err,
+				fault.NextAction{Command: "runtime list", Reason: "Reconcile the managed Runtime catalog."}),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
+	}
+	if manifest.Kind != tobari.RuntimeKindManaged {
+		return tobari.RuntimeManifest{}, fault.WithClassification(
+			fault.New(fault.KindRejected, "runtime_not_managed", "the built-in standard Runtime has no editable managed source", false,
+				fault.NextAction{Command: "runtime list", Reason: "Choose a managed Runtime or inspect how to create one."}),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
+	}
+	return manifest, nil
+}
+
+// ResolveManagedSourceReference binds an assist task to both the opaque
+// managed Runtime and the exact editable-source generation observed before
+// authoring. The source generation participates in the retained draft ID.
+func (s *Service) ResolveManagedSourceReference(ctx context.Context, runtimeRef string) (tobari.RuntimeManifest, tobari.SemanticDigest, error) {
+	manifest, err := s.ResolveManagedReference(ctx, runtimeRef)
+	if err != nil {
+		return tobari.RuntimeManifest{}, "", err
+	}
+	revision, err := s.runtime.ObserveManagedRuntimeSourceRevision(ctx, runtimeRef)
+	if err != nil {
+		return tobari.RuntimeManifest{}, "", runtimeSourceObservationFault(err)
+	}
+	if revision.Validate() != nil {
+		return tobari.RuntimeManifest{}, "", fault.WithClassification(
+			fault.New(fault.KindContract, "invalid_runtime_source_revision", "Runtime source authority returned an invalid revision", false,
+				fault.NextAction{Command: "runtime list", Reason: "Reconcile the managed Runtime source authority."}),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
+	}
+	return manifest, revision, nil
+}
+
+func runtimeSourceObservationFault(err error) error {
+	if errors.Is(err, tobari.ErrRuntimeNotFound) {
+		return fault.WithClassification(
+			fault.New(fault.KindNotFound, "runtime_not_found", "the referenced Runtime does not exist", false,
+				fault.NextAction{Command: "runtime list", Reason: "Choose an existing managed Runtime."}),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
+	}
+	return fault.WithClassification(
+		fault.Wrap(fault.KindUnavailable, "runtime_source_observation_failed", "The managed Runtime source revision could not be observed", false, err,
+			fault.NextAction{Command: "runtime list", Reason: "Inspect the current managed Runtime source authority."}),
+		fault.PhasePrecondition, fault.ChangeNone,
+	)
+}
+
 func (s *Service) Show(ctx context.Context, name string) (tobari.RuntimeReport, error) {
 	return s.read(ctx, name, false)
 }
@@ -764,6 +845,13 @@ func (s *Service) Build(ctx context.Context, intent operation.Intent, runtimeRef
 		built, err := s.runtime.BuildManagedRuntimeByReference(actionContext, runtimeRef, diagnostics)
 		if errors.Is(err, tobari.ErrRuntimeNotFound) {
 			return fault.New(fault.KindNotFound, "runtime_not_found", "the referenced Runtime does not exist", false, fault.NextAction{Command: "runtime list", Reason: "Choose an existing managed Runtime."})
+		}
+		if errors.Is(err, tobari.ErrRuntimeNotReady) {
+			return fault.WithClassification(fault.Wrap(
+				fault.KindRejected, "runtime_not_ready",
+				"The current immutable Runtime image no longer satisfies its retained revision authority.", false, err,
+				fault.NextAction{Command: "review runtimes", Reason: "Inspect the current revision material before choosing an explicit recovery action."},
+			), fault.PhasePrecondition, fault.ChangeNone)
 		}
 		if err != nil {
 			if structured, ok := fault.PublicCopy(err); ok {

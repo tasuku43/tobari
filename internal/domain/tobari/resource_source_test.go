@@ -130,7 +130,7 @@ func TestWorkspaceTemplatePolicyMigrationRejectsFinalModulesInsideAlpha(t *testi
 }
 
 func TestContextSourceMatchesExactImmutableBinding(t *testing.T) {
-	binding := ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: testContextAuthorityID, ProjectRoot: "/work/project", TemplateID: testTemplateAuthorityID}
+	binding := ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: testContextAuthorityID, TemplateID: testTemplateAuthorityID}
 	source, err := NewContextSource(binding)
 	if err != nil {
 		t.Fatal(err)
@@ -138,8 +138,8 @@ func TestContextSourceMatchesExactImmutableBinding(t *testing.T) {
 	if err := source.ValidateFor(binding); err != nil {
 		t.Fatal(err)
 	}
-	source.ProjectRoot = "/work/other"
+	source.TemplateID = WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789ff")
 	if err := source.ValidateFor(binding); err == nil {
-		t.Fatal("Context rebind accepted")
+		t.Fatal("Context Template rebind accepted")
 	}
 }

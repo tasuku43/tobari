@@ -14,7 +14,7 @@ import (
 
 const (
 	WorkspaceTemplateSchemaVersion = 2
-	ContextBindingSchemaVersion    = 1
+	ContextBindingSchemaVersion    = 2
 	PolicyMemorySchemaVersion      = 2
 	WorkspaceBindingSchemaVersion  = 3
 
@@ -37,6 +37,7 @@ var (
 	ErrDefaultTemplateSelectionRequired       = errors.New("default Workspace Template selection is required")
 	ErrPreReleaseLegacyAuthority              = errors.New("pre-release legacy authority is present or unsafe")
 	ErrFinalAuthorityMigrationRequired        = errors.New("final authority store migration is required")
+	ErrFinalAuthorityNotFound                 = errors.New("final authority is not initialized")
 	ErrLegacyExecutablePolicy                 = errors.New("legacy executable policy is unsupported")
 	ErrContextBindingExists                   = errors.New("Context already exists")
 	ErrContextBindingNotFound                 = errors.New("Context does not exist")
@@ -51,6 +52,7 @@ var (
 	ErrWorkspaceEntryInterrupted              = errors.New("Workspace entry reconciliation requires exact recovery")
 	ErrWorkspaceEntryCanceledBeforeDecision   = errors.New("Workspace entry was canceled before a durable reconciliation decision")
 	ErrWorkspaceEntryRuntimeNotCurrent        = errors.New("Workspace entry runtime is confirmed missing or mismatched")
+	ErrWorkspaceEntryProtectionNotCurrent     = errors.New("Workspace entry protection is confirmed missing, stopped, or drifted")
 	ErrFinalAuthorityMutationRecoveryRequired = errors.New("final-authority mutation requires exact recovery")
 	ErrPolicyMemoryTargetNotFound             = errors.New("Policy Memory target does not exist")
 	ErrPolicyReviewChanged                    = errors.New("reviewed Policy Memory collection changed")
@@ -891,7 +893,6 @@ func DeriveWorkspaceTemplateEntryAuthority(revision WorkspaceTemplateRevision) (
 type ContextBinding struct {
 	SchemaVersion int                 `json:"schema_version"`
 	ID            ContextID           `json:"context_id"`
-	ProjectRoot   string              `json:"project_root"`
 	TemplateID    WorkspaceTemplateID `json:"workspace_template_id"`
 }
 
@@ -902,9 +903,6 @@ func (c ContextBinding) Validate() error {
 	if err := c.ID.Validate(); err != nil {
 		return err
 	}
-	if err := ValidateCanonicalRoot(c.ProjectRoot); err != nil {
-		return err
-	}
 	return c.TemplateID.Validate()
 }
 
@@ -913,7 +911,6 @@ func ValidateContextBindings(bindings []ContextBinding) error {
 		return fmt.Errorf("Context collection is unknown")
 	}
 	ids := make(map[ContextID]struct{}, len(bindings))
-	pairs := make(map[string]struct{}, len(bindings))
 	for _, binding := range bindings {
 		if err := binding.Validate(); err != nil {
 			return err
@@ -921,12 +918,7 @@ func ValidateContextBindings(bindings []ContextBinding) error {
 		if _, exists := ids[binding.ID]; exists {
 			return fmt.Errorf("Context IDs must be unique")
 		}
-		pair := binding.ProjectRoot + "\x00" + string(binding.TemplateID)
-		if _, exists := pairs[pair]; exists {
-			return fmt.Errorf("one Project and Template pair may have only one Context")
-		}
 		ids[binding.ID] = struct{}{}
-		pairs[pair] = struct{}{}
 	}
 	return nil
 }
@@ -1544,8 +1536,11 @@ func (w WorkspaceBinding) ValidateFor(context ContextBinding) error {
 	if err := context.Validate(); err != nil {
 		return err
 	}
-	if w.ContextID != context.ID || w.ProjectRoot != context.ProjectRoot {
+	if w.ContextID != context.ID {
 		return fmt.Errorf("Workspace binding does not belong to its Context")
+	}
+	if err := ValidateCanonicalRoot(w.ProjectRoot); err != nil {
+		return err
 	}
 	if w.Home == "" || !filepath.IsAbs(w.Home) || filepath.Clean(w.Home) != w.Home {
 		return fmt.Errorf("Workspace home is invalid")
@@ -1671,7 +1666,7 @@ func NewWorkspaceSessionIdentity(snapshot ContextAuthoritySnapshot) (WorkspaceSe
 	identity := WorkspaceSessionIdentity{
 		ContextID: snapshot.Context.ID, WorkspaceID: snapshot.Workspace.ID,
 		TemplateID: snapshot.Template.ID, ContextPresentation: snapshot.Template.Name,
-		ProjectRoot: snapshot.Context.ProjectRoot,
+		ProjectRoot: snapshot.Workspace.ProjectRoot,
 	}
 	var err error
 	identity.AuthorityDigest, err = workspaceSessionIdentityDigest(identity)
@@ -1768,7 +1763,7 @@ func NewWorkspaceSessionBinding(snapshot ContextAuthoritySnapshot, receipt Works
 	binding := WorkspaceSessionBinding{
 		ContextID: snapshot.Context.ID, WorkspaceID: snapshot.Workspace.ID,
 		TemplateID: snapshot.Template.ID, TemplateRevision: snapshot.Template.Current.Revision,
-		ProjectRoot: snapshot.Context.ProjectRoot, WorkspaceHome: snapshot.Workspace.Home,
+		ProjectRoot: snapshot.Workspace.ProjectRoot, WorkspaceHome: snapshot.Workspace.Home,
 		ContextPresentation: snapshot.Template.Name, AppliedEntry: entry,
 		SessionDefaults:       snapshot.Template.Current.Body.SessionDefaults.Clone(),
 		SessionDefaultsDigest: snapshot.Template.Current.Slices.SessionDefaultsDigest,

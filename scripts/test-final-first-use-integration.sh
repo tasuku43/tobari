@@ -42,18 +42,19 @@ run_tobari_at() {
 run_bare_tobari_pty_at() {
   local mode=$1
   local root=$2
-  (
-    cd "$root"
-    env \
+	(
+		cd "$root"
+		# shellcheck disable=SC2016 # $PWD must expand inside the Workspace shell, not on the host.
+		env \
       HOME="$test_root/user" \
       DOCKER_CONFIG="$host_docker_config" \
       DOCKER_CONTEXT="$host_docker_context" \
       XDG_CONFIG_HOME="$test_root/config" \
       XDG_STATE_HOME="$test_root/state" \
-      XDG_DATA_HOME="$test_root/data" \
-      NO_COLOR=1 \
-      TERM=xterm-256color \
-      python3 -c '
+	      XDG_DATA_HOME="$test_root/data" \
+	      NO_COLOR=1 \
+	      TERM=xterm-256color \
+	      python3 -c '
 import errno
 import fcntl
 import os
@@ -286,6 +287,21 @@ grep -F 'E2E_CWD=/var/lib/tobari/project/child' "$ancestor_log" >/dev/null
 python3 -c 'import json,sys; assert len(json.load(sys.stdin)["contexts"]["items"]) == 1' <<<"$(run_tobari context list --format=json)"
 python3 -c 'import json,sys; assert len(json.load(sys.stdin)["workspaces"]["items"]) == 1' <<<"$(run_tobari workspace list --format=json)"
 
+parent_workspace_id=$(python3 -c 'import json,sys; items=json.load(sys.stdin)["workspaces"]["items"]; assert len(items) == 1; print(items[0]["workspace_id"])' <<<"$(run_tobari workspace list --format=json)")
+parent_container=$(docker ps -aq --no-trunc \
+  --filter "label=io.tobari.owner=default" \
+  --filter "label=io.tobari.role=work" \
+  --filter "label=io.tobari.id=$parent_workspace_id")
+[[ $parent_container =~ ^[0-9a-f]{64}$ ]] || {
+  echo "first-use integration: exact parent Workspace container was not uniquely observable" >&2
+  exit 1
+}
+docker stop "$parent_container" >/dev/null
+[[ $(docker inspect --format '{{json .State.Running}}' "$parent_container") == false ]] || {
+  echo "first-use integration: parent Workspace remained live before nested creation" >&2
+  exit 1
+}
+
 nested_log=$test_root/nested-entry.log
 run_bare_tobari_pty_at nested-create "$test_root/user/project/child" >"$nested_log" 2>&1 || {
 	cat "$nested_log" >&2; echo "first-use integration: explicit nested-root creation failed" >&2; exit 1;
@@ -293,8 +309,9 @@ run_bare_tobari_pty_at nested-create "$test_root/user/project/child" >"$nested_l
 grep -F 'Creating a new Workspace here' "$nested_log" >/dev/null
 grep -F 'E2E_CWD=/var/lib/tobari/project/child' "$nested_log" >/dev/null
 context_list=$(run_tobari context list --format=json)
-nested_context_ref=$(python3 -c 'import json,sys; items=json.load(sys.stdin)["contexts"]["items"]; assert len(items) == 2; print(next(x["context_ref"] for x in items if x["project_root"].endswith("/project/child")))' <<<"$context_list")
 workspace_list=$(run_tobari workspace list --format=json)
+nested_context_id=$(python3 -c 'import json,sys; items=json.load(sys.stdin)["workspaces"]["items"]; assert len(items) == 2; print(next(x["context_id"] for x in items if x["project_root"].endswith("/project/child")))' <<<"$workspace_list")
+nested_context_ref=$(python3 -c 'import json,sys; target=sys.argv[1]; items=json.load(sys.stdin)["contexts"]["items"]; assert len(items) == 2; print(next(x["context_ref"] for x in items if x["context_id"] == target))' "$nested_context_id" <<<"$context_list")
 nested_workspace_ref=$(python3 -c 'import json,sys; items=json.load(sys.stdin)["workspaces"]["items"]; assert len(items) == 2; print(next(x["workspace_ref"] for x in items if x["project_root"].endswith("/project/child")))' <<<"$workspace_list")
 
-echo "first-use integration: cold entry, re-entry, descendant selection, and explicit nested creation OK"
+echo "first-use integration: cold entry, re-entry, descendant selection, and stopped-ancestor nested creation OK"

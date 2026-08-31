@@ -39,7 +39,7 @@ func twoContextPolicyReadCollection(t *testing.T) WorkspaceAuthorityCollection {
 	secondContextID := ContextID("01912345-6789-7abc-8def-0123456789b2")
 	secondWorkspaceID := WorkspaceID("01912345-6789-7abc-8def-0123456789b3")
 	template := base.Templates[0]
-	secondContext := ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: secondContextID, ProjectRoot: "/workspace/second", TemplateID: template.ID}
+	secondContext := ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: secondContextID, TemplateID: template.ID}
 	ruleBody := base.Contexts[0].PolicyMemory.Rules[0].Body.Clone()
 	ruleBody.SourceCandidates = []string{"pcy_" + strings.Repeat("3", 32)}
 	secondRule, err := NewPolicyMemoryRule(secondContextID, base.Contexts[0].PolicyMemory.Rules[0].Decision, ruleBody)
@@ -60,7 +60,7 @@ func twoContextPolicyReadCollection(t *testing.T) WorkspaceAuthorityCollection {
 	}
 	secondWorkspace := WorkspaceBinding{
 		SchemaVersion: WorkspaceBindingSchemaVersion, ID: secondWorkspaceID, ContextID: secondContextID,
-		ProjectRoot: secondContext.ProjectRoot, Home: "/workspace/home-second",
+		ProjectRoot: "/workspace/second", Home: "/workspace/home-second",
 		CreationDefaults: template.Current.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &entry,
 	}
 	secondCandidate, err := NewPolicyCandidateAuthority(secondContextID, secondWorkspaceID, base.PendingCandidates[0].Effect)
@@ -91,7 +91,7 @@ func TestFinalPolicyReadJSONProducesOnlyCandidateAndRuleReferences(t *testing.T)
 		t.Fatalf("same-effect candidate scope is not visibly distinct: %#v", candidates.Items)
 	}
 	if len(rules.Items) != 2 || rules.Items[0].Context != rules.Items[1].Context || rules.Items[0].Template != rules.Items[1].Template ||
-		rules.Items[0].ProjectRoot == rules.Items[1].ProjectRoot ||
+		rules.Items[0].ContextID == rules.Items[1].ContextID ||
 		rules.Items[0].Body.Host != rules.Items[1].Body.Host || rules.Items[0].Body.Path != rules.Items[1].Body.Path {
 		t.Fatalf("same-body rule scope is not visibly distinct: %#v", rules.Items)
 	}
@@ -111,8 +111,15 @@ func TestFinalPolicyReadJSONProducesOnlyCandidateAndRuleReferences(t *testing.T)
 		items := root["items"].([]any)
 		for _, raw := range items {
 			item := raw.(map[string]any)
-			if item["context_id"] == nil || item["workspace_template_id"] == nil || item["project_root"] == nil {
+			if item["context_id"] == nil || item["workspace_template_id"] == nil {
 				t.Fatalf("%s omitted non-reference final identity dimensions: %s", name, encoded)
+			}
+			if name == "rules" {
+				if _, present := item["project_root"]; present {
+					t.Fatalf("location-free Policy Memory rule leaked a Project root: %s", encoded)
+				}
+			} else if item["project_root"] == nil {
+				t.Fatalf("candidate omitted its observing Workspace root: %s", encoded)
 			}
 			if name == "candidates" && item["observing_workspace_id"] == nil {
 				t.Fatalf("candidate omitted observing Workspace identity: %s", encoded)

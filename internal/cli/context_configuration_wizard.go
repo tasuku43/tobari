@@ -174,24 +174,21 @@ func selectConfigurationShellRaw(
 	needsRender := true
 	for {
 		if err := ctx.Err(); err != nil {
-			finishSelectorScreen(out, lineCount)
-			return configurationShellActionCancel, selected, err
+			return configurationShellActionCancel, selected, errors.Join(err, finishSelectorScreen(out, lineCount))
 		}
 		if needsRender {
 			currentLines, err := renderConfigurationShellRaw(
 				out, contextName, pending, staged, selected, message, lineCount, style,
 			)
 			if err != nil {
-				finishSelectorScreen(out, lineCount)
-				return configurationShellActionCancel, selected, err
+				return configurationShellActionCancel, selected, errors.Join(err, finishSelectorScreen(out, lineCount))
 			}
 			lineCount = currentLines
 			needsRender = false
 		}
 		key, err := readSelectorKey(ctx, in)
 		if err != nil {
-			finishSelectorScreen(out, lineCount)
-			return configurationShellActionCancel, selected, err
+			return configurationShellActionCancel, selected, errors.Join(err, finishSelectorScreen(out, lineCount))
 		}
 		switch key.kind {
 		case selectorKeyNone:
@@ -229,19 +226,16 @@ func selectConfigurationShellRaw(
 			message = setting.Variable + " staged as inherit."
 			needsRender = true
 		case selectorKeyLiteral:
-			finishSelectorScreen(out, lineCount)
-			return configurationShellActionLiteral, selected, nil
+			return configurationShellActionLiteral, selected, finishSelectorScreen(out, lineCount)
 		case selectorKeyApply:
 			if len(staged) == 0 {
 				message = "Stage at least one change before Apply."
 				needsRender = true
 				continue
 			}
-			finishSelectorScreen(out, lineCount)
-			return configurationShellActionApply, selected, nil
+			return configurationShellActionApply, selected, finishSelectorScreen(out, lineCount)
 		case selectorKeyCancel:
-			finishSelectorScreen(out, lineCount)
-			return configurationShellActionCancel, selected, context.Canceled
+			return configurationShellActionCancel, selected, errors.Join(context.Canceled, finishSelectorScreen(out, lineCount))
 		default:
 			message = "Use ↑/↓ to move, d/h/l to stage, p to Apply, or q to cancel."
 			needsRender = true
@@ -439,24 +433,21 @@ func selectConfigurationGitRaw(
 	needsRender := true
 	for {
 		if err := ctx.Err(); err != nil {
-			finishSelectorScreen(out, lineCount)
-			return configurationGitActionCancel, pending, selected, err
+			return configurationGitActionCancel, pending, selected, errors.Join(err, finishSelectorScreen(out, lineCount))
 		}
 		if needsRender {
 			currentLines, err := renderConfigurationGitRaw(
 				out, contextName, current, pending, staged, options, selected, message, lineCount, style,
 			)
 			if err != nil {
-				finishSelectorScreen(out, lineCount)
-				return configurationGitActionCancel, pending, selected, err
+				return configurationGitActionCancel, pending, selected, errors.Join(err, finishSelectorScreen(out, lineCount))
 			}
 			lineCount = currentLines
 			needsRender = false
 		}
 		key, err := readSelectorKey(ctx, in)
 		if err != nil {
-			finishSelectorScreen(out, lineCount)
-			return configurationGitActionCancel, pending, selected, err
+			return configurationGitActionCancel, pending, selected, errors.Join(err, finishSelectorScreen(out, lineCount))
 		}
 		source := tobari.ManifestGitIdentitySource("")
 		switch key.kind {
@@ -499,19 +490,16 @@ func selectConfigurationGitRaw(
 				needsRender = true
 				continue
 			}
-			finishSelectorScreen(out, lineCount)
-			return configurationGitActionApply, pending, selected, nil
+			return configurationGitActionApply, pending, selected, finishSelectorScreen(out, lineCount)
 		case selectorKeyCancel:
-			finishSelectorScreen(out, lineCount)
-			return configurationGitActionCancel, pending, selected, context.Canceled
+			return configurationGitActionCancel, pending, selected, errors.Join(context.Canceled, finishSelectorScreen(out, lineCount))
 		default:
 			message = "Use ↑/↓ and Enter or d/h/l to stage, p to Apply, or q to cancel."
 			needsRender = true
 			continue
 		}
 		if source == tobari.ManifestGitIdentityLiteral {
-			finishSelectorScreen(out, lineCount)
-			return configurationGitActionLiteral, pending, selected, nil
+			return configurationGitActionLiteral, pending, selected, finishSelectorScreen(out, lineCount)
 		}
 		pending = tobari.ManifestGitIdentitySetting{Source: source}
 		staged = true
@@ -723,22 +711,19 @@ func selectConfigurationWizardRaw(
 	needsRender := true
 	for {
 		if err := ctx.Err(); err != nil {
-			finishSelectorScreen(out, lineCount)
-			return 0, err
+			return 0, errors.Join(err, finishSelectorScreen(out, lineCount))
 		}
 		if needsRender {
 			currentLines, err := renderConfigurationWizardRaw(out, menu, selected, message, lineCount, style)
 			if err != nil {
-				finishSelectorScreen(out, lineCount)
-				return 0, err
+				return 0, errors.Join(err, finishSelectorScreen(out, lineCount))
 			}
 			lineCount = currentLines
 			needsRender = false
 		}
 		key, err := readSelectorKey(ctx, in)
 		if err != nil {
-			finishSelectorScreen(out, lineCount)
-			return 0, err
+			return 0, errors.Join(err, finishSelectorScreen(out, lineCount))
 		}
 		switch key.kind {
 		case selectorKeyNone:
@@ -761,16 +746,13 @@ func selectConfigurationWizardRaw(
 			needsRender = true
 		case selectorKeyNumber:
 			if key.index >= 0 && key.index < len(menu.options) {
-				finishSelectorScreen(out, lineCount)
-				return key.index, nil
+				return key.index, finishSelectorScreen(out, lineCount)
 			}
 			message = "That option does not exist."
 		case selectorKeyEnter:
-			finishSelectorScreen(out, lineCount)
-			return selected, nil
+			return selected, finishSelectorScreen(out, lineCount)
 		case selectorKeyCancel:
-			finishSelectorScreen(out, lineCount)
-			return 0, context.Canceled
+			return 0, errors.Join(context.Canceled, finishSelectorScreen(out, lineCount))
 		default:
 			message = "Use ↑/↓ to move, Enter to choose, or q to cancel."
 			needsRender = true

@@ -30,7 +30,10 @@ func TestClaudeWorkspaceLoginBridgeOpensHostWithoutCallbackListener(t *testing.T
 	}
 	runner := &codexBridgeRunner{projectID: projectID}
 	browser := &recordingBrowser{}
-	bridge := newWorkspaceLoginBridge(context.Background(), &Runtime{runner: runner, browser: browser}, container, projectID)
+	bridge, err := newWorkspaceLoginBridge(context.Background(), &Runtime{runner: runner, browser: browser}, container, projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer bridge.close()
 	listenCalls := 0
 	bridge.listen = func(string) (net.Listener, error) {

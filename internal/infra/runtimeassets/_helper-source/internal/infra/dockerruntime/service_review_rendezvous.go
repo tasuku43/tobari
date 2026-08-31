@@ -337,7 +337,7 @@ func (r *Runtime) AllowServiceRequest(ctx context.Context, id string) (tobari.Se
 		return tobari.ServiceExposure{}, fault.Wrap(fault.KindRejected, "service_request_stale", "service request changed before approval", false, err)
 	}
 	if response.Exposure == nil || response.Exposure.RequestID != id || response.Exposure.AttachmentID != record.AttachmentID {
-		return tobari.ServiceExposure{}, fault.New(fault.KindContract, "invalid_service_exposure", "service owner returned contradictory exposure authority", false)
+		return tobari.ServiceExposure{}, fault.New(fault.KindContract, "invalid_service_exposure_result", "service owner returned contradictory exposure authority", false)
 	}
 	return *response.Exposure, nil
 }

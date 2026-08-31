@@ -183,19 +183,34 @@ func (r *Runtime) ObserveFinalWorkspacePolicyProjection(ctx context.Context, pla
 	if err := plan.Validate(); err != nil {
 		return FinalWorkspacePolicyProjection{}, err
 	}
-	firstGateway, first, err := r.observeFinalWorkspacePrincipalRows(ctx, plan)
+	previous, previousPresent, err := r.readOptionalFinalPolicyActivation(r.finalPolicyActiveReceiptPath())
+	if err != nil {
+		return FinalWorkspacePolicyProjection{}, err
+	}
+	registryBefore, err := r.readProjectPrincipalRegistry()
+	if err != nil {
+		return FinalWorkspacePolicyProjection{}, err
+	}
+	firstGateway, first, err := r.observeFinalWorkspacePrincipalRows(ctx, plan, previous, previousPresent, registryBefore)
 	if err != nil {
 		return FinalWorkspacePolicyProjection{}, err
 	}
 	if r.finalProjectionAfterFirstObservation != nil {
 		r.finalProjectionAfterFirstObservation()
 	}
-	secondGateway, second, err := r.observeFinalWorkspacePrincipalRows(ctx, plan)
+	secondGateway, second, err := r.observeFinalWorkspacePrincipalRows(ctx, plan, previous, previousPresent, registryBefore)
+	if err != nil {
+		return FinalWorkspacePolicyProjection{}, err
+	}
+	registryAfter, err := r.readProjectPrincipalRegistry()
 	if err != nil {
 		return FinalWorkspacePolicyProjection{}, err
 	}
 	if !reflect.DeepEqual(first, second) || !reflect.DeepEqual(firstGateway, secondGateway) {
 		return FinalWorkspacePolicyProjection{}, fmt.Errorf("final principal network authority changed between complete observations")
+	}
+	if !sameProjectPrincipalRegistry(registryBefore, registryAfter) {
+		return FinalWorkspacePolicyProjection{}, fmt.Errorf("final principal registry authority changed between complete observations")
 	}
 	result := FinalWorkspacePolicyProjection{Plan: plan.Clone(), Principals: append([]FinalWorkspacePrincipalRow{}, second...), Gateway: secondGateway}
 	result.MaterializedDigest, err = finalWorkspacePolicyProjectionDigest(result.Plan.Contexts, result.Principals, result.Gateway)
@@ -205,7 +220,13 @@ func (r *Runtime) ObserveFinalWorkspacePolicyProjection(ctx context.Context, pla
 	return result, result.Validate()
 }
 
-func (r *Runtime) observeFinalWorkspacePrincipalRows(ctx context.Context, plan tobari.WorkspacePolicyProjection) (FinalGatewayComponentAuthority, []FinalWorkspacePrincipalRow, error) {
+func (r *Runtime) observeFinalWorkspacePrincipalRows(
+	ctx context.Context,
+	plan tobari.WorkspacePolicyProjection,
+	previous finalPolicyActivationRecord,
+	previousPresent bool,
+	registry projectPrincipalRegistry,
+) (FinalGatewayComponentAuthority, []FinalWorkspacePrincipalRow, error) {
 	gateway, missing, err := r.observeAppliedClusterComponent(ctx, "gateway", gatewayContainer)
 	if err != nil {
 		return FinalGatewayComponentAuthority{}, nil, fmt.Errorf("observe exact final Gateway component: %w", err)
@@ -230,24 +251,7 @@ func (r *Runtime) observeFinalWorkspacePrincipalRows(ctx context.Context, plan t
 		if err := r.verifyOwnedProjectResource(ctx, "network", network, string(authority.WorkspaceID), projectNetRole); err != nil {
 			return FinalGatewayComponentAuthority{}, nil, fmt.Errorf("observe exact final Workspace network: %w", err)
 		}
-		format := `{"id":{{json .Id}},"owner":{{json (index .Config.Labels "` + ownerLabel + `")}},` +
-			`"component":{{json (index .Config.Labels "` + componentLabel + `")}},` +
-			`"workspace":{{json (index .Config.Labels "` + projectIDLabel + `")}},` +
-			`"role":{{json (index .Config.Labels "` + projectRoleLabel + `")}},` +
-			`"spec":{{json (index .Config.Labels "` + projectSpecLabel + `")}},` +
-			`"running":{{json .State.Running}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}"none"{{end}}}`
-		output, err := r.runner.Output(ctx, []string{"container", "inspect", "--format", format, container}, os.Environ())
-		if err != nil {
-			return FinalGatewayComponentAuthority{}, nil, fmt.Errorf("observe final Workspace container: %w: %s", err, boundedDiagnostic(output))
-		}
-		var observed finalWorkspaceContainerObservation
-		if err := decodeStrictJSON(output, &observed); err != nil {
-			return FinalGatewayComponentAuthority{}, nil, fmt.Errorf("decode final Workspace container: %w", err)
-		}
-		if err := observed.validateFor(authority.WorkspaceID, authority.AppliedEntry.ResolvedSpec, ""); err != nil {
-			return FinalGatewayComponentAuthority{}, nil, err
-		}
-		subnet, err := r.projectNetworkSubnet(ctx, network)
+		observed, err := r.observeFinalWorkspaceContainer(ctx, container, network, authority)
 		if err != nil {
 			return FinalGatewayComponentAuthority{}, nil, err
 		}
@@ -255,19 +259,35 @@ func (r *Runtime) observeFinalWorkspacePrincipalRows(ctx context.Context, plan t
 		if !exists || gatewayAddress == "" {
 			return FinalGatewayComponentAuthority{}, nil, fmt.Errorf("healthy final Gateway is not attached to exact Workspace network")
 		}
-		workspaceAddress, err := r.workspaceNetworkAddress(ctx, container, network)
-		if err != nil {
-			return FinalGatewayComponentAuthority{}, nil, err
+		var principal FinalWorkspacePrincipalRow
+		if observed.Running {
+			if err := observed.validateFor(authority.WorkspaceID, authority.AppliedEntry.ResolvedSpec, ""); err != nil {
+				return FinalGatewayComponentAuthority{}, nil, err
+			}
+			workspaceAddress, err := r.workspaceNetworkAddress(ctx, container, network)
+			if err != nil {
+				return FinalGatewayComponentAuthority{}, nil, err
+			}
+			subnet, err := r.projectNetworkSubnet(ctx, network)
+			if err != nil {
+				return FinalGatewayComponentAuthority{}, nil, err
+			}
+			if err := validateProjectNetworkEndpoints(subnet, workspaceAddress, gatewayAddress); err != nil {
+				return FinalGatewayComponentAuthority{}, nil, err
+			}
+			principal = FinalWorkspacePrincipalRow{
+				ContextID: authority.ContextID, WorkspaceID: authority.WorkspaceID, TemplateID: authority.TemplateID,
+				Presentation: authority.Presentation, ProjectRoot: authority.ProjectRoot,
+				ContainerID: observed.ID, ResolvedSpec: authority.AppliedEntry.ResolvedSpec,
+				WorkspaceIP: workspaceAddress, GatewayIP: gatewayAddress, Network: network,
+			}
+		} else {
+			principal, err = r.preserveStoppedFinalWorkspacePrincipal(ctx, authority, network, observed, gateway, previous, previousPresent, registry)
+			if err != nil {
+				return FinalGatewayComponentAuthority{}, nil, err
+			}
 		}
-		if err := validateProjectNetworkEndpoints(subnet, workspaceAddress, gatewayAddress); err != nil {
-			return FinalGatewayComponentAuthority{}, nil, err
-		}
-		rows = append(rows, FinalWorkspacePrincipalRow{
-			ContextID: authority.ContextID, WorkspaceID: authority.WorkspaceID, TemplateID: authority.TemplateID,
-			Presentation: authority.Presentation, ProjectRoot: authority.ProjectRoot,
-			ContainerID: observed.ID, ResolvedSpec: authority.AppliedEntry.ResolvedSpec,
-			WorkspaceIP: workspaceAddress, GatewayIP: gatewayAddress, Network: network,
-		})
+		rows = append(rows, principal)
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].WorkspaceID < rows[j].WorkspaceID })
 	expectedNetworks := map[string]struct{}{"tobari-control": {}, "tobari-egress": {}}
@@ -578,7 +598,7 @@ func finalPolicyMemoryRows(authority tobari.WorkspacePolicyProjectionContext) ([
 		case tobari.PolicyMemoryAllow:
 			var projected tobari.LearnedPolicyRule
 			projected, err = tobari.NewLearnedPolicyRuleFromPolicyMemory(
-				authority.ContextID, authority.Presentation, authority.Principal.WorkspaceID, authority.ProjectRoot, rule,
+				authority.ContextID, authority.Presentation, authority.Principal.WorkspaceID, authority.Principal.ProjectRoot, rule,
 			)
 			if err == nil {
 				encoded, err = json.Marshal(projected)
@@ -586,7 +606,7 @@ func finalPolicyMemoryRows(authority tobari.WorkspacePolicyProjectionContext) ([
 		case tobari.PolicyMemoryDeny:
 			var projected tobari.PolicyDenyRule
 			projected, err = tobari.NewPolicyDenyRuleFromPolicyMemory(
-				authority.ContextID, authority.Presentation, authority.Principal.WorkspaceID, authority.ProjectRoot, rule,
+				authority.ContextID, authority.Presentation, authority.Principal.WorkspaceID, authority.Principal.ProjectRoot, rule,
 			)
 			if err == nil {
 				encoded, err = json.Marshal(projected)

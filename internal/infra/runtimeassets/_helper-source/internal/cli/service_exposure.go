@@ -217,8 +217,10 @@ func runExposureRequest(ctx context.Context, c *CLI, command CommandSpec, _ oper
 	if !ok {
 		return c.failUsage(ctx, "invalid_arguments", "Workspace service port is invalid", "help "+ExposureProgramName, "Choose an exact non-privileged port.")
 	}
-	if _, err := writeOnce(c.Err, []byte("Waiting for trusted-host review.\nRun on the host: "+invocationForPath("review services --watch")+"\n")); err != nil {
-		return c.fail(ctx, fault.Wrap(fault.KindInternal, "service_instruction_write_failed", "The trusted-host review instruction could not be written.", false, err, fault.NextAction{Command: "status", Reason: "Retry with a writable terminal before another request."}))
+	if invocationErrorFormat(ctx) != errorFormatJSON {
+		if _, err := writeOnce(c.Err, []byte("Waiting for trusted-host review.\nRun on the host: "+invocationForPath("review services --watch")+"\n")); err != nil {
+			return c.fail(ctx, fault.Wrap(fault.KindInternal, "service_instruction_write_failed", "The trusted-host review instruction could not be written.", false, err, fault.NextAction{Command: "status", Reason: "Retry with a writable terminal before another request."}))
+		}
 	}
 	result, err := c.serviceExposure.Request(ctx, serviceMutationIntent(command), int(port))
 	if err != nil {
@@ -461,13 +463,19 @@ type serviceReviewChoice struct {
 	back    bool
 }
 
-func selectServiceReviewRaw(ctx context.Context, c *CLI, initial tobari.ServiceReviewSnapshot, watch bool, notify string) (serviceReviewChoice, error) {
-	mode := terminal.New()
+func selectServiceReviewRaw(ctx context.Context, c *CLI, initial tobari.ServiceReviewSnapshot, watch bool, notify string) (_ serviceReviewChoice, returnErr error) {
+	return selectServiceReviewRawWithMode(ctx, c, initial, watch, notify, terminal.New())
+}
+
+func selectServiceReviewRawWithMode(ctx context.Context, c *CLI, initial tobari.ServiceReviewSnapshot, watch bool, notify string, mode terminal.Mode) (_ serviceReviewChoice, returnErr error) {
+	if mode == nil {
+		return serviceReviewChoice{}, terminal.ErrUnsupported
+	}
 	restore, err := mode.Enter(c.In)
 	if err != nil {
 		return serviceReviewChoice{}, err
 	}
-	defer restore()
+	defer func() { returnErr = errors.Join(returnErr, restore()) }()
 	snapshot, selected, detail, lines, needsRender := initial, 0, len(initial.Requests) == 1, 0, true
 	selectedID := ""
 	if len(initial.Requests) == 1 {
@@ -475,7 +483,7 @@ func selectServiceReviewRaw(ctx context.Context, c *CLI, initial tobari.ServiceR
 	}
 	seen, signature := serviceRequestIDs(initial), serviceReviewSignature(initial)
 	refreshAt := time.Now().Add(500 * time.Millisecond)
-	defer func() { finishSelectorScreen(c.Out, lines) }()
+	defer func() { returnErr = errors.Join(returnErr, finishSelectorScreen(c.Out, lines)) }()
 	for {
 		if err := ctx.Err(); err != nil {
 			return serviceReviewChoice{}, err
@@ -683,7 +691,7 @@ func runServiceReview(ctx context.Context, c *CLI, command CommandSpec, _ operat
 	}
 	watch, _ := inputs.Boolean("--watch")
 	notify := inputs.One("--notify")
-	interactive := invocationErrorFormat(ctx) != errorFormatJSON && terminal.IsTerminal(c.In) && terminal.IsTerminal(c.Out)
+	interactive := invocationErrorFormat(ctx) != errorFormatJSON && c.interactive != nil && c.interactive(c.In, c.Out, c.Err)
 	if inputs.Provided("--notify") && !watch {
 		return c.failUsage(ctx, "invalid_arguments", "--notify requires --watch=true; usage: "+command.Usage(), "help review services", "Use notifications only with watch mode.")
 	}
@@ -705,7 +713,13 @@ func runServiceReview(ctx context.Context, c *CLI, command CommandSpec, _ operat
 		return c.emitResult(ctx, renderServiceReview(snapshot))
 	}
 	for {
-		choice, selectErr := selectServiceReviewRaw(ctx, c, snapshot, watch, notify)
+		var choice serviceReviewChoice
+		var selectErr error
+		if c.serviceReviewMode != nil {
+			choice, selectErr = selectServiceReviewRawWithMode(ctx, c, snapshot, watch, notify, c.serviceReviewMode)
+		} else {
+			choice, selectErr = selectServiceReviewRaw(ctx, c, snapshot, watch, notify)
+		}
 		if errors.Is(selectErr, terminal.ErrUnsupported) {
 			choice, selectErr = selectServiceReviewLine(ctx, c, snapshot)
 		}

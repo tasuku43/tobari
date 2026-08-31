@@ -1,6 +1,10 @@
 package dockerruntime
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/tasuku43/tobari/internal/domain/tobari"
+)
 
 type workspaceLoginBrowserAction struct {
 	callbackPort  int
@@ -53,6 +57,20 @@ func validatedWorkspaceLoginTarget(validate func(string) bool) workspaceLoginTar
 
 func parseWorkspaceLoginBrowserAction(target string) (workspaceLoginBrowserAction, bool) {
 	_, action, ok := selectWorkspaceLoginDriver(target, reviewedWorkspaceLoginDrivers())
+	return action, ok
+}
+
+func parseConfiguratorLoginBrowserAction(agent tobari.ConfiguratorAgent, target string) (workspaceLoginBrowserAction, bool) {
+	var driver workspaceLoginDriver
+	switch agent {
+	case tobari.ConfiguratorAgentCodex:
+		driver = callbackWorkspaceLoginDriver("configurator-codex", parseCodexLoginAuthorizationURL)
+	case tobari.ConfiguratorAgentClaude:
+		driver = openOnlyWorkspaceLoginDriver("configurator-claude", validatedWorkspaceLoginTarget(validWorkspaceClaudeLoginAuthorizationURL))
+	default:
+		return workspaceLoginBrowserAction{}, false
+	}
+	_, action, ok := selectWorkspaceLoginDriver(target, []workspaceLoginDriver{driver})
 	return action, ok
 }
 

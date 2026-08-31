@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 const (
@@ -21,7 +23,34 @@ const (
 	workspaceBrowserOpenerPath   = "/run/tobari-open"
 	workspaceBrowserReadyTimeout = 5 * time.Second
 	workspaceBrowserReadyFrame   = `{"schema_version":1,"ready":true}`
+	workspaceBrowserStopTimeout  = 5 * time.Second
 )
+
+func runWithAttachedBrowserControl(ctx context.Context, cancel context.CancelFunc, channel *workspaceBrowserChannel, run func() error) error {
+	result := make(chan error, 1)
+	go func() { result <- run() }()
+	if channel == nil || channel.result == nil {
+		return <-result
+	}
+	select {
+	case err := <-result:
+		return err
+	case controlErr := <-channel.result:
+		cancel()
+		select {
+		case <-result:
+		case <-time.After(workspaceBrowserStopTimeout):
+			return fmt.Errorf("%w: attached command did not stop after control exit", tobari.ErrNativeLoginBridgeUnavailable)
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if controlErr != nil {
+			return fmt.Errorf("%w: %v", tobari.ErrNativeLoginBridgeUnavailable, controlErr)
+		}
+		return tobari.ErrNativeLoginBridgeUnavailable
+	}
+}
 
 const workspaceBrowserAgentProgram = `import json,os,select,socket,sys
 path=sys.argv[1]
@@ -100,6 +129,8 @@ func (r *Runtime) startWorkspaceBrowserChannel(
 	channel.ready = make(chan struct{})
 	channel.result = make(chan error, 1)
 	channel.done = make(chan struct{})
+	controlResult := make(chan error, 1)
+	relayResult := make(chan error, 1)
 	uid, gid := currentIDs()
 	args := []string{
 		"exec", "-i", "--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
@@ -112,9 +143,18 @@ func (r *Runtime) startWorkspaceBrowserChannel(
 		)
 		_ = requestWriter.Close()
 		_ = responseReader.Close()
-		channel.result <- runErr
+		controlResult <- runErr
 	}()
-	go channel.serve(bridge)
+	go func() { relayResult <- channel.serve(bridge) }()
+	go func() {
+		select {
+		case runErr := <-controlResult:
+			channel.result <- runErr
+		case relayErr := <-relayResult:
+			cancel()
+			channel.result <- relayErr
+		}
+	}()
 	readyTimer := time.NewTimer(workspaceBrowserReadyTimeout)
 	defer readyTimer.Stop()
 	select {
@@ -153,9 +193,9 @@ func (c *workspaceBrowserChannel) environment() []string {
 	}
 }
 
-func (c *workspaceBrowserChannel) serve(bridge *workspaceLoginBridge) {
+func (c *workspaceBrowserChannel) serve(bridge *workspaceLoginBridge) error {
 	if c.requestIn == nil || c.response == nil {
-		return
+		return fmt.Errorf("host browser-control relay is unavailable")
 	}
 	scanner := bufio.NewScanner(c.requestIn)
 	scanner.Buffer(make([]byte, 4096), workspaceBrowserMessageLimit)
@@ -176,13 +216,20 @@ func (c *workspaceBrowserChannel) serve(bridge *workspaceLoginBridge) {
 		}
 		encoded, err := json.Marshal(workspaceBrowserResponse{SchemaVersion: 1, OK: ok})
 		if err != nil {
-			return
+			return fmt.Errorf("encode host browser-control response: %w", err)
 		}
 		encoded = append(encoded, '\n')
 		if _, err := c.response.Write(encoded); err != nil {
-			return
+			return fmt.Errorf("write host browser-control response: %w", err)
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("read host browser-control relay: %w", err)
+	}
+	if ready {
+		return fmt.Errorf("host browser-control relay closed after readiness")
+	}
+	return fmt.Errorf("host browser-control relay closed before readiness")
 }
 
 func (c *workspaceBrowserChannel) markReady() {
@@ -241,20 +288,20 @@ func (c *workspaceBrowserChannel) close() {
 		return
 	}
 	c.closeOnce.Do(func() {
+		if c.cancel != nil {
+			c.cancel()
+		}
 		if c.response != nil {
 			_ = c.response.Close()
+		}
+		if c.requestIn != nil {
+			_ = c.requestIn.Close()
 		}
 		if c.done != nil {
 			select {
 			case <-c.done:
 			case <-time.After(500 * time.Millisecond):
 			}
-		}
-		if c.cancel != nil {
-			c.cancel()
-		}
-		if c.requestIn != nil {
-			_ = c.requestIn.Close()
 		}
 	})
 }

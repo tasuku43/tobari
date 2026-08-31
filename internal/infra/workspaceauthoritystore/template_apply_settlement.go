@@ -155,3 +155,27 @@ func (m *Mutator) CompleteWorkspaceTemplateApplySettlement(planRef string) error
 	}
 	return m.sync(filepath.Dir(path))
 }
+
+// PendingWorkspaceTemplateApplySettlement returns the exact opaque Plan that
+// may finish one already-published Template mutation after process death.
+func (m *Mutator) PendingWorkspaceTemplateApplySettlement(id tobari.WorkspaceTemplateID) (string, bool, error) {
+	if err := id.Validate(); err != nil {
+		return "", false, err
+	}
+	data, err := readAuthorityFile(m.templateApplySettlementPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	var settlement templateApplySettlement
+	if err := decodeStrictJSON(data, &settlement); err != nil || settlement.SchemaVersion != 1 || settlement.SourceFingerprint == "" || settlement.Publication.Template.ID != id {
+		return "", false, finalMutationRecoveryError("Template Apply settlement is invalid")
+	}
+	planID, err := tobari.ParseWorkspaceTemplateChangePlanRef(settlement.PlanRef)
+	if err != nil || planID != id {
+		return "", false, finalMutationRecoveryError("Template Apply settlement target changed")
+	}
+	return settlement.PlanRef, true, nil
+}

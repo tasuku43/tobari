@@ -282,6 +282,118 @@ func TestManagedRuntimeBuildCreatesImmutableRevisionWithoutChangingContext(t *te
 	}
 }
 
+func TestManagedRuntimeNoChangeRevalidatesImmutableImageCompatibility(t *testing.T) {
+	root := t.TempDir()
+	runner := newManagedRuntimeBuildRunner()
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.BuildManagedRuntime(context.Background(), "frontend", nil); err != nil {
+		t.Fatal(err)
+	}
+	beforeRuns := len(runner.runs)
+	runner.compatibilityPayload = incompatibleRuntimeVolumeInspection("c")
+	if _, err := runtime.BuildManagedRuntime(context.Background(), "frontend", nil); !errors.Is(err, tobari.ErrRuntimeNotReady) {
+		t.Fatalf("NoChange compatibility result = %v", err)
+	}
+	if len(runner.runs) != beforeRuns {
+		t.Fatalf("NoChange incompatibility crossed Docker mutation boundary: %+v", runner.runs[beforeRuns:])
+	}
+	assertManagedCompatibilityTargetsImmutableID(t, runner)
+	if journal, err := runtime.readRuntimeBuildJournalObserved(); err != nil || journal != nil {
+		t.Fatalf("NoChange incompatibility retained journal = %+v/%v", journal, err)
+	}
+}
+
+func TestManagedRuntimePostBuildCompatibilityFailureRetainsPartialRecoveryAuthority(t *testing.T) {
+	root := t.TempDir()
+	runner := newManagedRuntimeBuildRunner()
+	runner.compatibilityPayload = incompatibleRuntimeVolumeInspection("c")
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeCopySource(tobari.StandardRuntimeName)); err != nil {
+		t.Fatal(err)
+	}
+	_, err = runtime.BuildManagedRuntime(context.Background(), "frontend", nil)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "runtime_build_failed" || public.Phase != fault.PhaseMutation || public.ChangeState != fault.ChangePartial {
+		t.Fatalf("post-build compatibility classification = %v / %+v", err, public)
+	}
+	journal, journalErr := runtime.readRuntimeBuildJournalObserved()
+	if journalErr != nil || journal == nil || journal.Phase != runtimeBuildPhaseFailed || journal.StagingArtifact != runtimeBuildStagingOwned {
+		t.Fatalf("post-build compatibility recovery = %+v/%v", journal, journalErr)
+	}
+	assertManagedCompatibilityTargetsImmutableID(t, runner)
+}
+
+func TestRuntimeBuildPublicationRecoveryRevalidatesImmutableImageCompatibilityBeforeMutation(t *testing.T) {
+	root := t.TempDir()
+	runner := newManagedRuntimeBuildRunner()
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.runtimeBuildJournalWrite = func(_, next runtimeBuildJournal) error {
+		if next.Phase == runtimeBuildPhaseFinalTagged {
+			return errors.New("synthetic publication interruption")
+		}
+		return writeAtomicJSON(runtime.runtimeBuildJournalPath(), next)
+	}
+	if _, err := runtime.BuildManagedRuntime(context.Background(), "frontend", nil); err == nil {
+		t.Fatal("publication interruption was hidden")
+	}
+	runtime.runtimeBuildJournalWrite = nil
+	before, err := runtime.readRuntimeBuildJournalObserved()
+	if err != nil || before == nil || before.Phase != runtimeBuildPhaseBuilt {
+		t.Fatalf("interrupted publication journal = %+v/%v", before, err)
+	}
+	beforeRuns := len(runner.runs)
+	runner.compatibilityPayload = incompatibleRuntimeVolumeInspection("c")
+	if err := runtime.RecoverRuntimeBuildPublication(context.Background()); err == nil {
+		t.Fatal("incompatible publication recovery succeeded")
+	}
+	after, err := runtime.readRuntimeBuildJournalObserved()
+	if err != nil || after == nil || *after != *before {
+		t.Fatalf("compatibility failure changed journal: before=%+v after=%+v error=%v", before, after, err)
+	}
+	if len(runner.runs) != beforeRuns {
+		t.Fatalf("compatibility failure crossed publication mutation: %+v", runner.runs[beforeRuns:])
+	}
+	assertManagedCompatibilityTargetsImmutableID(t, runner)
+}
+
+func incompatibleRuntimeVolumeInspection(hexDigit string) []byte {
+	return []byte(`{"id":"sha256:` + strings.Repeat(hexDigit, 64) + `","api":"1","lifetime":"sleep infinity","user":"tobari","entrypoint":["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"],"volumes":{"/data":{}}}`)
+}
+
+func assertManagedCompatibilityTargetsImmutableID(t *testing.T, runner *managedRuntimeBuildRunner) {
+	t.Helper()
+	seen := false
+	for _, call := range runner.outputs {
+		if len(call.args) < 5 || call.args[0] != "image" || call.args[1] != "inspect" || !strings.Contains(call.args[3], tobari.RuntimeImageAPILabel) {
+			continue
+		}
+		seen = true
+		if tobari.ValidateDigest(call.args[4]) != nil {
+			t.Fatalf("managed compatibility used mutable selector: %v", call.args)
+		}
+	}
+	if !seen {
+		t.Fatal("managed compatibility observation was absent")
+	}
+}
+
 func TestManagedRuntimeBuildKeepsExactFailedArtifactJournal(t *testing.T) {
 	for _, test := range []struct {
 		name            string

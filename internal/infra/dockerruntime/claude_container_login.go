@@ -14,7 +14,6 @@ import (
 	"path"
 	"regexp"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/tasuku43/tobari/internal/infra/credentialhost"
@@ -49,11 +48,7 @@ func (r *Runtime) loginClaudeInRuntimeImage(
 	if err != nil {
 		return hostCredentialPayload{}, hostCLIUnavailableError{provider: "anthropic", stage: hostCLIStageClaudeImageContract}
 	}
-	if err := r.validateCompatibleImage(ctx, image); err != nil {
-		return hostCredentialPayload{}, hostCLIUnavailableError{provider: "anthropic", stage: hostCLIStageClaudeImageContract}
-	}
-	imageOutput, err := r.boundedClaudeDockerOutput(ctx, []string{"image", "inspect", "--format", "{{.Id}}", image})
-	imageID := strings.TrimSpace(string(imageOutput))
+	imageID, err := r.resolveCompatibleImageID(ctx, image)
 	if err != nil || !claudeImageIDPattern.MatchString(imageID) {
 		return hostCredentialPayload{}, hostCLIUnavailableError{provider: "anthropic", stage: hostCLIStageClaudeImageContract}
 	}
@@ -83,7 +78,7 @@ func (r *Runtime) loginClaudeInRuntimeImage(
 		"--label", componentLabel + "=claude-login", "--interactive", "--tty",
 		"--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "128",
 		"--memory", claudeLoginMemoryLimit, "--memory-swap", claudeLoginMemoryLimit, "--cpus", "1", "--hostname", "tobari-claude-login",
-		"--entrypoint", "/usr/bin/tini", image, "--", "/usr/bin/sleep", "infinity",
+		"--entrypoint", "/usr/bin/tini", imageID, "--", "/usr/bin/sleep", "infinity",
 	}
 	if err := r.runner.Run(ctx, createArgs, os.Environ(), nil, io.Discard, io.Discard); err != nil {
 		return hostCredentialPayload{}, credentialhost.ErrClaudeLoginSetup

@@ -1,13 +1,14 @@
-<alternate-enter><cursor-hide><cursor-home><erase-display>Tobari · New Workspace
+<cursor-hide><erase-below>Tobari · New Workspace
 
 Project
   /workspace/example
 
 Boundary
   Project files       read-write
-  Routine network     allowed
-  Other network       review when needed
-  Private network     denied
+  Reviewed traffic    allowed
+  New public traffic  review when needed
+  Local/private       denied
+  Host loopback       explicit review only
 
 Environment
   Runtime             standard@1

@@ -565,9 +565,10 @@ func containsForbiddenCLIANSI(value string) bool {
 		"\x1b[%dA", "",
 		"\x1b[?25l", "",
 		"\x1b[?25h", "",
-		"\x1b[?1049h", "",
-		"\x1b[?1049l", "",
 		"\x1b[J", "",
+		"\x1b[0J", "",
+		"\x1b[s", "",
+		"\x1b[u", "",
 	).Replace(value)
 	return strings.Contains(withoutReviewedControls, "\x1b[")
 }

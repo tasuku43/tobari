@@ -29,8 +29,8 @@ deleting the Workspace preserves its Context and Policy Memory.
 
 ### project root
 
-The canonical host directory owned by a Context and mounted according to its
-bound Workspace Template's immutable `source_access`. Tobari deliberately delegates the
+The canonical host directory bound only by a Workspace and mounted according to
+the owning Context's bound Workspace Template `source_access`. Tobari deliberately delegates the
 ability to read and modify this root to Workspace processes. It does not snapshot, overlay, or protect
 files inside it from Workspace processes.
 
@@ -43,8 +43,8 @@ Project binding nor remembered decisions.
 
 ### Context
 
-One durable immutable binding between a canonical Project root and one
-Workspace Template ID. A Context owns Policy Memory and survives replacement
+One durable location-free binding to one Workspace Template ID. A Context owns
+Policy Memory and survives replacement
 or deletion of its Workspace. It has no public name or default selector; exact
 nondefault actions consume a `context` reference from discovery.
 
@@ -163,7 +163,7 @@ the mutable display name and from the current Workspace Template marker.
 
 ### Context ID
 
-The stable host-issued identity of one Project-root/Workspace-Template binding.
+The stable host-issued identity of one location-free Workspace-Template binding.
 It owns Policy Memory and is distinct from both Workspace Template ID and
 Workspace ID.
 

@@ -24,11 +24,13 @@ func (r *Runtime) ObserveStatusRuntime(ctx context.Context, binding tobari.Runti
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	manifest, err := r.standardRuntimeManifest()
-	if err != nil {
-		return result, err
-	}
-	if binding.RuntimeID != tobari.StandardRuntimeID {
+	var manifest tobari.RuntimeManifest
+	if binding.RuntimeID == tobari.StandardRuntimeID {
+		if err := r.validateExactStandardRuntimeBinding(binding); err != nil {
+			result.Authority = tobari.StatusRuntimeAuthorityNotReady
+			return result, nil
+		}
+	} else {
 		var err error
 		manifest, err = r.resolveManagedRuntimeReferenceUnlocked(tobari.RuntimeRef(binding.RuntimeID))
 		if errors.Is(err, tobari.ErrRuntimeNotFound) {
@@ -47,20 +49,23 @@ func (r *Runtime) ObserveStatusRuntime(ctx context.Context, binding tobari.Runti
 				resultErr = fmt.Errorf("status Runtime authority changed during observation")
 			}
 		}()
-	}
-	expected, err := manifest.Binding(binding.Ordinal)
-	if err != nil || !reflect.DeepEqual(expected, binding) {
-		result.Authority = tobari.StatusRuntimeAuthorityNotReady
-		return result, nil
+		expected, err := manifest.Binding(binding.Ordinal)
+		if err != nil || !reflect.DeepEqual(expected, binding) {
+			result.Authority = tobari.StatusRuntimeAuthorityNotReady
+			return result, nil
+		}
 	}
 	result.Authority = tobari.StatusRuntimeAuthorityReady
 
 	format := `{"id":{{json .Id}},"owner":{{json (index .Config.Labels "` + ownerLabel + `")}},` +
 		`"component":{{json (index .Config.Labels "` + componentLabel + `")}},"runtime":{{json (index .Config.Labels "` + managedRuntimeIDLabel + `")}},` +
 		`"revision":{{json (index .Config.Labels "` + managedRuntimeRevisionLabel + `")}},"api":{{json (index .Config.Labels "` + tobari.RuntimeImageAPILabel + `")}},` +
-		`"lifetime":{{json (index .Config.Labels "` + tobari.RuntimeImageLifetimeLabel + `")}},"user":{{json .Config.User}},"entrypoint":{{json .Config.Entrypoint}}}`
+		`"lifetime":{{json (index .Config.Labels "` + tobari.RuntimeImageLifetimeLabel + `")}},"user":{{json .Config.User}},"entrypoint":{{json .Config.Entrypoint}},` +
+		`"volumes":{{json .Config.Volumes}}}`
 	stdout, stderr := &boundedBuffer{limit: 4096}, &boundedBuffer{limit: 4096}
-	inspectErr := r.runner.Run(ctx, []string{"image", "inspect", "--format", format, binding.Image}, os.Environ(), nil, stdout, stderr)
+	inspectContext, cancel := context.WithTimeout(ctx, runtimeImageInspectTimeout)
+	defer cancel()
+	inspectErr := r.runner.Run(inspectContext, []string{"image", "inspect", "--format", format, binding.Image}, os.Environ(), nil, stdout, stderr)
 	if stdout.overflow || stderr.overflow {
 		return result, fmt.Errorf("status Runtime evidence exceeds its bound")
 	}
@@ -73,12 +78,13 @@ func (r *Runtime) ObserveStatusRuntime(ctx context.Context, binding tobari.Runti
 	}
 	var observed struct {
 		ID, Owner, Component, Runtime, Revision, API, Lifetime, User string
-		Entrypoint                                                   []string `json:"entrypoint"`
+		Entrypoint                                                   []string                   `json:"entrypoint"`
+		Volumes                                                      map[string]json.RawMessage `json:"volumes"`
 	}
 	if err := json.Unmarshal(bytes.TrimSpace(stdout.buffer.Bytes()), &observed); err != nil || tobari.ValidateDigest(observed.ID) != nil {
 		return result, fmt.Errorf("status Runtime evidence is invalid")
 	}
-	if manifest.Kind == tobari.RuntimeKindManaged {
+	if binding.RuntimeID != tobari.StandardRuntimeID {
 		revision := manifest.Revisions[binding.Ordinal-1]
 		if observed.Owner != ownerValue || observed.Component != managedRuntimeComponentLabel || observed.Runtime != binding.RuntimeID || observed.Revision != binding.Revision || observed.ID != revision.ImageDigest {
 			result.Availability = tobari.RuntimeAvailabilityMismatched
@@ -86,7 +92,7 @@ func (r *Runtime) ObserveStatusRuntime(ctx context.Context, binding tobari.Runti
 		}
 	}
 	result.Availability = tobari.RuntimeAvailabilityAvailable
-	if observed.API == tobari.RuntimeImageAPI && observed.Lifetime == tobari.RuntimeImageLifetimeCommand && observed.User == "tobari" && equalStrings(observed.Entrypoint, []string{"/usr/bin/tini", "--", "/usr/local/bin/tobari-entrypoint"}) {
+	if observed.API == tobari.RuntimeImageAPI && observed.Lifetime == tobari.RuntimeImageLifetimeCommand && observed.User == "tobari" && equalStrings(observed.Entrypoint, []string{"/usr/bin/tini", "--", "/usr/local/bin/tobari-entrypoint"}) && len(observed.Volumes) == 0 {
 		result.Compatibility = tobari.StatusNativeCompatible
 	} else {
 		result.Compatibility = tobari.StatusNativeIncompatible

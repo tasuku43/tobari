@@ -126,6 +126,56 @@ func (r *Runtime) ConfirmTemplatePolicyActive(ctx context.Context, collection to
 	})
 }
 
+// ConfirmWorkspacePolicyAxesActive preserves the independent Template-policy
+// and Policy-Memory receipts while proving both against one coherent live
+// aggregate. Context entry does not need to repeat the same Gateway/OPA
+// observation for each semantic axis.
+func (r *Runtime) ConfirmWorkspacePolicyAxesActive(
+	ctx context.Context,
+	collection tobari.WorkspaceAuthorityCollection,
+	contextID tobari.ContextID,
+	templateExpected tobari.TemplatePolicyActivationReceipt,
+	memoryExpected tobari.PolicyMemoryActivationReceipt,
+) error {
+	plan, err := buildCurrentActiveWorkspacePolicyProjection(collection, contextID)
+	if err != nil {
+		return err
+	}
+	return r.confirmFinalPolicyActivation(ctx, plan, func(item tobari.WorkspacePolicyProjectionContext) bool {
+		return item.ContextID == contextID && item.TemplateReceipt == templateExpected && item.MemoryReceipt == memoryExpected
+	})
+}
+
+// ObserveWorkspacePolicyAxesCurrent classifies only coherent protection
+// states. Confirmed absent/stopped/unhealthy/drifted protection requests the
+// canonical root recovery flow; unknown or contradictory observation remains
+// an error and cannot authorize mutation.
+func (r *Runtime) ObserveWorkspacePolicyAxesCurrent(
+	ctx context.Context,
+	collection tobari.WorkspaceAuthorityCollection,
+	contextID tobari.ContextID,
+	templateExpected tobari.TemplatePolicyActivationReceipt,
+	memoryExpected tobari.PolicyMemoryActivationReceipt,
+) (bool, error) {
+	status, err := r.ObserveFinalCluster(ctx, collection, true)
+	if err != nil {
+		return false, err
+	}
+	if status.Runtime == tobari.FinalClusterRuntimeUnknown || status.Receipt == tobari.FinalClusterReceiptUnknown {
+		return false, fmt.Errorf("final Workspace protection observation is unknown")
+	}
+	if status.Runtime != tobari.FinalClusterRuntimeRunning || status.Receipt != tobari.FinalClusterReceiptActive {
+		return false, nil
+	}
+	for _, item := range status.Contexts {
+		if item.ContextID != contextID {
+			continue
+		}
+		return item.TemplatePolicy != nil && item.PolicyMemory != nil && *item.TemplatePolicy == templateExpected && *item.PolicyMemory == memoryExpected, nil
+	}
+	return false, nil
+}
+
 // PrepareFinalClusterPolicyReconciliation constructs the exact dormant
 // cluster candidate. It deliberately performs no policy, principal-registry,
 // Gateway, or reader-selection mutation: the current cluster reconciler must

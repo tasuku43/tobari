@@ -5,12 +5,12 @@ description: Understand reusable desired setup, Project memory, applied instance
 
 Tobari separates four product lifetimes:
 
-| Concept            | Owner and lifetime                                    | Authority                             |
-| ------------------ | ----------------------------------------------------- | ------------------------------------- |
-| Workspace Template | reusable installation setup                           | TemplateID + semantic revision digest |
-| Context            | one canonical ProjectRoot + TemplateID binding        | ContextID                             |
-| Policy Memory      | remembered decisions for one Context                  | ContextID + semantic digest           |
-| Workspace          | replaceable applied instance and home for one Context | WorkspaceID + ContextID               |
+| Concept            | Owner and lifetime                                     | Authority                             |
+| ------------------ | ------------------------------------------------------ | ------------------------------------- |
+| Workspace Template | reusable installation setup                            | TemplateID + semantic revision digest |
+| Context            | one location-free TemplateID binding                   | ContextID                             |
+| Policy Memory      | remembered decisions for one Context                   | ContextID + semantic digest           |
+| Workspace          | replaceable ProjectRoot-bound instance for one Context | WorkspaceID + ContextID               |
 
 A Template revision is desired setup. A Context resolves the current revision
 of its bound Template and owns learned policy. A Workspace records the last
@@ -34,9 +34,9 @@ tobari context list --format json
 tobari context enter --id CONTEXT_REF
 ```
 
-Exactly one Context may exist for one canonical ProjectRoot/TemplateID pair.
-The same root may have several Contexts only when they bind different
-Templates. Each has independent Policy Memory and Workspace identity.
+ContextID uniqueness is the only Context uniqueness rule. Multiple Contexts
+may bind the same Template. ProjectRoot belongs only to Workspace authority;
+each Context retains independent Policy Memory.
 
 ## Failure and retry
 

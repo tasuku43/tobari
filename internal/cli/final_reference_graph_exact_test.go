@@ -112,6 +112,7 @@ func TestADR0084WholeCatalogReferenceGraphIsExact(t *testing.T) {
 		{Program: ProgramName, Command: "workspace status", Kind: tobari.WorkspaceReferenceKind, Endpoint: "--id"},
 		{Program: ProgramName, Command: "workspace delete", Kind: tobari.WorkspaceReferenceKind, Endpoint: "--id"},
 		{Program: ProgramName, Command: "policy allow", Kind: tobari.PolicyCandidateKind, Endpoint: "--id"},
+		{Program: ProgramName, Command: "policy assist", Kind: tobari.ContextReferenceKind, Endpoint: "--context"},
 		{Program: ProgramName, Command: "policy deny", Kind: tobari.PolicyCandidateKind, Endpoint: "--id"},
 		{Program: ProgramName, Command: "policy reset", Kind: tobari.PolicyRuleKind, Endpoint: "--id"},
 	}

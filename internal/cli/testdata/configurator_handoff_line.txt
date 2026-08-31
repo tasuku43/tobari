@@ -1,0 +1,18 @@
+Tobari · Codex is ready
+
+Codex will open inside an isolated Configurator, not directly on your host.
+  Project             /workspace/example
+  Action              Create this Project configuration
+  Runtime             standard@1
+  Home                New Tobari-managed Home; adopted by the Context after Apply
+  Internet            direct · Gateway policy is not active
+  Unavailable         Host Home · Project files · Docker socket · live authority
+  Activation          host-reviewed Apply only
+
+The next screen is Codex's native interface.
+It may ask you to sign in inside this managed Home.
+
+Next:
+  1. Open Codex — Enter its native interface inside the isolated Configurator.
+  2. Go back — Return without starting Codex.
+Choose a number, or q to cancel [1]:

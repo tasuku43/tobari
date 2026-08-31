@@ -17,7 +17,7 @@ func workspaceAuthorityCollectionFixture(t *testing.T) WorkspaceAuthorityCollect
 	}
 	context := ContextBinding{
 		SchemaVersion: ContextBindingSchemaVersion, ID: testContextAuthorityID,
-		ProjectRoot: "/workspace/example", TemplateID: testTemplateAuthorityID,
+		TemplateID: testTemplateAuthorityID,
 	}
 	memory, _, err := PublishPolicyMemory(testContextAuthorityID, []PolicyMemoryRule{}, nil)
 	if err != nil {
@@ -38,7 +38,7 @@ func workspaceAuthorityCollectionFixture(t *testing.T) WorkspaceAuthorityCollect
 	}
 	workspace := WorkspaceBinding{
 		SchemaVersion: WorkspaceBindingSchemaVersion, ID: testWorkspaceAuthorityID, ContextID: context.ID,
-		ProjectRoot: context.ProjectRoot, Home: "/workspace/home", CreationDefaults: revision.Slices.CreationDefaultsDigest,
+		ProjectRoot: "/workspace/example", Home: "/workspace/home", CreationDefaults: revision.Slices.CreationDefaultsDigest,
 		LastSuccessfulEntry: &applied,
 	}
 	effect := PolicyCandidateEffect{
@@ -97,7 +97,6 @@ func TestPolicyMemoryBoundaryTighteningSupersedesOnlyOutsideAllows(t *testing.T)
 	context := ContextBinding{
 		SchemaVersion: ContextBindingSchemaVersion,
 		ID:            testContextAuthorityID,
-		ProjectRoot:   "/workspace/example",
 		TemplateID:    testTemplateAuthorityID,
 	}
 	allowOutside, err := NewPolicyMemoryRule(context.ID, PolicyMemoryAllow, policyMemoryBodyFixture("/items/1"))
@@ -175,7 +174,6 @@ func TestPolicyMemoryBoundaryNoOpPreservesRevisionAndActiveReceipts(t *testing.T
 	context := ContextBinding{
 		SchemaVersion: ContextBindingSchemaVersion,
 		ID:            testContextAuthorityID,
-		ProjectRoot:   "/workspace/example",
 		TemplateID:    testTemplateAuthorityID,
 	}
 	allow, err := NewPolicyMemoryRule(context.ID, PolicyMemoryAllow, policyMemoryBodyFixture("/items/1"))

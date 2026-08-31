@@ -7,7 +7,8 @@
   and harness
 - Revises: None
 - Related: ADR 0046, ADR 0053, ADR 0055, ADR 0068, and ADR 0072
-- Revised by: None
+- Revised by: ADR 0091 for Tobari-owned selector presentation only; child
+  terminal ownership and separate trusted-host review remain unchanged
 - Superseded by: None
 
 ## Context
@@ -102,7 +103,7 @@ no-go result.
 - Root human help tests reject a reserved `Ctrl+]` or Trusted Host Review
   shortcut; the public catalog retains no same-terminal review command.
 - Policy-review PTY tests continue to own their independent raw terminal,
-  alternate-screen lifecycle, staging, cancellation, and confirmed Apply.
+  inline selector lifecycle, staging, cancellation, and confirmed Apply.
 - The capability ledger classifies same-terminal trusted-host review as
   excluded and requires it to remain absent from the catalog.
 - Product, architecture, security, harness, README, and architecture-site text

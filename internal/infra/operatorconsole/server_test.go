@@ -67,8 +67,8 @@ func validReviewedSnapshot(t *testing.T) tobari.FinalOperatorConsoleSnapshot {
 		t.Fatal(err)
 	}
 	template := tobari.WorkspaceTemplate{SchemaVersion: tobari.WorkspaceTemplateSchemaVersion, ID: templateID, Name: "payments", Current: revision, Retained: []tobari.WorkspaceTemplateRevision{revision.Clone()}}
-	binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, ProjectRoot: "/workspace/payments", TemplateID: templateID}
-	workspace := tobari.WorkspaceBinding{SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: workspaceID, ContextID: contextID, ProjectRoot: binding.ProjectRoot, Home: "/workspace/home", CreationDefaults: revision.Slices.CreationDefaultsDigest}
+	binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: templateID}
+	workspace := tobari.WorkspaceBinding{SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: workspaceID, ContextID: contextID, ProjectRoot: "/workspace/payments", Home: "/workspace/home", CreationDefaults: revision.Slices.CreationDefaultsDigest}
 	memory, _, err := tobari.PublishPolicyMemory(contextID, []tobari.PolicyMemoryRule{}, nil)
 	if err != nil {
 		t.Fatal(err)

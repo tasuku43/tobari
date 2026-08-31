@@ -7,6 +7,7 @@
   and agent-readiness output
 - Revises: ADR 0027 and ADR 0084 at the CWD status projection
 - Related: ADR 0074, ADR 0080, ADR 0081, ADR 0082, ADR 0083, and ADR 0084
+- Revised by: ADR 0092 at the Workspace-only ProjectRoot selection seam
 - Superseded by: None
 
 ## Context
@@ -29,7 +30,7 @@ consumes no reference and adds no selector. Nondefault actions continue through
 the existing reference-producing discovery commands.
 
 Selection is root-first. Tobari canonicalizes CWD, chooses the nearest existing
-Context ProjectRoot that contains it, or treats canonical CWD as the
+Workspace ProjectRoot that contains it, or treats canonical CWD as the
 prospective root when none exists. That decision is independent of Template
 selection. Tobari then applies only the installation `DefaultTemplateSelection`
 within that root. Same-root Contexts bound to other Templates are exhaustive

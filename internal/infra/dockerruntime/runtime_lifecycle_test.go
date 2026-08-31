@@ -75,6 +75,17 @@ func (r *lifecycleObservationRunner) Run(_ context.Context, args, _ []string, _ 
 	}
 	if len(args) >= 5 && args[0] == "image" && args[1] == "inspect" {
 		if strings.Contains(args[3], tobari.RuntimeImageAPILabel) {
+			if strings.Contains(args[3], `"id":`) {
+				imageID := "sha256:" + strings.Repeat("a", 64)
+				if imageIDPattern.MatchString(args[4]) {
+					imageID = args[4]
+				}
+				_, err := io.WriteString(stdout, finalStandardRuntimeObservation(
+					imageID, tobari.RuntimeImageAPI, tobari.RuntimeImageLifetimeCommand,
+					"tobari", `["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]`,
+				))
+				return err
+			}
 			_, err := stdout.Write(compatibleImageInspection())
 			return err
 		}

@@ -11,8 +11,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 	"github.com/tasuku43/tobari/internal/infra/companionruntime"
@@ -104,36 +106,41 @@ func (runner osCommandRunner) RunWorkspacePermissionControl(ctx context.Context,
 
 // Runtime owns filesystem state and Docker process execution.
 type Runtime struct {
-	lifetimeContext                      context.Context
-	configDirectory                      string
-	stateDirectory                       string
-	dataDirectory                        string
-	hostHomeDirectory                    string
-	runner                               commandRunner
-	images                               imageResolver
-	browser                              hostBrowserOpener
-	serviceBrowser                       serviceBrowserDispatcher
-	gitIdentity                          hostGitIdentityResolver
-	companion                            companionruntime.Launcher
-	companionEntropy                     io.Reader
-	rootKeyLoader                        func(context.Context) ([]byte, error)
-	hostCLIs                             hostCLIResolver
-	credentialHost                       hostCredentialAcquirer
-	lifecycleLockAttempt                 func()
-	runtimeStoreLockAttempt              func()
-	runtimeBuildCleanup                  func(runtimeBuildJournal) error
-	runtimeBuildCompletionWrite          func(runtimeBuildJournal) error
-	runtimeBuildJournalRemove            func(string) error
-	runtimeBuildJournalWrite             func(runtimeBuildJournal, runtimeBuildJournal) error
-	runtimeBuildManifestWrite            func(string, any) error
-	runtimeBuildRehash                   func(context.Context, string) (string, error)
-	runtimeBuildRehashBoundary           func(string, bool) error
-	runtimeBuildSnapshotSync             func(string) error
-	runtimeBuildDirectorySync            func(string) error
-	runtimeBuildRename                   func(string, string) error
-	runtimeBuildFreeze                   func(string) error
-	runtimeBuildSnapshotRemove           func(string) error
-	runtimeBuildRecoveryTimeout          time.Duration
+	lifetimeContext             context.Context
+	configDirectory             string
+	stateDirectory              string
+	dataDirectory               string
+	shortTemporaryDirectory     string
+	hostHomeDirectory           string
+	runner                      commandRunner
+	images                      imageResolver
+	browser                     hostBrowserOpener
+	serviceBrowser              serviceBrowserDispatcher
+	gitIdentity                 hostGitIdentityResolver
+	companion                   companionruntime.Launcher
+	companionEntropy            io.Reader
+	rootKeyLoader               func(context.Context) ([]byte, error)
+	hostCLIs                    hostCLIResolver
+	credentialHost              hostCredentialAcquirer
+	lifecycleLockAttempt        func()
+	runtimeStoreLockAttempt     func()
+	runtimeBuildCleanup         func(runtimeBuildJournal) error
+	runtimeBuildCompletionWrite func(runtimeBuildJournal) error
+	runtimeBuildJournalRemove   func(string) error
+	runtimeBuildJournalWrite    func(runtimeBuildJournal, runtimeBuildJournal) error
+	runtimeBuildManifestWrite   func(string, any) error
+	runtimeBuildRehash          func(context.Context, string) (string, error)
+	runtimeBuildRehashBoundary  func(string, bool) error
+	runtimeBuildSnapshotSync    func(string) error
+	runtimeBuildDirectorySync   func(string) error
+	runtimeBuildRename          func(string, string) error
+	runtimeBuildFreeze          func(string) error
+	runtimeBuildSnapshotRemove  func(string) error
+	runtimeBuildRecoveryTimeout time.Duration
+	// configuratorRuntimeAfterPromotion is nil in production. Focused tests
+	// mutate canonical editable source after promotion to prove the build stays
+	// bound to the immutable frozen Configurator snapshot.
+	configuratorRuntimeAfterPromotion    func()
 	runtimePruneJournalWrite             func(*runtimePruneJournal, runtimePruneJournal) error
 	runtimePruneReceiptWrite             func(runtimePruneReceiptStore) error
 	runtimePruneJournalRemove            func(string) error
@@ -234,6 +241,24 @@ func (r *Runtime) ResourceSourceRoot() (string, error) {
 	return r.configDirectory, nil
 }
 
+// ConfiguratorRoot returns the owner-only non-authoritative draft root. It is
+// disjoint from desired source, active authority, and Workspace Home state.
+func (r *Runtime) ConfiguratorRoot() (string, error) {
+	if r == nil || r.stateDirectory == "" || !filepath.IsAbs(r.stateDirectory) || filepath.Clean(r.stateDirectory) != r.stateDirectory {
+		return "", fmt.Errorf("Configurator state root is unavailable")
+	}
+	return filepath.Join(r.stateDirectory, "configurator"), nil
+}
+
+// ContextHomeRoot returns the owner-only root whose exact Context-ID children
+// are shared by Configurator and Workspace. It is never mounted as a whole.
+func (r *Runtime) ContextHomeRoot() (string, error) {
+	if r == nil || r.stateDirectory == "" || !filepath.IsAbs(r.stateDirectory) || filepath.Clean(r.stateDirectory) != r.stateDirectory {
+		return "", fmt.Errorf("Context Home root is unavailable")
+	}
+	return filepath.Join(r.stateDirectory, "workspace-authority-runtime", "contexts"), nil
+}
+
 // SetInstallationMigrationBoundaryForTest installs a process-death boundary
 // used only by cross-component crash tests. It is intentionally unavailable
 // through any application or CLI port.
@@ -258,9 +283,27 @@ func New(lifetime context.Context) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	configDirectory, stateDirectory, dataDirectory :=
+		filepath.Join(configHome, "tobari"), filepath.Join(stateHome, "tobari"), filepath.Join(dataHome, "tobari")
+	for _, directory := range []struct {
+		name string
+		path *string
+	}{
+		{name: "configuration", path: &configDirectory},
+		{name: "state", path: &stateDirectory},
+		{name: "data", path: &dataDirectory},
+	} {
+		resolved, resolveErr := canonicalPathWithMissingStrict(*directory.path)
+		if resolveErr != nil {
+			return nil, fmt.Errorf("resolve canonical %s directory: %w", directory.name, resolveErr)
+		}
+		if strings.Contains(resolved, ",") || strings.IndexFunc(resolved, unicode.IsControl) >= 0 {
+			return nil, fmt.Errorf("canonical %s directory contains unsupported Docker bind syntax", directory.name)
+		}
+		*directory.path = resolved
+	}
 	runtime, err := newRuntimeWithData(
-		filepath.Join(configHome, "tobari"), filepath.Join(stateHome, "tobari"),
-		filepath.Join(dataHome, "tobari"), osCommandRunner{},
+		configDirectory, stateDirectory, dataDirectory, osCommandRunner{},
 	)
 	if err != nil {
 		return nil, err
@@ -340,10 +383,18 @@ func newRuntimeWithData(configDirectory, stateDirectory, dataDirectory string, r
 	if runner == nil {
 		return nil, fmt.Errorf("Docker command runner is required")
 	}
+	shortTemporaryDirectory, err := canonicalPathWithMissingStrict("/tmp")
+	if err != nil {
+		return nil, fmt.Errorf("resolve canonical short temporary directory: %w", err)
+	}
+	if strings.Contains(shortTemporaryDirectory, ",") || strings.IndexFunc(shortTemporaryDirectory, unicode.IsControl) >= 0 {
+		return nil, fmt.Errorf("canonical short temporary directory contains unsupported Docker bind syntax")
+	}
 	return &Runtime{
 		configDirectory:              configDirectory,
 		stateDirectory:               stateDirectory,
 		dataDirectory:                dataDirectory,
+		shortTemporaryDirectory:      shortTemporaryDirectory,
 		runner:                       runner,
 		browser:                      osHostBrowserOpener{},
 		serviceBrowser:               osServiceBrowserDispatcher{},

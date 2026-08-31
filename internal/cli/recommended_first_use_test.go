@@ -75,11 +75,15 @@ func TestRecommendedFirstUsePresentationUsesOneSemanticFixture(t *testing.T) {
 	if _, err := renderConfigurationWizardRaw(raw, recommendedFirstUseMenu(draft), 0, "", 0, false); err != nil {
 		t.Fatal(err)
 	}
+	rawValue := raw.String()
+	if saved := strings.Index(rawValue, selectorCursorSave); saved >= 0 {
+		rawValue = selectorCursorHide + selectorCursorSave + rawValue[saved+len(selectorCursorSave):]
+	}
 	visibleRaw := strings.NewReplacer(
-		selectorAlternateScreenEnter, "<alternate-enter>", selectorCursorHide, "<cursor-hide>",
-		selectorCursorHome, "<cursor-home>", selectorEraseDisplay, "<erase-display>",
+		selectorCursorHide, "<cursor-hide>", selectorCursorSave, "<cursor-save>",
+		selectorEraseBelow, "<erase-below>", "\r", "",
 		"\x1b[2K\r", "",
-	).Replace(raw.String())
+	).Replace(rawValue)
 	wantRaw, err := os.ReadFile(filepath.Join("testdata", "recommended_first_use_raw.txt"))
 	if err != nil {
 		t.Fatal(err)

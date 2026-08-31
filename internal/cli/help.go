@@ -148,7 +148,7 @@ func runHelp(ctx context.Context, c *CLI, _ CommandSpec, _ operation.Intent, inp
 	if selector != "" {
 		commands, exact = c.catalog.Select(selector)
 		if len(commands) == 0 {
-			return c.failUsage(ctx, "invalid_arguments", fmt.Sprintf("Unknown help selector %q.", selector), "help", "Use an exact command path or namespace from the root help.")
+			return c.failUsage(ctx, "invalid_arguments", fmt.Sprintf("Unknown help selector %q.", boundedHumanCommand(selector)), "help", "Use an exact command path or namespace from the root help.")
 		}
 	}
 
@@ -594,15 +594,27 @@ func machineInvocationsForCommand(command CommandSpec) agentMachineInvocations {
 	}
 	success := ""
 	if supportsOutputFormat(command.Agent.Output.Formats, OutputFormatJSON) {
-		formatValue := "json"
-		if command.Path == "help" {
-			formatValue = "agent"
+		success = commandInvocation
+		if commandDeclaresInput(command, "--format") {
+			formatValue := "json"
+			if command.Path == "help" {
+				formatValue = "agent"
+			}
+			success += " --format=" + formatValue
+			commandInvocation += " --format=" + formatValue
 		}
-		success = commandInvocation + " --format=" + formatValue
-		commandInvocation += " --format=" + formatValue
 	}
 	errorInvocation := strings.Replace(commandInvocation, program, program+" --error-format=json", 1)
 	return agentMachineInvocations{SuccessJSON: success, ErrorJSON: errorInvocation}
+}
+
+func commandDeclaresInput(command CommandSpec, name string) bool {
+	for _, input := range command.Agent.Inputs {
+		if input.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func supportsOutputFormat(formats []OutputFormat, wanted OutputFormat) bool {

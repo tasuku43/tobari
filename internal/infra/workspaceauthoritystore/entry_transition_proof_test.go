@@ -27,12 +27,12 @@ func TestFreshDefaultPairEntrySettlesInactiveAxesAndPublishesAppliedEntry(t *tes
 	if err != nil || !present {
 		t.Fatalf("read fresh pair: present=%t err=%v", present, err)
 	}
-	runtime := &entryRuntimeFixture{homes: map[tobari.WorkspaceID]string{}}
-	templatePolicy := &templateActivationFixture{}
+	runtime := &entryRuntimeFixture{homes: map[tobari.ContextID]string{}}
+	templatePolicy := &templateActivationFixture{memory: memory}
 	sessions := &entrySessionFixture{lifecycle: lifecycle, outcome: tobari.WorkspaceSessionOutcome{ExitCode: 0}}
 	baseSettlement := mutator.settlement.(*finalSettlementFixture)
 	mutator.settlement = &clusterSettlementFixture{finalSettlementFixture: baseSettlement}
-	adapter, err := NewContextEntryAdapter(mutator, runtime, templatePolicy, sessions, context.Background())
+	adapter, err := NewContextEntryAdapter(mutator, runtime, templatePolicy, sessions, context.Background(), entryPublicationBarrierFixture{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestFreshDefaultPairEntrySettlesInactiveAxesAndPublishesAppliedEntry(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	publication, err := adapter.EnterContextByReference(context.Background(), contextRef, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard)
+	publication, err := adapter.EnterContextByReferenceAtRoot(context.Background(), contextRef, "/workspace/fresh-entry", tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestContextEntryExactActiveReentryPreservesEnvelopeAndCreateOnceWorkspace(t
 	if err != nil || !present || !reflect.DeepEqual(after, previous) {
 		t.Fatalf("exact re-entry changed envelope: present=%t err=%v\nwant=%#v\ngot=%#v", present, err, previous, after)
 	}
-	if runtime.planCalls != 1 || runtime.reconcileCalls != 1 || runtime.confirmCalls != 2 || sessions.run != 2 {
-		t.Fatalf("exact re-entry did not use terminal confirmation: plan=%d reconcile=%d confirm=%d session=%d", runtime.planCalls, runtime.reconcileCalls, runtime.confirmCalls, sessions.run)
+	if runtime.planCalls != 2 || runtime.reconcileCalls != 0 || runtime.confirmCalls != 2 || sessions.run != 2 {
+		t.Fatalf("exact re-entry did not remain read-only: plan=%d reconcile=%d confirm=%d session=%d", runtime.planCalls, runtime.reconcileCalls, runtime.confirmCalls, sessions.run)
 	}
 }

@@ -9,6 +9,13 @@ import (
 
 type termios = syscall.Termios
 
+type windowSize struct {
+	Row    uint16
+	Col    uint16
+	Xpixel uint16
+	Ypixel uint16
+}
+
 const canonicalModeFlag = syscall.ICANON
 
 func getTermios(fd uintptr) (termios, error) {
@@ -24,6 +31,14 @@ func setTermios(fd uintptr, value *termios) error {
 		return errno
 	}
 	return nil
+}
+
+func getWindowSize(fd uintptr) (int, int, error) {
+	var value windowSize
+	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd, uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(&value))); errno != 0 { // #nosec G103 -- the fd is the validated caller terminal and ioctl only reads its dimensions.
+		return 0, 0, errno
+	}
+	return int(value.Row), int(value.Col), nil
 }
 
 func configureRaw(value *termios, minimum, timeout byte) {

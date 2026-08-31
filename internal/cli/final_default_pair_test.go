@@ -130,7 +130,7 @@ func statusObservationFromSnapshot(t *testing.T, snapshot tobari.ContextAuthorit
 	if err != nil {
 		t.Fatal(err)
 	}
-	return tobari.StatusHomeObservation{Collection: collection, Present: true, ProjectRoot: snapshot.Context.ProjectRoot}
+	return tobari.StatusHomeObservation{Collection: collection, Present: true, ProjectRoot: snapshot.Workspace.ProjectRoot}
 }
 
 func sortedStatusKeys(values map[string]json.RawMessage) []string {

@@ -49,7 +49,6 @@ type finalContextProjection struct {
 	ContextID                        string                        `json:"context_id"`
 	TemplateID                       string                        `json:"workspace_template_id"`
 	TemplateName                     string                        `json:"template_name"`
-	ProjectRoot                      string                        `json:"project_root"`
 	DesiredTemplateGeneration        uint64                        `json:"desired_template_generation"`
 	DesiredTemplateRevision          string                        `json:"desired_template_revision"`
 	DesiredTemplatePolicySliceDigest string                        `json:"desired_template_policy_slice_digest"`
@@ -69,7 +68,6 @@ type finalContextDraftProjection struct {
 	ContextRef     string `json:"context_ref"`
 	ContextID      string `json:"context_id"`
 	TemplateID     string `json:"workspace_template_id"`
-	ProjectRoot    string `json:"project_root"`
 	SourcePath     string `json:"source_path"`
 	SourceState    string `json:"source_state"`
 	SourceRevision string `json:"source_revision"`
@@ -79,7 +77,6 @@ type finalContextPlanProjection struct {
 	PlanRef              string `json:"plan_ref"`
 	ContextRef           string `json:"context_ref"`
 	SourceFingerprint    string `json:"source_fingerprint"`
-	ProjectRoot          string `json:"project_root"`
 	TemplateRef          string `json:"template_ref"`
 	TemplateRevision     string `json:"template_revision"`
 	DuplicateBinding     bool   `json:"duplicate_binding"`
@@ -159,8 +156,8 @@ type finalWorkspaceProjection struct {
 	AppliedEntryRevision string `json:"applied_entry_revision,omitempty"`
 }
 
-// finalProjectRootAuthority is the smallest non-creating final Context scope
-// seam. It deliberately excludes predecessor Workspace/Manifest readers.
+// finalProjectRootAuthority is the smallest non-creating Workspace entry scope
+// seam. Context identity remains location-free.
 type finalProjectRootAuthority interface {
 	CurrentDirectory(context.Context) (string, error)
 	ResolveProjectRoot(context.Context, string) (string, error)
@@ -176,10 +173,13 @@ func resolveFinalProjectRoot(ctx context.Context, authority finalProjectRootAuth
 	}
 	root, err := authority.ResolveProjectRoot(ctx, cwd)
 	if err != nil {
-		return "", fault.Wrap(fault.KindInvalidInput, "invalid_root", "The current Project root is not eligible for a Context.", false, err)
+		return "", fault.Wrap(fault.KindInvalidInput, "invalid_root", "The current Project root is not eligible for a Workspace.", false, err)
 	}
 	if err := tobari.ValidateCanonicalRoot(root); err != nil {
-		return "", fault.Wrap(fault.KindContract, "invalid_root", "The resolved Project root is invalid.", false, err)
+		return "", fault.WithClassification(
+			fault.Wrap(fault.KindContract, "invalid_project_root_resolution", "The resolved Project root is invalid.", false, err),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
 	}
 	return root, nil
 }
@@ -247,15 +247,62 @@ func finalTemplateGraphQLEndpoints(policy tobari.WorkspaceTemplatePolicyBody) []
 	return result
 }
 
-func finalTemplateText(value finalTemplateProjection, includeReferences bool) []byte {
+type finalAuthorityHumanRow struct {
+	label string
+	value string
+	token styleToken
+}
+
+func finalAuthorityHumanCard(color bool, marker, title string, markerToken styleToken, section string, rows []finalAuthorityHumanRow, nextCommand, nextReason string, details []finalAuthorityHumanRow) []byte {
+	output := newHumanOutput(color)
+	output.heading(marker, title, markerToken)
+	if section != "" {
+		output.section(section)
+	}
+	for _, row := range rows {
+		output.row(row.label, row.value, row.token)
+	}
+	if nextCommand != "" {
+		output.next(nextCommand, nextReason)
+	}
+	if len(details) > 0 {
+		output.section("Details")
+		for _, row := range details {
+			output.row(row.label, row.value, row.token)
+		}
+	}
+	return output.bytes()
+}
+
+func finalTemplateText(value finalTemplateProjection, includeReferences, color bool) []byte {
+	section := safeExternalText(value.Name)
+	if section == "" {
+		section = "Template"
+	}
+	status := "✓ active · generation " + fmt.Sprint(value.Generation)
+	statusToken := styleSuccess
+	rows := []finalAuthorityHumanRow{
+		{label: "Status", value: status, token: statusToken},
+		{label: "Source access", value: value.SourceAccess, token: styleText},
+		{label: "GraphQL", value: finalTemplateGraphQLEndpointText(value.GraphQLEndpoints), token: styleText},
+	}
+	if value.Lifecycle == "draft" {
+		rows[0] = finalAuthorityHumanRow{label: "Status", value: "! draft · source " + value.SourceState, token: styleWarning}
+		if value.SourcePath != "" {
+			rows = append(rows, finalAuthorityHumanRow{label: "Source", value: safeExternalText(value.SourcePath), token: styleText})
+		}
+	}
+	details := []finalAuthorityHumanRow{{label: "Reference", value: value.TemplateRef, token: styleText}}
 	if includeReferences {
 		revision := value.CurrentRevisionRef
 		if revision == "" {
 			revision = value.Revision
 		}
-		return []byte(fmt.Sprintf("Template %s\nReference %s\nRevision %s\nSource access %s\nGraphQL endpoints %s\n", safeExternalText(value.Name), value.TemplateRef, revision, value.SourceAccess, finalTemplateGraphQLEndpointText(value.GraphQLEndpoints)))
+		details = append(details, finalAuthorityHumanRow{label: "Revision", value: revision, token: styleText})
+	} else if value.Revision != "" {
+		details = append(details, finalAuthorityHumanRow{label: "Revision", value: value.Revision, token: styleText})
 	}
-	return []byte(fmt.Sprintf("Template %s\nGeneration %d\nRevision %s\nSource access %s\nGraphQL endpoints %s\n", safeExternalText(value.Name), value.Generation, value.Revision, value.SourceAccess, finalTemplateGraphQLEndpointText(value.GraphQLEndpoints)))
+	return finalAuthorityHumanCard(color, "·", "Template details", styleMuted, section, rows, "", "", details)
 }
 
 func finalContextFromView(view workspaceauthoritycmd.ContextView) (finalContextProjection, error) {
@@ -265,7 +312,7 @@ func finalContextFromView(view workspaceauthoritycmd.ContextView) (finalContextP
 		return finalContextProjection{}, err
 	}
 	result := finalContextProjection{
-		Lifecycle: "active", ContextRef: contextRef, ContextID: string(snapshot.Context.ID), TemplateID: string(snapshot.Context.TemplateID), TemplateName: snapshot.Template.Name, ProjectRoot: snapshot.Context.ProjectRoot,
+		Lifecycle: "active", ContextRef: contextRef, ContextID: string(snapshot.Context.ID), TemplateID: string(snapshot.Context.TemplateID), TemplateName: snapshot.Template.Name,
 		DesiredTemplateGeneration: axes.DesiredTemplateGeneration, DesiredTemplateRevision: string(axes.DesiredTemplateRevision), DesiredTemplatePolicySliceDigest: string(axes.DesiredTemplatePolicySliceDigest),
 		CurrentPolicyMemoryRevision: string(axes.CurrentPolicyMemoryRevision), AppliedEntry: axes.AppliedEntry,
 	}
@@ -296,7 +343,7 @@ func finalContextFromView(view workspaceauthoritycmd.ContextView) (finalContextP
 
 func finalContextFromDraft(view workspaceauthoritycmd.ContextDraftView) finalContextProjection {
 	draft := view.Draft
-	result := finalContextProjection{Lifecycle: "draft", ContextRef: view.ContextRef, ContextID: string(draft.Source.ContextID), TemplateID: string(draft.Source.TemplateID), ProjectRoot: draft.Source.ProjectRoot, SourcePath: draft.Observation.Path, SourceState: string(draft.Observation.State)}
+	result := finalContextProjection{Lifecycle: "draft", ContextRef: view.ContextRef, ContextID: string(draft.Source.ContextID), TemplateID: string(draft.Source.TemplateID), SourcePath: draft.Observation.Path, SourceState: string(draft.Observation.State)}
 	if draft.Observation.SourceRevision != nil {
 		value := string(*draft.Observation.SourceRevision)
 		result.SourceRevision = &value
@@ -308,9 +355,13 @@ func finalContextFrom(snapshot tobari.ContextAuthoritySnapshot, contextRef strin
 	return finalContextFromView(workspaceauthoritycmd.ContextView{Snapshot: snapshot, ContextRef: contextRef})
 }
 
-func finalContextText(value finalContextProjection) []byte {
+func finalContextText(value finalContextProjection, color bool) []byte {
 	if value.Lifecycle == "draft" {
-		return []byte(fmt.Sprintf("Context %s\nLifecycle draft\nProject %s\nSource %s\nSource state %s\n", value.ContextRef, safeExternalText(value.ProjectRoot), safeExternalText(value.SourcePath), value.SourceState))
+		return finalAuthorityHumanCard(color, "·", "Context details", styleMuted, "Context draft", []finalAuthorityHumanRow{
+			{label: "Status", value: "! draft · source " + value.SourceState, token: styleWarning},
+			{label: "Source", value: safeExternalText(value.SourcePath), token: styleText},
+			{label: "Template ID", value: value.TemplateID, token: styleText},
+		}, "", "", []finalAuthorityHumanRow{{label: "Reference", value: value.ContextRef, token: styleText}})
 	}
 	activeTemplate := "absent"
 	if value.ActiveTemplatePolicySliceDigest != nil {
@@ -324,9 +375,20 @@ func finalContextText(value finalContextProjection) []byte {
 	if value.AppliedEntry != nil {
 		applied = string(value.AppliedEntry.TemplateRevision) + " / " + string(value.AppliedEntry.EntrySliceDigest)
 	}
-	return []byte(fmt.Sprintf("Context %s\nTemplate %s\nProject %s\nDesired Template generation %d\nDesired Template revision %s\nDesired Template policy %s\nActive Template policy %s\nCurrent Policy Memory %s\nActive Policy Memory %s\nApplied entry %s\n",
-		value.ContextRef, safeExternalText(value.TemplateName), safeExternalText(value.ProjectRoot), value.DesiredTemplateGeneration,
-		value.DesiredTemplateRevision, value.DesiredTemplatePolicySliceDigest, activeTemplate, value.CurrentPolicyMemoryRevision, activeMemory, applied))
+	section := safeExternalText(value.TemplateName)
+	if section == "" {
+		section = "Context"
+	}
+	return finalAuthorityHumanCard(color, "·", "Context details", styleMuted, section, []finalAuthorityHumanRow{
+		{label: "Status", value: "✓ active", token: styleSuccess},
+		{label: "Desired Template generation", value: fmt.Sprintf("%d", value.DesiredTemplateGeneration), token: styleText},
+		{label: "Desired Template revision", value: value.DesiredTemplateRevision, token: styleText},
+		{label: "Desired Template policy", value: value.DesiredTemplatePolicySliceDigest, token: styleText},
+		{label: "Active Template policy", value: activeTemplate, token: styleText},
+		{label: "Current Policy Memory", value: value.CurrentPolicyMemoryRevision, token: styleText},
+		{label: "Active Policy Memory", value: activeMemory, token: styleText},
+		{label: "Applied entry", value: applied, token: humanStatusToken(map[bool]string{true: "ready", false: "missing"}[value.AppliedEntry != nil])},
+	}, "", "", []finalAuthorityHumanRow{{label: "Reference", value: value.ContextRef, token: styleText}})
 }
 
 func finalWorkspaceFrom(snapshot tobari.ContextAuthoritySnapshot, workspaceRef string) finalWorkspaceProjection {
@@ -353,6 +415,178 @@ func finalAuthorityOutput(path, envelope string, value any, format successFormat
 	return text, nil
 }
 
+func finalCollectionOutput(color bool, kind string, count int, cards func(*humanOutput)) []byte {
+	output := newHumanOutput(color)
+	output.heading("·", fmt.Sprintf("%s · %d", kind, count), styleMuted)
+	if count > 0 {
+		cards(output)
+	}
+	return output.bytes()
+}
+
+func finalTemplateListText(items []finalTemplateProjection, color bool) []byte {
+	return finalCollectionOutput(color, "Templates", len(items), func(output *humanOutput) {
+		for _, item := range items {
+			output.section(safeExternalText(item.Name))
+			if item.Lifecycle == "draft" {
+				output.row("Status", "! draft · source "+item.SourceState, styleWarning)
+				output.row("Source", safeExternalText(item.SourcePath), styleText)
+			} else {
+				output.row("Status", fmt.Sprintf("✓ active · generation %d", item.Generation), styleSuccess)
+				output.row("Source access", item.SourceAccess, styleText)
+			}
+			output.row("Reference", item.TemplateRef, styleText)
+		}
+	})
+}
+
+func finalContextListText(items []finalContextProjection, color bool) []byte {
+	return finalCollectionOutput(color, "Contexts", len(items), func(output *humanOutput) {
+		for _, item := range items {
+			section := safeExternalText(item.TemplateName)
+			if section == "" {
+				section = "Context draft"
+			}
+			output.section(section)
+			if item.Lifecycle == "draft" {
+				output.row("Status", "! draft · source "+item.SourceState, styleWarning)
+				output.row("Template ID", item.TemplateID, styleText)
+				output.row("Source", safeExternalText(item.SourcePath), styleText)
+			} else {
+				output.row("Status", "✓ active", styleSuccess)
+				output.row("Template", safeExternalText(item.TemplateName), styleText)
+			}
+			output.row("Reference", item.ContextRef, styleText)
+		}
+	})
+}
+
+func finalTemplateDraftText(value finalTemplateDraftProjection, action string, color bool) []byte {
+	title := "Template source created"
+	if action == "copy" {
+		title = "Template source copied"
+	}
+	return finalAuthorityHumanCard(color, "✓", title, styleSuccess, safeExternalText(value.Name), []finalAuthorityHumanRow{
+		{label: "Status", value: "! draft · ready to review", token: styleWarning},
+		{label: "Source", value: safeExternalText(value.SourcePath), token: styleText},
+		{label: "Source access", value: value.SourceAccess, token: styleText},
+	}, "template plan --id "+value.TemplateRef, "Review and activate this Template source.", []finalAuthorityHumanRow{
+		{label: "Reference", value: value.TemplateRef, token: styleText},
+		{label: "Template ID", value: value.TemplateID, token: styleText},
+	})
+}
+
+func finalTemplatePlanText(plan tobari.WorkspaceTemplateChangePlan, color bool) []byte {
+	return finalAuthorityHumanCard(color, "·", "Template change plan", styleMuted, "Impact", []finalAuthorityHumanRow{
+		{label: "Change", value: string(plan.Impact), token: humanStatusToken(string(plan.Impact))},
+		{label: "Contexts", value: fmt.Sprintf("%d affected", plan.AffectedContextCount), token: styleText},
+		{label: "Workspaces", value: fmt.Sprintf("%d running", plan.RunningWorkspaceCount), token: styleText},
+	}, "template apply --plan "+plan.PlanRef, "Apply this exact reviewed plan.", []finalAuthorityHumanRow{
+		{label: "Plan reference", value: plan.PlanRef, token: styleText},
+		{label: "Template", value: plan.TemplateRef, token: styleText},
+	})
+}
+
+func finalTemplateMigrationPlanText(plan tobari.WorkspaceTemplatePolicyMigrationPlan, color bool) []byte {
+	return finalAuthorityHumanCard(color, "·", "Template policy migration plan", styleMuted, "Schema", []finalAuthorityHumanRow{
+		{label: "Source", value: plan.SourceSchema, token: styleText},
+		{label: "Target", value: plan.TargetSchema, token: styleAccent},
+	}, "template migration apply --plan "+plan.PlanRef, "Apply this exact policy-source migration.", []finalAuthorityHumanRow{
+		{label: "Plan reference", value: plan.PlanRef, token: styleText},
+		{label: "Template", value: plan.TemplateRef, token: styleText},
+	})
+}
+
+func finalTemplateMigrationResultText(result tobari.WorkspaceTemplatePolicyMigrationResult, color bool) []byte {
+	return finalAuthorityHumanCard(color, "✓", "Template policy source migrated", styleSuccess, "Template", []finalAuthorityHumanRow{
+		{label: "Status", value: "✓ source migrated", token: styleSuccess},
+		{label: "Revision", value: string(result.ActiveRevision) + " · unchanged", token: styleText},
+	}, "", "", []finalAuthorityHumanRow{
+		{label: "Reference", value: result.TemplateRef, token: styleText},
+		{label: "Source", value: result.SourceFingerprint, token: styleText},
+	})
+}
+
+func finalContextPlanText(plan tobari.ContextActivationPlan, color bool) []byte {
+	status, token := "ready to apply", styleAccent
+	if plan.NoOp {
+		status, token = "no change", styleMuted
+	}
+	return finalAuthorityHumanCard(color, "·", "Context activation plan", styleMuted, "Activation", []finalAuthorityHumanRow{
+		{label: "Status", value: status, token: token},
+		{label: "Template", value: plan.TemplateRef, token: styleText},
+		{label: "Source access", value: string(plan.SourceAccess), token: styleText},
+		{label: "Runtime", value: plan.Runtime.RuntimeID + " · " + string(plan.Runtime.Revision), token: styleText},
+	}, "context apply --plan "+plan.PlanRef, "Apply this exact reviewed activation plan.", []finalAuthorityHumanRow{
+		{label: "Plan reference", value: plan.PlanRef, token: styleText},
+		{label: "Context", value: plan.ContextRef, token: styleText},
+	})
+}
+
+func finalContextDraftText(value finalContextDraftProjection, templateRef string, color bool) []byte {
+	return finalAuthorityHumanCard(color, "✓", "Context source created", styleSuccess, "Context draft", []finalAuthorityHumanRow{
+		{label: "Status", value: "! draft · ready to review", token: styleWarning},
+		{label: "Source", value: safeExternalText(value.SourcePath), token: styleText},
+		{label: "Template", value: templateRef, token: styleText},
+	}, "context plan --id "+value.ContextRef, "Review and activate this Context source.", []finalAuthorityHumanRow{
+		{label: "Reference", value: value.ContextRef, token: styleText},
+		{label: "Context ID", value: value.ContextID, token: styleText},
+	})
+}
+
+func finalWorkspaceStatusText(value finalWorkspaceProjection, color bool) []byte {
+	applied, token := "absent", styleWarning
+	if value.Applied {
+		applied, token = "present", styleSuccess
+	}
+	return finalAuthorityHumanCard(color, "·", "Workspace details", styleMuted, safeExternalText(value.ProjectRoot), []finalAuthorityHumanRow{
+		{label: "Status", value: "✓ exists", token: styleSuccess},
+		{label: "Template", value: safeExternalText(value.TemplateName), token: styleText},
+		{label: "Applied entry", value: applied, token: token},
+		{label: "Home", value: safeExternalText(value.WorkspaceHome), token: styleText},
+	}, "", "", []finalAuthorityHumanRow{{label: "Reference", value: value.WorkspaceRef, token: styleText}})
+}
+
+func finalSimpleResultText(path, reference, id, stateName string, state, color bool) []byte {
+	resource, action, idLabel := "Resource", stateName, "Authority ID"
+	unchangedTitle := resource + " unchanged"
+	switch path {
+	case "template default set":
+		resource, action, idLabel = "Default Template", "selected", "Template ID"
+		unchangedTitle = "Default Template unchanged"
+	case "template delete":
+		resource, action, idLabel = "Template", "deleted", "Template ID"
+		unchangedTitle = "Template already absent"
+	case "context delete":
+		resource, action, idLabel = "Context", "deleted", "Context ID"
+		unchangedTitle = "Context already absent"
+	case "workspace delete":
+		resource, action, idLabel = "Workspace", "deleted", "Workspace ID"
+		unchangedTitle = "Workspace already absent"
+	}
+	marker, title, headingToken := "·", unchangedTitle, styleMuted
+	stateText, stateToken := "no", styleMuted
+	if state {
+		marker, title, headingToken = "✓", resource+" "+action, styleSuccess
+		stateText, stateToken = "yes", styleSuccess
+	}
+	return finalAuthorityHumanCard(color, marker, title, headingToken, resource, []finalAuthorityHumanRow{
+		{label: strings.ToUpper(stateName[:1]) + stateName[1:], value: stateText, token: stateToken},
+	}, "", "", []finalAuthorityHumanRow{{label: "Reference", value: reference, token: styleText}, {label: idLabel, value: id, token: styleText}})
+}
+
+func finalWorkspaceListText(items []finalWorkspaceProjection, color bool) []byte {
+	return finalCollectionOutput(color, "Workspaces", len(items), func(output *humanOutput) {
+		for _, item := range items {
+			output.section(safeExternalText(item.ProjectRoot))
+			output.row("Status", "✓ exists", styleSuccess)
+			output.row("Template", safeExternalText(item.TemplateName), styleText)
+			output.row("Applied entry", map[bool]string{true: "present", false: "absent"}[item.Applied], humanOutcomeBoolToken(item.Applied))
+			output.row("Reference", item.WorkspaceRef, styleText)
+		}
+	})
+}
+
 func finalFormat(ctx context.Context, c *CLI, command CommandSpec, inputs ParsedInputs) (successFormat, int, bool) {
 	format, err := parseSuccessFormat(inputs.One("--format"))
 	if err != nil {
@@ -374,20 +608,17 @@ func runFinalTemplateList(ctx context.Context, c *CLI, command CommandSpec, _ op
 		return code
 	}
 	items := make([]finalTemplateProjection, 0, len(result.Items)+len(result.Drafts))
-	var text strings.Builder
 	for _, item := range result.Items {
 		value := finalTemplateFrom(item, false)
 		value.PolicySliceDigest = ""
 		value.EntrySliceDigest = ""
 		items = append(items, value)
-		fmt.Fprintf(&text, "%s  %s  generation %d  source %s\n", item.TemplateRef, safeExternalText(item.Template.Name), item.Template.Current.Generation, item.Template.Current.Body.Boundary.SourceAccess)
 	}
 	for _, draft := range result.Drafts {
 		value := finalTemplateDraftResourceFrom(draft)
 		items = append(items, value)
-		fmt.Fprintf(&text, "%s  %s  draft  source %s\n", draft.TemplateRef, safeExternalText(draft.Draft.Name), draft.Draft.Source.State)
 	}
-	output, err := finalAuthorityOutput(command.Path, "templates", map[string]any{"items": items}, format, []byte(text.String()))
+	output, err := finalAuthorityOutput(command.Path, "templates", map[string]any{"items": items}, format, finalTemplateListText(items, humanStyleAllowed(ctx, c, c.Out)))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -410,10 +641,10 @@ func runFinalTemplateShow(ctx context.Context, c *CLI, command CommandSpec, _ op
 	var text []byte
 	if result.Active != nil {
 		value = finalTemplateFrom(*result.Active, true)
-		text = finalTemplateText(value, true)
+		text = finalTemplateText(value, true, humanStyleAllowed(ctx, c, c.Out))
 	} else {
 		value = finalTemplateDraftResourceFrom(*result.Draft)
-		text = []byte(fmt.Sprintf("Template draft %s\nReference %s\nSource %s\n", safeExternalText(value.Name), value.TemplateRef, value.SourcePath))
+		text = finalTemplateText(value, true, humanStyleAllowed(ctx, c, c.Out))
 	}
 	output, err := finalAuthorityOutput(command.Path, "template", value, format, text)
 	if err != nil {
@@ -444,7 +675,7 @@ func runFinalTemplateCreate(ctx context.Context, c *CLI, command CommandSpec, in
 		return code
 	}
 	value := finalTemplateDraftFrom(view)
-	human := []byte(fmt.Sprintf("Template draft %s\nReference %s\nSource %s\nNext %s template plan --id %s\n", safeExternalText(value.Name), value.TemplateRef, value.SourcePath, ProgramName, value.TemplateRef))
+	human := finalTemplateDraftText(value, "create", humanStyleAllowed(ctx, c, c.Out))
 	output, err := finalAuthorityOutput(command.Path, "template", value, format, human)
 	if err != nil {
 		return c.fail(ctx, err)
@@ -467,7 +698,7 @@ func runFinalTemplateCopy(ctx context.Context, c *CLI, command CommandSpec, inte
 		return code
 	}
 	value := finalTemplateDraftFrom(view)
-	human := []byte(fmt.Sprintf("Template draft %s\nReference %s\nSource %s\nNext %s template plan --id %s\n", safeExternalText(value.Name), value.TemplateRef, value.SourcePath, ProgramName, value.TemplateRef))
+	human := finalTemplateDraftText(value, "copy", humanStyleAllowed(ctx, c, c.Out))
 	output, err := finalAuthorityOutput(command.Path, "template", value, format, human)
 	if err != nil {
 		return c.fail(ctx, err)
@@ -495,7 +726,16 @@ func runFinalTemplateApply(ctx context.Context, c *CLI, command CommandSpec, int
 		finalTemplateProjection
 		Changed bool `json:"changed"`
 	}{finalTemplateProjection: value, Changed: result.Changed}
-	output, err := finalAuthorityOutput(command.Path, "template", document, format, finalTemplateText(value, true))
+	marker, title, headingStyle := "✓", "Template activated", styleSuccess
+	if !result.Changed {
+		marker, title, headingStyle = "·", "Template already active", styleMuted
+	}
+	human := finalAuthorityHumanCard(humanStyleAllowed(ctx, c, c.Out), marker, title, headingStyle, safeExternalText(value.Name), []finalAuthorityHumanRow{
+		{label: "Changed", value: humanBool(result.Changed), token: humanOutcomeBoolToken(result.Changed)},
+		{label: "Status", value: fmt.Sprintf("✓ active · generation %d", value.Generation), token: styleSuccess},
+		{label: "Source access", value: value.SourceAccess, token: styleText},
+	}, "", "", []finalAuthorityHumanRow{{label: "Reference", value: value.TemplateRef, token: styleText}, {label: "Revision", value: value.CurrentRevisionRef, token: styleText}})
+	output, err := finalAuthorityOutput(command.Path, "template", document, format, human)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -514,8 +754,7 @@ func runFinalTemplatePlan(ctx context.Context, c *CLI, command CommandSpec, _ op
 	if !ok {
 		return code
 	}
-	human := []byte(fmt.Sprintf("Template change plan %s\nImpact %s\nTemplate %s\nContexts %d\nRunning Workspaces %d\nApply %s template apply --plan %s\n",
-		plan.PlanRef, plan.Impact, plan.TemplateRef, plan.AffectedContextCount, plan.RunningWorkspaceCount, ProgramName, plan.PlanRef))
+	human := finalTemplatePlanText(plan, humanStyleAllowed(ctx, c, c.Out))
 	output, err := finalAuthorityOutput(command.Path, "template_change_plan", finalTemplateChangePlanFrom(plan), format, human)
 	if err != nil {
 		return c.fail(ctx, err)
@@ -535,7 +774,7 @@ func runFinalTemplateMigrationPlan(ctx context.Context, c *CLI, command CommandS
 	if !ok {
 		return code
 	}
-	human := []byte(fmt.Sprintf("Template policy migration %s\nTemplate %s\nSource %s\nTarget %s\nApply %s template migration apply --plan %s\n", plan.PlanRef, plan.TemplateRef, plan.SourceSchema, plan.TargetSchema, ProgramName, plan.PlanRef))
+	human := finalTemplateMigrationPlanText(plan, humanStyleAllowed(ctx, c, c.Out))
 	output, err := finalAuthorityOutput(command.Path, "template_policy_migration_plan", finalTemplatePolicyMigrationPlanFrom(plan), format, human)
 	if err != nil {
 		return c.fail(ctx, err)
@@ -558,7 +797,7 @@ func runFinalTemplateMigrationApply(ctx context.Context, c *CLI, command Command
 	if !ok {
 		return code
 	}
-	human := []byte(fmt.Sprintf("Template policy source migrated %s\nRevision %s unchanged\nSource %s\n", result.TemplateRef, result.ActiveRevision, result.SourceFingerprint))
+	human := finalTemplateMigrationResultText(result, humanStyleAllowed(ctx, c, c.Out))
 	output, err := finalAuthorityOutput(command.Path, "template_policy_migration", result, format, human)
 	if err != nil {
 		return c.fail(ctx, err)
@@ -572,7 +811,7 @@ func (c *CLI) emitFinalTemplateMutation(ctx context.Context, command CommandSpec
 		return code
 	}
 	value := finalTemplateFrom(view, false)
-	output, err := finalAuthorityOutput(command.Path, "template", value, format, finalTemplateText(value, includeReferences))
+	output, err := finalAuthorityOutput(command.Path, "template", value, format, finalTemplateText(value, includeReferences, humanStyleAllowed(ctx, c, c.Out)))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -645,7 +884,6 @@ func runFinalContextList(ctx context.Context, c *CLI, command CommandSpec, _ ope
 		return code
 	}
 	items := make([]finalContextProjection, 0, len(result.Items)+len(result.Drafts))
-	var text strings.Builder
 	for _, item := range result.Items {
 		value, projectionErr := finalContextFromView(item)
 		err = projectionErr
@@ -653,14 +891,12 @@ func runFinalContextList(ctx context.Context, c *CLI, command CommandSpec, _ ope
 			return c.fail(ctx, err)
 		}
 		items = append(items, value)
-		fmt.Fprintf(&text, "%s  %s  %s\n", item.ContextRef, safeExternalText(item.Snapshot.Template.Name), safeExternalText(item.Snapshot.Context.ProjectRoot))
 	}
 	for _, draft := range result.Drafts {
 		value := finalContextFromDraft(draft)
 		items = append(items, value)
-		fmt.Fprintf(&text, "%s  draft  %s\n", draft.ContextRef, safeExternalText(draft.Draft.Observation.Path))
 	}
-	output, err := finalAuthorityOutput(command.Path, "contexts", map[string]any{"items": items}, format, []byte(text.String()))
+	output, err := finalAuthorityOutput(command.Path, "contexts", map[string]any{"items": items}, format, finalContextListText(items, humanStyleAllowed(ctx, c, c.Out)))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -690,7 +926,7 @@ func runFinalContextShow(ctx context.Context, c *CLI, command CommandSpec, _ ope
 	} else {
 		return c.fail(ctx, fmt.Errorf("Context resource is absent"))
 	}
-	output, err := finalAuthorityOutput(command.Path, "context", value, format, finalContextText(value))
+	output, err := finalAuthorityOutput(command.Path, "context", value, format, finalContextText(value, humanStyleAllowed(ctx, c, c.Out)))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -720,7 +956,20 @@ func runFinalContextApply(ctx context.Context, c *CLI, command CommandSpec, inte
 		finalContextProjection
 		Changed bool `json:"changed"`
 	}{finalContextProjection: value, Changed: result.Changed}
-	output, err := finalAuthorityOutput(command.Path, "context", document, format, finalContextText(value))
+	marker, title, headingStyle := "✓", "Context activated", styleSuccess
+	if !result.Changed {
+		marker, title, headingStyle = "·", "Context already active", styleMuted
+	}
+	section := safeExternalText(value.TemplateName)
+	if section == "" {
+		section = "Context"
+	}
+	human := finalAuthorityHumanCard(humanStyleAllowed(ctx, c, c.Out), marker, title, headingStyle, section, []finalAuthorityHumanRow{
+		{label: "Changed", value: humanBool(result.Changed), token: humanOutcomeBoolToken(result.Changed)},
+		{label: "Status", value: "✓ active", token: styleSuccess},
+		{label: "Template revision", value: value.DesiredTemplateRevision, token: styleText},
+	}, "", "", []finalAuthorityHumanRow{{label: "Reference", value: value.ContextRef, token: styleText}})
+	output, err := finalAuthorityOutput(command.Path, "context", document, format, human)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -735,12 +984,12 @@ func runFinalContextPlan(ctx context.Context, c *CLI, command CommandSpec, _ ope
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	value := finalContextPlanProjection{PlanRef: plan.PlanRef, ContextRef: plan.ContextRef, SourceFingerprint: plan.SourceFingerprint, ProjectRoot: plan.ProjectRoot, TemplateRef: plan.TemplateRef, TemplateRevision: string(plan.TemplateRevision), DuplicateBinding: plan.DuplicateBinding, NoOp: plan.NoOp, SourceAccess: string(plan.SourceAccess), RuntimeID: plan.Runtime.RuntimeID, RuntimeRevision: plan.Runtime.Revision, BoundaryFingerprint: string(plan.BoundaryFingerprint), PolicySliceDigest: string(plan.PolicySliceDigest), NewPolicyMemoryOwner: string(plan.NewPolicyMemoryOwner)}
+	value := finalContextPlanProjection{PlanRef: plan.PlanRef, ContextRef: plan.ContextRef, SourceFingerprint: plan.SourceFingerprint, TemplateRef: plan.TemplateRef, TemplateRevision: string(plan.TemplateRevision), DuplicateBinding: plan.DuplicateBinding, NoOp: plan.NoOp, SourceAccess: string(plan.SourceAccess), RuntimeID: plan.Runtime.RuntimeID, RuntimeRevision: plan.Runtime.Revision, BoundaryFingerprint: string(plan.BoundaryFingerprint), PolicySliceDigest: string(plan.PolicySliceDigest), NewPolicyMemoryOwner: string(plan.NewPolicyMemoryOwner)}
 	format, code, ok := finalFormat(ctx, c, command, inputs)
 	if !ok {
 		return code
 	}
-	human := []byte(fmt.Sprintf("Context activation plan %s\nContext %s\nProject %s\nTemplate %s\nApply %s context apply --plan %s\n", plan.PlanRef, plan.ContextRef, safeExternalText(plan.ProjectRoot), plan.TemplateRef, ProgramName, plan.PlanRef))
+	human := finalContextPlanText(plan, humanStyleAllowed(ctx, c, c.Out))
 	output, err := finalAuthorityOutput(command.Path, "context_activation_plan", value, format, human)
 	if err != nil {
 		return c.fail(ctx, err)
@@ -749,17 +998,13 @@ func runFinalContextPlan(ctx context.Context, c *CLI, command CommandSpec, _ ope
 }
 
 func runFinalContextCreate(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {
-	if c == nil || c.finalContexts == nil || c.finalProjectRoot == nil {
+	if c == nil || c.finalContexts == nil {
 		return c.fail(ctx, missingRuntimeFault())
-	}
-	root, err := resolveFinalProjectRoot(ctx, c.finalProjectRoot)
-	if err != nil {
-		return c.fail(ctx, err)
 	}
 	ref := inputs.One("--template")
 	intent.Target = operation.TargetRef{Kind: tobari.ContextReferenceKind, ParentID: ref}
 	intent.Impact = command.Agent.Mutation.Impact
-	view, err := c.finalContexts.CreateDraft(ctx, intent, ref, root)
+	view, err := c.finalContexts.CreateDraft(ctx, intent, ref)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -771,8 +1016,8 @@ func runFinalContextCreate(ctx context.Context, c *CLI, command CommandSpec, int
 	if view.Draft.Observation.SourceRevision != nil {
 		revision = string(*view.Draft.Observation.SourceRevision)
 	}
-	value := finalContextDraftProjection{Lifecycle: "draft", ContextRef: view.ContextRef, ContextID: string(view.Draft.Source.ContextID), TemplateID: string(view.Draft.Source.TemplateID), ProjectRoot: view.Draft.Source.ProjectRoot, SourcePath: view.Draft.Observation.Path, SourceState: string(view.Draft.Observation.State), SourceRevision: revision}
-	output, err := finalAuthorityOutput(command.Path, "context", value, format, []byte(fmt.Sprintf("Context draft %s\nProject %s\nSource %s\n", view.ContextRef, safeExternalText(root), view.Draft.Observation.Path)))
+	value := finalContextDraftProjection{Lifecycle: "draft", ContextRef: view.ContextRef, ContextID: string(view.Draft.Source.ContextID), TemplateID: string(view.Draft.Source.TemplateID), SourcePath: view.Draft.Observation.Path, SourceState: string(view.Draft.Observation.State), SourceRevision: revision}
+	output, err := finalAuthorityOutput(command.Path, "context", value, format, finalContextDraftText(value, ref, humanStyleAllowed(ctx, c, c.Out)))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -792,21 +1037,28 @@ func runFinalContextEnter(ctx context.Context, c *CLI, command CommandSpec, inte
 		}
 	}
 	ref := inputs.One("--id")
+	root, err := resolveFinalProjectRoot(ctx, c.finalProjectRoot)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
 	format, code, ok := finalFormat(ctx, c, command, inputs)
 	if !ok {
 		return code
 	}
 	intent.Target = operation.TargetRef{Kind: tobari.WorkspaceReferenceKind, ParentID: ref}
 	intent.Impact = command.Agent.Mutation.Impact
-	result, err := c.finalContexts.Enter(ctx, intent, ref, session, c.In, c.Out, c.Err)
+	result, err := c.finalContexts.EnterAtRoot(ctx, intent, ref, root, session, c.In, c.Out, c.Err)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
 	value := map[string]any{"workspace_ref": result.WorkspaceRef, "workspace_id": string(result.Snapshot.Workspace.ID), "context_id": string(result.Snapshot.Context.ID), "exit_code": result.Outcome.ExitCode}
-	text := []byte(fmt.Sprintf("Workspace %s\n", result.WorkspaceRef))
+	marker, title, headingStyle := "✓", "Workspace session finished", styleSuccess
+	rows := []finalAuthorityHumanRow{{label: "Exit code", value: fmt.Sprintf("%d", result.Outcome.ExitCode), token: humanStatusToken(map[bool]string{true: "ready", false: "failed"}[result.Outcome.ExitCode == 0])}}
 	if len(result.Outcome.CleanupIssues) > 0 {
-		text = append(text, []byte(workspaceCleanupAttention+"\n")...)
+		marker, title, headingStyle = "!", "Workspace session needs attention", styleWarning
+		rows = append(rows, finalAuthorityHumanRow{label: "Cleanup", value: workspaceCleanupAttention, token: styleWarning})
 	}
+	text := finalAuthorityHumanCard(humanStyleAllowed(ctx, c, c.Err), marker, title, headingStyle, "Workspace", rows, "", "", []finalAuthorityHumanRow{{label: "Reference", value: result.WorkspaceRef, token: styleText}})
 	output, err := finalAuthorityOutput(command.Path, "entry", value, format, text)
 	if err != nil {
 		return c.fail(ctx, err)
@@ -842,12 +1094,10 @@ func runFinalWorkspaceList(ctx context.Context, c *CLI, command CommandSpec, _ o
 		return code
 	}
 	items := make([]finalWorkspaceProjection, len(result.Items))
-	var text strings.Builder
 	for i, item := range result.Items {
 		items[i] = finalWorkspaceFrom(item.Snapshot, item.WorkspaceRef)
-		fmt.Fprintf(&text, "%s  %s\n", item.WorkspaceRef, safeExternalText(item.Snapshot.Workspace.ProjectRoot))
 	}
-	output, err := finalAuthorityOutput(command.Path, "workspaces", map[string]any{"items": items}, format, []byte(text.String()))
+	output, err := finalAuthorityOutput(command.Path, "workspaces", map[string]any{"items": items}, format, finalWorkspaceListText(items, humanStyleAllowed(ctx, c, c.Out)))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -867,7 +1117,7 @@ func runFinalWorkspaceStatus(ctx context.Context, c *CLI, command CommandSpec, _
 		return code
 	}
 	value := finalWorkspaceFrom(view.Snapshot, view.WorkspaceRef)
-	output, err := finalAuthorityOutput(command.Path, "workspace", value, format, []byte(fmt.Sprintf("Workspace %s\nProject %s\n", view.WorkspaceRef, safeExternalText(value.ProjectRoot))))
+	output, err := finalAuthorityOutput(command.Path, "workspace", value, format, finalWorkspaceStatusText(value, humanStyleAllowed(ctx, c, c.Out)))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -898,7 +1148,7 @@ func (c *CLI) emitFinalSimpleResult(ctx context.Context, command CommandSpec, in
 		return code
 	}
 	value := map[string]any{idName: id, stateName: state}
-	output, err := finalAuthorityOutput(command.Path, "result", value, format, []byte(fmt.Sprintf("%s %s\n", idName, id)))
+	output, err := finalAuthorityOutput(command.Path, "result", value, format, finalSimpleResultText(command.Path, inputs.One("--id"), id, stateName, state, humanStyleAllowed(ctx, c, c.Out)))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -915,8 +1165,18 @@ func (c *CLI) reviewedStandardTemplateBody(ctx context.Context) (tobari.Workspac
 	}
 	policy, ok := tobari.DefaultContextPolicySnapshot()
 	if !ok {
-		return tobari.WorkspaceTemplateBody{}, fault.New(fault.KindContract, "invalid_template_body", "The built-in standard Template policy is unavailable.", false)
+		return tobari.WorkspaceTemplateBody{}, fault.WithClassification(
+			fault.New(fault.KindContract, "invalid_standard_template_body", "The built-in standard Template policy is unavailable.", false),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
 	}
 	body := tobari.WorkspaceTemplateBody{Boundary: tobari.WorkspaceTemplateBoundary{SourceAccess: tobari.ManifestSourceAccessReadWrite, DestinationCeiling: policy.DestinationCeiling, MethodPolicy: policy.MethodPolicy}, Policy: tobari.WorkspaceTemplatePolicyBody{AgentProfile: tobari.DefaultProfile, NativeReadiness: tobari.ManifestNativeReadinessEnabled, BaselineGrants: policy.BaselineGrants, BaselineTemplates: policy.BaselineTemplates, MCPBaselineGrants: policy.MCPBaselineGrants, BaselineDenies: policy.BaselineDenies, GraphQLEndpoints: policy.GraphQLEndpoints, MCPEndpoints: policy.MCPEndpoints}, EntryDefaults: tobari.WorkspaceTemplateEntryDefaults{Runtime: binding}, SessionDefaults: tobari.WorkspaceTemplateSessionDefaults{ShellEnvironment: []tobari.ManifestShellEnvironmentSetting{}}, CreationDefaults: tobari.WorkspaceTemplateCreationDefaults{}}
-	return tobari.CompileWorkspaceTemplateBodyV1(body)
+	compiled, err := tobari.CompileWorkspaceTemplateBodyV1(body)
+	if err != nil {
+		return tobari.WorkspaceTemplateBody{}, fault.WithClassification(
+			fault.Wrap(fault.KindContract, "invalid_standard_template_body", "The built-in standard Template body is invalid.", false, err),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
+	}
+	return compiled, nil
 }

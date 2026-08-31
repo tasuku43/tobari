@@ -179,6 +179,65 @@ func cloneStringMap(source map[string]string) map[string]string {
 	return result
 }
 
+func TestFinalGatewaySettlementPreservesOnlyExactStoppedWorkspacePrincipal(t *testing.T) {
+	runtime, runner, journal := finalGatewayCoordinatorFixture(t, finalProjectionWorkspaceA)
+	runner.stoppedWorkspaces = map[tobari.WorkspaceID]bool{finalProjectionWorkspaceA: true}
+	retained := journal.Candidate.Principals[0]
+	previous := finalPolicyActivationRecord{Material: FinalWorkspacePolicyProjection{Principals: []FinalWorkspacePrincipalRow{retained}}}
+	registry := projectPrincipalRegistry{SchemaVersion: projectPrincipalRegistrySchema, Bindings: []projectPrincipalBinding{retained.gatewayBinding()}}
+
+	principals, networks, gateway, _, err := runtime.observeFinalGatewaySettlementCandidatePass(
+		context.Background(), journal.Candidate.Plan, previous, true, registry,
+	)
+	if err != nil || !reflect.DeepEqual(principals, []FinalWorkspacePrincipalRow{retained}) ||
+		!slices.Contains(networks, FinalGatewayNetworkAddress{Name: retained.Network, Address: retained.GatewayIP}) {
+		t.Fatalf("stopped principal observation principals=%#v networks=%#v err=%v", principals, networks, err)
+	}
+
+	authority := *journal.Candidate.Plan.Contexts[0].Principal
+	exact := finalWorkspaceContainerObservation{
+		ID: retained.ContainerID, Owner: ownerValue, Component: "tobari", Workspace: string(retained.WorkspaceID),
+		Role: projectWorkRole, Spec: string(retained.ResolvedSpec), State: "exited", Running: false,
+		Health: "unhealthy", ConfiguredIPv4: retained.WorkspaceIP,
+	}
+	tests := []struct {
+		name            string
+		observation     finalWorkspaceContainerObservation
+		gateway         appliedClusterComponentObservation
+		registry        projectPrincipalRegistry
+		previousPresent bool
+	}{
+		{name: "missing predecessor", observation: exact, gateway: gateway, registry: registry, previousPresent: false},
+		{name: "dead container", observation: func() finalWorkspaceContainerObservation { value := exact; value.State = "dead"; return value }(), gateway: gateway, registry: registry, previousPresent: true},
+		{name: "container identity drift", observation: func() finalWorkspaceContainerObservation {
+			value := exact
+			value.ID = strings.Repeat("8", 64)
+			return value
+		}(), gateway: gateway, registry: registry, previousPresent: true},
+		{name: "configured IP drift", observation: func() finalWorkspaceContainerObservation {
+			value := exact
+			value.ConfiguredIPv4 = "172.30.0.9"
+			return value
+		}(), gateway: gateway, registry: registry, previousPresent: true},
+		{name: "Gateway attachment drift", observation: exact, gateway: func() appliedClusterComponentObservation {
+			value := gateway
+			value.NetworkAddresses = cloneStringMap(gateway.NetworkAddresses)
+			value.NetworkAddresses[retained.Network] = "172.30.0.9"
+			return value
+		}(), registry: registry, previousPresent: true},
+		{name: "principal registry missing", observation: exact, gateway: gateway, registry: emptyProjectPrincipalRegistry(), previousPresent: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := runtime.preserveStoppedFinalWorkspacePrincipal(
+				context.Background(), authority, retained.Network, test.observation, test.gateway, previous, test.previousPresent, test.registry,
+			); err == nil {
+				t.Fatal("drifted stopped Workspace became principal authority")
+			}
+		})
+	}
+}
+
 func TestFinalSettlementReplaysJournaledManagedEnvironmentAcrossProcessAmbientDrift(t *testing.T) {
 	t.Setenv("TOBARI_OPA_TIMEOUT_SECONDS", "7")
 	t.Setenv("TOBARI_UPSTREAM_TIMEOUT_SECONDS", "41")
@@ -240,6 +299,27 @@ func TestFinalGatewayComposeEnvironmentPreservesGatewayConfigBindSource(t *testi
 	}
 	if got := environmentValue(environment, "TOBARI_OPA_TIMEOUT_SECONDS"); got != "2" {
 		t.Fatalf("Gateway Compose timeout=%q want selected value", got)
+	}
+}
+
+func TestComposeEnvironmentBindsExactInheritedGatewayVolumePath(t *testing.T) {
+	runtime, _, _ := finalGatewayCoordinatorFixture(t)
+	t.Setenv("TOBARI_GATEWAY_INHERITED_CA_PATH", "/ambient/override")
+	environment, err := runtime.composeEnvironmentForTransport(appliedRuntimeState(t, t.TempDir(), tobari.SharedClusterProfileLoopbackTCP), tobari.PermissionSessionTransportTCP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := environmentValue(environment, "TOBARI_GATEWAY_INHERITED_CA_PATH"); got != finalGatewayInheritedCAPath {
+		t.Fatalf("Compose inherited Gateway path=%q want %q", got, finalGatewayInheritedCAPath)
+	}
+	count := 0
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, "TOBARI_GATEWAY_INHERITED_CA_PATH=") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("Compose inherited Gateway path bindings=%d, want 1", count)
 	}
 }
 
@@ -545,9 +625,11 @@ type finalGatewaySettlementRunner struct {
 	candidate            finalGatewaySettlementCandidate
 	workspaces           map[tobari.WorkspaceID]*tobari.WorkspacePolicyPrincipalAuthority
 	workspaceNets        map[tobari.WorkspaceID]string
+	stoppedWorkspaces    map[tobari.WorkspaceID]bool
 	onCompose            func()
 	selected             bool
 	composeCalls         int
+	composeEnvironments  [][]string
 	policyEffects        int
 	companionEpoch       string
 	replacementPending   bool
@@ -687,17 +769,28 @@ func (r *finalGatewaySettlementRunner) component(container string) appliedCluste
 	}
 }
 
-func (r *finalGatewaySettlementRunner) Run(_ context.Context, args, _ []string, _ io.Reader, out, _ io.Writer) error {
+func (r *finalGatewaySettlementRunner) Run(_ context.Context, args, environment []string, _ io.Reader, out, _ io.Writer) error {
+	if len(args) > 0 && args[0] == "version" {
+		_, _ = io.WriteString(out, `{"Arch":"arm64","Os":"linux"}`)
+		return nil
+	}
 	if len(args) >= 2 && args[0] == "image" && args[1] == "inspect" {
-		imageID := r.candidate.OPAImageID
+		imageID, component := r.candidate.OPAImageID, "opa"
 		if r.candidate.AuthBrokerImage != "" && args[len(args)-1] == r.candidate.AuthBrokerImage {
-			imageID = r.candidate.AuthBrokerImageID
+			imageID, component = r.candidate.AuthBrokerImageID, "auth-broker"
+		} else if args[len(args)-1] == "tobari-gateway:test" {
+			imageID, component = r.candidate.GatewayImageID, "gateway"
 		}
-		_, _ = io.WriteString(out, imageID+"\n")
+		if len(args) >= 5 && args[3] == componentImageInspectFormat {
+			_, _ = io.WriteString(out, componentMetadataFixture(imageID, component))
+		} else {
+			_, _ = io.WriteString(out, imageID+"\n")
+		}
 		return nil
 	}
 	if len(args) > 0 && args[0] == "compose" {
 		r.events = append(r.events, "compose")
+		r.composeEnvironments = append(r.composeEnvironments, append([]string(nil), environment...))
 		if r.onCompose != nil {
 			r.onCompose()
 		}
@@ -815,9 +908,14 @@ func (r *finalGatewaySettlementRunner) Output(_ context.Context, args, _ []strin
 		if workspace == nil {
 			return nil, nil
 		}
+		workspaceIP, _ := finalWorkspaceFixtureAddresses(workspace.WorkspaceID)
+		running, state, health, configured := true, "running", "healthy", ""
+		if r.stoppedWorkspaces[workspace.WorkspaceID] {
+			running, state, health, configured = false, "exited", "unhealthy", workspaceIP
+		}
 		payload, _ := json.Marshal(finalWorkspaceContainerObservation{
 			ID: strings.Repeat(string(workspace.WorkspaceID)[len(workspace.WorkspaceID)-1:], 64), Owner: ownerValue, Component: "tobari", Workspace: string(workspace.WorkspaceID),
-			Role: projectWorkRole, Spec: string(workspace.AppliedEntry.ResolvedSpec), Running: true, Health: "healthy",
+			Role: projectWorkRole, Spec: string(workspace.AppliedEntry.ResolvedSpec), State: state, Running: running, Health: health, ConfiguredIPv4: configured,
 		})
 		return payload, nil
 	}
@@ -1033,7 +1131,7 @@ func finalReviewedMultiContextFixture(
 	}
 	secondBinding := tobari.ContextBinding{
 		SchemaVersion: tobari.ContextBindingSchemaVersion, ID: secondContextID,
-		ProjectRoot: previousBase.Contexts[0].Context.ProjectRoot, TemplateID: secondTemplateID,
+		TemplateID: secondTemplateID,
 	}
 	secondMemory, _, err := tobari.PublishPolicyMemory(secondContextID, []tobari.PolicyMemoryRule{}, nil)
 	if err != nil {
@@ -1057,7 +1155,7 @@ func finalReviewedMultiContextFixture(
 	}
 	secondWorkspace := tobari.WorkspaceBinding{
 		SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: secondWorkspaceID, ContextID: secondContextID,
-		ProjectRoot: secondBinding.ProjectRoot, Home: "/workspace/home-" + string(secondWorkspaceID),
+		ProjectRoot: previousBase.Workspaces[0].ProjectRoot, Home: "/workspace/home-" + string(secondWorkspaceID),
 		CreationDefaults: secondTemplate.Current.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &secondApplied,
 	}
 	httpEffect := tobari.PolicyCandidateEffect{

@@ -98,6 +98,7 @@ func (r *Runtime) clusterUpWithProgressMode(
 		}
 	}
 	var authBrokerSelection sharedImageSelection
+	var authBrokerImageID string
 	if brokerRuntimeEnabled {
 		authBrokerSelection, err = r.selectAuthBrokerImage(ctx)
 		if err != nil {
@@ -174,7 +175,8 @@ func (r *Runtime) clusterUpWithProgressMode(
 		)
 	}()
 	if brokerRuntimeEnabled {
-		if err = r.verifyAuthBrokerImage(ctx, authBrokerSelection.Image, authBrokerSelection.RequireDigest); err != nil {
+		authBrokerImageID, err = r.verifyAuthBrokerImage(ctx, authBrokerSelection.Image, authBrokerSelection.RequireDigest)
+		if err != nil {
 			emitClusterUpProgress(progress, tobari.ClusterUpProgress{
 				Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
 			})
@@ -204,7 +206,7 @@ func (r *Runtime) clusterUpWithProgressMode(
 		return tobari.State{}, fmt.Errorf("verify candidate Compose closure: %w", err)
 	}
 	if brokerRuntimeEnabled {
-		environment = replaceEnvironmentValue(environment, "TOBARI_AUTH_BROKER_IMAGE", authBrokerSelection.Image)
+		environment = replaceEnvironmentValue(environment, "TOBARI_AUTH_BROKER_IMAGE", authBrokerImageID)
 	}
 	environment = replaceEnvironmentValue(environment, "TOBARI_GATEWAY_IMAGE", gatewayImageID)
 	versions, err := runtimeassets.Versions()
@@ -213,10 +215,7 @@ func (r *Runtime) clusterUpWithProgressMode(
 	}
 	candidateImages := candidateClusterImages{Gateway: gatewayImageID}
 	if brokerRuntimeEnabled {
-		candidateImages.AuthBroker, err = r.resolveCandidateImageID(ctx, authBrokerSelection.Image)
-		if err != nil {
-			return tobari.State{}, fmt.Errorf("resolve candidate Auth Broker image: %w", err)
-		}
+		candidateImages.AuthBroker = authBrokerImageID
 	}
 	emitClusterUpProgress(progress, tobari.ClusterUpProgress{
 		Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressCompleted,
@@ -226,7 +225,7 @@ func (r *Runtime) clusterUpWithProgressMode(
 		if err := r.testPolicy(ctx, state); err != nil {
 			return fault.Wrap(fault.KindRejected, "policy_test_failed", policyTestFailureMessage, false, err)
 		}
-		candidateImages.OPA, err = r.resolveCandidateImageID(ctx, versions["OPA_IMAGE"])
+		candidateImages.OPA, err = r.resolveVolumeSafeOPAImageID(ctx, versions["OPA_IMAGE"])
 		if err != nil {
 			return fmt.Errorf("resolve candidate OPA image: %w", err)
 		}
@@ -1001,6 +1000,7 @@ func (r *Runtime) composeEnvironmentForTransport(
 		"TOBARI_OPA_IMAGE="+versions["OPA_IMAGE"],
 		"TOBARI_DEBIAN_IMAGE="+versions["DEBIAN_IMAGE"],
 	)
+	environment = replaceEnvironmentValue(environment, "TOBARI_GATEWAY_INHERITED_CA_PATH", finalGatewayInheritedCAPath)
 	if permissionTransport == tobari.PermissionSessionTransportUnix {
 		environment = append(environment, "TOBARI_PERMISSION_INGESTION_DIR="+r.interactiveAttachmentSocketDirectory())
 	}

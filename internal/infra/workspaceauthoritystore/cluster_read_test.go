@@ -200,7 +200,7 @@ func TestBatchDClusterReadDenialsCorrelateExactContextTemplateAndWorkspace(t *te
 		WorkspaceManifestID:    string(storeContextID),
 		WorkspaceManifestName:  collection.Templates[0].Name,
 		ProjectID:              string(storeWorkspaceID),
-		ProjectRoot:            collection.Contexts[0].Context.ProjectRoot,
+		ProjectRoot:            collection.Workspaces[0].ProjectRoot,
 		Host:                   "api.example.dev",
 		Port:                   443,
 		Method:                 "GET",
@@ -224,7 +224,7 @@ func TestBatchDClusterReadDenialsCorrelateExactContextTemplateAndWorkspace(t *te
 		t.Fatalf("window=%#v err=%v", window, err)
 	}
 	item := window.Items[0]
-	if item.ContextID != storeContextID || item.WorkspaceTemplateID != storeTemplateID || item.TemplateName != collection.Templates[0].Name || item.WorkspaceID != storeWorkspaceID || item.ProjectRoot != collection.Contexts[0].Context.ProjectRoot {
+	if item.ContextID != storeContextID || item.WorkspaceTemplateID != storeTemplateID || item.TemplateName != collection.Templates[0].Name || item.WorkspaceID != storeWorkspaceID || item.ProjectRoot != collection.Workspaces[0].ProjectRoot {
 		t.Fatalf("denial owner correlation=%#v", item)
 	}
 	encoded, err := json.Marshal(window)

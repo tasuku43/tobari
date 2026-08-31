@@ -47,6 +47,7 @@ func permissionWaitErrors() []CommandError {
 		declaredCommandError(fault.KindNotFound, "invalid_permission_wait", false, recovery, "A fresh eligible denial must issue a new attachment-local wait ID."),
 		declaredCommandError(fault.KindContract, "invalid_permission_wait_record", false, recovery, "A fresh eligible denial must issue a valid wait record."),
 		declaredCommandError(fault.KindContract, "invalid_permission_wait_result", false, recovery, "The helper accepts only Allow, Deny, or Expired."),
+		classifiedCommandError(fault.KindInternal, "missing_permission_wait_observer", false, fault.PhaseObservation, fault.ChangeNotApplicable, recovery, "Repair the attachment-local helper composition."),
 		declaredCommandError(fault.KindUnavailable, "permission_wait_owner_unavailable", false, recovery, "The attachment owner is gone; a fresh denial in a live attachment is required."),
 		declaredCommandError(fault.KindUnavailable, "permission_wait_unavailable", true, recovery, "Keep review separate and inspect the exact wait contract before retrying within the lease."),
 		declaredCommandError(fault.KindCanceled, "permission_wait_interrupted", true, recovery, "Retry only within the bounded connection-attempt budget while the same owner remains live."),

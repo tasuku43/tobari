@@ -89,6 +89,129 @@ func (r *Runtime) removeFinalClusterBootstrap() error {
 	return syncDirectoryIfPresent(r.finalGatewaySettlementRoot())
 }
 
+type finalClusterBindSource struct {
+	path        string
+	destination string
+	kind        string
+}
+
+const finalClusterBindProbe = `import os,sys
+for value in sys.argv[1:]:
+    kind,path=value.split(":",1)
+    valid=os.path.isfile(path) if kind=="file" else os.path.isdir(path)
+    if not valid:
+        raise SystemExit(42)
+`
+
+const (
+	finalClusterBindPreflightTimeout = 15 * time.Second
+	finalClusterBindPreflightOutput  = 8 * 1024
+)
+
+// PreflightFinalClusterAuthority proves that every host bind source required
+// by a fresh shared-cluster bootstrap is visible to the selected Docker
+// context with its exact file/directory type. It runs before the owner store
+// publishes its durable effect decision, so an unshared remote-context path
+// cannot become an interrupted mutation or let Docker replace a file source
+// with an engine-local directory.
+func (r *Runtime) PreflightFinalClusterAuthority(ctx context.Context, plan tobari.WorkspacePolicyProjection) error {
+	if r == nil || plan.Validate() != nil {
+		return fmt.Errorf("final cluster bind preflight request is invalid")
+	}
+	if err := r.ensureHostLoopbackStore(ctx); err != nil {
+		return fmt.Errorf("prepare canonical Host Loopback authority: %w", err)
+	}
+	if err := r.ensureInteractiveAttachmentStore(ctx); err != nil {
+		return fmt.Errorf("prepare canonical interactive attachment authority: %w", err)
+	}
+	if err := r.ensureProjectPrincipalRegistry(ctx); err != nil {
+		return fmt.Errorf("prepare canonical principal authority: %w", err)
+	}
+	aggregate, _, _, err := r.buildFinalSettlementArtifacts(ctx, plan)
+	if err != nil {
+		return err
+	}
+	profile, err := tobari.SharedClusterProfileForTransport(r.permissionIngestionTransport)
+	if err != nil {
+		return err
+	}
+	state, _, gatewayImage, _, err := r.prepareFinalGatewayComposeAuthority(ctx, aggregate, profile, len(plan.Contexts))
+	if err != nil {
+		return err
+	}
+	if brokerRuntimeEnabled {
+		if _, err := r.prepareAuthProjection(); err != nil {
+			return err
+		}
+	}
+	return r.preflightFinalClusterBindSources(ctx, state, profile, gatewayImage)
+}
+
+func (r *Runtime) preflightFinalClusterBindSources(
+	ctx context.Context, state tobari.State, profile tobari.SharedClusterAppliedProfile, gatewayImage string,
+) error {
+	if r == nil || state.Validate() != nil || profile.Validate() != nil || !imageIDPattern.MatchString(gatewayImage) {
+		return fmt.Errorf("final cluster bind preflight authority is invalid")
+	}
+	sources := []finalClusterBindSource{
+		{path: state.GatewayConfig, destination: "/run/tobari/config/gateway.json", kind: "file"},
+		{path: state.PolicyDirectory, destination: "/run/tobari/policy", kind: "directory"},
+		{path: r.principalRegistryDirectory(), destination: "/run/tobari/principal-registry", kind: "directory"},
+		{path: r.hostLoopbackDirectory(), destination: "/run/tobari/host-loopback", kind: "directory"},
+		{path: r.interactiveAttachmentDirectory(), destination: "/run/tobari/interactive-attachments", kind: "directory"},
+	}
+	transport, ok := profile.PermissionTransport()
+	if !ok {
+		return fmt.Errorf("final cluster bind preflight profile is invalid")
+	}
+	if transport == tobari.PermissionSessionTransportUnix {
+		sources = append(sources, finalClusterBindSource{
+			path: r.interactiveAttachmentSocketDirectory(), destination: "/run/tobari/permission-ingestion", kind: "directory",
+		})
+	}
+	if brokerRuntimeEnabled {
+		sources = append(sources,
+			finalClusterBindSource{path: r.authProviderProjectionDirectory(), destination: "/run/tobari/auth", kind: "directory"},
+			finalClusterBindSource{path: r.authContextsDirectory(), destination: "/run/tobari/auth-contexts", kind: "directory"},
+		)
+	}
+	args := []string{
+		"run", "--rm", "--network", "none", "--read-only", "--cap-drop", "ALL",
+		"--security-opt", "no-new-privileges:true", "--entrypoint", "/usr/local/bin/python3",
+	}
+	for _, source := range sources {
+		if source.path == "" || source.destination == "" || source.kind != "file" && source.kind != "directory" {
+			return fmt.Errorf("final cluster bind preflight source is invalid")
+		}
+		args = append(args, "--mount", "type=bind,src="+source.path+",dst="+source.destination+",readonly")
+	}
+	args = append(args, gatewayImage, "-c", finalClusterBindProbe)
+	for _, source := range sources {
+		args = append(args, source.kind+":"+source.destination)
+	}
+	probeContext, cancel := context.WithTimeout(ctx, finalClusterBindPreflightTimeout)
+	defer cancel()
+	output := &boundedBuffer{limit: finalClusterBindPreflightOutput}
+	if err := r.runner.Run(probeContext, args, os.Environ(), nil, output, output); err != nil || output.overflow {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		if errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		cause := fmt.Errorf("Docker context rejected an exact shared-cluster bind source: %w: %s", err, boundedDiagnostic(output.buffer.Bytes()))
+		if output.overflow {
+			cause = fmt.Errorf("Docker context bind-source preflight exceeded bounded output")
+		}
+		return fault.WithClassification(fault.Wrap(
+			fault.KindRejected, "cluster_resource_conflict",
+			"Docker cannot read the required Tobari host paths with their exact file and directory types.", false, cause,
+			fault.NextAction{Command: "doctor", Reason: "Share the exact Tobari configuration and state roots with this Docker context, then retry."},
+		), fault.PhasePrecondition, fault.ChangeNone)
+	}
+	return nil
+}
+
 // ensureFinalClusterBaseComponents creates only a fresh, fixed shared base.
 // Existing or partial unjournaled resources are ambiguity and fail closed.
 func (r *Runtime) ensureFinalClusterBaseComponents(ctx context.Context, plan tobari.WorkspacePolicyProjection, operation, decisionRef string) error {
@@ -169,14 +292,11 @@ func (r *Runtime) ensureFinalClusterBaseComponents(ctx context.Context, plan tob
 		if selectErr != nil {
 			return selectErr
 		}
-		if err := r.verifyAuthBrokerImage(ctx, selection.Image, selection.RequireDigest); err != nil {
-			return err
-		}
-		journal.AuthBrokerImage = selection.Image
-		journal.AuthBrokerImageID, err = r.resolveCandidateImageID(ctx, selection.Image)
+		journal.AuthBrokerImageID, err = r.verifyAuthBrokerImage(ctx, selection.Image, selection.RequireDigest)
 		if err != nil {
 			return err
 		}
+		journal.AuthBrokerImage = selection.Image
 		if _, err := r.prepareAuthProjection(); err != nil {
 			return err
 		}
@@ -241,7 +361,7 @@ func (r *Runtime) resumeFinalClusterBootstrap(ctx context.Context, journal final
 	environment = replaceEnvironmentValue(environment, "TOBARI_GATEWAY_IMAGE", journal.GatewayImageID)
 	environment = replaceEnvironmentValue(environment, "TOBARI_OPA_IMAGE", journal.OPAImageID)
 	if brokerRuntimeEnabled {
-		environment = replaceEnvironmentValue(environment, "TOBARI_AUTH_BROKER_IMAGE", journal.AuthBrokerImage)
+		environment = replaceEnvironmentValue(environment, "TOBARI_AUTH_BROKER_IMAGE", journal.AuthBrokerImageID)
 	}
 	environment = applyFinalGatewayComposeEnvironment(environment, selectedFinalGatewayEnvironment(journal.Profile))
 	args := []string{"compose", "--project-directory", journal.State.RuntimeDirectory}

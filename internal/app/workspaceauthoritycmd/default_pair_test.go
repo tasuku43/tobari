@@ -77,6 +77,12 @@ func finalAncestorSelectionFixture(t *testing.T) (*finalSelectionAuthorityFixtur
 	if err != nil {
 		t.Fatal(err)
 	}
+	observation.Context.Workspace = &tobari.WorkspaceBinding{
+		SchemaVersion: tobari.WorkspaceBindingSchemaVersion,
+		ID:            workspaceID, ContextID: observation.Context.Context.ID,
+		ProjectRoot: base.root, Home: "/workspace/home",
+		CreationDefaults: observation.Context.Template.Current.Slices.CreationDefaultsDigest,
+	}
 	selection := tobari.FinalDefaultPairSelection{
 		SchemaVersion: tobari.FinalDefaultPairSelectionSchemaVersion, CollectionPresent: true,
 		CollectionGeneration: observation.CollectionGeneration, CollectionRevision: observation.CollectionRevision,
@@ -117,22 +123,57 @@ func (f *defaultPairFixture) ObserveFinalDefaultPair(context.Context, string) (t
 	return result, result.Validate()
 }
 
+func (f *defaultPairFixture) ObserveFinalDefaultPairContext(_ context.Context, root string, id tobari.ContextID) (tobari.FinalDefaultPairObservation, error) {
+	result, err := f.ObserveFinalDefaultPair(context.Background(), root)
+	if err != nil {
+		return tobari.FinalDefaultPairObservation{}, err
+	}
+	if f.snapshot == nil || f.snapshot.Context.ID != id {
+		return tobari.FinalDefaultPairObservation{}, tobari.ErrContextBindingNotFound
+	}
+	value := f.snapshot.Clone()
+	result.Context = &value
+	return result, result.Validate()
+}
+
 func (f *defaultPairFixture) InitializeFinalDefaultPair(_ context.Context, root string, body tobari.WorkspaceTemplateBody) (tobari.FinalDefaultPairPublication, error) {
+	return f.initializeFinalDefaultPair(root, templateID, body, false)
+}
+
+func (f *defaultPairFixture) InitializeFinalDefaultPairWithTemplateID(_ context.Context, root string, id tobari.WorkspaceTemplateID, body tobari.WorkspaceTemplateBody) (tobari.FinalDefaultPairPublication, error) {
+	return f.initializeFinalDefaultPair(root, id, body, true)
+}
+
+func (f *defaultPairFixture) InitializeFinalDefaultPairWithConfiguratorIDs(_ context.Context, root string, id tobari.WorkspaceTemplateID, context tobari.ContextID, body tobari.WorkspaceTemplateBody) (tobari.FinalDefaultPairPublication, error) {
+	publication, err := f.initializeFinalDefaultPair(root, id, body, true)
+	if err == nil && publication.Current.Context != nil && publication.Current.Context.Context.ID != context {
+		return tobari.FinalDefaultPairPublication{}, tobari.ErrResourceSourceRecoveryRequired
+	}
+	return publication, err
+}
+
+func (f *defaultPairFixture) initializeFinalDefaultPair(root string, id tobari.WorkspaceTemplateID, body tobari.WorkspaceTemplateBody, recoverExact bool) (tobari.FinalDefaultPairPublication, error) {
 	f.initializeCalls++
 	previous, err := f.ObserveFinalDefaultPair(context.Background(), root)
 	if err != nil {
 		return tobari.FinalDefaultPairPublication{}, err
 	}
-	if f.present && !f.selected {
-		return tobari.FinalDefaultPairPublication{}, tobari.ErrDefaultTemplateSelectionRequired
-	}
 	changed := false
+	if f.present && !f.selected {
+		if !recoverExact || f.template == nil || f.template.ID != id || !reflect.DeepEqual(f.template.Current.Body, body) {
+			return tobari.FinalDefaultPairPublication{}, tobari.ErrDefaultTemplateSelectionRequired
+		}
+		f.selected = true
+		f.defaultWrites++
+		f.advance()
+		changed = true
+	}
 	if !f.present {
-		revision, err := tobari.NewWorkspaceTemplateRevision(templateID, 1, body)
+		revision, err := tobari.NewWorkspaceTemplateRevision(id, 1, body)
 		if err != nil {
 			return tobari.FinalDefaultPairPublication{}, err
 		}
-		template := tobari.WorkspaceTemplate{SchemaVersion: tobari.WorkspaceTemplateSchemaVersion, ID: templateID, Name: tobari.DefaultManifestName, Current: revision, Retained: []tobari.WorkspaceTemplateRevision{revision.Clone()}}
+		template := tobari.WorkspaceTemplate{SchemaVersion: tobari.WorkspaceTemplateSchemaVersion, ID: id, Name: tobari.DefaultManifestName, Current: revision, Retained: []tobari.WorkspaceTemplateRevision{revision.Clone()}}
 		f.template = &template
 		f.selected = true
 		f.templateCreates++
@@ -145,7 +186,7 @@ func (f *defaultPairFixture) InitializeFinalDefaultPair(_ context.Context, root 
 		if err != nil {
 			return tobari.FinalDefaultPairPublication{}, err
 		}
-		value := tobari.ContextAuthoritySnapshot{Context: tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, ProjectRoot: f.root, TemplateID: f.template.ID}, Template: f.template.Clone(), PolicyMemory: memory}
+		value := tobari.ContextAuthoritySnapshot{Context: tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: f.template.ID}, Template: f.template.Clone(), PolicyMemory: memory}
 		f.snapshot = &value
 		f.contextCreates++
 		f.advance()
@@ -223,7 +264,7 @@ func (f *defaultPairFixture) CreateContextByTemplateReference(context.Context, s
 	if err != nil {
 		return tobari.ContextAuthoritySnapshot{}, err
 	}
-	value := tobari.ContextAuthoritySnapshot{Context: tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, ProjectRoot: f.root, TemplateID: f.template.ID}, Template: f.template.Clone(), PolicyMemory: memory}
+	value := tobari.ContextAuthoritySnapshot{Context: tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: f.template.ID}, Template: f.template.Clone(), PolicyMemory: memory}
 	f.snapshot = &value
 	f.advance()
 	return value.Clone(), nil
@@ -295,6 +336,13 @@ func TestDefaultPairAncestorSelectionPreservesInvocationRootAndNeverInitializesN
 	if selector.calls != 1 || resolution.InvocationRoot != fixture.selection.CanonicalCWD || resolution.Observation.ProjectRoot != fixture.root || resolution.AuthorityChanged || fixture.initializeCalls != 0 || fixture.contextCreates != 0 {
 		t.Fatalf("selection=%+v selector=%d init=%d contexts=%d", resolution, selector.calls, fixture.initializeCalls, fixture.contextCreates)
 	}
+	observed, err := service.observeResolved(context.Background(), resolution)
+	if err != nil {
+		t.Fatalf("reobserve selected ancestor: %v", err)
+	}
+	if observed.ProjectRoot != fixture.root || observed.Context == nil || observed.Context.Context.ID != contextID {
+		t.Fatalf("reobserved=%+v", observed)
+	}
 }
 
 func TestDefaultPairSelectionDriftFailsBeforeNestedInitialization(t *testing.T) {
@@ -330,6 +378,22 @@ func TestDefaultPairInitializationFaultClassifiesUnknownPublication(t *testing.T
 	if !ok || public.Code != "invalid_default_pair_initialization" || public.Kind != fault.KindContract || public.Phase != fault.PhaseVerification || public.ChangeState != fault.ChangeUnknown {
 		t.Fatalf("initialization failure fault=%#v ok=%t", public, ok)
 	}
+}
+
+func TestDefaultPairEntryInterruptionOverridesNestedPreconditionFault(t *testing.T) {
+	nested := workspaceMountGuardFaultForApplicationTest()
+	public, ok := fault.PublicCopy(defaultPairMutationFault(errors.Join(tobari.ErrWorkspaceEntryInterrupted, nested)))
+	if !ok || public.Code != "workspace_entry_interrupted" || public.Kind != fault.KindUnavailable || public.Phase != fault.PhaseMutation || public.ChangeState != fault.ChangePartial {
+		t.Fatalf("interrupted default-pair entry fault=%#v ok=%t", public, ok)
+	}
+}
+
+func workspaceMountGuardFaultForApplicationTest() error {
+	return fault.WithClassification(
+		fault.New(fault.KindRejected, "workspace_entry_overlap_unsafe", "synthetic mount guard", false),
+		fault.PhasePrecondition,
+		fault.ChangeNone,
+	)
 }
 
 func (f *defaultPairFixture) DeleteContextByReference(context.Context, string) (tobari.ContextDeleteResult, error) {
@@ -377,6 +441,30 @@ func TestDefaultPairEntryRejectsInitializedCollectionWithoutExactDefaultSelectio
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Code != "default_template_required" || fixture.templateCreates != 0 || fixture.defaultWrites != 0 || fixture.contextCreates != 0 || fixture.entries != 0 {
 		t.Fatalf("initialized collection without default was not rejected before mutation: err=%v fixture=%+v", err, fixture)
+	}
+}
+
+func TestConfiguratorExactTemplateResumesAfterTemplatePublicationBeforeDefaultSelection(t *testing.T) {
+	body := bodyFixture("/first-use")
+	preferred := tobari.WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789ba")
+	revision, err := tobari.NewWorkspaceTemplateRevision(preferred, 1, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := tobari.WorkspaceTemplate{SchemaVersion: tobari.WorkspaceTemplateSchemaVersion, ID: preferred, Name: tobari.DefaultManifestName, Current: revision, Retained: []tobari.WorkspaceTemplateRevision{revision.Clone()}}
+	fixture := &defaultPairFixture{root: "/workspace/example", present: true, template: &template, generation: 1, revisionDigit: 'b'}
+	service := NewDefaultPairService(fixture, fixture, NewContextService(fixture))
+	selected, err := service.Select(context.Background(), strings.NewReader(""), io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent := operation.Intent{Command: TaskDefaultPairEnter, Effect: operation.EffectCreate, Target: operation.TargetRef{Kind: tobari.CurrentDirectoryTargetKind, ParentID: tobari.CurrentDirectoryTargetID}, Impact: DefaultPairEnterImpact()}
+	resolution, err := service.ResolveSelectedWithConfiguratorIDs(context.Background(), intent, &body, preferred, contextID, selected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolution.Observation.Context == nil || resolution.Observation.Context.Template.ID != preferred || fixture.templateCreates != 0 || fixture.defaultWrites != 1 || fixture.contextCreates != 1 {
+		t.Fatalf("exact recovery resolution=%+v fixture=%+v", resolution, fixture)
 	}
 }
 
@@ -434,7 +522,7 @@ func TestDefaultPairStatusOwnsIndependentDesiredActiveAndAppliedAuthority(t *tes
 		t.Fatalf("advance Template revision: changed=%t err=%v", changed, err)
 	}
 	template := tobari.WorkspaceTemplate{SchemaVersion: tobari.WorkspaceTemplateSchemaVersion, ID: templateID, Name: tobari.DefaultManifestName, Current: revisionB, Retained: []tobari.WorkspaceTemplateRevision{revisionA.Clone(), revisionB.Clone()}}
-	binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, ProjectRoot: "/workspace/example", TemplateID: templateID}
+	binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: templateID}
 	memoryA, _, err := tobari.PublishPolicyMemory(contextID, []tobari.PolicyMemoryRule{}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -461,12 +549,12 @@ func TestDefaultPairStatusOwnsIndependentDesiredActiveAndAppliedAuthority(t *tes
 	activeMemory := memoryA.Clone()
 	activeMemoryRef := tobari.PolicyMemoryActivationReceipt{ContextID: contextID, Revision: memoryA.Revision}
 	applied := tobari.WorkspaceAppliedEntry{ContextID: contextID, TemplateID: templateID, TemplateRevision: revisionA.Revision, EntrySliceDigest: revisionA.Slices.EntrySliceDigest, RuntimeID: tobari.StandardRuntimeID, RuntimeRevision: revisionA.Slices.RuntimeRevision, ResolvedSpec: digest("7"), ReconciledAt: time.Unix(1, 0).UTC()}
-	workspace := tobari.WorkspaceBinding{SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: workspaceID, ContextID: contextID, ProjectRoot: binding.ProjectRoot, Home: "/workspace/home", CreationDefaults: revisionA.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied}
+	workspace := tobari.WorkspaceBinding{SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: workspaceID, ContextID: contextID, ProjectRoot: "/workspace/example", Home: "/workspace/home", CreationDefaults: revisionA.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied}
 	snapshot := tobari.ContextAuthoritySnapshot{Context: binding, Template: template, PolicyMemory: memoryB, ActiveTemplatePolicy: &activeTemplate, ActivePolicyMemory: &activeMemory, ActivePolicyMemoryRef: &activeMemoryRef, Workspace: &workspace}
 	if err := snapshot.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	observation := tobari.FinalDefaultPairObservation{SchemaVersion: tobari.FinalDefaultPairObservationSchemaVersion, CollectionPresent: true, CollectionGeneration: 9, CollectionRevision: digest("9"), ProjectRoot: binding.ProjectRoot, DefaultTemplate: &template, Context: &snapshot}
+	observation := tobari.FinalDefaultPairObservation{SchemaVersion: tobari.FinalDefaultPairObservationSchemaVersion, CollectionPresent: true, CollectionGeneration: 9, CollectionRevision: digest("9"), ProjectRoot: workspace.ProjectRoot, DefaultTemplate: &template, Context: &snapshot}
 	status, err := NewDefaultPairStatus(observation)
 	if err != nil {
 		t.Fatal(err)

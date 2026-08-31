@@ -25,9 +25,9 @@ identities used in this lifecycle.
 
 ### Absent → attached
 
-Running `tobari` from the selected directory resolves the installation default
-Template and the exact Context for the canonical root, then chooses or creates
-that Context's Workspace. Creation durably records the Workspace identity and
+Running `tobari` from the selected directory resolves the canonical root's
+Workspace and its Context, or creates the installation-default Context and a
+Workspace bound to that root. Creation durably records the Workspace identity and
 home in the final authority model, reconciles the dedicated network and container,
 installs the fail-closed Gateway/Workspace network guards, registers exact
 Workspace and Gateway endpoints, waits for readiness, and starts an

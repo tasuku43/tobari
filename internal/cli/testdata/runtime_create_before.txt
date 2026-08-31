@@ -5,4 +5,6 @@ Runtime mobile
     Source     /tmp/tobari-test/runtimes/mobile/source
     Source rules no group/other permissions · 1,024 files · 256 directories · 32 MiB/file · 64 MiB total
     Status     draft · edit the current source
-    Next       tobari runtime build --id 018bcfe5-687b-7000-8000-000000000088
+    Recommended tobari runtime assist --id 018bcfe5-687b-7000-8000-000000000088
+    Edit manually /tmp/tobari-test/runtimes/mobile/source
+    Then       tobari runtime build --id 018bcfe5-687b-7000-8000-000000000088

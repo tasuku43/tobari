@@ -113,7 +113,7 @@ func (a WorkspacePolicyPrincipalAuthority) Validate() error {
 	if err := ValidateCanonicalRoot(a.ProjectRoot); err != nil {
 		return err
 	}
-	binding := ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: a.ContextID, ProjectRoot: a.ProjectRoot, TemplateID: a.TemplateID}
+	binding := ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: a.ContextID, TemplateID: a.TemplateID}
 	if err := a.AppliedEntry.ValidateFor(binding); err != nil {
 		return err
 	}
@@ -131,7 +131,6 @@ type WorkspacePolicyProjectionContext struct {
 	ContextID       ContextID                          `json:"context_id"`
 	TemplateID      WorkspaceTemplateID                `json:"workspace_template_id"`
 	Presentation    string                             `json:"presentation"`
-	ProjectRoot     string                             `json:"project_root"`
 	TemplatePolicy  WorkspaceTemplatePolicyAuthority   `json:"template_policy"`
 	PolicyMemory    PolicyMemoryRevision               `json:"policy_memory"`
 	TemplateReceipt TemplatePolicyActivationReceipt    `json:"template_policy_receipt"`
@@ -149,10 +148,7 @@ func (c WorkspacePolicyProjectionContext) Validate() error {
 	if err := ValidateName(c.Presentation); err != nil {
 		return err
 	}
-	if err := ValidateCanonicalRoot(c.ProjectRoot); err != nil {
-		return err
-	}
-	binding := ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: c.ContextID, ProjectRoot: c.ProjectRoot, TemplateID: c.TemplateID}
+	binding := ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: c.ContextID, TemplateID: c.TemplateID}
 	if err := c.TemplatePolicy.Validate(); err != nil || c.TemplatePolicy.TemplateID != c.TemplateID {
 		return fmt.Errorf("Context Template policy authority is inconsistent: %w", err)
 	}
@@ -175,7 +171,7 @@ func (c WorkspacePolicyProjectionContext) Validate() error {
 		if err := c.Principal.Validate(); err != nil {
 			return err
 		}
-		if c.Principal.ContextID != c.ContextID || c.Principal.TemplateID != c.TemplateID || c.Principal.Presentation != c.Presentation || c.Principal.ProjectRoot != c.ProjectRoot {
+		if c.Principal.ContextID != c.ContextID || c.Principal.TemplateID != c.TemplateID || c.Principal.Presentation != c.Presentation {
 			return fmt.Errorf("Workspace principal crosses Context authority")
 		}
 	}
@@ -462,7 +458,7 @@ func buildWorkspacePolicyProjection(collection WorkspaceAuthorityCollection, mod
 		}
 		item := WorkspacePolicyProjectionContext{
 			ContextID: record.Context.ID, TemplateID: template.ID, Presentation: template.Name,
-			ProjectRoot: record.Context.ProjectRoot, TemplatePolicy: policy, PolicyMemory: memory,
+			TemplatePolicy: policy, PolicyMemory: memory,
 			TemplateReceipt: TemplatePolicyActivationReceipt{ContextID: record.Context.ID, TemplateID: template.ID, PolicySliceDigest: policy.PolicySliceDigest},
 			MemoryReceipt:   PolicyMemoryActivationReceipt{ContextID: record.Context.ID, Revision: memory.Revision},
 		}
@@ -486,7 +482,7 @@ func buildWorkspacePolicyProjection(collection WorkspaceAuthorityCollection, mod
 			}
 			item.Principal = &WorkspacePolicyPrincipalAuthority{
 				ContextID: record.Context.ID, WorkspaceID: workspace.ID, TemplateID: template.ID,
-				Presentation: template.Name, ProjectRoot: record.Context.ProjectRoot, AppliedEntry: *workspace.LastSuccessfulEntry,
+				Presentation: template.Name, ProjectRoot: workspace.ProjectRoot, AppliedEntry: *workspace.LastSuccessfulEntry,
 				CreationDefaultsDigest: workspace.CreationDefaults, CreationDefaults: creation,
 			}
 		}

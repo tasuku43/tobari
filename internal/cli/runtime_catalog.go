@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 
+	"github.com/tasuku43/tobari/internal/app/configuratorcmd"
 	"github.com/tasuku43/tobari/internal/app/runtimecmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
@@ -26,6 +27,7 @@ func runtimeCommandSpecs() []CommandSpec {
 		finalPolicyAllowSpec(),
 		finalPolicyDenySpec(),
 		finalPolicyResetSpec(),
+		policyAssistSpec(),
 		finalTemplateListSpec(),
 		finalTemplateShowSpec(),
 		finalTemplateCreateSpec(),
@@ -51,6 +53,7 @@ func runtimeCommandSpecs() []CommandSpec {
 		runtimeListSpec(),
 		runtimeShowSpec(),
 		runtimeCreateSpec(),
+		runtimeAssistSpec(),
 		runtimeHistorySpec(),
 		runtimeReviewSpec(),
 		runtimeBuildSpec(),
@@ -62,6 +65,132 @@ func runtimeCommandSpecs() []CommandSpec {
 		finalDefaultPairStatusSpec(),
 	)
 	return append(specs, authCommandSpecs()...)
+}
+
+func policyAssistSpec() CommandSpec {
+	return CommandSpec{
+		Path: "policy assist", Summary: "Edit one Context's Template policy with an isolated coding agent",
+		Args: "--context <context-ref> [--agent codex|claude]", Effect: operation.EffectWrite, Role: RoleAct,
+		Agent: AgentContract{
+			CapabilityID: "policy.assistance",
+			Outcome:      "Start one isolated Codex or Claude Code session from the explicitly referenced Context Runtime, expose exact static-policy schema guidance and read-only Policy Memory evidence, and activate only the reviewed policy.yaml through canonical Template Plan and Apply",
+			Inputs: []CommandInput{
+				{Name: "--context", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Opaque Context reference emitted by context create, list, or show; consumed unchanged.", AllowedValues: []string{}, ReferenceKind: tobari.ContextReferenceKind},
+				{Name: "--agent", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Coding agent to open; omission uses the inline agent selector.", AllowedValues: []string{"codex", "claude"}},
+			},
+			Output: CommandOutput{
+				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
+				Fields: []OutputField{
+					{Name: "task", Type: OutputFieldTypeString, Description: "Confirmed static-policy assistance task."},
+					{Name: "workspace_template_id", Type: OutputFieldTypeString, Description: "Exact current Template identity."},
+					{Name: "source_revision", Type: OutputFieldTypeString, Description: "Exact reviewed Template source revision."},
+					{Name: "policy_memory", Type: OutputFieldTypeString, Description: "Explicit unchanged Context-owned Policy Memory state."},
+				},
+				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
+			},
+			Prerequisites: []string{
+				"The referenced Context has an exact Template, Policy Memory revision, and ready execution Runtime.",
+				"The canonical Template source is in sync before assistance begins.",
+				"An interactive terminal and Docker are available. The Configurator has direct Internet access outside Gateway policy.",
+			},
+			Errors: append(mutationCommandErrors("policy assist", "template list",
+				classifiedCommandError(fault.KindUnavailable, "configuration_task_settlement_incomplete", false, fault.PhaseVerification, fault.ChangeConfirmed, "help policy assist", "Resume the same exact policy assistance task to settle its confirmed publication."),
+				classifiedCommandError(fault.KindUnavailable, "configuration_task_busy", true, fault.PhasePrecondition, fault.ChangeNone, "help policy assist", "Retry the same exact assistance task after the current attachment finishes."),
+				classifiedCommandError(fault.KindUnavailable, "configuration_task_recovery_required", false, fault.PhasePrecondition, fault.ChangeNone, "help policy assist", "Reconcile the retained exact task before starting another assistance session."),
+				classifiedCommandError(fault.KindUnavailable, "configuration_task_observation_failed", false, fault.PhaseObservation, fault.ChangeNotApplicable, "help policy assist", "Inspect the retained exact task through the same assistance command before retrying."),
+				classifiedCommandError(fault.KindUnavailable, "final_authority_mutation_recovery_required", false, fault.PhasePrecondition, fault.ChangeNone, "help template apply", "Recover the preserved exact Template Apply before resuming assistance."),
+				declaredCommandError(fault.KindRejected, "configurator_interactive_required", false, "help policy assist", "Run the isolated agent from an interactive terminal."),
+				classifiedCommandError(fault.KindInternal, "configurator_boundary_output_failed", false, fault.PhasePrecondition, fault.ChangeNone, "help policy assist", "Retry with a writable interactive terminal before preparing Runtime material."),
+				classifiedCommandError(fault.KindInvalidInput, "invalid_context_ref", false, fault.PhasePrecondition, fault.ChangeNone, "context list", "Use one Context reference unchanged."),
+				classifiedCommandError(fault.KindNotFound, "context_not_found", false, fault.PhaseObservation, fault.ChangeNotApplicable, "context list", "Choose an existing Context."),
+				classifiedCommandError(fault.KindUnavailable, "context_read_failed", false, fault.PhaseObservation, fault.ChangeNotApplicable, "context list", "Inspect Context authority before retrying."),
+				classifiedCommandError(fault.KindUnavailable, "context_source_read_failed", false, fault.PhaseObservation, fault.ChangeNotApplicable, "context list", "Inspect the canonical Context source before retrying."),
+				classifiedCommandError(fault.KindRejected, "installation_migration_required", false, fault.PhaseObservation, fault.ChangeNotApplicable, "installation migration plan", "Review the exact supported authority.json migration."),
+				classifiedCommandError(fault.KindRejected, "legacy_state_present", false, fault.PhaseObservation, fault.ChangeNotApplicable, "doctor", "Reset or recreate this pre-release installation before using final authority."),
+				classifiedCommandError(fault.KindNotFound, "authority_not_found", false, fault.PhaseObservation, fault.ChangeNotApplicable, "context list", "Discover current final Context authority."),
+				classifiedCommandError(fault.KindContract, "invalid_authority", false, fault.PhaseVerification, fault.ChangeUnknown, "context list", "Repair the final authority envelope."),
+				classifiedCommandError(fault.KindContract, "invalid_context", false, fault.PhaseVerification, fault.ChangeUnknown, "context list", "Repair the referenced Context authority."),
+				classifiedCommandError(fault.KindUnavailable, "template_plan_read_failed", false, fault.PhaseObservation, fault.ChangeNotApplicable, "template list", "Inspect the current Template source and authority before planning again."),
+				classifiedCommandError(fault.KindInvalidInput, "invalid_template_ref", false, fault.PhasePrecondition, fault.ChangeNone, "template list", "Use the exact Template reference retained by the assistance task."),
+				classifiedCommandError(fault.KindInvalidInput, "invalid_template_change_plan_ref", false, fault.PhasePrecondition, fault.ChangeNone, "template list", "Use the exact Template plan retained by the assistance task."),
+				classifiedCommandError(fault.KindNotFound, "template_not_found", false, fault.PhasePrecondition, fault.ChangeNone, "template list", "Discover current Template authority."),
+				classifiedCommandError(fault.KindNotFound, "resource_source_missing", false, fault.PhasePrecondition, fault.ChangeNone, "template show", "Restore the canonical Template source pair."),
+				classifiedCommandError(fault.KindInvalidInput, "resource_source_invalid", false, fault.PhasePrecondition, fault.ChangeNone, "template show", "Correct the strict Template source schema."),
+				classifiedCommandError(fault.KindRejected, "resource_source_changed", true, fault.PhasePrecondition, fault.ChangeNone, "template plan", "Reconcile the canonical Template source before resuming assistance."),
+				classifiedCommandError(fault.KindRejected, "resource_source_modified", false, fault.PhasePrecondition, fault.ChangeNone, "template show", "Re-read the exact source and active revisions before applying again."),
+				classifiedCommandError(fault.KindRejected, "template_change_plan_stale", false, fault.PhasePrecondition, fault.ChangeNone, "template list", "Create and review a fresh exact Template change plan."),
+				classifiedCommandError(fault.KindUnavailable, "resource_source_recovery_required", false, fault.PhaseMutation, fault.ChangePartial, "template show", "Inspect source and active identities before exact recovery."),
+				classifiedCommandError(fault.KindContract, "invalid_template_change_plan", false, fault.PhaseVerification, fault.ChangeUnknown, "template list", "Repair contradictory Template planning authority."),
+				classifiedCommandError(fault.KindContract, "invalid_template_apply_result", false, fault.PhaseVerification, fault.ChangeUnknown, "template show", "Reconcile the Template publication result."),
+				classifiedCommandError(fault.KindCanceled, "configuration_material_retained", false, fault.PhaseMutation, fault.ChangeConfirmed, "help policy assist", "Resume the same exact retained Policy assistance task with its original Context reference."),
+				declaredCommandError(fault.KindCanceled, "configuration_canceled", false, "template list", "Inspect unchanged active policy or start assistance again."),
+				classifiedCommandError(fault.KindUnavailable, "configuration_cleanup_incomplete", false, fault.PhaseMutation, fault.ChangePartial, "help policy assist", "Repair Docker health, then resume the same exact Policy assistance task with its original Context reference."),
+				declaredCommandError(fault.KindInternal, "missing_configurator", false, "doctor", "Inspect Configurator composition."),
+				classifiedCommandError(fault.KindInternal, "missing_runtime", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Configure the Context, Template, Runtime, and Configurator application boundaries."),
+			), workspaceStartReadinessErrors()...),
+			Mutation: &MutationContract{TargetKind: tobari.ContextReferenceKind, TargetInputs: []string{"--context"}, TargetIDInput: "--context", Impact: configuratorcmd.Impact()},
+		},
+		handler: runPolicyAssist,
+	}
+}
+
+func runtimeAssistSpec() CommandSpec {
+	return CommandSpec{
+		Path: "runtime assist", Summary: "Edit one managed Runtime source with an isolated coding agent",
+		Args: "--id <runtime-ref> [--agent codex|claude]", Effect: operation.EffectWrite, Role: RoleAct,
+		Agent: AgentContract{
+			CapabilityID: "runtime.assistance",
+			Outcome:      "Start one isolated Codex or Claude Code session from the installation-owned standard Runtime, freeze and review only the referenced managed Runtime source, and publish that source without building it",
+			Inputs: []CommandInput{
+				{Name: "--id", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Opaque managed Runtime reference emitted by runtime create, list, or show; consumed unchanged.", AllowedValues: []string{}, ReferenceKind: tobari.RuntimeReferenceKind},
+				{Name: "--agent", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Coding agent to open; omission uses the inline agent selector.", AllowedValues: []string{"codex", "claude"}},
+			},
+			Output: CommandOutput{
+				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
+				Fields: []OutputField{
+					{Name: "task", Type: OutputFieldTypeString, Description: "Confirmed Runtime source assistance task."},
+					{Name: "runtime_ref", Type: OutputFieldTypeString, Description: "Exact managed Runtime reference.", ReferenceKind: tobari.RuntimeReferenceKind},
+					{Name: "source_revision", Type: OutputFieldTypeString, Description: "Exact reviewed editable-source revision."},
+					{Name: "source_path", Type: OutputFieldTypeString, Description: "Canonical manual-edit alternative."},
+					{Name: "build_command", Type: OutputFieldTypeString, Description: "Separate exact Runtime build continuation."},
+				},
+				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
+			},
+			Prerequisites: []string{
+				"The installation-owned standard Runtime is ready for isolated authoring.",
+				"The referenced Runtime is managed; it may be newly created and unbuilt.",
+				"An interactive terminal and Docker are available. The Configurator has direct Internet access outside Gateway policy.",
+			},
+			Errors: append(mutationCommandErrors("runtime assist", "runtime list",
+				classifiedCommandError(fault.KindUnavailable, "configuration_task_settlement_incomplete", false, fault.PhaseVerification, fault.ChangeConfirmed, "help runtime assist", "Resume the same exact Runtime assistance task to settle its confirmed publication."),
+				classifiedCommandError(fault.KindUnavailable, "configuration_task_busy", true, fault.PhasePrecondition, fault.ChangeNone, "help runtime assist", "Retry the same exact assistance task after the current attachment finishes."),
+				classifiedCommandError(fault.KindUnavailable, "configuration_task_recovery_required", false, fault.PhasePrecondition, fault.ChangeNone, "help runtime assist", "Reconcile the retained exact task before starting another assistance session."),
+				classifiedCommandError(fault.KindUnavailable, "configuration_task_observation_failed", false, fault.PhaseObservation, fault.ChangeNotApplicable, "help runtime assist", "Inspect the retained exact task through the same assistance command before retrying."),
+				classifiedCommandError(fault.KindUnavailable, "final_authority_mutation_recovery_required", false, fault.PhasePrecondition, fault.ChangeNone, "help template apply", "Recover the preserved exact Template Apply before resuming assistance."),
+				classifiedCommandError(fault.KindInvalidInput, "invalid_runtime_ref", false, fault.PhasePrecondition, fault.ChangeNone, "runtime list", "Use one managed Runtime reference unchanged."),
+				classifiedCommandError(fault.KindNotFound, "runtime_not_found", false, fault.PhasePrecondition, fault.ChangeNone, "runtime list", "Choose an existing managed Runtime."),
+				classifiedCommandError(fault.KindRejected, "runtime_not_managed", false, fault.PhasePrecondition, fault.ChangeNone, "runtime list", "Choose a managed Runtime or inspect how to create one."),
+				declaredCommandError(fault.KindRejected, "configurator_interactive_required", false, "help runtime assist", "Run the isolated agent from an interactive terminal."),
+				classifiedCommandError(fault.KindInternal, "configurator_boundary_output_failed", false, fault.PhasePrecondition, fault.ChangeNone, "help runtime assist", "Retry with a writable interactive terminal before preparing Runtime material."),
+				classifiedCommandError(fault.KindRejected, "runtime_not_ready", false, fault.PhasePrecondition, fault.ChangeNone, "review runtimes", "Choose the exact ready installation-owned standard Runtime revision."),
+				classifiedCommandError(fault.KindRejected, "runtime_retirement_observation_unknown", false, fault.PhaseObservation, fault.ChangeNotApplicable, "doctor", "Inspect the host Runtime lifecycle state."),
+				declaredCommandError(fault.KindRejected, "runtime_source_invalid", false, "runtime list", "Inspect the unchanged managed Runtime source."),
+				classifiedCommandError(fault.KindRejected, "runtime_assist_material_retired", true, fault.PhaseMutation, fault.ChangeConfirmed, "help runtime assist", "Retry from the exact current managed Runtime source."),
+				classifiedCommandError(fault.KindUnavailable, "configuration_task_retirement_incomplete", false, fault.PhaseMutation, fault.ChangePartial, "help runtime assist", "Resume the same exact task so its retained material can finish retirement."),
+				classifiedCommandError(fault.KindUnavailable, "runtime_source_observation_failed", false, fault.PhasePrecondition, fault.ChangeNone, "runtime list", "Inspect the current managed Runtime source authority."),
+				classifiedCommandError(fault.KindContract, "invalid_runtime_source_manifest", false, fault.PhasePrecondition, fault.ChangeNone, "runtime list", "Reconcile the managed Runtime catalog."),
+				classifiedCommandError(fault.KindContract, "invalid_runtime_source_revision", false, fault.PhasePrecondition, fault.ChangeNone, "runtime list", "Reconcile the managed Runtime source authority."),
+				declaredCommandError(fault.KindRejected, "resource_source_changed", true, "runtime list", "Review the current Runtime source before resuming assistance."),
+				classifiedCommandError(fault.KindUnavailable, "resource_source_recovery_required", false, fault.PhaseMutation, fault.ChangePartial, "runtime list", "Inspect the retained Runtime source publication before exact recovery."),
+				classifiedCommandError(fault.KindCanceled, "configuration_material_retained", false, fault.PhaseMutation, fault.ChangeConfirmed, "help runtime assist", "Resume the same exact retained Runtime assistance task with its original Runtime reference."),
+				classifiedCommandError(fault.KindUnavailable, "configuration_cleanup_incomplete", false, fault.PhaseMutation, fault.ChangePartial, "help runtime assist", "Repair Docker health, then resume the same exact Runtime assistance task with its original Runtime reference."),
+				declaredCommandError(fault.KindInternal, "missing_configurator", false, "doctor", "Inspect Configurator composition."),
+				classifiedCommandError(fault.KindInternal, "missing_runtime", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Configure the Runtime and Configurator application boundaries."),
+			), workspaceStartReadinessErrors()...),
+			Mutation: &MutationContract{TargetKind: tobari.RuntimeReferenceKind, TargetInputs: []string{"--id"}, TargetIDInput: "--id", Impact: configuratorcmd.Impact()},
+		},
+		handler: runRuntimeAssist,
+	}
 }
 
 func contextListSpec() CommandSpec {
@@ -403,10 +532,11 @@ func runtimeBuildSpec() CommandSpec {
 				declaredCommandError(fault.KindNotFound, "runtime_not_found", false, "runtime list", "Choose an existing managed Runtime."),
 				declaredCommandError(fault.KindRejected, "runtime_reference_unresolved", false, "runtime list", "Discover the current Runtime catalog."),
 				declaredCommandError(fault.KindRejected, "runtime_not_managed", false, "runtime list", "Choose a managed Runtime."),
+				classifiedCommandError(fault.KindRejected, "runtime_not_ready", false, fault.PhasePrecondition, fault.ChangeNone, "review runtimes", "Inspect the current revision material before choosing an explicit recovery action."),
 				declaredCommandError(fault.KindInternal, "runtime_read_failed", false, "doctor", "Inspect the host Runtime store."),
 				declaredCommandError(fault.KindContract, "invalid_runtime_list", false, "doctor", "Inspect the host Runtime store."),
 				declaredCommandError(fault.KindRejected, "runtime_source_invalid", false, "review runtimes", "Inspect the unchanged Runtime source path and history."),
-				declaredCommandError(fault.KindRejected, "runtime_build_failed", false, "review runtimes", "Inspect the unchanged Runtime history and source path."),
+				classifiedCommandError(fault.KindRejected, "runtime_build_failed", false, fault.PhaseMutation, fault.ChangePartial, "review runtimes", "Inspect the retained failed build journal and exact staging disposition."),
 				declaredCommandError(fault.KindRejected, "runtime_recovery_observation_unknown", false, "review runtimes", "Retry the trusted-host read-only review."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_recovery", false, "review runtimes", "Restart from current recovery authority."),
 				declaredCommandError(fault.KindRejected, "runtime_recovery_failed", false, "review runtimes", "Re-observe the retained journal before another mutation."),
@@ -520,7 +650,7 @@ func runtimePruneDryRunSpec() CommandSpec {
 				"Bounded Docker image and exact candidate-container observation can finish; no state directory, lock, journal, timestamp, or Docker resource is created or changed.",
 			},
 			Errors: readCommandErrors("runtime prune dry-run", true,
-				declaredCommandError(fault.KindRejected, "runtime_retirement_observation_unknown", false, "doctor", "Inspect the host Runtime lifecycle state."),
+				classifiedCommandError(fault.KindRejected, "runtime_retirement_observation_unknown", false, fault.PhaseObservation, fault.ChangeNotApplicable, "doctor", "Inspect the host Runtime lifecycle state."),
 				declaredCommandError(fault.KindContract, "invalid_runtime_prune_plan", false, "doctor", "Inspect the complete Runtime lifecycle inventory."),
 				declaredCommandError(fault.KindContract, "output_encoding_failed", false, "version", "Report the exact build identity without repeating prune-plan JSON encoding."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
@@ -550,10 +680,11 @@ func runtimePruneApplySpec() CommandSpec {
 			Errors: mutationCommandErrors("runtime prune apply", "runtime prune dry-run",
 				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_prune_plan_ref", false, "runtime prune dry-run", "Create and use one fresh Runtime prune plan reference unchanged."),
 				declaredCommandError(fault.KindRejected, "runtime_prune_plan_stale", false, "runtime prune dry-run", "Review a fresh exact Runtime prune plan."),
-				declaredCommandError(fault.KindRejected, "runtime_retirement_observation_unknown", false, "doctor", "Inspect the host Runtime lifecycle state."),
-				declaredCommandError(fault.KindInternal, "runtime_prune_interrupted", false, "runtime prune dry-run", "Observe the retained journal or current lifecycle state before another mutation."),
-				declaredCommandError(fault.KindContract, "invalid_runtime_retirement_result", false, "runtime prune dry-run", "Reconcile the current Runtime lifecycle state."),
-				declaredCommandError(fault.KindContract, "output_encoding_failed", false, "version", "Report the exact build identity without repeating confirmed-prune JSON encoding."),
+				classifiedCommandError(fault.KindRejected, "runtime_retirement_observation_unknown", false, fault.PhaseObservation, fault.ChangeNotApplicable, "doctor", "Inspect the host Runtime lifecycle state."),
+				classifiedCommandError(fault.KindInternal, "runtime_prune_interrupted", false, fault.PhaseMutation, fault.ChangePartial, "runtime prune dry-run", "Observe the retained journal or current lifecycle state before another mutation."),
+				classifiedCommandError(fault.KindContract, "invalid_runtime_retirement_result_partial", false, fault.PhaseVerification, fault.ChangePartial, "runtime prune dry-run", "Reconcile the current Runtime lifecycle state."),
+				classifiedCommandError(fault.KindContract, "invalid_runtime_retirement_result_confirmed", false, fault.PhaseVerification, fault.ChangeConfirmed, "runtime prune dry-run", "Reconcile the current Runtime lifecycle state."),
+				classifiedCommandError(fault.KindContract, "output_encoding_failed", false, fault.PhasePresentation, fault.ChangeConfirmed, "version", "Report the exact build identity without repeating confirmed-prune JSON encoding."),
 				declaredCommandError(fault.KindInternal, "missing_runtime_prune", false, "doctor", "Configure the Runtime prune application boundary."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
@@ -723,6 +854,7 @@ func clusterUpSpec() CommandSpec {
 				declaredCommandError(fault.KindUnavailable, "cluster_start_failed", false, "cluster status", "Reconcile partial Docker state."),
 				declaredCommandError(fault.KindUnavailable, "network_guard_failed", false, "doctor", "Inspect Docker Engine network-namespace and nftables support."),
 				declaredCommandError(fault.KindUnavailable, "gateway_image_unavailable", true, "doctor", "Inspect the local Docker image store before retrying Gateway validation."),
+				classifiedCommandError(fault.KindUnavailable, "cluster_component_image_unavailable", true, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect Docker and the pinned shared-component image before retrying."),
 				declaredCommandError(fault.KindUnavailable, "gateway_image_build_failed", false, "doctor", "Inspect Docker BuildKit and the pinned embedded Gateway build inputs."),
 				declaredCommandError(fault.KindContract, "runtime_image_api_mismatch", false, "doctor", "Inspect the executable resolver channel and selected immutable component API authorities."),
 				declaredCommandError(fault.KindContract, "gateway_image_incompatible", false, "doctor", "Inspect the Gateway image API, source identity, and architecture contract."),
@@ -1481,7 +1613,7 @@ func workspaceStartReadinessErrors() []CommandError {
 		classifiedCommandError(fault.KindUnavailable, "docker_cli_unavailable", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect generic Docker readiness before starting a Workspace."),
 		classifiedCommandError(fault.KindUnavailable, "docker_engine_unavailable", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect generic Docker readiness before starting a Workspace."),
 		classifiedCommandError(fault.KindUnsupported, "docker_engine_incompatible", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect generic Docker readiness before starting a Workspace."),
-		classifiedCommandError(fault.KindUnavailable, "docker_manifest_unavailable", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect generic Docker readiness before starting a Workspace."),
+		classifiedCommandError(fault.KindUnavailable, "docker_context_unavailable", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect generic Docker readiness before starting a Workspace."),
 		classifiedCommandError(fault.KindUnavailable, "docker_compose_unavailable", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect generic Docker readiness before starting a Workspace."),
 		classifiedCommandError(fault.KindContract, "invalid_readiness_profile", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Repair the generic Docker readiness contract."),
 		classifiedCommandError(fault.KindContract, "invalid_readiness_observation", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Repair the generic Docker readiness observation contract."),
@@ -1985,6 +2117,7 @@ func mutationCommandErrors(path, recovery string, extra ...CommandError) []Comma
 		declaredCommandError(fault.KindRejected, "missing_mutation_policy", false, recovery, "Configure the project mutation policy."),
 		declaredCommandError(fault.KindRejected, "mutation_rejected", false, recovery, "Review exact Tobari ownership."),
 		declaredCommandError(fault.KindContract, "unclassified_mutation_outcome", false, recovery, "Reconcile state before another mutation."),
+		classifiedCommandError(fault.KindUnavailable, "final_authority_mutation_interrupted", false, fault.PhaseMutation, fault.ChangePartial, "status", "Read the preserved final-authority decision and recover it through the exact initiating command."),
 		declaredCommandError(fault.KindInternal, "mutation_output_write_failed", false, recovery, "Reconcile the confirmed mutation without repeating it."),
 	)
 	return errors

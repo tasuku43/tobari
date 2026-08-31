@@ -102,6 +102,22 @@ For every external action, specify:
 Route all equivalent effects through one central enforcement boundary. A new
 command must not create a second raw transport or bypass validation.
 
+Fresh root is deterministic Manual setup; do not add an agent-first aggregate
+configuration path. Agent assistance is accepted only for one concrete target.
+Runtime assistance is installation-owned, consumes one Runtime reference, and
+uses the built-in standard execution Runtime plus one agent-specific
+installation Home without reading CWD, Project, Workspace, or Context
+authority. Static-policy assistance consumes one explicit Context reference
+and uses that Context's exact Runtime and managed Home. A task-scoped
+Configurator may use direct egress only while the executable contract proves
+that Project files, host/unrelated managed Home, Docker socket, and live
+authority are absent. Bind one writable target, copied typed evidence, one target validator,
+immutable freeze, trusted-host review, and canonical target mutation. Runtime
+source publication does not imply a build; static-policy assistance does not
+mutate Policy Memory or non-policy Template fields. A future live protocol
+needs its own decision and can never be an arbitrary file, command, URL,
+Docker, or credential escape hatch.
+
 ## 4. Update the command catalog
 
 Add the command to the canonical catalog and derive dispatch and help from that
@@ -318,6 +334,13 @@ reuse are eligibility gates before size or token evidence. Keep invalidated,
 failed, and inconclusive runs, and separate a benchmark result from the product
 owner's compatibility decision. Do not put live-model evaluation in the
 canonical completion gate.
+
+Tobari-owned interactive terminal presentation remains inline. Preserve styled
+TUI and raw-key navigation, but do not add DEC private-mode alternate-screen
+entry/exit or clear main-screen scrollback. Use the shared saved-origin inline
+renderer, leave the final frame in history, pair raw-mode/cursor restoration,
+and add a negative `ESC[?1049` canary. Native child tools may own their terminal
+only after handoff; do not overlay or emulate them.
 
 ## 7. Keep claims enforceable
 

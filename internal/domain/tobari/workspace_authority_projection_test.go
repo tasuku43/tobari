@@ -102,7 +102,7 @@ func TestWorkspacePolicyProjectionPreservesFullyInactiveContexts(t *testing.T) {
 		t.Fatal(err)
 	}
 	inactive := WorkspaceAuthorityContextRecord{
-		Context:      ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: inactiveID, ProjectRoot: "/workspace/inactive", TemplateID: base.Templates[0].ID},
+		Context:      ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: inactiveID, TemplateID: base.Templates[0].ID},
 		PolicyMemory: inactiveMemory,
 	}
 	contexts := append(cloneWorkspaceAuthorityContextRecords(base.Contexts), inactive)
@@ -239,7 +239,7 @@ func TestWorkspacePolicyProjectionUsesWorkspaceRetainedCreationAuthority(t *test
 		SchemaVersion: WorkspaceTemplateSchemaVersion, ID: testTemplateAuthorityID, Name: "restricted",
 		Current: revisionB, Retained: []WorkspaceTemplateRevision{revisionA, revisionB},
 	}
-	contextBinding := ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: testContextAuthorityID, ProjectRoot: "/workspace/example", TemplateID: testTemplateAuthorityID}
+	contextBinding := ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: testContextAuthorityID, TemplateID: testTemplateAuthorityID}
 	memory, _, err := PublishPolicyMemory(contextBinding.ID, []PolicyMemoryRule{}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -254,7 +254,7 @@ func TestWorkspacePolicyProjectionUsesWorkspaceRetainedCreationAuthority(t *test
 	}
 	workspace := WorkspaceBinding{
 		SchemaVersion: WorkspaceBindingSchemaVersion, ID: testWorkspaceAuthorityID, ContextID: contextBinding.ID,
-		ProjectRoot: contextBinding.ProjectRoot, Home: "/workspace/home", CreationDefaults: revisionA.Slices.CreationDefaultsDigest,
+		ProjectRoot: "/workspace/example", Home: "/workspace/home", CreationDefaults: revisionA.Slices.CreationDefaultsDigest,
 		LastSuccessfulEntry: &applied,
 	}
 	collection, _, err := PublishWorkspaceAuthorityCollection([]WorkspaceTemplate{template}, []WorkspaceAuthorityContextRecord{record}, []WorkspaceBinding{workspace}, []PolicyCandidateAuthority{}, nil, nil)

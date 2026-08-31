@@ -89,6 +89,9 @@ func (r *finalWorkspaceContainerCreateRunner) Output(_ context.Context, args, _ 
 	if len(args) == 0 {
 		return nil, errors.New("missing Docker argv")
 	}
+	if args[0] == "ps" {
+		return nil, nil
+	}
 	if args[0] == "create" {
 		r.created = true
 		r.createArgs = append([]string{}, args...)
@@ -164,6 +167,12 @@ func (r *finalWorkspaceRetirementRunner) Output(_ context.Context, args, _ []str
 }
 
 func (finalWorkspacePlanningRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
+	if len(args) > 0 && args[0] == "ps" {
+		return nil, nil
+	}
+	if len(args) >= 3 && args[0] == "inspect" && args[1] == "--format" && args[2] == "{{.Id}}" {
+		return []byte("Error: No such container"), errors.New("not found")
+	}
 	if slices.Equal(args, []string{"network", "ls", "--quiet", "--no-trunc"}) {
 		return []byte{}, nil
 	}
@@ -195,6 +204,13 @@ func TestFinalWorkspacePreparationBuildsOnlyCanonicalStandardRuntime(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
+	historical := historicalStandardRuntimeBinding(strings.Repeat("1", 64))
+	if err := runtime.PrepareWorkspaceRuntimeMaterial(context.Background(), historical); err != nil {
+		t.Fatalf("historical standard preparation: %v", err)
+	}
+	if len(runner.builds) != 0 {
+		t.Fatalf("historical standard Runtime triggered reconstruction: %v", runner.builds)
+	}
 	if err := runtime.PrepareWorkspaceRuntimeMaterial(context.Background(), binding); err != nil {
 		t.Fatal(err)
 	}
@@ -215,6 +231,59 @@ func TestFinalWorkspacePreparationBuildsOnlyCanonicalStandardRuntime(t *testing.
 	}
 	if len(runner.builds) != 1 {
 		t.Fatalf("custom Runtime triggered implicit build: %v", runner.builds)
+	}
+}
+
+func TestFinalWorkspacePreparationRejectsInconsistentHistoricalStandardBindingBeforeBuild(t *testing.T) {
+	runner := &finalWorkspacePreparationRunner{lifecycleObservationRunner: &lifecycleObservationRunner{images: map[string]lifecycleImageFixture{}, containers: map[string]runtimeContainerObservation{}}}
+	runtime, err := newRuntimeWithData(filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), filepath.Join(t.TempDir(), "data"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := historicalStandardRuntimeBinding(strings.Repeat("2", 64))
+	binding.Revision = "sha256:" + strings.Repeat("f", 64)
+	if err := runtime.PrepareWorkspaceRuntimeMaterial(context.Background(), binding); err == nil {
+		t.Fatal("inconsistent historical standard binding passed")
+	}
+	if len(runner.builds) != 0 {
+		t.Fatalf("inconsistent historical standard binding triggered build: %v", runner.builds)
+	}
+}
+
+func TestFinalWorkspaceManagedRuntimeExecutesLifecycleImageDigestNotMutableTag(t *testing.T) {
+	root := t.TempDir()
+	observations := &lifecycleObservationRunner{images: map[string]lifecycleImageFixture{}, containers: map[string]runtimeContainerObservation{}}
+	runtime, err := newRuntimeWithData(filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), observations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindEmptyFinalRuntimeProtection(t, runtime)
+	managedID := "018bcfe5-687b-7000-8000-000000000078"
+	digest := "sha256:" + strings.Repeat("b", 64)
+	managed := installRuntimeLifecycleRevision(t, runtime, managedID, "managed-exact", digest, "FROM example.invalid/runtime\n")
+	revision := managed.Revisions[0]
+	observations.images[revision.Image] = lifecycleImageFixture{observation: managedLifecycleImage(managedID, revision.Revision, revision.Image)}
+	binding, err := managed.Binding(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resolved tobari.RuntimeBinding
+	var selector, imageID string
+	err = runtime.WithLifecycleLock(context.Background(), func(lockContext context.Context) error {
+		return runtime.withRuntimeStoreLock(lockContext, func() error {
+			var resolveErr error
+			resolved, selector, imageID, resolveErr = runtime.resolveFinalWorkspaceRuntimeMaterial(lockContext, binding)
+			return resolveErr
+		})
+	})
+	if err != nil || resolved != binding || selector != binding.Image || imageID != digest {
+		t.Fatalf("managed material binding=%+v selector=%q imageID=%q err=%v", resolved, selector, imageID, err)
+	}
+	for _, call := range observations.outputs {
+		if len(call.args) >= 5 && call.args[0] == "image" && call.args[1] == "inspect" &&
+			strings.Contains(call.args[3], tobari.RuntimeImageAPILabel) && strings.Contains(call.args[3], `"id":`) && call.args[4] != digest {
+			t.Fatalf("managed execution compatibility inspected mutable tag instead of authority digest: %v", call.args)
+		}
 	}
 }
 
@@ -267,7 +336,6 @@ func finalWorkspaceRuntimeFixture(t *testing.T) (*Runtime, tobari.ContextAuthori
 	}
 	collection := finalProjectionCollectionFixture(t, "")
 	record := collection.Contexts[0].Clone()
-	record.Context.ProjectRoot = projectRoot
 	snapshot := tobari.ContextAuthoritySnapshot{
 		Context: record.Context, Template: collection.Templates[0].Clone(), PolicyMemory: record.PolicyMemory.Clone(),
 		ActiveTemplatePolicy: record.ActiveTemplatePolicy, ActivePolicyMemory: record.ActivePolicyMemory,
@@ -294,7 +362,7 @@ func finalWorkspaceRuntimeFixture(t *testing.T) (*Runtime, tobari.ContextAuthori
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := runtime.PlanWorkspaceEntry(context.Background(), snapshot, authority, finalProjectionWorkspaceA, time.Unix(10, 0).UTC())
+	plan, err := runtime.PlanWorkspaceEntry(context.Background(), snapshot, authority, projectRoot, finalProjectionWorkspaceA, time.Unix(10, 0).UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,6 +387,11 @@ func TestFinalWorkspaceEntryBindsDistinctStaticNetworkAndReplaysReceipt(t *testi
 		return finalWorkspaceContainerObservation{ID: containerID, Owner: ownerValue, Component: "tobari", Workspace: string(got.Workspace.ID), Role: projectWorkRole, Spec: string(got.Applied.ResolvedSpec), Running: true, Health: "healthy"}, nil
 	}
 	decision := "workspace-entry:" + string(plan.Workspace.ID) + ":sha256:" + strings.Repeat("d", 64)
+	releaseAttachment, err := runtime.AcquireWorkspaceEntryAttachment(context.Background(), plan.Workspace.ContextID, plan.Workspace.ProjectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseAttachment()
 	first, err := runtime.ReconcileWorkspaceEntry(context.Background(), plan, decision)
 	if err != nil {
 		t.Fatal(err)
@@ -340,7 +413,7 @@ func TestFinalWorkspaceContainerUsesDurableWorkspaceIPAndGatewayDNS(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec, err := runtime.finalWorkspaceSpec(plan.Authority, plan.CreationDefaults, plan.Network, snapshot.Context, plan.Workspace.ID, plan.Authority.Runtime.Image, "sha256:"+strings.Repeat("a", 64), gitConfig)
+	spec, err := runtime.finalWorkspaceSpec(plan.Authority, plan.CreationDefaults, plan.Network, snapshot.Context, plan.Workspace.ProjectRoot, plan.Workspace.ID, plan.Authority.Runtime.Image, "sha256:"+strings.Repeat("a", 64), gitConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,8 +436,11 @@ func TestFinalWorkspaceContainerUsesDurableWorkspaceIPAndGatewayDNS(t *testing.T
 	if !slices.Contains(runner.createArgs, "SYNTHETIC_TOKEN=tobari-h1_"+strings.Repeat("A", 43)) {
 		t.Fatalf("create args omit exact research authentication projection: %v", runner.createArgs)
 	}
-	if !slices.Contains(runner.createArgs, spec.ImageSelector) {
-		t.Fatalf("create args omit exact managed Runtime selector: %v", runner.createArgs)
+	if !slices.Contains(runner.createArgs, spec.ImageID) {
+		t.Fatalf("create args omit exact managed Runtime image identity: %v", runner.createArgs)
+	}
+	if slices.Contains(runner.createArgs, spec.ImageSelector) {
+		t.Fatalf("create args retained mutable Runtime selector as execution authority: %v", runner.createArgs)
 	}
 }
 
@@ -392,7 +468,7 @@ func TestFinalWorkspaceEntryRuntimeDriftFailsBeforeHomeOrDockerEffect(t *testing
 }
 
 func TestFinalWorkspaceEntryRetainsExistingCreationDefaultsAcrossTemplateAdvance(t *testing.T) {
-	runtime, snapshot, _ := finalWorkspaceRuntimeFixture(t)
+	runtime, snapshot, plan := finalWorkspaceRuntimeFixture(t)
 	revisionA := snapshot.Template.Current.Clone()
 	bodyB := revisionA.Body.Clone()
 	bootstrap, err := tobari.NewContextBootstrapSnapshot(1, tobari.ManifestAWSBootstrap{
@@ -410,7 +486,7 @@ func TestFinalWorkspaceEntryRetainsExistingCreationDefaultsAcrossTemplateAdvance
 	}
 	snapshot.Template.Current = revisionB
 	snapshot.Template.Retained = append(snapshot.Template.Retained, revisionB.Clone())
-	home, err := runtime.finalWorkspaceHome(finalProjectionWorkspaceA)
+	home, err := runtime.finalContextHome(snapshot.Context.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,15 +495,16 @@ func TestFinalWorkspaceEntryRetainsExistingCreationDefaultsAcrossTemplateAdvance
 		EntrySliceDigest: revisionA.Slices.EntrySliceDigest, RuntimeID: revisionA.Slices.RuntimeID,
 		RuntimeRevision: revisionA.Slices.RuntimeRevision, ResolvedSpec: finalSessionDigest("7"), ReconciledAt: time.Unix(5, 0).UTC(),
 	}
+	projectRoot := plan.Workspace.ProjectRoot
 	snapshot.Workspace = &tobari.WorkspaceBinding{
 		SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: finalProjectionWorkspaceA, ContextID: snapshot.Context.ID,
-		ProjectRoot: snapshot.Context.ProjectRoot, Home: home, CreationDefaults: revisionA.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &previous,
+		ProjectRoot: projectRoot, Home: home, CreationDefaults: revisionA.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &previous,
 	}
 	authorityB, err := tobari.DeriveWorkspaceTemplateEntryAuthority(revisionB)
 	if err != nil {
 		t.Fatal(err)
 	}
-	existing, err := runtime.PlanWorkspaceEntry(context.Background(), snapshot, authorityB, finalProjectionWorkspaceA, time.Unix(11, 0).UTC())
+	existing, err := runtime.PlanWorkspaceEntry(context.Background(), snapshot, authorityB, snapshot.Workspace.ProjectRoot, finalProjectionWorkspaceA, time.Unix(11, 0).UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -435,7 +512,7 @@ func TestFinalWorkspaceEntryRetainsExistingCreationDefaultsAcrossTemplateAdvance
 		t.Fatalf("existing Workspace creation authority changed: plan=%+v", existing)
 	}
 	snapshot.Workspace = nil
-	created, err := runtime.PlanWorkspaceEntry(context.Background(), snapshot, authorityB, finalProjectionWorkspaceB, time.Unix(12, 0).UTC())
+	created, err := runtime.PlanWorkspaceEntry(context.Background(), snapshot, authorityB, projectRoot, finalProjectionWorkspaceB, time.Unix(12, 0).UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -604,7 +681,7 @@ func TestFinalWorkspaceForceRetiresOnlyTargetCanonicalOwnerAfterContainer(t *tes
 	if !runner.networkPresent {
 		t.Fatal("pre-settlement Prepare retired the target network")
 	}
-	home, _ := runtime.finalWorkspaceHome(workspace.ID)
+	home, _ := runtime.finalContextHome(workspace.ContextID)
 	if err := requirePrivateDirectory(home); err != nil {
 		t.Fatalf("pre-settlement Prepare retired the Workspace home: %v", err)
 	}

@@ -9,17 +9,19 @@ transcripts as repository fixtures.
 | Outcome | Public route | Success evidence |
 |---|---|---|
 | Discover capabilities | `help --format agent`, then one namespace or exact-command selector | Root remains a compact capability index; one scoped read supplies complete typed inputs, outputs, failures, and workflow |
-| Understand the current Project | `status [--format text\|json]` from the Project root or a descendant | One read selects the nearest existing Context ProjectRoot before the installation default Template, preserves desired/active/applied/observed axes without an overall status, returns one primary Next plus ordered Attention, and needs zero external joins or reconstruction; fresh no-default state performs zero Docker and owner calls |
+| Understand the current Project | `status [--format text\|json]` from the Project root or a descendant | One read selects the nearest existing Workspace ProjectRoot before the installation default Template, preserves desired/active/applied/observed axes without an overall status, returns one primary Next plus ordered Attention, and needs zero external joins or reconstruction; fresh no-default state performs zero Docker and owner calls |
 | Choose and retire a Workspace Template | `template list`, `template show`, `template copy`, `template migration plan`, `template migration apply`, `template plan`, `template apply`, `template default set`, `template delete` | Human list identifies the default; copy consumes one exact immutable revision reference and writes a fresh unpublished source draft with null `base_revision`; explicit migration replaces only exact alpha desired source with V1 and does not activate it; a fresh Plan and Apply publish its first or next revision, with no lineage or lower-lifetime copy; changing the default does not retarget Contexts or Workspaces, and deletion rejects default or Context-bound Templates |
 | Prepare a reusable Runtime source | `runtime list`, then `runtime create --copy-source-from NAME --name NAME` | Scoped help identifies `standard` or one managed current editable source; creation returns a fresh Runtime ID with empty history and no lineage, performs no build or Template/Context/Workspace change, and needs zero revision decoding or source reconstruction |
 | Review, reclaim, and recover Runtime material | `review runtimes`; `runtime prune dry-run`, then `runtime prune apply --plan PLAN_REF --confirm=prune`; `runtime restore --id REVISION_REF`; `runtime delete --id RUNTIME_REF --confirm=delete` | One scoped help read plus one local discovery yields every exact opaque input; dry-run is zero-write and exhaustive, apply consumes the unchanged plan, restore reconstructs exact retained content, and whole deletion preserves Template, Context, Policy Memory, Workspace, home, Project, and credential authority while protected, unknown, shared, or standard targets fail closed |
-| Enter bounded work | `tobari` or `tobari -- COMMAND [ARG...]`; nondefault entry is `context enter --id CONTEXT_REF [-- COMMAND...]` | Empty authority receives one interactive no-authority Start/Customize/Cancel review, then root composes the canonical default Template/Context, cluster, Workspace entry, and handoff boundaries with five checkpoint-local stderr stages; direct entry preserves exact argv and child status, while every failed or interrupted boundary leaves one causal Catalog action or typed condition and no blind replay |
+| Complete deterministic first use | Fresh bare `tobari` | Tobari-owned Manual review precedes canonical default Template/Context, cluster, Workspace entry, and handoff; no coding agent, Configurator draft, or task source is created during fresh setup |
+| Assist one concrete source | `runtime assist --id RUNTIME_REF [--agent codex\|claude]`; `policy assist --context CONTEXT_REF [--agent codex\|claude]` | Runtime assistance uses the installation standard Runtime and per-agent Home with zero CWD/Workspace/Context observation, may target an unbuilt managed Runtime, and publishes no revision; policy assistance consumes the Context reference unchanged, exposes exact read-only Memory/schema evidence, and edits only `policy.yaml` through canonical Template Plan/Apply; both have direct egress but no Project/host/unrelated Home/Docker socket |
+| Enter bounded work | `tobari` or `tobari -- COMMAND [ARG...]`; nondefault entry is `context enter --id CONTEXT_REF [-- COMMAND...]` | Root composes the canonical default Template/Context, cluster, Workspace entry, and handoff boundaries with five checkpoint-local stderr stages; direct entry preserves exact argv and child status, while every failed or interrupted boundary leaves one causal Catalog action or typed condition and no blind replay |
 | Understand authority lifetime | `context show --id CONTEXT_REF`, `policy rules`, and Host Loopback capability/review output | Routine guidance distinguishes Workspace Template policy, remembered Context decisions, and this-session Host Loopback access without requiring baseline, overlay, principal, epoch, or grant reconstruction; typed output retains exact destination kind and authority lifetime |
 | Grow exact permission | `review permissions`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Context/scheme/host/port/method/path authority |
 | Resume after reviewed denial | In the attached Workspace run the exact `tobari-permission wait --id pwt_...` printed by one eligible ordinary HTTP/HTTPS denial; in a separate trusted-host terminal review and Apply; after `Allow`, deliberately retry the workload | Wait returns only `Allow`, `Deny`, or lease `Expired`; the helper has no proposal, decision, mutation, discovery, or retry authority; the fresh request receives an independent Gateway authorization |
 | Open one Workspace service | In the attached Workspace run `tobari-expose PORT`; in a separate host terminal run `tobari review services --watch`; later use helper/host status, open, and stop | One action key/token confirms the complete effect card; Allow returns a generated per-exposure `.localhost` root URL plus an independent opaque lifecycle reference; Open is separate, Stop consumes the reference unchanged, and Permission review remains unrelated staged Apply |
 | Inspect/reset decisions | `policy rules`, then `policy reset --id` | One current exact decision is removed through its unchanged opaque reference and returns to default deny |
-| Use native Workspace auth | Run the agent CLI's native login inside the Workspace | Credential state persists in that Workspace home, receives no network grant from login, and crosses Gateway only after the ordinary exact HTTP effect is allowed |
+| Use native tool auth | Run Runtime-provided native login in task assistance or its Context's Workspace | The complete managed Home belongs to the same Context across Configurator and Workspace attachments; login grants no authority by itself and Workspace requests cross Gateway only after policy allow |
 | Exercise research Broker (repository-only) | Build with `task build:dev`, then use `bin/tobari-research` `auth` commands | No equivalent command, provider binding, projection, service, image authority, or activation switch exists in the release binary |
 
 Routine success must require zero undeclared external-processing steps. Reading
@@ -110,17 +112,24 @@ the child observes the exact argv and status, no shell is inserted, and the
 next host command runs instead of entering Workspace Bash. Also verify bare
 `--` performs no setup or Workspace mutation.
 
-For the fixed seven-row first-entry evaluator, begin with empty final authority
-and no installation default. Verify review precedes every readiness/state/Docker
-call and exposes exactly Start Workspace, Customize, and Cancel. Start must
-produce the five ordered stages `check_requirements`, `resolve_context`,
-`prepare_protection`, `prepare_workspace`, and `enter_workspace`; each success
-marker proves only its exact receipt. Repeat with an unavailable Engine, known
-stopped cluster, default-pair partial result, unknown cluster result, explicit
-Context entry, and a second known-safe root invocation. Record the one primary
-Next or typed condition at every stop, and prove no classifier points to itself
-or authorizes mutation after an unknown outcome. The evaluator has exactly
-E1-E7 and may not grow by inventing another public concept.
+For the first-entry evaluator, begin with empty final authority and no
+installation default. Verify readiness and immutable Runtime preparation
+precede agent/manual selection, create no authority, and expose exactly pinned Codex, pinned Claude Code, and
+manual setup without inferring from labels or ambient state. Manual retains
+Start Workspace, Customize, and Cancel. Each agent path must prove the fixed
+host-owned launch facts, direct-egress-only Configurator role, one complete
+managed-Home mount, cross-Context isolation, language-following instruction,
+retained-draft recovery, frozen submission, and final-review
+non-authority. Apply must produce the five ordered stages
+`check_requirements`, `resolve_context`, `prepare_protection`,
+`prepare_workspace`, and `enter_workspace`; each success marker proves only its
+exact receipt. Repeat with an unavailable Engine, known stopped cluster,
+default-pair partial result, unknown cluster result, explicit Context entry,
+and a second known-safe root invocation. Record the one primary Next or typed
+condition at every stop, and prove no classifier points to itself or authorizes
+mutation after an unknown outcome. Configurator rows are the one accepted
+extension under ADR 0090; unrelated presentation must not invent another
+public concept.
 
 For causal failure recovery, run the same typed Docker-unavailable fixture in
 human and JSON error formats. Verify identical `kind`, `code`, `phase`,

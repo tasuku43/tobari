@@ -253,10 +253,7 @@ func (r *Runtime) EnsureProjectRuntime(
 			return err
 		}
 		phase = "runtime_resolution"
-		if err := r.validateCompatibleImage(ctx, image); err != nil {
-			return err
-		}
-		imageID, err := r.compatibleImageID(ctx, image)
+		imageID, err := r.resolveCompatibleImageID(ctx, image)
 		if err != nil {
 			return err
 		}
@@ -302,6 +299,9 @@ func (r *Runtime) EnsureProjectRuntime(
 			return err
 		}
 		if !ready {
+			if err := r.requireWorkspaceMountGuardBeforeMutation(ctx, stored.Root, container, stored.ID, specHash); err != nil {
+				return err
+			}
 			if err := r.removeProjectPrincipal(ctx, stored.ID); err != nil {
 				return fmt.Errorf("close project principal before network reconciliation: %w", err)
 			}
@@ -325,7 +325,7 @@ func (r *Runtime) EnsureProjectRuntime(
 		}
 		if !ready {
 			if err := r.ensureProjectContainerWithAuth(
-				ctx, state, desired, profile, container, network, gatewayIP, image, specHash, authProjection, manifest.SourceAccess,
+				ctx, state, desired, profile, container, network, gatewayIP, imageID, specHash, authProjection, manifest.SourceAccess,
 			); err != nil {
 				return err
 			}
@@ -551,7 +551,11 @@ func (r *Runtime) runWorkspaceSessionWithHandoff(
 	if strings.TrimSpace(container) == "" {
 		return outcome, fmt.Errorf("Workspace session container is missing")
 	}
-	permissionChannel, permissionChannelErr := r.startWorkspacePermissionChannel(ctx, interactiveAttachment, container)
+	containerID, identityErr := r.requireOwnedProjectContainerID(ctx, container, principal.workspaceID, projectWorkRole)
+	if identityErr != nil {
+		return outcome, identityErr
+	}
+	permissionChannel, permissionChannelErr := r.startWorkspacePermissionChannel(ctx, interactiveAttachment, containerID)
 	if permissionChannelErr != nil {
 		return outcome, fmt.Errorf("establish permission wait channel: %w", permissionChannelErr)
 	}
@@ -562,7 +566,7 @@ func (r *Runtime) runWorkspaceSessionWithHandoff(
 	}()
 	extraEnvironment = append(extraEnvironment, permissionChannel.environment()...)
 	code, serviceReceipt, resultErr := r.enterProjectRuntime(
-		ctx, principal, shellSettings, cwd, container, session,
+		ctx, principal, shellSettings, cwd, containerID, session,
 		extraEnvironment, in, out, errOut, handoff,
 	)
 	outcome.ExitCode = code
@@ -606,9 +610,14 @@ func (r *Runtime) enterProjectRuntime(
 		args = append(args, "-t")
 	}
 	args = append(args, "--user", strconv.Itoa(uid)+":"+strconv.Itoa(gid))
-	bridge := newWorkspaceLoginBridge(ctx, r, container, principal.workspaceID)
+	browserContext, cancelBrowser := context.WithCancel(ctx)
+	defer cancelBrowser()
+	bridge, err := newWorkspaceLoginBridge(browserContext, r, container, principal.workspaceID)
+	if err != nil {
+		return 0, nil, err
+	}
 	defer bridge.close()
-	browserChannel, err := r.startWorkspaceBrowserChannel(ctx, bridge, container)
+	browserChannel, err := r.startWorkspaceBrowserChannel(browserContext, bridge, bridge.container)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -644,18 +653,18 @@ func (r *Runtime) enterProjectRuntime(
 	// Keep the existing direct stream runner as the compatibility path. The
 	// interactive runner is selected only for a real terminal presentation
 	// session, after the child environment and all attachment setup are ready.
-	run := func() error { return r.runner.Run(ctx, args, os.Environ(), in, out, errOut) }
+	run := func() error { return r.runner.Run(browserContext, args, os.Environ(), in, out, errOut) }
 	if structuredOutputColorEnabled(in, out, shellEnvironment) {
 		if interactive, ok := r.runner.(interactiveCommandRunner); ok {
 			run = func() error {
-				return interactive.RunInteractive(ctx, args, os.Environ(), in, out, errOut, true)
+				return interactive.RunInteractive(browserContext, args, os.Environ(), in, out, errOut, true)
 			}
 		}
 	}
 	if handoff != nil {
 		handoff()
 	}
-	if err := run(); err == nil {
+	if err := runWithAttachedBrowserControl(ctx, cancelBrowser, browserChannel, run); err == nil {
 		return 0, serviceReceipt, nil
 	} else {
 		var exitError *exec.ExitError
@@ -899,6 +908,9 @@ func (r *Runtime) ensureProjectContainerWithAuth(
 	if err := sourceAccess.Validate(); err != nil {
 		return err
 	}
+	if err := r.validateExactProjectBindSource(ctx, instance.Root); err != nil {
+		return err
+	}
 	workspaceRoot, err := r.projectContainerRoot(instance.Root)
 	if err != nil {
 		return err
@@ -911,6 +923,7 @@ func (r *Runtime) ensureProjectContainerWithAuth(
 	if err != nil {
 		return err
 	}
+	replace := false
 	if exists {
 		if err := r.verifyOwnedProjectResource(ctx, "container", container, instance.ID, projectWorkRole); err != nil {
 			return err
@@ -920,24 +933,18 @@ func (r *Runtime) ensureProjectContainerWithAuth(
 			return specErr
 		}
 		if observedSpec != specHash {
-			if output, removeErr := r.runner.Output(ctx, []string{"rm", "-f", container}, os.Environ()); removeErr != nil {
-				return fmt.Errorf("remove drifted project container: %w: %s", removeErr, boundedDiagnostic(output))
-			}
-			exists = false
+			replace = true
 		} else {
 			observedDNS, dnsErr := r.projectContainerDNS(ctx, container)
 			if dnsErr != nil {
 				return dnsErr
 			}
 			if len(observedDNS) != 1 || observedDNS[0] != gatewayIP {
-				if output, removeErr := r.runner.Output(ctx, []string{"rm", "-f", container}, os.Environ()); removeErr != nil {
-					return fmt.Errorf("remove project container with stale DNS: %w: %s", removeErr, boundedDiagnostic(output))
-				}
-				exists = false
+				replace = true
 			}
 		}
 	}
-	if exists {
+	if exists && !replace {
 		component, inspectErr := r.inspectContainer(ctx, projectWorkRole, container)
 		if inspectErr != nil {
 			return inspectErr
@@ -947,12 +954,17 @@ func (r *Runtime) ensureProjectContainerWithAuth(
 			return inspectErr
 		}
 		if observedAccess != sourceAccess {
-			if output, removeErr := r.runner.Output(ctx, []string{"rm", "-f", container}, os.Environ()); removeErr != nil {
-				return fmt.Errorf("remove project container with stale source access: %w: %s", removeErr, boundedDiagnostic(output))
-			}
-			exists = false
+			replace = true
 		}
-		if exists {
+		if !replace {
+			if component.State != "running" {
+				if err := r.requireNoLiveWritableWorkspaceAncestor(ctx, instance.Root); err != nil {
+					return err
+				}
+				if err := r.validateExactProjectBindSource(ctx, instance.Root); err != nil {
+					return fmt.Errorf("project bind source changed before starting existing container: %w", err)
+				}
+			}
 			if err := r.ensureProjectContainerNetwork(ctx, container, network); err != nil {
 				return err
 			}
@@ -962,6 +974,26 @@ func (r *Runtime) ensureProjectContainerWithAuth(
 				}
 			}
 			return nil
+		}
+	}
+	if replace {
+		if err := r.requireNoLiveWritableWorkspaceAncestor(ctx, instance.Root); err != nil {
+			return err
+		}
+		if err := r.validateExactProjectBindSource(ctx, instance.Root); err != nil {
+			return fmt.Errorf("project bind source changed before replacing existing container: %w", err)
+		}
+		if output, removeErr := r.runner.Output(ctx, []string{"rm", "-f", container}, os.Environ()); removeErr != nil {
+			return fmt.Errorf("remove drifted project container: %w: %s", removeErr, boundedDiagnostic(output))
+		}
+		exists = false
+	}
+	if !exists {
+		if err := r.requireNoLiveWritableWorkspaceAncestor(ctx, instance.Root); err != nil {
+			return err
+		}
+		if err := r.validateExactProjectBindSource(ctx, instance.Root); err != nil {
+			return fmt.Errorf("project bind source changed before container creation: %w", err)
 		}
 	}
 	uid, gid := currentIDs()
@@ -1013,10 +1045,29 @@ func (r *Runtime) ensureProjectContainerWithAuth(
 	if output, err := r.runner.Output(ctx, args, os.Environ()); err != nil {
 		return fmt.Errorf("create project container: %w: %s", err, boundedDiagnostic(output))
 	}
+	if err := r.requireNoLiveWritableWorkspaceAncestor(ctx, instance.Root); err != nil {
+		return r.removeUnstartedProjectContainer(ctx, container, err)
+	}
+	if err := r.validateExactProjectBindSource(ctx, instance.Root); err != nil {
+		return r.removeUnstartedProjectContainer(ctx, container, fmt.Errorf("project bind source changed after container creation: %w", err))
+	}
 	if output, err := r.runner.Output(ctx, []string{"start", container}, os.Environ()); err != nil {
 		return fmt.Errorf("start project container: %w: %s", err, boundedDiagnostic(output))
 	}
 	return nil
+}
+
+func (r *Runtime) removeUnstartedProjectContainer(ctx context.Context, container string, cause error) error {
+	cleanupContext, cancel := context.WithTimeout(r.lifetimeParent(ctx), 15*time.Second)
+	defer cancel()
+	output, err := r.runner.Output(cleanupContext, []string{"rm", "-f", container}, os.Environ())
+	if err != nil {
+		return workspaceMountCleanupFailed(errors.Join(
+			cause,
+			fmt.Errorf("remove unstarted project container after bind-source drift: %w: %s", err, boundedDiagnostic(output)),
+		))
+	}
+	return cause
 }
 
 func (r *Runtime) projectContainerSourceAccess(
@@ -1118,15 +1169,11 @@ func (r *Runtime) waitProjectReady(ctx context.Context, container string) error 
 }
 
 func (r *Runtime) compatibleImageID(ctx context.Context, image string) (string, error) {
-	output, err := r.runner.Output(ctx, []string{"image", "inspect", "--format", "{{.Id}}", image}, os.Environ())
+	output, err := r.inspectRuntimeImageID(ctx, image)
 	if err != nil {
-		return "", fmt.Errorf("inspect compatible image identity: %w: %s", err, boundedDiagnostic(output))
+		return "", fmt.Errorf("inspect compatible image identity: %w", err)
 	}
-	imageID := strings.TrimSpace(string(output))
-	if imageID == "" {
-		return "", fmt.Errorf("compatible image identity is empty")
-	}
-	return imageID, nil
+	return output, nil
 }
 
 type projectRuntimeSpec struct {

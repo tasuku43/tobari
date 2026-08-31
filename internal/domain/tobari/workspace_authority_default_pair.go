@@ -24,9 +24,9 @@ type FinalDefaultPairSelectionChoice struct {
 	ContextID ContextID
 }
 
-// FinalDefaultPairCandidate is one default-Template Context whose Project root
-// contains the invocation CWD. Snapshot owns the exact semantic authority used
-// after selection; presentation uses only its typed root and Workspace state.
+// FinalDefaultPairCandidate is one default-Template Workspace whose Project
+// root contains the invocation CWD. Snapshot owns the exact semantic authority
+// used after selection; Context itself carries no location.
 type FinalDefaultPairCandidate struct {
 	Snapshot ContextAuthoritySnapshot
 }
@@ -35,10 +35,10 @@ func (c FinalDefaultPairCandidate) Validate(cwd string, templateID WorkspaceTemp
 	if err := c.Snapshot.Validate(); err != nil {
 		return err
 	}
-	if c.Snapshot.Context.TemplateID != templateID || c.Snapshot.Template.ID != templateID {
+	if c.Snapshot.Context.TemplateID != templateID || c.Snapshot.Template.ID != templateID || c.Snapshot.Workspace == nil {
 		return fmt.Errorf("default-pair candidate belongs to another Template")
 	}
-	return ValidateRootContains(c.Snapshot.Context.ProjectRoot, cwd)
+	return ValidateRootContains(c.Snapshot.Workspace.ProjectRoot, cwd)
 }
 
 func (c FinalDefaultPairCandidate) Clone() FinalDefaultPairCandidate {
@@ -90,14 +90,14 @@ func NewFinalDefaultPairSelection(collection WorkspaceAuthorityCollection, prese
 		return FinalDefaultPairSelection{}, err
 	}
 	for _, snapshot := range snapshots {
-		if snapshot.Context.TemplateID != *collection.DefaultTemplateID || !containsRoot(snapshot.Context.ProjectRoot, cwd) {
+		if snapshot.Context.TemplateID != *collection.DefaultTemplateID || snapshot.Workspace == nil || !containsRoot(snapshot.Workspace.ProjectRoot, cwd) {
 			continue
 		}
 		result.Candidates = append(result.Candidates, FinalDefaultPairCandidate{Snapshot: snapshot.Clone()})
 	}
 	sort.Slice(result.Candidates, func(left, right int) bool {
-		leftRoot := result.Candidates[left].Snapshot.Context.ProjectRoot
-		rightRoot := result.Candidates[right].Snapshot.Context.ProjectRoot
+		leftRoot := result.Candidates[left].Snapshot.Workspace.ProjectRoot
+		rightRoot := result.Candidates[right].Snapshot.Workspace.ProjectRoot
 		if len(leftRoot) != len(rightRoot) {
 			return len(leftRoot) > len(rightRoot)
 		}
@@ -138,7 +138,7 @@ func (s FinalDefaultPairSelection) Validate() error {
 			return fmt.Errorf("default-pair candidate Context IDs must be unique")
 		}
 		seen[candidate.Snapshot.Context.ID] = true
-		root := candidate.Snapshot.Context.ProjectRoot
+		root := candidate.Snapshot.Workspace.ProjectRoot
 		if index > 0 && (len(previousRoot) < len(root) || (len(previousRoot) == len(root) && previousRoot > root)) {
 			return fmt.Errorf("default-pair candidates must be ordered nearest-first")
 		}
@@ -165,7 +165,7 @@ func (s FinalDefaultPairSelection) SameReceipt(other FinalDefaultPairSelection) 
 }
 
 func (s FinalDefaultPairSelection) RequiresChoice() bool {
-	return len(s.Candidates) > 0 && s.Candidates[0].Snapshot.Context.ProjectRoot != s.CanonicalCWD
+	return len(s.Candidates) > 0 && s.Candidates[0].Snapshot.Workspace.ProjectRoot != s.CanonicalCWD
 }
 
 func (s FinalDefaultPairSelection) AutomaticChoice() (FinalDefaultPairSelectionChoice, bool) {
@@ -185,7 +185,7 @@ func (s FinalDefaultPairSelection) ValidateChoice(choice FinalDefaultPairSelecti
 			return fmt.Errorf("create choice must not contain a Context ID")
 		}
 		for _, candidate := range s.Candidates {
-			if candidate.Snapshot.Context.ProjectRoot == s.CanonicalCWD {
+			if candidate.Snapshot.Workspace.ProjectRoot == s.CanonicalCWD {
 				return fmt.Errorf("current directory already has a default Context")
 			}
 		}
@@ -219,7 +219,7 @@ func (s FinalDefaultPairSelection) Observation(choice FinalDefaultPairSelectionC
 			if candidate.Snapshot.Context.ID == choice.ContextID {
 				value := candidate.Snapshot.Clone()
 				selected = &value
-				root = value.Context.ProjectRoot
+				root = value.Workspace.ProjectRoot
 				break
 			}
 		}
@@ -280,13 +280,49 @@ func NewFinalDefaultPairObservation(collection WorkspaceAuthorityCollection, pre
 		return FinalDefaultPairObservation{}, err
 	}
 	for _, snapshot := range snapshots {
-		if result.DefaultTemplate != nil && snapshot.Context.ProjectRoot == projectRoot && snapshot.Context.TemplateID == result.DefaultTemplate.ID {
+		if result.DefaultTemplate != nil && snapshot.Workspace != nil && snapshot.Workspace.ProjectRoot == projectRoot && snapshot.Context.TemplateID == result.DefaultTemplate.ID {
 			value := snapshot.Clone()
 			result.Context = &value
 			break
 		}
 	}
 	return result, result.Validate()
+}
+
+// NewFinalDefaultPairContextObservation binds an already-selected Context ID
+// to one collection receipt. Unlike root selection, it may return a Context
+// that does not have a Workspace yet; Context location is not inferred from
+// the caller's current directory.
+func NewFinalDefaultPairContextObservation(collection WorkspaceAuthorityCollection, present bool, projectRoot string, contextID ContextID) (FinalDefaultPairObservation, error) {
+	if err := contextID.Validate(); err != nil {
+		return FinalDefaultPairObservation{}, err
+	}
+	result, err := NewFinalDefaultPairObservation(collection, present, projectRoot)
+	if err != nil {
+		return FinalDefaultPairObservation{}, err
+	}
+	if !present || result.DefaultTemplate == nil {
+		return FinalDefaultPairObservation{}, ErrContextBindingNotFound
+	}
+	snapshots, err := collection.ContextSnapshots()
+	if err != nil {
+		return FinalDefaultPairObservation{}, err
+	}
+	for _, snapshot := range snapshots {
+		if snapshot.Context.ID != contextID {
+			continue
+		}
+		if snapshot.Context.TemplateID != result.DefaultTemplate.ID {
+			return FinalDefaultPairObservation{}, fmt.Errorf("selected Context belongs to another Template")
+		}
+		if snapshot.Workspace != nil && snapshot.Workspace.ProjectRoot != projectRoot {
+			return FinalDefaultPairObservation{}, fmt.Errorf("selected Context Workspace belongs to another Project")
+		}
+		value := snapshot.Clone()
+		result.Context = &value
+		return result, result.Validate()
+	}
+	return FinalDefaultPairObservation{}, ErrContextBindingNotFound
 }
 
 func (o FinalDefaultPairObservation) Validate() error {
@@ -317,7 +353,7 @@ func (o FinalDefaultPairObservation) Validate() error {
 	if err := o.Context.Validate(); err != nil {
 		return err
 	}
-	if o.Context.Context.ProjectRoot != o.ProjectRoot || o.Context.Context.TemplateID != o.DefaultTemplate.ID || o.Context.Template.ID != o.DefaultTemplate.ID || o.Context.Template.Current.Revision != o.DefaultTemplate.Current.Revision {
+	if o.Context.Context.TemplateID != o.DefaultTemplate.ID || o.Context.Template.ID != o.DefaultTemplate.ID || o.Context.Template.Current.Revision != o.DefaultTemplate.Current.Revision || o.Context.Workspace != nil && o.Context.Workspace.ProjectRoot != o.ProjectRoot {
 		return fmt.Errorf("default-pair Context does not match the selected Template and Project")
 	}
 	return nil
@@ -356,7 +392,7 @@ func (p FinalDefaultPairPublication) ValidateFor(projectRoot string, freshBody W
 	if err := freshBody.Validate(); err != nil {
 		return err
 	}
-	if p.Previous.ProjectRoot != projectRoot || p.Current.ProjectRoot != projectRoot || p.Current.DefaultTemplate == nil || p.Current.Context == nil || p.Current.Context.Context.TemplateID != p.Current.DefaultTemplate.ID || p.Current.Context.Context.ProjectRoot != projectRoot {
+	if p.Previous.ProjectRoot != projectRoot || p.Current.ProjectRoot != projectRoot || p.Current.DefaultTemplate == nil || p.Current.Context == nil || p.Current.Context.Context.TemplateID != p.Current.DefaultTemplate.ID || p.Current.Context.Workspace != nil && p.Current.Context.Workspace.ProjectRoot != projectRoot {
 		return fmt.Errorf("default-pair publication does not establish the requested pair")
 	}
 	if !p.Previous.CollectionPresent {

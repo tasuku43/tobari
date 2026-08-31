@@ -17,13 +17,15 @@ import (
 )
 
 type finalPolicyActivationRunner struct {
-	runtime         *Runtime
-	gatewaySource   func() string
-	gatewayRole     string
-	gatewayState    string
-	gatewayHealth   string
-	gatewayNetworks map[string]json.RawMessage
-	policyStageRuns int
+	runtime          *Runtime
+	gatewaySource    func() string
+	gatewayRole      string
+	gatewayState     string
+	gatewayHealth    string
+	gatewayNetworks  map[string]json.RawMessage
+	policyStageRuns  int
+	gatewayInspects  int
+	opaRevisionWaits int
 }
 
 func (r *finalPolicyActivationRunner) Run(_ context.Context, args, _ []string, _ io.Reader, out, errOut io.Writer) error {
@@ -38,6 +40,7 @@ func (r *finalPolicyActivationRunner) Run(_ context.Context, args, _ []string, _
 		_, _ = out.Write(data)
 		return nil
 	case len(args) >= 4 && args[0] == "container" && args[1] == "inspect" && args[len(args)-1] == gatewayContainer:
+		r.gatewayInspects++
 		source := ""
 		if r.gatewaySource != nil {
 			source = r.gatewaySource()
@@ -63,12 +66,42 @@ func (r *finalPolicyActivationRunner) Run(_ context.Context, args, _ []string, _
 
 func (r *finalPolicyActivationRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
 	if len(args) >= 3 && args[0] == "exec" && args[1] == opaContainer {
+		r.opaRevisionWaits++
 		return []byte("true"), nil
 	}
 	if len(args) > 0 && (args[0] == "inspect" || args[0] == "volume") {
 		return []byte(ownerValue + "\n"), nil
 	}
 	return nil, nil
+}
+
+func TestConfirmWorkspacePolicyAxesActiveUsesOneCoherentLiveAggregateObservation(t *testing.T) {
+	runtime, runner, collection := finalPolicyActivationFixture(t)
+	memoryReceipt, err := runtime.ActivatePolicyMemory(context.Background(), collection, finalProjectionContextID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	templateReceipt := *collection.Contexts[0].ActiveTemplatePolicy
+	inspects, waits, effects := runner.gatewayInspects, runner.opaRevisionWaits, runner.policyStageRuns
+	if err := runtime.ConfirmWorkspacePolicyAxesActive(context.Background(), collection, finalProjectionContextID, templateReceipt, memoryReceipt); err != nil {
+		t.Fatal(err)
+	}
+	if runner.gatewayInspects != inspects+1 || runner.opaRevisionWaits != waits+1 || runner.policyStageRuns != effects {
+		t.Fatalf("combined confirmation inspect/wait/effect=%d/%d/%d before=%d/%d/%d", runner.gatewayInspects, runner.opaRevisionWaits, runner.policyStageRuns, inspects, waits, effects)
+	}
+	wrongTemplate := templateReceipt
+	wrongTemplate.PolicySliceDigest = tobari.SemanticDigest("sha256:" + strings.Repeat("f", 64))
+	if err := runtime.ConfirmWorkspacePolicyAxesActive(context.Background(), collection, finalProjectionContextID, wrongTemplate, memoryReceipt); err == nil {
+		t.Fatal("combined confirmation accepted a mismatched Template-policy receipt")
+	}
+	wrongMemory := memoryReceipt
+	wrongMemory.Revision = tobari.SemanticDigest("sha256:" + strings.Repeat("e", 64))
+	if err := runtime.ConfirmWorkspacePolicyAxesActive(context.Background(), collection, finalProjectionContextID, templateReceipt, wrongMemory); err == nil {
+		t.Fatal("combined confirmation accepted a mismatched Policy-Memory receipt")
+	}
+	if runner.gatewayInspects != inspects+1 || runner.opaRevisionWaits != waits+1 || runner.policyStageRuns != effects {
+		t.Fatal("mismatched semantic tuple reached live aggregate observation or mutation")
+	}
 }
 
 func finalPolicyActivationFixture(t *testing.T) (*Runtime, *finalPolicyActivationRunner, tobari.WorkspaceAuthorityCollection) {

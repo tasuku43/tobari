@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
@@ -91,5 +92,29 @@ func TestServiceRejectsInvalidPortAndReferenceBeforeAdapter(t *testing.T) {
 	}
 	if err := service.Stop(context.Background(), serviceIntent("stop", operation.EffectWrite, operation.DeclarationYes), "exp_invalid"); err == nil || port.stopID != "" {
 		t.Fatalf("invalid stop error = %v, id = %q", err, port.stopID)
+	}
+}
+
+func TestServiceClassifiesInvalidExposureResultAfterMutation(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		run  func(*Service) error
+	}{
+		{name: "request", run: func(service *Service) error {
+			_, err := service.Request(context.Background(), serviceIntent("tobari-expose", operation.EffectCreate, operation.DeclarationNo), 3000)
+			return err
+		}},
+		{name: "allow", run: func(service *Service) error {
+			_, err := service.Allow(context.Background(), serviceIntent("service allow", operation.EffectCreate, operation.DeclarationYes), "srq_0123456789abcdef0123456789abcdef")
+			return err
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			port := &servicePortStub{exposure: tobari.ServiceExposure{}}
+			public, ok := fault.PublicCopy(test.run(New(port)))
+			if !ok || public.Code != "invalid_service_exposure_result" || public.Kind != fault.KindContract || public.Phase != fault.PhaseVerification || public.ChangeState != fault.ChangeUnknown {
+				t.Fatalf("fault = %+v", public)
+			}
+		})
 	}
 }

@@ -23,7 +23,7 @@ Workspace を削除した後にだけ実行できます。
 
 ### 存在しない → 接続中
 
-選択したディレクトリから `tobari` を実行すると、installation default Template と正規化済み root の exact Context を解決し、その Context の Workspace を選ぶか作成します。作成時には Workspace identity と home を最終 authority model へ保存し、専用 network と container を調整します。さらに Gateway と Workspace の閉じた network guard を適用し、exact Context/Workspace endpoint principal を登録し、利用可能になるまで待ってから、対話型の `docker exec` shell を開始します。
+選択したディレクトリから `tobari` を実行すると、正規化済み root の Workspace とその Context を解決するか、installation default Template の Context と、その root をbindする Workspaceを作成します。作成時には Workspace identity と home を最終 authority model へ保存し、専用 network と container を調整します。さらに Gateway と Workspace の閉じた network guard を適用し、exact Context/Workspace endpoint principal を登録し、利用可能になるまで待ってから、対話型の `docker exec` shell を開始します。
 
 接続中のシェルは一時的なプロセス状態であり、Workspace の寿命を決めるプロセスではありません。
 

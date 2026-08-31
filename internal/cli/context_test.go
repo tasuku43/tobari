@@ -129,11 +129,26 @@ func (f *runtimeCatalogCLI) CreateRuntime(_ context.Context, name string, base t
 }
 
 func (f *runtimeCatalogCLI) ResolveRuntimeReference(_ context.Context, reference string) (tobari.RuntimeManifest, error) {
+	if reference == tobari.StandardRuntimeID {
+		return tobari.RuntimeManifest{
+			SchemaVersion: tobari.RuntimeSchemaVersion,
+			ID:            tobari.StandardRuntimeID,
+			Name:          tobari.StandardRuntimeName,
+			Kind:          tobari.RuntimeKindBuiltin,
+			Revisions: []tobari.RuntimeRevision{{
+				Ordinal: 1, Revision: "sha256:" + strings.Repeat("f", 64), Image: "tobari-runtime:test", CreatedAt: time.Unix(1, 0).UTC(),
+			}},
+		}, nil
+	}
 	manifest := f.runtimeManifest()
 	if tobari.RuntimeRef(manifest.ID) != reference {
 		return tobari.RuntimeManifest{}, tobari.ErrRuntimeNotFound
 	}
 	return manifest, nil
+}
+
+func (f *runtimeCatalogCLI) ObserveManagedRuntimeSourceRevision(context.Context, string) (tobari.SemanticDigest, error) {
+	return tobari.SemanticDigest("sha256:" + strings.Repeat("a", 64)), nil
 }
 
 func (f *runtimeCatalogCLI) BuildManagedRuntimeByReference(_ context.Context, reference string, diagnostics io.Writer) (tobari.RuntimeReport, error) {

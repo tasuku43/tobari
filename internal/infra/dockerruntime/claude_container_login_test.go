@@ -35,7 +35,7 @@ func (r *claudeContainerRunner) Run(
 	r.calls = append(r.calls, append([]string(nil), arguments...))
 	switch {
 	case reflect.DeepEqual(arguments[:min(2, len(arguments))], []string{"image", "inspect"}):
-		_, _ = io.WriteString(stdout, "sha256:"+strings.Repeat("a", 64)+"\n")
+		_, _ = io.WriteString(stdout, strings.ReplaceAll(string(compatibleImageInspection()), strings.Repeat("c", 64), strings.Repeat("a", 64)))
 	case len(arguments) >= 4 && arguments[0] == "container" && arguments[1] == "exec" && arguments[len(arguments)-1] == "--version":
 		_, _ = io.WriteString(stdout, "2.1.220 (Claude Code)\n")
 	case len(arguments) == 4 && arguments[0] == "container" && arguments[1] == "cp" && strings.HasSuffix(arguments[2], ":/usr/local/bin/claude"):
@@ -172,6 +172,7 @@ func TestClaudeContainerLoginUsesIsolatedContextImageAndCanonicalizesNativeState
 		!containsArgSequence(create, "--memory", claudeLoginMemoryLimit) ||
 		!containsArgSequence(create, "--memory-swap", claudeLoginMemoryLimit) ||
 		!containsArgSequence(create, "--entrypoint", "/usr/bin/tini") ||
+		!slices.Contains(create, "sha256:"+strings.Repeat("a", 64)) || slices.Contains(create, "tobari-runtime:test") ||
 		!slices.Equal(create[len(create)-3:], []string{"--", "/usr/bin/sleep", "infinity"}) ||
 		!containsArgSequence(login, "/usr/local/bin/claude", "auth", "login", "--claudeai") {
 		t.Fatalf("container calls = %#v", runner.calls)

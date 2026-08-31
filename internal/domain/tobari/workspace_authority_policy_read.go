@@ -57,8 +57,7 @@ func (v PolicyCandidateAuthorityView) Validate() error {
 		v.ContextID != v.Authority.ContextID || v.ObservingWorkspaceID != v.Authority.ObservingWorkspaceID ||
 		v.ContextAuthority.ID != v.ContextID || v.ContextAuthority.TemplateID != v.TemplateID ||
 		ValidateName(v.TemplateName) != nil || ValidateCanonicalRoot(v.ObservingProjectRoot) != nil ||
-		v.ContextAuthority.ProjectRoot != v.ObservingProjectRoot ||
-		v.Context != v.TemplateName || v.Template != v.TemplateName || v.ProjectRoot != v.ContextAuthority.ProjectRoot ||
+		v.Context != v.TemplateName || v.Template != v.TemplateName || v.ProjectRoot != v.ObservingProjectRoot ||
 		v.ObservingWorkspace != v.ObservingProjectRoot ||
 		v.ID != v.Authority.ID || v.ContextRef != contextRef || v.TemplateRef != templateRef ||
 		v.ObservingWorkspaceRef != workspaceRef || !reflect.DeepEqual(v.Effect, v.Authority.Effect) {
@@ -90,8 +89,7 @@ func (v PolicyCandidateAuthorityView) validateAttachment() error {
 		v.ContextAuthority.ID != contextID || v.ContextAuthority.TemplateID != v.TemplateID ||
 		ValidateName(v.TemplateName) != nil || attachment.WorkspaceManifestName != v.TemplateName ||
 		ValidateCanonicalRoot(v.ObservingProjectRoot) != nil || attachment.ProjectRoot != v.ObservingProjectRoot ||
-		v.ContextAuthority.ProjectRoot != v.ObservingProjectRoot ||
-		v.Context != v.TemplateName || v.Template != v.TemplateName || v.ProjectRoot != v.ContextAuthority.ProjectRoot ||
+		v.Context != v.TemplateName || v.Template != v.TemplateName || v.ProjectRoot != v.ObservingProjectRoot ||
 		v.ObservingWorkspace != v.ObservingProjectRoot || v.ID != attachment.ID ||
 		v.ContextRef != contextRef || v.TemplateRef != templateRef || v.ObservingWorkspaceRef != workspaceRef ||
 		!reflect.DeepEqual(v.Effect, wantEffect) || v.Authority.ID != "" {
@@ -180,8 +178,7 @@ func NewPolicyCandidateAuthorityListWithObservations(
 		binding, contextFound := contexts[candidate.ContextID]
 		workspace, workspaceFound := workspaces[candidate.ObservingWorkspaceID]
 		templateName, templateFound := templates[binding.TemplateID]
-		if !contextFound || !workspaceFound || !templateFound || workspace.ContextID != candidate.ContextID ||
-			workspace.ProjectRoot != binding.ProjectRoot {
+		if !contextFound || !workspaceFound || !templateFound || workspace.ContextID != candidate.ContextID {
 			return PolicyCandidateAuthorityList{}, fmt.Errorf("observed candidate does not belong to current final authority")
 		}
 		contextRef, contextErr := ContextRef(candidate.ContextID)
@@ -191,7 +188,7 @@ func NewPolicyCandidateAuthorityListWithObservations(
 			return PolicyCandidateAuthorityList{}, fmt.Errorf("observed candidate references are invalid")
 		}
 		result.Items = append(result.Items, PolicyCandidateAuthorityView{
-			ID: candidate.ID, Context: templateName, Template: templateName, ProjectRoot: binding.ProjectRoot,
+			ID: candidate.ID, Context: templateName, Template: templateName, ProjectRoot: workspace.ProjectRoot,
 			ObservingWorkspace: workspace.ProjectRoot, ContextRef: contextRef, TemplateRef: templateRef,
 			ObservingWorkspaceRef: workspaceRef, Effect: candidate.Effect.Clone(), Authority: candidate.Clone(),
 			ContextAuthority: binding, ContextID: candidate.ContextID, TemplateID: binding.TemplateID,
@@ -222,7 +219,7 @@ func NewPolicyCandidateAuthorityListWithObservations(
 		workspaceRef, _ := WorkspaceRef(workspaceID)
 		attachment := candidate
 		result.Items = append(result.Items, PolicyCandidateAuthorityView{
-			ID: candidate.ID, Context: templateName, Template: templateName, ProjectRoot: binding.ProjectRoot,
+			ID: candidate.ID, Context: templateName, Template: templateName, ProjectRoot: workspace.ProjectRoot,
 			ObservingWorkspace: workspace.ProjectRoot, ContextRef: contextRef, TemplateRef: templateRef,
 			ObservingWorkspaceRef: workspaceRef,
 			Effect: PolicyCandidateEffect{
@@ -323,7 +320,7 @@ func newPolicyCandidateAuthorityList(collection WorkspaceAuthorityCollection, pr
 		name := templateNames[contexts[candidate.ContextID]]
 		root := workspaceRoots[candidate.ObservingWorkspaceID]
 		result.Items[index] = PolicyCandidateAuthorityView{
-			ID: candidate.ID, Context: name, Template: name, ProjectRoot: contextAuthority[candidate.ContextID].ProjectRoot, ObservingWorkspace: root,
+			ID: candidate.ID, Context: name, Template: name, ProjectRoot: root, ObservingWorkspace: root,
 			ContextRef: contextRef, TemplateRef: templateRef, ObservingWorkspaceRef: workspaceRef,
 			Effect: candidate.Effect.Clone(), Authority: candidate.Clone(), ContextAuthority: contextAuthority[candidate.ContextID],
 			ContextID: candidate.ContextID, TemplateID: contexts[candidate.ContextID], ObservingWorkspaceID: candidate.ObservingWorkspaceID,
@@ -343,7 +340,6 @@ type PolicyMemoryRuleView struct {
 	Match            string               `json:"match"`
 	Context          string               `json:"context"`
 	Template         string               `json:"template"`
-	ProjectRoot      string               `json:"project_root"`
 	ContextRef       string               `json:"-"`
 	TemplateRef      string               `json:"-"`
 	Body             PolicyMemoryRuleBody `json:"body"`
@@ -369,7 +365,7 @@ func (v PolicyMemoryRuleView) Validate() error {
 	templateRef, templateErr := WorkspaceTemplateRef(v.TemplateID)
 	if contextErr != nil || templateErr != nil || v.ContextAuthority.Validate() != nil ||
 		v.ContextAuthority.ID != v.ContextID || v.ContextAuthority.TemplateID != v.TemplateID ||
-		ValidateName(v.TemplateName) != nil || v.ProjectRoot != v.ContextAuthority.ProjectRoot ||
+		ValidateName(v.TemplateName) != nil ||
 		v.Context != v.TemplateName || v.Template != v.TemplateName ||
 		v.ID != v.Rule.ID || v.Decision != v.Rule.Decision ||
 		v.Match != v.Rule.Body.Match || v.ContextRef != contextRef || v.TemplateRef != templateRef ||
@@ -416,7 +412,7 @@ func newPolicyMemoryRuleList(collection WorkspaceAuthorityCollection, present bo
 			name := templateNames[record.Context.TemplateID]
 			result.Items = append(result.Items, PolicyMemoryRuleView{
 				ID: rule.ID, Decision: rule.Decision, Match: rule.Body.Match,
-				Context: name, Template: name, ProjectRoot: record.Context.ProjectRoot,
+				Context: name, Template: name,
 				ContextRef: contextRef, TemplateRef: templateRef, Body: rule.Body.Clone(), Rule: rule.Clone(),
 				ContextAuthority: record.Context, ContextID: record.Context.ID, TemplateID: record.Context.TemplateID, TemplateName: name,
 			})

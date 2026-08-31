@@ -874,7 +874,8 @@ func defaultCatalog() Catalog {
 			handler: runVersion,
 		},
 	)
-	commands := append(catalog.commands, completionCommandSpecs()...)
+	commands := catalog.commands
+	commands = append(commands, completionCommandSpecs()...)
 	commands = append(commands, runtimeCommandSpecs()...)
 	commands = append(commands, serviceExposureCommandSpecs()...)
 	return NewCatalog(append(commands, permissionWaitCommandSpecs()...)...)

@@ -74,7 +74,11 @@ func runRuntimeReview(ctx context.Context, c *CLI, command CommandSpec, _ operat
 			if !ok {
 				classified = fault.Wrap(fault.KindContract, "output_encoding_failed", "Runtime delete result output could not be encoded", false, renderErr)
 			}
-			return c.fail(actionCtx, fault.WithClassification(classified, fault.PhasePresentation, fault.ChangeConfirmed))
+			phase := fault.PhasePresentation
+			if classified.Code == "invalid_runtime_delete_result_confirmed" {
+				phase = fault.PhaseVerification
+			}
+			return c.fail(actionCtx, fault.WithClassification(classified, phase, fault.ChangeConfirmed))
 		}
 		return c.emitMutationResult(actionCtx, deleteCommand, output)
 	}
@@ -303,39 +307,39 @@ func renderRuntimeList(path string, result tobari.RuntimeListResult, format succ
 		}
 		return append(output, '\n'), nil
 	}
-	var output strings.Builder
-	output.WriteString(applyStyleToken(color, styleAccent, "Runtimes"))
-	output.WriteString("\n\n")
+	output := newHumanOutput(color)
+	output.heading("·", fmt.Sprintf("Runtimes · %d", len(result.Items)), styleMuted)
 	for _, item := range result.Items {
 		if item.Kind == tobari.RuntimeKindManaged && item.Ready && item.RevisionRef != tobari.RuntimeRevisionRef(item.ID, item.Revision) {
 			return nil, fault.New(fault.KindContract, "invalid_runtime_list", "Managed Runtime summary has no exact head revision reference.", false)
 		}
-		state := "draft"
+		state := "! draft"
+		stateToken := styleWarning
 		if item.Ready {
-			state = fmt.Sprintf("ready · %s@%d · %s", safeExternalText(item.Name), item.Head, item.Revision[:12])
+			state = fmt.Sprintf("✓ ready · %s@%d · %s", safeExternalText(item.Name), item.Head, item.Revision[:12])
+			stateToken = styleSuccess
 		}
-		fmt.Fprintf(&output, "%s\n", applyStyleToken(color, styleText, safeExternalText(item.Name)))
-		writeContextCardValue(&output, color, "Reference", item.RuntimeRef, styleAccent)
+		output.section(safeExternalText(item.Name))
+		output.row("Status", state, stateToken)
+		output.row("Kind", string(item.Kind), styleText)
 		if item.Kind == tobari.RuntimeKindManaged && item.Ready {
-			writeContextCardValue(&output, color, "Revision reference", item.RevisionRef, styleAccent)
+			output.row("Revision reference", item.RevisionRef, styleText)
 		}
-		writeContextCardValue(&output, color, "Status", state, humanStatusToken(map[bool]string{true: "ready", false: "draft"}[item.Ready]))
-		writeContextCardValue(&output, color, "Kind", string(item.Kind), styleText)
 		if item.Ready {
-			writeContextCardValue(&output, color, "Availability", string(item.Availability.State), humanStatusToken(string(item.Availability.State)))
-			writeContextCardValue(&output, color, "Last used", string(item.LastUsed.State), styleMuted)
-			writeContextCardValue(&output, color, "Snapshot", string(item.Snapshot.State), styleText)
+			output.row("Availability", string(item.Availability.State), humanStatusToken(string(item.Availability.State)))
+			output.row("Last used", string(item.LastUsed.State), styleMuted)
+			output.row("Snapshot", string(item.Snapshot.State), styleText)
 			if item.Storage != nil {
-				writeContextCardValue(&output, color, "Storage", fmt.Sprintf("source %s logical · snapshot %s logical · image %s virtual · reclaimable unknown",
+				output.row("Storage", fmt.Sprintf("source %s logical · snapshot %s logical · image %s virtual · reclaimable unknown",
 					optionalBytes(item.Storage.SourceLogicalBytes), optionalBytes(item.Storage.SnapshotLogicalBytes), optionalBytes(item.Storage.ImageVirtualBytes)), styleText)
 			}
 		}
 		if item.SourcePath != "" {
-			writeContextCardValue(&output, color, "Source", safeExternalText(item.SourcePath), styleText)
+			output.row("Source", safeExternalText(item.SourcePath), styleText)
 		}
-		output.WriteString("\n")
+		output.row("Reference", item.RuntimeRef, styleText)
 	}
-	return []byte(output.String()), nil
+	return output.bytes(), nil
 }
 
 func renderRuntimeReport(path string, result tobari.RuntimeReport, format successFormat, color bool) ([]byte, error) {
@@ -365,6 +369,23 @@ func renderRuntimeReport(path string, result tobari.RuntimeReport, format succes
 	}
 	var output strings.Builder
 	manifest := result.Public.Runtime
+	if path == "runtime create" && result.Created && len(manifest.Revisions) == 0 {
+		human := newHumanOutput(color)
+		human.heading("✓", "Runtime source created", styleSuccess)
+		human.section(safeExternalText(manifest.Name))
+		human.row("Status", "! draft · ready to edit", styleWarning)
+		human.row("Source", safeExternalText(manifest.SourcePath), styleText)
+		human.next("runtime assist --id "+manifest.RuntimeRef, "Edit this Runtime source with an isolated coding agent.")
+		human.section("Manual path")
+		human.row("Edit", safeExternalText(manifest.SourcePath), styleText)
+		human.row("Then", ProgramName+" runtime build --id "+manifest.RuntimeRef, styleText)
+		human.section("Details")
+		human.row("Reference", manifest.RuntimeRef, styleText)
+		human.row("Kind", string(manifest.Kind), styleText)
+		human.row("Permissions", "owner only", styleText)
+		human.row("Source limits", "1,024 files · 256 directories · 32 MiB/file · 64 MiB total", styleText)
+		return human.bytes(), nil
+	}
 	fmt.Fprintf(&output, "%s\n\n", applyStyleToken(color, styleAccent, "Runtime "+safeExternalText(manifest.Name)))
 	writeContextCardValue(&output, color, "Reference", manifest.RuntimeRef, styleAccent)
 	writeContextCardValue(&output, color, "Kind", string(manifest.Kind), styleText)
@@ -377,7 +398,9 @@ func renderRuntimeReport(path string, result tobari.RuntimeReport, format succes
 	if len(manifest.Revisions) == 0 {
 		writeContextCardValue(&output, color, "Status", "draft · edit the current source", styleWarning)
 		if path == "runtime create" {
-			writeContextCardValue(&output, color, "Next", ProgramName+" runtime build --id "+manifest.RuntimeRef, styleAccent)
+			writeContextCardValue(&output, color, "Recommended", ProgramName+" runtime assist --id "+manifest.RuntimeRef, styleAccent)
+			writeContextCardValue(&output, color, "Edit manually", safeExternalText(manifest.SourcePath), styleMuted)
+			writeContextCardValue(&output, color, "Then", ProgramName+" runtime build --id "+manifest.RuntimeRef, styleText)
 		}
 	} else {
 		for _, revision := range manifest.Revisions {

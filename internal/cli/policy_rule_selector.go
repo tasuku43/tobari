@@ -69,23 +69,20 @@ func selectPolicyRulesRaw(
 	needsRender := true
 	for {
 		if err := ctx.Err(); err != nil {
-			finishPolicyReviewSelector(out, lineCount)
-			return policyRuleDecision{}, err
+			return policyRuleDecision{}, errors.Join(err, finishPolicyReviewSelector(out, lineCount))
 		}
 		if needsRender {
 			top := selectorWindowTop(selected, len(report.Items), selectorMaxVisibleOptions)
 			currentLines := renderPolicyRulesListRaw(out, report, selected, top, message, lineCount, style)
 			if currentLines < 0 {
-				finishPolicyReviewSelector(out, lineCount)
-				return policyRuleDecision{}, fmt.Errorf("render policy rule selector")
+				return policyRuleDecision{}, errors.Join(fmt.Errorf("render policy rule selector"), finishPolicyReviewSelector(out, lineCount))
 			}
 			lineCount = currentLines
 			needsRender = false
 		}
 		key, err := readSelectorKey(ctx, in)
 		if err != nil {
-			finishPolicyReviewSelector(out, lineCount)
-			return policyRuleDecision{}, err
+			return policyRuleDecision{}, errors.Join(err, finishPolicyReviewSelector(out, lineCount))
 		}
 		switch key.kind {
 		case selectorKeyNone:
@@ -120,20 +117,16 @@ func selectPolicyRulesRaw(
 				return policyRuleDecision{}, detail.err
 			}
 			if detail.RuleID != "" {
-				finishPolicyReviewSelector(out, detail.Lines)
-				return policyRuleDecision{RuleID: detail.RuleID}, nil
+				return policyRuleDecision{RuleID: detail.RuleID}, finishPolicyReviewSelector(out, detail.Lines)
 			}
 			if detail.Canceled {
-				finishPolicyReviewSelector(out, detail.Lines)
-				return policyRuleDecision{Canceled: true}, nil
+				return policyRuleDecision{Canceled: true}, finishPolicyReviewSelector(out, detail.Lines)
 			}
-			finishPolicyReviewSelector(out, detail.Lines)
-			lineCount = 0
+			lineCount = detail.Lines
 			message = ""
 			needsRender = true
 		case selectorKeyCancel:
-			finishPolicyReviewSelector(out, lineCount)
-			return policyRuleDecision{Canceled: true}, nil
+			return policyRuleDecision{Canceled: true}, finishPolicyReviewSelector(out, lineCount)
 		default:
 			message = "Use ↑/↓ to move, Enter to inspect, or q to cancel."
 			needsRender = true
@@ -161,22 +154,19 @@ func selectPolicyRuleDetailRaw(
 	needsRender := true
 	for {
 		if err := ctx.Err(); err != nil {
-			finishPolicyReviewSelector(out, lineCount)
-			return policyRuleDetailRawResult{err: err}
+			return policyRuleDetailRawResult{err: errors.Join(err, finishPolicyReviewSelector(out, lineCount))}
 		}
 		if needsRender {
 			currentLines := renderPolicyRuleDetailRaw(out, report, selected, message, lineCount, style)
 			if currentLines < 0 {
-				finishPolicyReviewSelector(out, lineCount)
-				return policyRuleDetailRawResult{err: fmt.Errorf("render policy rule detail")}
+				return policyRuleDetailRawResult{err: errors.Join(fmt.Errorf("render policy rule detail"), finishPolicyReviewSelector(out, lineCount))}
 			}
 			lineCount = currentLines
 			needsRender = false
 		}
 		key, err := readSelectorKey(ctx, in)
 		if err != nil {
-			finishPolicyReviewSelector(out, lineCount)
-			return policyRuleDetailRawResult{err: err}
+			return policyRuleDetailRawResult{err: errors.Join(err, finishPolicyReviewSelector(out, lineCount))}
 		}
 		switch key.kind {
 		case selectorKeyNone:
@@ -207,8 +197,7 @@ func confirmPolicyRuleResetRaw(
 	message := "Reset this " + rule.Decision + " decision? Type y to continue; default is no."
 	lineCount := renderPolicyRuleDetailRawWithMessage(out, rule, message, previousLines, style)
 	if lineCount < 0 {
-		finishPolicyReviewSelector(out, previousLines)
-		return false, previousLines, fmt.Errorf("render policy rule reset confirmation")
+		return false, previousLines, errors.Join(fmt.Errorf("render policy rule reset confirmation"), finishPolicyReviewSelector(out, previousLines))
 	}
 	for {
 		value, err := readSelectorByte(ctx, in)
@@ -219,8 +208,7 @@ func confirmPolicyRuleResetRaw(
 			if errors.Is(err, errSelectorEOF) {
 				return false, lineCount, nil
 			}
-			finishPolicyReviewSelector(out, lineCount)
-			return false, lineCount, err
+			return false, lineCount, errors.Join(err, finishPolicyReviewSelector(out, lineCount))
 		}
 		switch value {
 		case 'y', 'Y':
@@ -231,8 +219,7 @@ func confirmPolicyRuleResetRaw(
 			message = "Type y to confirm, or n to keep this decision."
 			lineCount = renderPolicyRuleDetailRawWithMessage(out, rule, message, lineCount, style)
 			if lineCount < 0 {
-				finishPolicyReviewSelector(out, previousLines)
-				return false, previousLines, fmt.Errorf("render policy rule reset confirmation")
+				return false, previousLines, errors.Join(fmt.Errorf("render policy rule reset confirmation"), finishPolicyReviewSelector(out, previousLines))
 			}
 		}
 	}

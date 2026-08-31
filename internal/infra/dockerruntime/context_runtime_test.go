@@ -13,7 +13,7 @@ import (
 )
 
 func compatibleImageInspection() []byte {
-	return []byte(`{"api":"1","lifetime":"sleep infinity","user":"tobari","entrypoint":["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]}`)
+	return []byte(`{"id":"sha256:` + strings.Repeat("c", 64) + `","api":"1","lifetime":"sleep infinity","user":"tobari","entrypoint":["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"],"volumes":{}}`)
 }
 
 func imageDigestInspection() []byte {

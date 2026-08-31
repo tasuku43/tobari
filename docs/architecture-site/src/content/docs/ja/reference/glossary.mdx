@@ -17,7 +17,7 @@ Context が所有する、置き換え可能な隔離インスタンスです。
 
 ### プロジェクトルート
 
-Context が所有する正規化済みホストディレクトリです。結び付いた Workspace Template の不変 `source_access` に従って Workspace へマウントされます。Workspace 内のプロセスによるファイル変更を Tobari はスナップショットやオーバーレイで保護しません。
+Workspace だけがbindする正規化済みホストディレクトリです。所有するContextに結び付いた Workspace Template の不変 `source_access` に従って Workspace へマウントされます。Workspace 内のプロセスによるファイル変更を Tobari はスナップショットやオーバーレイで保護しません。
 
 ### Workspace Template
 
@@ -25,7 +25,7 @@ Context が所有する正規化済みホストディレクトリです。結び
 
 ### Context
 
-一つの正規 Project root と一つの Workspace Template ID を結ぶ、永続かつ不変の binding です。Policy Memory を所有し、Workspace の置換や削除後も残ります。公開 name/default selector はなく、非既定の操作は discovery が返す exact `context` reference を使います。
+一つの Workspace Template ID に対するlocation-freeで永続かつ不変の binding です。Policy Memory を所有し、Workspace の置換や削除後も残ります。公開 name/default selector はなく、非既定の操作は discovery が返す exact `context` reference を使います。
 
 ### Policy Memory
 
@@ -101,7 +101,7 @@ Gateway から upstream までの、独立して検証される HTTPS connection
 
 ### Context ID
 
-一つの Project root と Workspace Template の binding を表す安定した host-issued identity です。Policy Memory を所有し、Workspace Template ID と Workspace ID のどちらとも異なります。
+一つのlocation-freeな Workspace Template binding を表す安定した host-issued identity です。Policy Memory を所有し、Workspace Template ID と Workspace ID のどちらとも異なります。
 
 ### Workspace principal
 
@@ -203,15 +203,15 @@ immutable Template、Context、Policy Memory、Workspace object と optional def
 
 ## 共通の区別
 
-| 混同しない語                       | 違い                                                                           |
-| ---------------------------------- | ------------------------------------------------------------------------------ |
-| Workspace と作業コンテナ           | Workspace は永続する論理状態、コンテナは交換可能な実行時リソース               |
-| Context とクラスター               | Context は Project 固有の binding と Policy Memory、クラスターは共有の強制基盤 |
-| 認証と認可                         | agent CLI がログイン済みでも OPA は HTTP effect を拒否できる                   |
-| CA の信頼とポリシー許可            | CA は検査の前提、許可は一つの正規化された効果を通す判断                        |
-| Workspace 識別情報とツールログイン | 前者はホスト由来、後者は agent CLI が Workspace home に所有                    |
-| `exit` と `workspace delete`       | 前者はセッション終了、後者は論理 Workspace とホームの削除                      |
-| タグとダイジェスト                 | タグは移動可能、ダイジェストは不変 OCI コンテンツの識別                        |
+| 混同しない語                       | 違い                                                                                      |
+| ---------------------------------- | ----------------------------------------------------------------------------------------- |
+| Workspace と作業コンテナ           | Workspace は永続する論理状態、コンテナは交換可能な実行時リソース                          |
+| Context とクラスター               | Context は location-free な Template binding と Policy Memory、クラスターは共有の強制基盤 |
+| 認証と認可                         | agent CLI がログイン済みでも OPA は HTTP effect を拒否できる                              |
+| CA の信頼とポリシー許可            | CA は検査の前提、許可は一つの正規化された効果を通す判断                                   |
+| Workspace 識別情報とツールログイン | 前者はホスト由来、後者は agent CLI が Workspace home に所有                               |
+| `exit` と `workspace delete`       | 前者はセッション終了、後者は論理 Workspace とホームの削除                                 |
+| タグとダイジェスト                 | タグは移動可能、ダイジェストは不変 OCI コンテンツの識別                                   |
 
 ## 障害と制限
 

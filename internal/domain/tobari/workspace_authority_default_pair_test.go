@@ -4,7 +4,7 @@ import "testing"
 
 func TestFinalDefaultPairObservationBindsDefaultTemplateAndCanonicalProject(t *testing.T) {
 	collection := workspaceAuthorityCollectionFixture(t)
-	observation, err := NewFinalDefaultPairObservation(collection, true, collection.Contexts[0].Context.ProjectRoot)
+	observation, err := NewFinalDefaultPairObservation(collection, true, collection.Workspaces[0].ProjectRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,13 +31,13 @@ func TestFinalDefaultPairObservationRepresentsExactFreshEmptyAuthority(t *testin
 	}
 }
 
-func TestFinalDefaultPairObservationRejectsCrossProjectContextRelabel(t *testing.T) {
+func TestFinalDefaultPairObservationRejectsCrossProjectWorkspaceRelabel(t *testing.T) {
 	collection := workspaceAuthorityCollectionFixture(t)
-	observation, err := NewFinalDefaultPairObservation(collection, true, collection.Contexts[0].Context.ProjectRoot)
+	observation, err := NewFinalDefaultPairObservation(collection, true, collection.Workspaces[0].ProjectRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	observation.Context.Context.ProjectRoot = "/workspace/other"
+	observation.Context.Workspace.ProjectRoot = "/workspace/other"
 	if err := observation.Validate(); err == nil {
 		t.Fatal("cross-Project Context relabel validated")
 	}
@@ -52,10 +52,16 @@ func TestFinalDefaultPairSelectionRequiresExplicitAncestorChoiceNearestFirst(t *
 	}
 	nested := WorkspaceAuthorityContextRecord{Context: ContextBinding{
 		SchemaVersion: ContextBindingSchemaVersion, ID: nestedID,
-		ProjectRoot: "/workspace/example/src", TemplateID: *collection.DefaultTemplateID,
+		TemplateID: *collection.DefaultTemplateID,
 	}, PolicyMemory: memory}
+	nestedWorkspace := collection.Workspaces[0]
+	nestedWorkspace.ID = WorkspaceID("01912345-6789-7abc-8def-0123456789d2")
+	nestedWorkspace.ContextID = nestedID
+	nestedWorkspace.ProjectRoot = "/workspace/example/src"
+	nestedWorkspace.Home = "/workspace/home-nested"
+	nestedWorkspace.LastSuccessfulEntry = nil
 	collection, changed, err := PublishWorkspaceAuthorityCollection(
-		collection.Templates, append(collection.Contexts, nested), collection.Workspaces,
+		collection.Templates, append(collection.Contexts, nested), append(collection.Workspaces, nestedWorkspace),
 		collection.PendingCandidates, collection.DefaultTemplateID, &collection,
 	)
 	if err != nil || !changed {
@@ -68,7 +74,7 @@ func TestFinalDefaultPairSelectionRequiresExplicitAncestorChoiceNearestFirst(t *
 	if !selection.RequiresChoice() || len(selection.Candidates) != 2 {
 		t.Fatalf("selection = %+v, want two explicit ancestor candidates", selection)
 	}
-	if got := selection.Candidates[0].Snapshot.Context.ProjectRoot; got != "/workspace/example/src" {
+	if got := selection.Candidates[0].Snapshot.Workspace.ProjectRoot; got != "/workspace/example/src" {
 		t.Fatalf("nearest candidate = %q", got)
 	}
 	if _, automatic := selection.AutomaticChoice(); automatic {
@@ -94,7 +100,7 @@ func TestFinalDefaultPairSelectionRequiresExplicitAncestorChoiceNearestFirst(t *
 
 func TestFinalDefaultPairSelectionReusesExactRootWithoutChoice(t *testing.T) {
 	collection := workspaceAuthorityCollectionFixture(t)
-	selection, err := NewFinalDefaultPairSelection(collection, true, collection.Contexts[0].Context.ProjectRoot)
+	selection, err := NewFinalDefaultPairSelection(collection, true, collection.Workspaces[0].ProjectRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +131,7 @@ func TestFinalDefaultPairPublicationRejectsLowerAuthorityWheneverItCreatesContex
 	if err != nil || !changed {
 		t.Fatalf("publish initialized default without Context: changed=%t err=%v", changed, err)
 	}
-	root := currentCollection.Contexts[0].Context.ProjectRoot
+	root := currentCollection.Workspaces[0].ProjectRoot
 	previous, err := NewFinalDefaultPairObservation(previousCollection, true, root)
 	if err != nil {
 		t.Fatal(err)

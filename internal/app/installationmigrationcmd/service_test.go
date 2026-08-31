@@ -110,3 +110,20 @@ func TestMigrationDomainFailuresHaveStablePublicCodes(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationInvalidResultsRetainVerificationState(t *testing.T) {
+	plan, result := installationMigrationFixture(t)
+	invalidPlan := plan
+	invalidPlan.PlanRef = ""
+	_, err := New(&migrationPortFixture{plan: invalidPlan}).Plan(context.Background())
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "invalid_installation_migration_plan" || public.Phase != fault.PhaseVerification || public.ChangeState != fault.ChangeUnknown {
+		t.Fatalf("invalid plan fault=%+v/%v", public, err)
+	}
+	result.PlanRef = ""
+	_, err = New(&migrationPortFixture{result: result}).Apply(context.Background(), installationMigrationIntent(plan.PlanRef), plan.PlanRef)
+	public, ok = fault.PublicCopy(err)
+	if !ok || public.Code != "invalid_installation_migration_result" || public.Phase != fault.PhaseVerification || public.ChangeState != fault.ChangeUnknown {
+		t.Fatalf("invalid result fault=%+v/%v", public, err)
+	}
+}

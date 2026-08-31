@@ -12,7 +12,8 @@
 - Related: ADR 0066 and WP11
 - Revised by: ADR 0087 at the executable-policy and evaluator-identity seam;
   ADR 0088 at the persistence, desired-source, Boundary revision, draft, and
-  explicit installed-state migration seams
+  explicit installed-state migration seams; ADR 0092 at Context location and
+  Workspace ownership seams
 - Superseded by: None
 
 ADR 0088 makes Template and Context desired sources concept-separated files
@@ -99,12 +100,12 @@ V1 has four concepts in this area:
 | Concept | Owner and scope | Lifetime | Mutability | Authority |
 |---|---|---|---|---|
 | Workspace Template | installation; reusable across Projects | until explicit Template deletion | stable identity with complete immutable revisions | WorkspaceTemplateID plus semantic revision digest |
-| Context | one canonical ProjectRoot plus one WorkspaceTemplateID | survives Workspace deletion; ends at Context deletion | binding is immutable in V1 | ContextID |
+| Context | one location-free WorkspaceTemplateID binding | survives Workspace deletion; ends at Context deletion | binding is immutable | ContextID |
 | Policy Memory | one Context | exactly the Context lifetime | complete immutable remembered-decision revisions | ContextID plus semantic Policy Memory digest |
 | Workspace | one Context's applied isolated instance and home | replaceable; ends at Workspace deletion | last-successful receipt and bounded reconciliation/observation change | WorkspaceID plus ContextID; observation is not authority |
 
 `Workspace Template` is the public long noun and `template` is its CLI noun.
-`Context` is the durable Project/Template binding and owner of `Policy Memory`.
+`Context` is the durable location-free Template binding and owner of `Policy Memory`.
 Routine UI may say “remembered decisions”. `Workspace` remains the replaceable
 applied instance. `Manifest` is retired from current public/domain resource
 vocabulary and may describe only the private predecessor serialization during
@@ -113,15 +114,14 @@ migration.
 ### Identity and uniqueness
 
 `WorkspaceTemplateID`, `ContextID`, and `WorkspaceID` are distinct opaque typed
-identities. Names, roots, generations, ordinals, images, containers, labels, and
+identities. Names, generations, ordinals, images, containers, labels, and
 timestamps never authorize. Content authority is TemplateID plus semantic
 Template digest or ContextID plus semantic Policy Memory digest. Generation is
 monotonic correlation only.
 
-Exactly one Context may exist for one `(canonical ProjectRoot,
-WorkspaceTemplateID)` pair. A Project may have several Contexts only by binding
-different Templates. Context has no second human name, cannot rebind to another
-Template, and has no current/default/use selector in V1.
+ContextID uniqueness is the only Context uniqueness rule. Multiple Contexts may
+bind the same WorkspaceTemplateID. Context has no ProjectRoot, second human
+name, mutable Template binding, or current/default/use selector.
 
 The installation owns one optional `DefaultTemplateSelection`. Bare `tobari`
 and bare `status` own only the command-local default-Template/canonical-CWD pair

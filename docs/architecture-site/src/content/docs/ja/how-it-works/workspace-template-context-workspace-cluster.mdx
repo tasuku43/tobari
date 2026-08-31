@@ -5,12 +5,12 @@ description: 再利用するdesired setup、Projectの記憶、applied instance�
 
 Tobariは4つのlifetimeを分離します。
 
-| Concept            | ownerとlifetime                             | authority                             |
-| ------------------ | ------------------------------------------- | ------------------------------------- |
-| Workspace Template | インストール内で再利用するsetup             | TemplateID + semantic revision digest |
-| Context            | canonical ProjectRoot + TemplateIDのbinding | ContextID                             |
-| Policy Memory      | 1 Contextの記憶した判断                     | ContextID + semantic digest           |
-| Workspace          | 1 Contextの置換可能なinstanceとhome         | WorkspaceID + ContextID               |
+| Concept            | ownerとlifetime                       | authority                             |
+| ------------------ | ------------------------------------- | ------------------------------------- |
+| Workspace Template | インストール内で再利用するsetup       | TemplateID + semantic revision digest |
+| Context            | location-freeなTemplateID binding     | ContextID                             |
+| Policy Memory      | 1 Contextの記憶した判断               | ContextID + semantic digest           |
+| Workspace          | 1 ContextのProjectRoot-bound instance | WorkspaceID + ContextID               |
 
 Template revisionはdesired setupです。Contextはbound Templateのcurrent revisionを
 解決し、learned policyを所有します。Workspaceは最後に成功したAppliedEntryを
@@ -33,9 +33,9 @@ tobari context list --format json
 tobari context enter --id CONTEXT_REF
 ```
 
-1 canonical ProjectRoot/TemplateID pairにはContextを1つだけ作れます。同じrootで
-異なるTemplateにbindingしたContextは複数持てます。それぞれのPolicy Memoryと
-Workspace identityは独立します。
+Contextの一意性はContextIDだけで決まります。同じTemplateに複数のContextを
+bindingできます。ProjectRootはWorkspace authorityだけが所有し、各Contextの
+Policy Memoryは独立します。
 
 ## failureとretry
 

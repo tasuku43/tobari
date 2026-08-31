@@ -30,7 +30,11 @@ func (r *unavailablePupContainerRunner) Output(context.Context, []string, []stri
 	return nil, errors.New("synthetic image unavailable")
 }
 
-func (r *unavailablePupContainerRunner) Run(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error {
+func (r *unavailablePupContainerRunner) Run(_ context.Context, arguments []string, _ []string, _ io.Reader, _ io.Writer, stderr io.Writer) error {
+	if len(arguments) >= 2 && arguments[0] == "image" && arguments[1] == "inspect" {
+		_, _ = io.WriteString(stderr, "Error: No such image: "+arguments[len(arguments)-1])
+		return errors.New("synthetic image unavailable")
+	}
 	r.calls++
 	return nil
 }
@@ -49,7 +53,7 @@ func (r *pupContainerRunner) Run(
 	imageID := "sha256:" + strings.Repeat("a", 64)
 	switch {
 	case reflect.DeepEqual(arguments[:min(2, len(arguments))], []string{"image", "inspect"}):
-		_, _ = io.WriteString(stdout, imageID+"\n")
+		_, _ = io.WriteString(stdout, strings.ReplaceAll(string(compatibleImageInspection()), strings.Repeat("c", 64), strings.Repeat("a", 64)))
 	case len(arguments) >= 4 && arguments[0] == "container" && arguments[1] == "inspect":
 		_, _ = io.WriteString(stdout, imageID+"\n")
 	case len(arguments) >= 4 && arguments[0] == "container" && arguments[1] == "start" && arguments[2] == "--attach":
@@ -200,8 +204,10 @@ func TestPupContainerLoginUsesSelectedContextImageNativeStateAndNoHostMount(t *t
 	if len(preflightCreate) == 0 || len(loginCreate) == 0 || len(login) == 0 ||
 		!containsArgSequence(preflightCreate, "--network", "none") ||
 		!containsArgSequence(preflightCreate, "--entrypoint", pupExecutablePath) ||
+		!slices.Contains(preflightCreate, "sha256:"+strings.Repeat("a", 64)) ||
 		!containsArgSequence(loginCreate, "--cap-drop", "ALL") ||
 		!containsArgSequence(loginCreate, "--security-opt", "no-new-privileges") ||
+		!slices.Contains(loginCreate, "sha256:"+strings.Repeat("a", 64)) ||
 		!containsArgSequence(login, pupExecutablePath, "--no-agent", "auth", "login", "--site", credentialhost.PupSite, "--callback-port", "8000") ||
 		!containsArgSequence(login, "--env", "BROWSER=/bin/false") {
 		t.Fatalf("container calls = %#v", runner.calls)

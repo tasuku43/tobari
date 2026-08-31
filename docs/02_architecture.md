@@ -5,6 +5,13 @@ Physical-host loopback authority and migration follow
 [ADR 0083](decisions/0083-name-the-physical-host-loopback-authority.md).
 The task-owned CWD status snapshot and its zero-mutation observation budget
 follow [ADR 0085](decisions/0085-make-status-the-cwd-home.md).
+Task-scoped Configurator topology, managed-Home ownership, copied evidence, and
+frozen submission follow
+[ADR 0090](decisions/0090-agent-guided-configurator-first-use.md).
+Tobari-owned terminal interaction uses the main-screen inline renderer defined
+by [ADR 0091](decisions/0091-keep-tobari-owned-tui-inline.md).
+Location-free Context authority and Workspace-only root ownership follow
+[ADR 0092](decisions/0092-make-context-location-free.md).
 
 ## System topology
 
@@ -12,12 +19,53 @@ follow [ADR 0085](decisions/0085-make-status-the-cwd-home.md).
 host
   tobari CLI ---- Docker CLI ---- Docker Engine
       +-- authenticated attachment TCP relay --> host 127.0.0.1:PORT
+      +-- task Configurator (task Runtime, task-owned managed Home) --> Internet
+      |       +-- copied evidence -> one working source -> host-frozen submission
       +-- root A (Workspace Template-selected ro/rw) --> Tobari A -- guarded net A --+
       +-- root B (Workspace Template-selected ro/rw) --> Tobari B -- guarded net B --+--> tobari-gateway
                                                                       |
 internal control network:                                      tobari-opa :8181
 egress network:                              Gateway --> policy-allowed HTTPS
 ```
+
+Configurator is a separate non-Workspace container and network role. Policy
+assistance resolves the explicit Context's recorded Runtime image ID under the
+lifecycle/store fence; Runtime assistance resolves the installation-owned
+standard Runtime and never reads CWD, Workspace, or Context.
+The Runtime source being edited is never an execution selector. `container create` consumes
+only that immutable ID, and post-create inspection compares Docker's actual
+`.Image` identity rather than trusting the mutable selector retained as
+correlation metadata. It never joins a Workspace, control, or Gateway egress
+network. Its ordinary external route is valid only with its exact mount
+contract: one complete task-owned managed Home as the only mutable
+data bind, one binary-owned opener projected read-only, plus bounded tmpfs. One
+task working source, guidance, and typed observed evidence are copies below
+that Home. Project roots, host/other-Context Home,
+active authority, writable Policy Memory, Docker socket, host network, and
+arbitrary mounts/capabilities are absent. Runtime selection cannot create or
+widen this role. Docker first creates the container with `network=none`, returns
+its immutable resource ID, and exposes the ordinary-egress network only after
+one atomic inspection proves that ID's complete role, mount, resource, process,
+and label contract. Tobari then removes the built-in `none` endpoint, connects
+the captured dedicated-network ID, starts only the dormant fixed lifetime, and
+re-inspects that one active attachment before any helper or agent exec. Every later start, exec, cleanup, browser request, and
+callback relay remains bound to the captured container/network IDs rather than
+their human-readable names. The container starts in a bounded dormant state,
+establishes the existing non-TTY browser control stream, and only then executes
+the selected agent with Docker retaining its terminal. The Configurator bridge
+selects only the chosen Codex or Claude Code driver and atomically revalidates
+the same owned container immediately before host-browser opening and again
+after accepting, but before relaying, a Codex callback. The attachment supervisor
+observes both the Docker control process and the host request/response relay;
+loss of either after readiness cancels the still-attached agent and is a
+retained-material failure rather than silently degrading native login. Cleanup
+uses bounded immutable-ID removal attempts. Failure to confirm every transient
+removal is a separate partial cleanup fault, never a Home-only retained result.
+
+Ordinary Workspace entry similarly resolves its label-owned work-container
+name to one immutable Docker ID before starting permission, browser, or service
+control. Every control exec and the attached shell/child uses that same ID;
+name reassignment cannot split validation from execution.
 
 Each Workspace joins only its dedicated internal network. OPA joins only the
 shared internal control network. Gateway joins every Workspace network plus
@@ -264,6 +312,14 @@ orchestrate or guide these internal steps in a future slice, but every such
 path remains catalog-owned, effect-declared, and failure-before-side-effect
 where applicable.
 
+Fresh root remains the deterministic Tobari-owned Manual setup and canonical
+default Template/Context composition. It never selects an agent or creates a
+Configurator draft. `runtime assist --id` and `policy assist --context` create
+or resume one owner-only task draft from explicit target authority and launch the same narrowed
+Configurator execution plane, freeze one exact target, and return to the
+target's canonical host mutation. Configurator and its helper do not create a
+competing command registry or authority writer.
+
 `cluster up`, `cluster status`, `cluster denials`, `policy candidates`,
 `review permissions`, `policy allow`, `policy deny`, `policy rules`,
 and `policy reset` remain a valid standard seam. `serve`, `auth login`, `auth import`,
@@ -330,19 +386,19 @@ Workspace Template (installation reusable desired revision)
         |
         | immutable binding
         v
-Context (canonical ProjectRoot + TemplateID)
+Context (location-free ContextID + TemplateID)
         |
         +-- Policy Memory (Context lifetime)
         |
         v
-Workspace (replaceable applied instance + home)
+Workspace (replaceable ProjectRoot-bound applied instance)
 ```
 
 A Template has one stable WorkspaceTemplateID and complete immutable revisions.
 TemplateID plus semantic digest authorizes content. One Context has one stable
-ContextID and permanently binds a canonical ProjectRoot to one TemplateID.
-Exactly one Context may exist for a pair. A Workspace has one stable WorkspaceID
-and belongs to one Context. Policy Memory belongs to the Context, not the
+ContextID and permanently binds to one TemplateID without a location. Multiple
+Contexts may bind the same Template. A Workspace has one stable WorkspaceID,
+binds one canonical ProjectRoot, and belongs to one Context. Policy Memory belongs to the Context, not the
 Template or Workspace.
 
 Concept-separated owner-only YAML below XDG configuration is the ordinary
@@ -396,8 +452,9 @@ identity with no lineage. Template Apply consumes one
 and reviewed the complete
 desired Runtime/session/creation and static-policy source pair. Granular
 Runtime, shell, Git, and bootstrap setters are not a parallel authority path.
-Context creation consumes one Template reference
-and canonical CWD. Context entry consumes one Context reference. Workspace and
+Context creation consumes one Template reference and no CWD. Context entry
+consumes one Context reference and binds Workspace location from the invocation.
+Workspace and
 Context deletion consume their own exact references. Names remain read-only
 discovery/presentation input and cannot authorize mutation.
 
@@ -440,9 +497,10 @@ Context-owned credential projection; the release surface has no Broker state.
 
 ### Root first-entry orchestration
 
-Bare root is one composition of existing canonical boundaries, not a second
-authority model. Fresh root first validates CWD and shows one no-authority
-recommended draft. Start then performs these checkpoints in order:
+Bare root is one composition of canonical boundaries, not a second authority
+model. Fresh root validates CWD, shows the no-authority recommended draft, and
+uses the deterministic Manual review. It starts no Configurator. Apply then
+performs these checkpoints in order:
 
 ```text
 Check requirements
@@ -481,8 +539,16 @@ its failure may add one host-owned diagnostic but cannot replace child status.
 Direct child argv exists only after the positional-only marker. Every argument
 is passed unchanged, with no shell parsing, persistence, logging, or
 reconstruction. Progress stays on host-owned stderr before handoff. A fresh
-noninteractive invocation fails before mutation because the recommended review
+noninteractive invocation fails before mutation because trusted Manual review
 requires the existing terminal contract.
+
+Task-assistance child handoff is distinct from Workspace child handoff. Before
+Configurator handoff, the host owns one fixed target and trust summary. During the child,
+the selected agent owns its PTY; Tobari never interprets agent prose as a
+request, confirmation, target, or result. There is no live host helper or host
+filesystem mount. Agent exit returns control to host freeze, validation, and
+review; failure may retain only confirmed task material in the Context Home.
+Source publication or final Apply is never selected from child output.
 
 Because this orchestration combines catalog dispatch with production-only
 adapter construction and root-owned terminal/environment decisions, lower-layer
@@ -775,7 +841,12 @@ permission, login, or push step. The released CLI materializes the same recipe
 and builds it on the user's Docker host when its source-derived tag is absent.
 Contributor development resolves `builtin` to the same source-addressed local
 combined base selected by the embedded resolver when the checked source inputs
-are equal.
+are equal. Final entry treats an owner-authoritative retained standard binding
+as self-consistent only when its stable ID/name/ordinal,
+`base-<source-id>` image, and revision derivation agree; this proves internal
+binding consistency, not provenance of an arbitrary external image. It then
+validates and executes the exact immutable local image ID. Only the current
+compiled source identity is eligible for missing-image construction.
 
 The root resolver obtains the desired image from the stored Workspace Template identity's
 strict manifest on each runtime reconciliation. A new Workspace Template selects
@@ -800,12 +871,26 @@ PID, and JSON-file log rotation bounds (`10m` per file, three files) so one
 project cannot grow shared service resources without a cap. These are shared
 service ceilings, not per-project fairness controls.
 
+Before any shared-component or Workspace-helper container create, the Docker
+adapter performs one timeout- and byte-bounded narrow image-metadata inspect.
+It binds validation and execution to the returned immutable image ID and
+rejects unreviewed `Config.Volumes`: OPA, Auth Broker, managed Runtimes, and the
+helper image are volume-free, while Gateway may declare only the exact
+inherited CA path shadowed by its reviewed Compose tmpfs.
+
 Project metadata is not a runtime adapter. Tobari does not interpret
 `.devcontainer` files, invoke the Dev Container CLI, or transfer container
 creation to a second orchestrator. The supported customization adapter is the
 installation-wide Runtime catalog: infrastructure snapshots one bounded
 owner-only source tree, builds only the immutable snapshot, validates the
-resulting image, and appends one successful semantic revision. A Workspace Template stores
+resulting image, and appends one successful semantic revision. Ownership
+evidence is resolved first and compatibility is then checked against that
+immutable image ID, never a mutable staging tag. No-change builds revalidate
+the retained immutable ID, and publication recovery revalidates the journaled
+image digest before its first phase mutation. A post-build compatibility
+failure retains the exact failed journal and staging disposition as a partial
+mutation; a no-change compatibility drift that is cleaned before Docker
+mutation remains a precondition failure with no change. A Workspace Template stores
 an exact Runtime ID and revision; only editing and applying the complete
 Workspace Template source changes that binding. Future import formats must attach to this Runtime boundary rather than
 introduce project or Docker-tag authority.
@@ -917,6 +1002,103 @@ io.tobari.role=work|network
 io.tobari.version=<asset revision>
 ```
 
+Task assistance is a sibling of Workspace attachment, not part of fresh root:
+
+```text
+runtime assist --id RUNTIME_REF -> reserve Runtime-scoped task
+  -> materialize target source + installation-owned per-agent Home
+  -> prepare installation standard Runtime -> attach bounded Configurator
+policy assist --context CONTEXT_REF -> reserve Context-scoped task
+  -> revalidate Context/Template/Policy Memory under catalog fence
+  -> materialize policy source in the complete Context Home
+  -> prepare exact Context Runtime -> attach bounded Configurator
+both
+  -> agent exit -> cleanup -> freeze immutable target submission -> trusted review
+  -> Runtime: source CAS publish -> separate runtime build
+  -> Policy: Context-scoped Stage -> Template Plan -> final confirmation -> Apply
+```
+
+Attachment executes the selected pinned agent's ordinary interactive command
+with one fixed positional initial request. The request tells it to read the
+generated task guidance and copied evidence, explain the exact writable source,
+and ask one concrete target question before editing. It carries no Project
+source, confirmation, or Apply authority; task behavior remains in generated
+files inside the managed Home.
+
+The Configurator container, external route, and tmpfs are attachment state.
+Metadata and working material are owner-only persistent state, not active
+authority. Reservation metadata is committed before Home/source material.
+For Runtime assistance the retained identity includes the target managed
+Runtime's exact editable-source digest in addition to the execution Runtime.
+Frozen task metadata records the last immutable submission, a separate durable
+Apply-confirmed bit, and its settlement state. Until confirmation, recovery
+may re-review the frozen submission without rerunning the agent. After
+confirmation, recovery either resumes its exact canonical Apply or verifies
+publication under the authority-owning fence and settles it; caller-supplied
+new seed data is never publication evidence. Project+task+target discovery
+permits only that exact retained generation before the next one is reserved.
+Task recovery recognizes the exact deterministic V2 identity of a pre-release
+aggregate receipt from bounded owner-only metadata before current task
+validation. It excludes that receipt and neither adopts, migrates, nor deletes
+it; every record that does not match the closed legacy aggregate identity still
+fails current-schema validation closed.
+Project and Template stage leases make one Project's pending policy Stage
+unique. The Stage journal precedes canonical source mutation, retains exact
+fingerprint and opaque Plan identity, and settles only after Apply. A surviving
+policy Stage remains authoritative even when active policy already equals the
+reviewed no-op, so task settlement cannot bypass canonical source bookkeeping. Runtime
+source publication uses the same lifecycle/store fence and exact base digest.
+When the final-authority Template Apply settlement journal remains, task
+recovery returns that receipt's unchanged opaque Plan reference to the CLI;
+the CLI re-enters canonical Template Apply directly and only then settles the
+Stage and task receipt. It never derives a replacement Plan from already
+published authority.
+Context deletion takes the existing Catalog-to-Template-Stage lock order and
+rejects while any retained Stage names that exact Context, whether or not Apply
+is confirmed. This keeps the Context authority and complete Home alive through
+the gap between pending-Plan discovery and canonical Apply; deletion becomes
+eligible only after Stage settlement.
+An unmaterialized Runtime task whose source authority has drifted is
+first marked `retiring` durably, then cleaned idempotently and marked `retired`;
+discovery completes an interrupted retirement before admitting another task.
+Cleanup removes transient resources first through bounded immutable-ID attempts
+and never guesses, retargets, or deletes a drifted Home. Unconfirmed transient
+removal is typed partial state. Context deletion remains the complete Home
+retirement boundary; Workspace deletion preserves it.
+Workspace entry acquires shared exact Context/Workspace-root attachment leases before
+runtime reconciliation and transfers them to the interactive session owner
+until `Close`. Configurator materialization and Context/Workspace retirement
+take those keys exclusively, so multiple Workspace borrowers may share one
+managed Home while direct-egress Configurator or retirement cannot overlap it.
+After Gateway/OPA and Workspace confirmation, `BeginFinalWorkspaceSession`
+also acquires one installation-wide shared session fence for that borrower and
+retains it through close. Gateway or cluster replacement takes the same global
+key exclusively. Acquiring the global shared fence only after settlement
+prevents entry from blocking its own no-live-session proof; the lifecycle fence
+closes the settlement-to-session gap.
+The root steady path treats authority as a candidate and invokes a current-only
+entry port. Under the ordinary leases, that port performs one coherent
+read-only Runtime/Workspace/protection preflight, deliberately excluding the
+volatile attachment registry whose admission is owned by the shared lease. It
+has no Runtime preparation, Docker reconciliation, or authority-publication
+capability. An exactly missing canonical standard Runtime image or coherent
+protection mismatch returns to the ordinary root readiness and
+cluster/Workspace recovery flow. Unknown image observation and recovery-journal
+residue fail closed; the current-only path leaves every recovery artifact
+byte-exact, and cleanup remains owned by the ordinary recovery flow. In that ordinary
+flow, Context entry takes the global session key exclusively before writing a
+durable repair decision. It holds that fence through Workspace runtime
+reconciliation, then releases it before Gateway settlement, which reacquires
+the same key for its own no-session proof. The surrounding lifecycle fence
+prevents another session from entering between those phases. A surviving
+borrower therefore blocks repair even after the canonical attachment owner has
+exited.
+Task assistance first reserves only identity metadata, then re-reads the
+exact selected Context, Project, Template revision, and Policy Memory revision
+under the catalog fence while acquiring that same attachment lease. It creates
+or updates managed Home material only after the lease is held, so deletion or a
+live Workspace cannot be crossed by a stale selection.
+
 Interactive session attachment is a separate, transient process state. The
 runtime adapter starts the work container with the infrastructure-owned
 `sleep infinity` lifetime process independently of the selected image `CMD`,
@@ -982,16 +1164,22 @@ paused state. Reference-bound `workspace delete` removes the logical
 Workspace; an attached exec makes ordinary deletion fail, and `--force` is the
 explicit host-side override of only that guard.
 
-Explicit standard `cluster up` validates configuration, obtains and preflights the
-Gateway image, locally ensures every required runtime image, builds and tests
-the complete all-Context policy projection, reconciles exactly one OPA and one
-Gateway, and
+Explicit standard `cluster up` validates configuration, locally materializes and
+tests the complete all-Context policy projection, obtains and preflights the
+exact Gateway image, and runs one bounded networkless probe that mounts every
+required host source read-only and verifies its exact file or directory type.
+Only a fresh task runs this probe, and it finishes before the final-authority
+store publishes the durable cluster decision; exact recovery of an existing
+decision bypasses preflight and resumes its journaled settlement. The mutation
+then locally ensures every required runtime image, reconciles exactly one OPA
+and one Gateway, and
 reconnects Gateway and OPA to their required shared networks plus Gateway to
 every existing registered project network. It completes
 only after OPA serves the exact aggregate revision and a defined decision
 document.
-Image preflight fails before the policy test, cluster journal, shared network,
-or service-container mutation. Local Tobari-managed image development uses
+Policy/image/bind preparation failure precedes the cluster decision, cluster
+journal, shared network, or named service-container mutation. Local
+Tobari-managed image development uses
 `task build` and the source-hash development resolver instead of a public
 cluster option.
 Policy testing uses the fixed bundle volume without weakening the later fresh-
@@ -1006,7 +1194,8 @@ The draft has no ID or persistence. Start and Customize both produce one
 complete reviewed Template body, then call the same final default-pair
 application boundary; neither CLI branch writes Template, default selection,
 Context, or Policy Memory directly. The boundary publishes the default
-Template, selects it, and creates the CWD Context under one final-authority lock.
+Template, selects it, creates one location-free Context, and then binds its
+Workspace to the canonical CWD under one final-authority lock.
 Confirmed publication is durable; later cluster or entry failure never rolls it
 back.
 
@@ -1045,6 +1234,18 @@ events projected by a line-oriented CLI renderer. It is process-local,
 non-authoritative, and cannot affect nested application results. The entry port
 emits only Workspace-prepared and handoff events because it owns those exact
 checkpoints; root owns readiness, desired resolution, and cluster checkpoints.
+Before constructing that progress journey for an existing Workspace, root may
+classify exact-current desired, active, and applied authority as a direct
+handoff candidate. One coherent read-only entry preflight must additionally
+prove live Runtime, Workspace, cluster receipt, and protection current. The
+current-only entry adapter runs that preflight with the exact resolution under
+its ordinary locks without any preparation or reconciliation
+authority. An exactly missing rebuildable canonical standard image and coherent
+protection drift keep the five-stage reconciliation path; pending journals and
+live uncertainty remain fail-closed and never become inferred readiness.
+Template policy and Policy Memory remain independent required receipts, but
+entry confirms both through one coherent live aggregate observation rather
+than repeating the same Gateway/OPA proof for each axis.
 The renderer applies bounded anti-flicker, elapsed, wait-reason, and heartbeat
 timers and accepts no Docker/BuildKit/child text as a state transition.
 
@@ -1100,6 +1301,15 @@ existing binding while the Gateway and Workspace guards are revalidated, then
 atomically refreshes the derived current endpoints. Any drift takes the slower
 path that closes the binding before a resource can change; interruption on that
 path leaves the source unregistered for explicit cluster reconciliation.
+Whole-projection Gateway settlement observes running Workspace principals from
+their live endpoints. For an exact stopped Workspace it instead admits only the
+already-published principal row from the prior active aggregate, after matching
+the stopped container ID/labels/spec, its configured static address, the owned
+network, the current Gateway attachment, and the owner-only registry row. The
+settlement brackets that observation with the same registry snapshot and never
+restarts the stopped Workspace. This closes stopped-ancestor nested creation
+without treating a missing, created, dead, drifted, or unregistered container
+as principal authority.
 Context and Workspace IDs are not trusted when echoed by a caller; Gateway
 derives both from the kernel-observed Workspace source endpoint and the exact
 host registry binding. Exact allow, deny, and reset
@@ -1146,9 +1356,18 @@ lock checks the exact typed identities again immediately before creation. A
 repeated or concurrent creation for one Context converges to one Workspace; a
 different Workspace Template may own a separate Context and Workspace at the
 same root.
-Parent/child roots may also overlap and run concurrently. Their host-file
-effects are intentionally shared; the architecture does not add overlays,
-checkout copies, root locks, or filesystem integrity isolation.
+Already-mounted parent/child roots may also overlap and run concurrently. Their
+host-file effects are intentionally shared; the architecture does not add
+overlays, checkout copies, or filesystem integrity isolation. Container
+materialization is narrower: under the installation project lock, the runtime
+enumerates and strictly inspects every owned work container immediately before
+starting an absent or stopped target. A live read-write strict ancestor blocks
+the descendant start with a typed precondition fault, because Docker records a
+source path at create and resolves it at start rather than retaining the
+host-selected inode. Same-root, descendant, read-only or stopped ancestor, and
+already-running exact target observations remain admissible. Foreign,
+malformed, duplicate, oversized, or contradictory Docker evidence fails
+closed, and Tobari does not pause a sibling as an implicit second mutation.
 
 ## Command catalog
 
@@ -1159,10 +1378,11 @@ though it has no argv path words. Handlers receive parsed inputs and call one
 application service. Root `tobari` declares a complete CWD-owned mutation
 impact; `workspace delete` is separately reference-bound to one discovered
 Workspace. `tobari` keeps its target fixed to the canonical CWD even when its
-selected Context root is an ancestor. `status` has a dedicated
-task-owned read port: it canonicalizes CWD, selects the nearest existing Context
-ProjectRoot without consulting the default Template, then applies the exact
-installation default within that root. Its one snapshot revalidates root and
+selected Workspace root is an ancestor. `status` has a dedicated
+task-owned read port: it canonicalizes CWD, selects the nearest existing
+Workspace ProjectRoot without inferring a Context from location, then resolves
+that Workspace's Context and applies the exact installation default within that
+root. Its one snapshot revalidates root and
 authority after bounded live observation; presentation performs no joins.
 `status` has no selector, mutation lock, recovery route, or sibling-handler
 call. The selected Workspace reference is its only produced reference.
@@ -1254,15 +1474,28 @@ combines those facts per output stream, keeping redirected and machine output
 free of ANSI styling. Cursor-control sequences used by bounded interactive
 selectors remain a separate terminal mechanism and do not define visual
 styles.
+The same layer owns lifecycle resource-card composition. Mutation renderers
+project command outcome, resulting resource state, one primary continuation,
+manual alternatives, and identity details as separate sections. Collection
+renderers project the typed exhaustive count and use a human task anchor before
+secondary canonical references. These renderers consume already-validated
+task results and do not derive identity, ownership, readiness, or relationships
+from their card structure.
 
 Human text is built in three independent stages. Task-owned typed results first
 select a `humanOutput` document containing headings, rows, sections, empty-state
 scope/bounds, and exact recovery. The style projection may then add only the
 six semantic ANSI tokens; it cannot select, remove, reorder, or rename document
-content. The terminal interaction state machine independently owns alternate-
-screen entry, home-and-clear repaint, redraw eligibility, and main-screen/
-cursor restoration. It never locates a prior frame by logical line count
-because one line may occupy multiple physical rows after terminal wrapping.
+content. The terminal interaction state machine independently owns terminal-size
+observation, wrapped physical-row measurement, pre-save region reservation,
+inline main-screen origin save/restore, below-origin repaint, redraw
+eligibility, explicit raw-mode CRLF, and fail-closed cursor restoration. It
+never enters DEC private mode 1049, clears scrollback, or locates a prior frame
+by logical line count because one line may occupy multiple physical rows after
+terminal wrapping. Stored dimensions fence every restore; resize, unknown-size
+output, and oversized frames use complete append-only rendering. Non-ASCII
+display width is conservatively over-budgeted. The
+final frame remains in terminal history.
 Its reader absorbs idle VTIME polls without returning a render event, while
 input, selection changes, completion, and cancellation remain observable state transitions. Catalog
 selection supplies bare-namespace normalization and deterministic typo

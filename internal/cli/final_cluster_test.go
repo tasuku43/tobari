@@ -51,6 +51,50 @@ func TestFinalClusterUpEmitsDeclaredResourceConflict(t *testing.T) {
 	}
 }
 
+func TestFinalClusterUpEmitsDeclaredGatewayBuildFault(t *testing.T) {
+	structured := fault.New(
+		fault.KindUnavailable,
+		"gateway_image_build_failed",
+		"The pinned Gateway image could not be built.",
+		false,
+		fault.NextAction{Command: "doctor", Reason: "Inspect Docker build support and network access for the pinned Gateway inputs."},
+	)
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.finalCluster = finalClusterErrorFixture{err: structured}
+	if code := command.RunContext(context.Background(), []string{"cluster", "up"}); code != ExitUnavailable {
+		t.Fatalf("cluster up exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "gateway_image_build_failed") || strings.Contains(stderr.String(), "undeclared_fault_contract") {
+		t.Fatalf("cluster up Gateway build fault=%q", stderr.String())
+	}
+}
+
+func TestFinalClusterUpEmitsDeclaredMutationRecoveryPrecondition(t *testing.T) {
+	structured := fault.WithClassification(fault.New(
+		fault.KindUnavailable,
+		"final_authority_mutation_recovery_required",
+		"A preserved final-authority mutation must be recovered through its exact initiating command before another mutation; do not remove authority files manually.",
+		false,
+		fault.NextAction{Command: "status", Reason: "Read the preserved decision and recover it through the exact initiating command."},
+	), fault.PhasePrecondition, fault.ChangeNone)
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.finalCluster = finalClusterErrorFixture{err: structured}
+	if code := command.RunContext(context.Background(), []string{"--error-format", "json", "cluster", "up"}); code != ExitUnavailable {
+		t.Fatalf("cluster up exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var document errorDocument
+	if err := json.Unmarshal(stderr.Bytes(), &document); err != nil {
+		t.Fatalf("decode cluster up recovery fault: %v; stderr=%q", err, stderr.String())
+	}
+	if document.Error.Code != "final_authority_mutation_recovery_required" ||
+		document.Error.Phase != fault.PhasePrecondition || document.Error.ChangeState != fault.ChangeNone ||
+		strings.Contains(stderr.String(), "undeclared_fault_contract") {
+		t.Fatalf("cluster up recovery fault=%+v stderr=%q", document.Error, stderr.String())
+	}
+}
+
 func TestFinalClusterUpPublicResultOwnsOnlyTheCatalogEnvelopeVersion(t *testing.T) {
 	encoded, err := finalClusterJSON("cluster up", "cluster_up", tobari.FinalClusterUpSchemaVersion, finalClusterUpPublicResult{
 		Task:     workspaceauthoritycmd.TaskClusterUp,

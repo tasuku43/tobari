@@ -7,6 +7,9 @@ cutover are fixed by
 [ADR 0083](decisions/0083-name-the-physical-host-loopback-authority.md).
 The public status-home trust boundary and zero-mutation observation contract are
 fixed by [ADR 0085](decisions/0085-make-status-the-cwd-home.md).
+The task-scoped non-Workspace Configurator, its direct-egress/complete-managed-
+Home trade-off, copied evidence, and frozen submission are fixed by
+[ADR 0090](decisions/0090-agent-guided-configurator-first-use.md).
 
 `status` reads one exact CWD-selected scope through non-creating observation
 seams. It never creates or acquires a mutation lock, initializes state, repairs
@@ -36,6 +39,36 @@ research Broker surface instead gives a Workspace an opaque
 Context/Workspace-bound handle and retains its Context-owned credential in an encrypted vault.
 Every supported HTTP/HTTPS request is normalized, authorized by OPA, and
 enforced by the shared Gateway before forwarding.
+
+Configurator is a deliberate task-scoped editing exception to the Workspace
+direct-egress objective. It may reach the Internet only under its separate exact container
+role and receives no Project, host Home, unrelated task Home, active authority,
+writable Policy Memory, Docker socket, host network, or arbitrary host
+executor. Its only writable persistent data mount is one complete managed Home:
+Context-scoped for explicit policy assistance and installation-agent-scoped for
+Runtime assistance. Copied evidence and one task working source inside it
+grant no authority. Its sole live host cooperation is the binary-owned
+read-only native-login opener and existing bounded schema-v1 control stream.
+The host accepts only the selected Codex or Claude Code authorization contract.
+It resolves the exact Runtime revision under the lifecycle/store fence and
+passes only the resulting immutable image ID to Docker. It creates the container disconnected, captures Docker's immutable resource
+IDs, atomically proves the complete closed role before attaching the dedicated
+network, including Docker's actual container `.Image`, and uses only those IDs afterward. It revalidates that same owned
+Configurator immediately before host-browser opening and after callback accept
+but before relay, and relays an opaque callback only for the reviewed Codex
+localhost shape. A ready Docker control process or host relay loop that exits
+while the agent remains attached cancels the agent. Clean transient cleanup
+returns the catalog-declared confirmed retained-material outcome; failed
+bounded immutable-ID cleanup returns a distinct partial cleanup outcome.
+Absence of the required channel capability fails before Runtime image
+preparation or any Docker mutation. The channel cannot invoke an
+arbitrary URL, command, file, or Docker operation. After container exit the host
+freezes a typed submission and alone publishes Runtime source or stages policy
+through canonical Template Apply.
+Before Runtime or draft mutation, the selected agent passes through a separate
+Tobari-owned handoff confirmation that names this direct-egress boundary and
+predicts the agent's native interface as container execution rather than host
+execution. Agent-controlled output cannot render or satisfy that confirmation.
 
 Every interactive attachment exposes the constant physical-host loopback HTTP
 capability at exact `host.tobari.internal`, but that ambient existence grants
@@ -109,9 +142,16 @@ Trusted components are the host OS and user, Docker Engine or its Linux VM,
 Tobari CLI, Gateway, OPA, and the fixed Tobari evaluator bundle. The research surface additionally
 trusts its reviewed provider drivers, Auth Broker, root-key provider, owner
 manifests, and encrypted Context vaults. Every Workspace and
-process in it, coding agents, project files, Workspace home, copied opaque
+process in it, every Configurator and process in it, coding agents, project
+files, assistance drafts, managed Home, copied evidence, copied opaque
 handles, generated code, downloaded packages, request data, upstream responses,
 and user/provider text displayed by CLIs are untrusted.
+
+The host Configurator controller is trusted only for the closed topology,
+mount, state-owner, freeze, base-revalidation, and final-review contracts. The selected
+agent is never trusted to describe its own authority, approve an import/build/
+Apply, choose a host target, or classify its output. The fixed launch banner and
+final semantic review derive exclusively from validated host/domain facts.
 
 The host owns each stable Workspace Template and its complete immutable desired
 revisions. WorkspaceTemplateID plus semantic digest is authority; name and
@@ -228,6 +268,11 @@ packet filter is changed.
 - Workspace-owned authentication state and broker handles inside a Workspace home
   or environment, plus brokered static/renewable credential records in
   encrypted Context vaults and the installation root key.
+- One Context-owned complete managed Home and its isolation from other
+  Contexts, host authentication,
+  Configurator output, logs, and cleanup mistakes.
+- Non-authoritative task drafts and the guarantee that persistence, direct
+  egress, copied evidence, labels, or agent prose cannot activate them.
 - OPA policy, decision API, and Gateway management surface.
 - Denial of direct Internet connectivity.
 - Integrity of request normalization, policy decisions, and audit records.
@@ -243,9 +288,15 @@ source bind denies create/change/delete and Git metadata writes through that
 bind while preserving reads and writable Workspace home/tmpfs. It is a live
 bind, not a snapshot: host writes and same-root read-write Workspace Template changes may
 be observed, and no writable alias of the source is allowed. Same-root and
-parent/child-root Tobari intentionally observe each other's overlapping host
-file changes, even across Workspace Templates; Tobari does not provide filesystem integrity
-isolation for those files. Docker or kernel
+already-mounted parent/child-root Tobari intentionally observe each other's
+overlapping host file changes, even across Workspace Templates; Tobari does not
+provide filesystem integrity isolation for those files. That exclusion does
+not permit a mount-resolution confused deputy. Immediately before starting a
+new or stopped Workspace, the installation project lock protects a strict
+Docker observation: any live read-write strict ancestor rejects descendant
+materialization, while foreign, malformed, ambiguous, or unbounded evidence
+fails closed. This prevents an untrusted ancestor from exchanging the child
+path during Docker start and exposing a root that was never selected. Docker or kernel
 compromise, VM/container escape, allowed-destination exfiltration, the
 installation-wide baseline policy, semantic authorization of non-HTTP
 protocols, covert channels,
@@ -285,6 +336,30 @@ Those ceilings bound shared-service exhaustion but do not provide per-project
 fairness inside one shared Gateway, OPA, or Auth Broker.
 Tobari uses a non-root work user mapped to the invoking UID/GID where Docker
 supports it.
+Configurator uses a distinct non-root container specification with the same
+class of fixed CPU, memory-plus-swap, PID, log, and lifetime bounds. It drops
+all capabilities, uses neither privileged nor host networking, receives a
+read-only root plus bounded tmpfs, and joins only its dedicated ordinary-egress
+network. Its writable bind-mount allowlist contains exactly one complete managed Home;
+the only additional bind projections are two read-only paths to the same exact
+binary-owned native-login opener. Task guidance, exact observed evidence, and
+one target working source are copied below the Home. Tests reject Project,
+host/other-Context Home, XDG authority/state roots, Policy Memory, Docker sockets,
+SSH agents, arbitrary paths, extra networks, or a caller-selected command.
+Workspace reconciliation acquires shared Context/Workspace-root attachment leases and
+retains them through interactive-session close. Configurator materialization
+and ordinary Home retirement acquire the same keys exclusively, so several
+exact Workspace borrowers may share one managed Home but Configurator and
+retirement cannot overlap any of them. Each live borrower separately retains
+an installation-wide shared session fence; Gateway or cluster replacement
+requires its exclusive form. That global fence is acquired only after
+settlement succeeds, avoiding self-conflict while the lifecycle fence prevents
+a new session from crossing the handoff gap.
+An exact-current runtime mismatch takes the global key exclusively before any
+repair decision or Docker/filesystem mutation and releases it before Gateway
+settlement; the enclosing lifecycle fence prevents a new borrower in that
+interval. Thus owner-registry removal cannot make a still-live borrower
+invisible to runtime repair.
 The attached native-login bridge changes none of those runtime settings. After
 bounded provider-specific semantic URL recognition it first verifies one
 label-owned selected Workspace. A callback-bearing target then binds a host
@@ -315,7 +390,15 @@ mounted from the host; the root uses immutable Workspace Template-selected read-
 read-write access while the home stays writable. The project-root resolver rejects filesystem root, the user's
 home and its ancestors, and paths overlapping XDG configuration, state, or
 shared-profile management directories, Docker sockets, and Docker management
-paths. For a project below the host home, the selected root may be nested below
+paths. Docker bind sources reject delimiter/control bytes; the selected root is
+re-resolved immediately before create or start, and a post-create drift removes
+the unstarted container. Tobari's XDG management roots are canonicalized through
+existing ancestors and reject dangling management symlinks before any derived
+bind source is published. Before the fresh shared-cluster durable decision, a
+networkless, read-only, capability-free probe using the exact resolved Gateway
+image proves that every required source is visible to the selected Docker
+context with the expected file or directory type. Failure creates no cluster
+decision or named cluster resource. For a project below the host home, the selected root may be nested below
 the container home path `/var/lib/tobari`, but the host home itself is never
 mounted. A bind mount masks image-layer contents at its destination without
 deleting them; runtime compatibility therefore keeps executable and package
@@ -360,6 +443,13 @@ metadata, encrypted vaults, root keys, secret files, the host home, Docker
 sockets, and Workspace mounts are outside it. The generated image must pass the
 same compatibility inspection before history append. Editing source or a
 failed build cannot replace a Workspace Template Runtime binding. After an
+image build, restore, or interrupted-building recovery, Tobari first resolves
+the owned image digest and performs the timeout- and byte-bounded API/user/
+entrypoint/volume inspection through that immutable digest. Existing-revision
+no-change and every publication-recovery phase repeat the same immutable check;
+mutable staging and final tags are never compatibility authority. A failed
+post-build check retains explicit partial recovery authority, while a fully
+rolled-back no-change drift reports no mutation. After an
 explicit planned Template Apply selecting another exact Runtime revision succeeds, only Contexts bound to that
 Template resolve it, and only their Workspaces observe it through the next
 trusted entry reconciliation.
@@ -419,7 +509,10 @@ Entry may build only the source-addressed image for the exact canonical
 `builtin/standard` binding already selected by final Template authority. Build
 inputs are the embedded, pinned, byte-checked Runtime and helper-source closure;
 project data, environment selectors, and arbitrary image names cannot widen
-that mutation. A custom Runtime must already have explicit authoritative
+that mutation. A historical standard binding may reuse only its exact existing
+`base-<source-id>` image after the binding revision and image contract are
+verified; it is never rebuilt from current source or aliased to the current
+standard image. A custom Runtime must already have explicit authoritative
 material and is never implicitly built by entry.
 
 Project runtime readiness is an explicit healthcheck boundary. Enter waits for
@@ -446,6 +539,12 @@ service; the public CA named volume is written by Gateway and mounted
 read-only into each Workspace. Gateway opens no root entrypoint and receives no
 added capability. Host credential files remain owner-only read-only binds, and
 Docker Desktop-specific behavior is outside the current macOS release contract.
+Image compatibility is observed through bounded narrow Docker metadata before
+container creation. Unreviewed image-declared volumes are rejected so Docker
+cannot allocate an anonymous writable volume outside the Compose closure;
+Gateway's one inherited CA destination is accepted only because exact tmpfs
+shadowing is part of that closure. The observed immutable image ID, rather than
+the mutable selector, is passed to container creation and recovery.
 
 The OPA builder never receives an owner-only host policy bind. Tobari reads the
 tested `0700`/`0600` aggregate as its invoking host identity, writes one
@@ -461,6 +560,8 @@ image path cannot replace that authority in a normal binary. The writable Contex
 mount, Gateway-visible runtime-socket mount, private control tmpfs,
 and provider projection are distinct paths. The image contains no provider CLI,
 credential, provider configuration, handle, root key, or vault.
+Its image contract is volume-free; the same rule applies to OPA, managed
+Runtimes, and the Workspace-helper extraction image.
 
 The canonical Gateway source declares API V1. Its label makes guarded
 transparent routing and schema-1 source-principal binding fail closed against a
@@ -744,9 +845,9 @@ writes nothing, cancellation discards the set, wildcard creation is impossible,
 and redirected or machine-readable review is read-only. The release command
 has no watch or terminal-notification input. Manual refresh crosses the bounded
 read boundary again only after discarding the staged map; stale and same-label
-replacement IDs remain undecided. The alternate-screen presentation closes
-before confirmed mutation and raw input restoration remains paired at every
-selector boundary. Confirmed Apply returns an authoritative active revision
+replacement IDs remain undecided. The inline selector restores raw input and
+the visible cursor before confirmed mutation, leaves its final review in
+main-screen history, and never enters alternate screen. Confirmed Apply returns an authoritative active revision
 and exact typed receipt, after which the original running Workspace may issue a
 new request. Neither Workspace nor OPA is recreated by this activation.
 
@@ -830,9 +931,11 @@ over method Allow.
 ## Credentials
 
 The standard `passthrough` adapter is the only credential route. Standard has
-no normalized provider projection or declared provider binding. It uses
-tool-owned authentication state created below the selected Workspace's
-`HOME=/var/lib/tobari`; a Workspace Template does not contain or copy this state. It redacts client
+no normalized provider projection or declared provider binding. Runtime tools
+use native state in the complete managed Home owned by the Context and mounted
+only into that Context's Configurator and Workspace. A Workspace Template does
+not contain or copy that state. Tobari never parses, renders, exports, merges, or logs
+credential bytes. Gateway redacts client
 authentication and cookie values from OPA input and audit, preserves them until
 policy allow, then forwards them upstream. It strips proxy and Tobari control
 headers and never reads broker vaults. The host-owned
@@ -842,6 +945,14 @@ endpoint, and Gateway endpoint. Gateway derives the transparent-ingress
 principal from the kernel-observed source endpoint; duplicate, missing, stale,
 and ambiguous bindings fail before OPA. Its dedicated directory is mounted
 read-only into Gateway; broker state is not included in that mount.
+During a whole-projection update, an exited Workspace has no live source
+endpoint and cannot create traffic. Tobari retains its prior binding only when
+the prior signed aggregate row, current owner-only registry row, exact stopped
+container identity/spec, configured static address, owned network, and live
+Gateway attachment all agree. A created, dead, running-unhealthy, relabeled,
+retargeted, or registry-drifted container is not adopted. This narrow retention
+does not authorize a new endpoint; ordinary re-entry must revalidate the live
+container before any attached process starts.
 
 In standard passthrough, `Authorization`, `X-API-Key`, cookies, and other client
 authentication are forwarded only after allow; `Proxy-Authorization` and
@@ -1050,11 +1161,11 @@ collected.
   `template apply --plan <template-change-plan-ref>`.
   Granular shell, Git, bootstrap, and Runtime setters are not authority paths.
   Apply publishes one complete immutable revision and never mutates a running
-  Workspace. The sole reserved additional writer is later explicit reviewed
-  Policy Memory promotion, limited to static `policy.yaml` content with exact
-  source/active/Memory fencing and provenance.
+  Workspace. `policy assist` is an explicit reviewed static-policy authoring
+  path limited to `policy.yaml`, with exact source/active/Memory fencing; it
+  reads but never mutates Context Policy Memory.
 - `context create --template <template-ref>` writes one unpublished source
-  draft for canonical CWD and an exact active Template. Context Plan/Apply
+  draft bound only to an exact active Template. Context Plan/Apply
   activates the immutable identity and initializes empty Policy Memory without
   Docker reconciliation.
 - `context enter --id <context-ref>` and bare root are the only Workspace
@@ -1079,6 +1190,19 @@ preserves confirmed/unknown outcome classification and exits 130. After
 handoff, the child owns stdin/stdout/stderr and exit status. Cleanup uses a
 separate bounded context; its diagnostic cannot replace child status or grant
 automatic retry.
+
+Task assistance uses the same causal rule at its publication boundary. The
+exact frozen submission is durably Apply-confirmed before canonical mutation;
+post-publication task-receipt settlement runs with a bounded context detached
+from caller cancellation. Settlement failure is a confirmed publication fault,
+never a no-change or retry-safe result. Runtime digest and policy Template/Stage
+verification occur in infrastructure under their respective writer fences.
+The detached context is created and validated before the mutation Invoker is
+entered, so cancellation between publication proof and Invoker admission cannot
+reclassify confirmed publication as a precondition no-change outcome.
+Context deletion also reads the exact task Stage under the Catalog-to-Stage
+fence and rejects while that Stage names the Context. A pending policy Apply
+therefore cannot outlive the authority or Home against which it was reviewed.
 
 ### Runtime and shared protection mutations
 
@@ -1285,19 +1409,22 @@ treats a failed read as no candidates, never as shell source or authority.
 | Shell completion cannot become startup mutation, command-registry drift, or structural injection | Public read-only completion commands, catalog-owned typed sources, narrow validated Workspace Template/Runtime read port, fresh-XDG zero-write canary, bounded request/output tests, hostile TSV candidate rejection, and a static adapter with no embedded registry |
 | Operator Console cannot become remote control or alternate policy authority | TCP4 `127.0.0.1:0` binding, exact peer/Host/Origin/bearer/method/path/content-type checks, fragment-to-sessionStorage bootstrap, no cookies/external assets, CSP/no-store headers, bounded strict bodies/timeouts, cancellation shutdown, inert staging, and one canonical reviewed-apply delegation with zero automatic retries |
 | No direct Workspace egress | Per-Workspace internal topology, forwarding-off sysctls, forward-drop and namespace-guard inspection, Gateway raw-protocol/UDP/QUIC call-count tests, and Docker integration canaries for raw TCP, control-API reachability, and Gateway/OPA outage paths |
+| Configurator direct egress cannot become a Workspace bypass or host-data exfiltration path | Explicit Runtime or Context task selection, lifecycle/store-fenced execution Runtime resolution to an immutable image ID, immutable-ID-only create plus actual container `.Image` verification, disconnected create, immutable Docker container/network IDs, required browser-control capability before Docker mutation, one atomic full-role inspection before network attach, ID-bound start/exec/cleanup, exact non-Workspace role/network, non-root/read-only/capability-free bounded spec, exactly one task-owned Home data bind, selected-agent-only native-login targets, Runtime/Context-scoped Configurator leases retained through session close, per-borrower global session fences, absence canaries for Project/host/unrelated Home/authority/Docker socket/SSH agent, and zero target-Runtime-selected topology widening |
+| Mutable Home or canonical desired-source races cannot change reviewed task output | Container exit before freeze, closed task source parsing, content-addressed immutable submission, Runtime target base-digest CAS, policy non-target equality validation, one-Context Stage receipt, final-confirmation-gated exact Template Plan/fingerprint Apply, host-only canonical publication, and zero post-review Home reread |
+| Task assistance cannot mutate aggregate authority | No public aggregate `configure`, fresh root never starts Configurator, Runtime assistance publishes no Runtime revision or Template, policy assistance mutates no Policy Memory or non-policy Template field, and pre-release aggregate receipts are ignored rather than adopted |
 | Transparent denial performs no pre-policy external I/O | Non-recursive synthetic DNS tests plus Gateway DNS/resolver/upstream call-count canaries for denied, malformed, raw TCP, non-HTTP TLS, UDP, and QUIC traffic |
 | A network guard cannot expand into a persistent privileged service | Exact fixed helper argv, verified namespace ownership, read-only/no-mount/no-secret/no-Docker-socket assertions, sole `NET_ADMIN` capability, and guard-before-entry ordering tests |
 | A Workspace cannot access OPA or peers | Separate internal networks and integration test |
 | Runtime network drift cannot be reported as ready | Read-only exact shared-network membership and registered live endpoint comparisons, disconnected Gateway/OPA/Workspace fixtures, root ready-check reconciliation, and Docker interruption observations |
 | OPA outage denies | Gateway unit and integration tests |
-| Host-managed secrets stay outside Tobari; tool-owned state stays in its home | Mount-spec tests and integration canaries |
+| Host-managed secrets stay outside Tobari; native tool state stays in its exact owner | Mount-spec tests, Context Home Workspace/Configurator exclusion and deletion tests, Workspace-preserves-Home canaries, and secret-free logs/output |
 | Brokered primary secrets stay outside every Workspace and OPA | Socket/mount topology tests, encrypted-vault tests, Gateway canaries, and integration log/output scans |
 | Broker handles cannot cross Context, Workspace, provider, revision, or HTTP binding | Broker introspect/resolve negative tests, principal-derived Gateway calls, rotation/logout tests, and cross-Workspace integration |
 | Policy denial cannot perform a brokered secret action | Gateway call-count and ordering tests proving zero resolve/refresh/companion/signing calls before or on deny and exactly one reviewed action after allow |
 | The broker restarts locked and cannot silently replace a missing root key | Restart/unlock tests, Keychain/XDG provider tests, and missing-key-with-vault rejection |
 | Provider manifests cannot become executable or ambiguous authority | Strict schema/collision/path/header tests, owner-only XDG loading, and built-in override rejection |
 | Provider login cannot turn visible text into arbitrary browser execution | Conventional non-project executable selection, identity/digest recheck, fixed argv/environment, bounded browser/PTY projection, checked cleanup, cancellation, and provider-specific negative tests |
-| Native Workspace login cannot become generic host ingress or browser authority | One fresh compile-time registry with exact driver-ID/callback-mode coverage and malformed/ambiguous-definition canaries; a shared closed query-field schema with invalid-definition, requiredness, singleton-cardinality, unknown-field, and validator-dispatch tests; closed Claude Code/Codex/GitHub CLI/AWS CLI/TWG/pup semantic URL-schema tests with exact mandatory fields, individually reviewed optional selectors, exact OAuth clients or bounded DCR IDs, reviewed scope ceilings, callback shapes, and state bounds; AWS commercial-region/default-scope/partition canaries; complete pup 1.10.7 scope-ceiling, optional UUID-shaped `dd_oid`, and four-port canaries; one binary-owned read-only opener; exact `BROWSER`/`GH_BROWSER`/`xdg-open` projection; dedicated schema-v1 Unix-socket and non-TTY Docker exec protocol tests; duplicate-key, unknown-field, malformed-version, oversized-target, replay-budget, neighboring-target, and ownership canaries; zero-listener device/remote-callback opens; dynamic non-privileged host-loopback-only one-shot callback relay; opaque callback canaries; port-collision failure; direct Docker terminal ownership; and session cleanup |
+| Native Workspace login cannot become generic host ingress or browser authority | One label-owned work-container name resolved once to an immutable ID shared by permission/browser/service/child exec; one fresh compile-time registry with exact driver-ID/callback-mode coverage and malformed/ambiguous-definition canaries; a shared closed query-field schema with invalid-definition, requiredness, singleton-cardinality, unknown-field, and validator-dispatch tests; closed Claude Code/Codex/GitHub CLI/AWS CLI/TWG/pup semantic URL-schema tests with exact mandatory fields, individually reviewed optional selectors, exact OAuth clients or bounded DCR IDs, reviewed scope ceilings, callback shapes, and state bounds; AWS commercial-region/default-scope/partition canaries; complete pup 1.10.7 scope-ceiling, optional UUID-shaped `dd_oid`, and four-port canaries; one binary-owned read-only opener; exact `BROWSER`/`GH_BROWSER`/`xdg-open` projection; dedicated schema-v1 Unix-socket and non-TTY Docker exec protocol tests; duplicate-key, unknown-field, malformed-version, oversized-target, replay-budget, neighboring-target, and ownership canaries; zero-listener device/remote-callback opens; dynamic non-privileged host-loopback-only one-shot callback relay; opaque callback canaries; port-collision failure; direct Docker terminal ownership; and session cleanup |
 | Attached child input remains transparent | Direct Docker stream ownership; Unix PTY delayed-input, literal `0x1d`, resize, exact-status, writer-failure, and restoration tests; root-help no-shortcut canary; catalog absence for same-terminal host review; and separate Permission Inbox PTY ownership |
 | Unsupported credential mechanisms cannot remain dormant | Catalog/state/dependency/image-content tests reject managed profiles, owner-selected dynamic plans, arbitrary helpers, compatibility readers, and provider CLIs inside Broker |
 | Agent-ready tools retain reviewed identity without Tobari redistribution | Base-runtime locks/checks for GitHub CLI, AWS CLI, Claude Code, and Codex; version smokes outside Workspace home; local missing-image build tests; workflow and release canaries reject every base registry write/login/push path |
@@ -1308,7 +1435,7 @@ treats a failed read as no candidates, never as shell source or authority.
 | Doctor observes but never repairs authentication state | Fixed-DAG dependency fixtures, recording-runner Docker-argv allowlists, fresh/unsupported-tree content snapshots, and filesystem canaries for provider, root-key, vault, broker, and project-binding diagnostics |
 | Only owned Docker resources are removed | Label validation and fake-runner tests |
 | Attached sessions are not removed accidentally | Exact work-container Exec ID observation, guard-before-delete tests, and explicit force-override tests |
-| Each root and XDG home are its Tobari's only host write scopes | Mount-spec and path-containment tests |
+| Each root and XDG home are its Tobari's only host write scopes | Canonical-root, mount-encoding, dangling-symlink, immediate pre-effect drift, remote-context visibility/type, mount-spec, and path-containment tests |
 | Ambiguous CWD selection cannot mutate before a valid choice | Typed candidate snapshot, locked stale-choice revalidation, and zero-call cancellation tests |
 | One Workspace cannot consume unbounded CPU, memory, PIDs, or container logs | Fixed create-argv and spec-hash tests plus runtime HostConfig assertions |
 | A custom image cannot expand its runtime specification | Compatibility inspection, fixed create-argv tests, and integration test |
@@ -1328,7 +1455,7 @@ treats a failed read as no candidates, never as shell source or authority.
 | Workspace Template changes cannot mutate existing Context or Workspace authority | Immutable Context binding, permanent Workspace-to-Context binding, desired-versus-AppliedEntry tests, and explicit-entry reconciliation |
 | Source access is exact and not a snapshot claim | Runtime spec/hash and Docker inspect tests, read-only mutation/Git-metadata failures, writable home/tmpfs canaries, no writable alias, and same-root host/read-write observation tests |
 | Workspace Template policy ceilings cannot be bypassed | Default-plus-override method-decision tests plus destination/method terminal zero-candidate/DNS/Broker/upstream canaries and exact-Deny precedence above broad Allow, baseline, and learned policy |
-| Overlapping roots are not misrepresented as isolated | Product contract, Workspace Template-selected direct mounts, same-root/parent-child integration canaries, and absence of overlay/root-lock paths |
+| Overlapping roots cannot exchange a descendant mount source | Workspace Template-selected direct mounts, project-lock-scoped exact owned-container observations, live-RW-strict-ancestor rejection, RO/stopped/same-root/descendant/already-running allowances, malformed/ambiguous evidence fail-closed tests, unstarted-target cleanup, and same-root/parent-child live-file canaries |
 | Gateway does not retain allowed streaming bodies | Header-hook ordering unit tests plus incremental chunked-request and SSE-response integration canaries |
 | Declared oversized bodies retain the transport bound | Fixed mitmproxy body-size asset test, over-limit `Content-Length` integration request, incremental unknown-length transport-cap evidence, and complete-body semantic-cap tests |
 | GraphQL identity cannot collapse into one HTTP route grant | Trusted exact-endpoint projection, bounded parser fixtures, OPA all-roots matching, HTTP-rule non-matching canaries, GraphQL-aware opaque-reference round trips, and zero-upstream integration tests |

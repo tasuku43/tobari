@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tasuku43/tobari/internal/app/runtimecmd"
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
@@ -125,6 +126,21 @@ func TestRuntimePruneCatalogClosesReviewedReferenceWorkflow(t *testing.T) {
 	confirm, found := commandInput(apply.Agent.Inputs, "--confirm")
 	if !found || !confirm.Required || !reflect.DeepEqual(confirm.AllowedValues, []string{"prune"}) || confirm.ReferenceKind != "" {
 		t.Fatalf("apply confirmation contract = %+v, found=%t", confirm, found)
+	}
+	for code, want := range map[string]struct {
+		phase  fault.Phase
+		change fault.ChangeState
+	}{
+		"runtime_retirement_observation_unknown":      {phase: fault.PhaseObservation, change: fault.ChangeNotApplicable},
+		"runtime_prune_interrupted":                   {phase: fault.PhaseMutation, change: fault.ChangePartial},
+		"invalid_runtime_retirement_result_partial":   {phase: fault.PhaseVerification, change: fault.ChangePartial},
+		"invalid_runtime_retirement_result_confirmed": {phase: fault.PhaseVerification, change: fault.ChangeConfirmed},
+		"output_encoding_failed":                      {phase: fault.PhasePresentation, change: fault.ChangeConfirmed},
+	} {
+		declared := commandErrorByCode(t, apply.Agent.Errors, code)
+		if declared.Phase != want.phase || declared.ChangeState != want.change {
+			t.Fatalf("%s = phase:%q change:%q, want %q/%q", code, declared.Phase, declared.ChangeState, want.phase, want.change)
+		}
 	}
 }
 

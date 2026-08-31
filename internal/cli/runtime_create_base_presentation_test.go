@@ -17,7 +17,7 @@ import (
 
 const (
 	runtimeCreateBaseFixtureSHA256 = "8d77153c950b130d13c94a1895c747f650b9de0882939d60a589609a47e9fc0c"
-	runtimeCreateBaseAnswerSHA256  = "d565f85b7473100f1b4f33169f530bf28b2df1a79a2c7d0aab53e351410abc17"
+	runtimeCreateBaseAnswerSHA256  = "34e55b105c18e8efb9b94c5bd74bba9732e1f60889ea61ea4fe495e9358d1ecb"
 )
 
 type runtimeCreateBaseFixture struct {
@@ -99,7 +99,7 @@ func TestRuntimeCreateBasePinnedPresentationHasNoLineageInference(t *testing.T) 
 		t.Fatal(err)
 	}
 	expectedAfter := []byte(expectedSurfaceText(string(after)))
-	if !slices.Equal(got, expectedAfter) || !slices.Equal(before, after) {
+	if !slices.Equal(got, expectedAfter) || slices.Equal(before, after) {
 		t.Fatalf("Runtime create summary changed\n--- got ---\n%s--- after ---\n%s--- before ---\n%s", got, after, before)
 	}
 	for _, fact := range answer.RequiredFacts {

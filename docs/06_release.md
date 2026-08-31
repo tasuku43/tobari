@@ -244,7 +244,7 @@ task public:check
 task policy:test
 task gateway:test
 TOBARI_INTEGRATION_DOCKER_CONTEXT=<isolated-context> task first-use:test
-task runtime:release
+TOBARI_INTEGRATION_DOCKER_CONTEXT=<isolated-context> task runtime:release
 ```
 
 CI closes the same `task runtime:release` aggregate through parallel

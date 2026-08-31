@@ -926,13 +926,17 @@ func (j migrationJournal) Validate(finalRoot, transactionRoot string) error {
 	for _, record := range j.Collection.Contexts {
 		contexts[record.Context.ID] = record.Context
 	}
+	workspaceRoots := make(map[tobari.ContextID]string, len(j.Collection.Workspaces))
+	for _, workspace := range j.Collection.Workspaces {
+		workspaceRoots[workspace.ContextID] = workspace.ProjectRoot
+	}
 	seen := make(map[tobari.ContextID]struct{}, len(j.ContextAssignments))
 	for _, assignment := range j.ContextAssignments {
 		if err := assignment.Validate(); err != nil {
 			return err
 		}
 		binding, exists := contexts[assignment.ContextID]
-		if !exists || binding.ProjectRoot != assignment.ProjectRoot || string(binding.TemplateID) != assignment.PredecessorManifestID {
+		if !exists || workspaceRoots[assignment.ContextID] != assignment.ProjectRoot || string(binding.TemplateID) != assignment.PredecessorManifestID {
 			return fmt.Errorf("journaled Context assignment crosses final authority")
 		}
 		if _, duplicate := seen[assignment.ContextID]; duplicate {

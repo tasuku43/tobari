@@ -32,6 +32,11 @@ func finalClusterUpSpec() CommandSpec {
 
 func finalClusterUpErrors() []CommandError {
 	errors := []CommandError{
+		classifiedCommandError(fault.KindNotFound, "authority_not_found", false, fault.PhasePrecondition, fault.ChangeNone, "tobari", "Initialize final authority through the canonical first-use flow."),
+		classifiedCommandError(fault.KindUnavailable, "gateway_image_build_failed", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect Docker build support and network access for the pinned Gateway inputs."),
+		classifiedCommandError(fault.KindUnavailable, "gateway_image_unavailable", true, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect Docker and registry access."),
+		classifiedCommandError(fault.KindUnavailable, "cluster_component_image_unavailable", true, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect Docker and the pinned shared-component image before retrying."),
+		classifiedCommandError(fault.KindContract, "gateway_image_incompatible", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect the installed Gateway image contract."),
 		classifiedCommandError(fault.KindContract, "invalid_cluster_reconciliation_result", false, fault.PhaseVerification, fault.ChangeUnknown, "cluster status", "Inspect final authority and component state."),
 		classifiedCommandError(fault.KindUnavailable, "cluster_start_failed", false, fault.PhaseMutation, fault.ChangeUnknown, "cluster status", "Reconcile partial Docker state before another startup."),
 		declaredCommandError(fault.KindRejected, "legacy_state_present", false, "doctor", "Reset or recreate this pre-release installation before initializing final authority."),
@@ -58,7 +63,7 @@ func finalClusterUpErrors() []CommandError {
 			declaredCommandError(fault.KindRejected, "ambiguous_provider_http_binding", false, "doctor", "Remove the overlapping exact provider HTTP binding."),
 		)
 	}
-	return append(mutationCommandErrors("cluster up", "cluster status", errors...), declaredCommandError(fault.KindUnavailable, "final_authority_mutation_recovery_required", false, "status", "Read and recover the preserved final-authority decision through the exact initiating command; do not remove authority files manually."))
+	return append(mutationCommandErrors("cluster up", "cluster status", errors...), classifiedCommandError(fault.KindUnavailable, "final_authority_mutation_recovery_required", false, fault.PhasePrecondition, fault.ChangeNone, "status", "Read and recover the preserved final-authority decision through the exact initiating command; do not remove authority files manually."))
 }
 
 func finalClusterStatusSpec() CommandSpec {
@@ -97,11 +102,12 @@ func finalClusterDownSpec() CommandSpec {
 			},
 			FixedTarget: fixedClusterTarget(),
 			Errors: append(mutationCommandErrors("cluster down", "cluster status",
+				classifiedCommandError(fault.KindNotFound, "authority_not_found", false, fault.PhasePrecondition, fault.ChangeNone, "tobari", "Initialize final authority through the canonical first-use flow."),
 				declaredCommandError(fault.KindRejected, "cluster_not_empty", false, "workspace list", "Delete every final Workspace explicitly."),
 				declaredCommandError(fault.KindUnavailable, "cluster_reconcile_interrupted", false, "cluster status", "Inspect the retained final lifecycle decision."),
 				declaredCommandError(fault.KindContract, "invalid_cluster_down_result", false, "cluster status", "Inspect the final stopped consequence."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the final cluster lifecycle adapter."),
-			), declaredCommandError(fault.KindUnavailable, "final_authority_mutation_recovery_required", false, "status", "Read and recover the preserved final-authority decision through the exact initiating command; do not remove authority files manually.")),
+			), classifiedCommandError(fault.KindUnavailable, "final_authority_mutation_recovery_required", false, fault.PhasePrecondition, fault.ChangeNone, "status", "Read and recover the preserved final-authority decision through the exact initiating command; do not remove authority files manually.")),
 			Mutation: &MutationContract{
 				TargetKind: tobari.ClusterTargetKind, TargetInputs: []string{},
 				Impact: operation.Impact{Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationYes},

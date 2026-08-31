@@ -460,7 +460,7 @@ func newPolicyMemoryReviewItem(_ WorkspaceAuthorityCollection, id, match string,
 	if !found || !workspaceFound {
 		return PolicyMemoryReviewItem{}, fmt.Errorf("Permission Inbox owner is missing")
 	}
-	item := PolicyMemoryReviewItem{ID: id, Match: match, Context: template.Name, Template: template.Name, ProjectRoot: contextRecord.Context.ProjectRoot, ObservingWorkspace: workspace.ProjectRoot, ContextID: contextRecord.Context.ID, TemplateID: template.ID, ObservingWorkspaceID: workspace.ID, Rule: rule.Clone(), Candidates: clonePolicyCandidateAuthorities(candidates), SourceRules: clonePolicyMemoryRules(sourceRules)}
+	item := PolicyMemoryReviewItem{ID: id, Match: match, Context: template.Name, Template: template.Name, ProjectRoot: workspace.ProjectRoot, ObservingWorkspace: workspace.ProjectRoot, ContextID: contextRecord.Context.ID, TemplateID: template.ID, ObservingWorkspaceID: workspace.ID, Rule: rule.Clone(), Candidates: clonePolicyCandidateAuthorities(candidates), SourceRules: clonePolicyMemoryRules(sourceRules)}
 	if err := item.Validate(); err != nil {
 		return PolicyMemoryReviewItem{}, err
 	}

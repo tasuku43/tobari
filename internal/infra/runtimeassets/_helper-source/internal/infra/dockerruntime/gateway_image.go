@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -29,9 +28,10 @@ type gatewayImageMetadata struct {
 	Architecture string   `json:"Architecture"`
 	OS           string   `json:"Os"`
 	Config       struct {
-		User       string            `json:"User"`
-		Labels     map[string]string `json:"Labels"`
-		Entrypoint []string          `json:"Entrypoint"`
+		User       string                     `json:"User"`
+		Labels     map[string]string          `json:"Labels"`
+		Entrypoint []string                   `json:"Entrypoint"`
+		Volumes    map[string]json.RawMessage `json:"Volumes"`
 	} `json:"Config"`
 }
 
@@ -58,7 +58,18 @@ func (r *Runtime) prepareGatewayImage(ctx context.Context) (string, string, erro
 }
 
 func (r *Runtime) ensureLocalGatewayImage(ctx context.Context, image string) error {
-	if _, err := r.runner.Output(ctx, []string{"image", "inspect", "--format", "{{.Id}}", image}, os.Environ()); err == nil {
+	present, err := r.observeLocalGatewayImage(ctx, image)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return fault.Wrap(
+			fault.KindUnavailable, "gateway_image_unavailable",
+			"The selected local Gateway image could not be observed safely.", true, err,
+			fault.NextAction{Command: "doctor", Reason: "Inspect Docker image availability before retrying."},
+		)
+	}
+	if present {
 		return nil
 	}
 	version, err := runtimeassets.Version()
@@ -82,13 +93,42 @@ func (r *Runtime) ensureLocalGatewayImage(ctx context.Context, image string) err
 	}
 	var output bytes.Buffer
 	if err := r.runner.Run(ctx, args, os.Environ(), nil, &output, &output); err != nil {
+		cause := fmt.Errorf("build pinned Gateway: %w: %s", err, boundedDiagnostic(output.Bytes()))
 		return fault.Wrap(
 			fault.KindUnavailable, "gateway_image_build_failed",
-			"the pinned Gateway could not be built locally", false, err,
+			"the pinned Gateway could not be built locally", false, cause,
 			fault.NextAction{Command: "doctor", Reason: "Inspect Docker build support and network access for the pinned Gateway inputs."},
 		)
 	}
 	return nil
+}
+
+func (r *Runtime) observeLocalGatewayImage(ctx context.Context, image string) (bool, error) {
+	inspectContext, cancel := context.WithTimeout(ctx, componentImageInspectTimeout)
+	defer cancel()
+	stdout := &boundedBuffer{limit: 2048}
+	stderr := &boundedBuffer{limit: 2048}
+	err := r.runner.Run(inspectContext, []string{"image", "inspect", "--format", "{{.Id}}", image}, os.Environ(), nil, stdout, stderr)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return false, ctxErr
+	}
+	if stdout.overflow || stderr.overflow {
+		return false, fmt.Errorf("local Gateway image observation exceeds bounded output")
+	}
+	if err != nil {
+		if isMissingRuntimeImageInspect(err, stderr.buffer.Bytes(), image) || isMissingRuntimeImageInspect(err, stdout.buffer.Bytes(), image) {
+			return false, nil
+		}
+		return false, fmt.Errorf("inspect local Gateway image: %w: %s", err, boundedDiagnostic(stderr.buffer.Bytes()))
+	}
+	if len(bytes.TrimSpace(stderr.buffer.Bytes())) != 0 {
+		return false, fmt.Errorf("local Gateway image inspect emitted diagnostic output")
+	}
+	identity := strings.TrimSpace(stdout.buffer.String())
+	if !imageIDPattern.MatchString(identity) || strings.Count(stdout.buffer.String(), "\n") > 1 {
+		return false, fmt.Errorf("local Gateway image identity is invalid or ambiguous")
+	}
+	return true, nil
 }
 
 func (r *Runtime) verifyGatewayImage(ctx context.Context, image string, requireDigest bool) (string, error) {
@@ -103,8 +143,11 @@ func (r *Runtime) verifyGatewayImage(ctx context.Context, image string, requireD
 	}
 
 	metadata, err := r.inspectGatewayImage(ctx, image)
-	if err != nil && requireDigest {
-		if _, pullErr := r.runner.Output(ctx, []string{"pull", image}, os.Environ()); pullErr != nil {
+	if errors.Is(err, errComponentImageMissing) && requireDigest {
+		if pullErr := r.pullComponentImage(ctx, image); pullErr != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return "", ctxErr
+			}
 			return "", fault.Wrap(
 				fault.KindUnavailable, "gateway_image_unavailable",
 				"The verified Gateway image could not be obtained; check Docker registry access and retry.", true, pullErr,
@@ -115,7 +158,11 @@ func (r *Runtime) verifyGatewayImage(ctx context.Context, image string, requireD
 		metadata, err = r.inspectGatewayImage(ctx, image)
 	}
 	if err != nil {
-		if !requireDigest {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return "", ctxErr
+		}
+		var observationError componentImageObservationError
+		if !requireDigest || errors.As(err, &observationError) {
 			return "", fault.Wrap(
 				fault.KindUnavailable, "gateway_image_unavailable",
 				"The selected local Gateway image could not be inspected.", true, err,
@@ -169,9 +216,19 @@ func (r *Runtime) verifyGatewayImage(ctx context.Context, image string, requireD
 			fault.NextAction{Command: "doctor", Reason: "Inspect the Gateway image entrypoint contract."},
 		)
 	}
+	if err := validateComponentImageVolumes(metadata.Config.Volumes, finalGatewayInheritedCAPath); err != nil {
+		return "", fault.Wrap(
+			fault.KindContract, "gateway_image_incompatible",
+			"The Gateway image declares a writable volume outside Tobari's reviewed mount closure.", false, err,
+			fault.NextAction{Command: "doctor", Reason: "Inspect the installed Gateway image volume contract."},
+		)
+	}
 
 	server, err := r.inspectDockerServer(ctx)
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return "", ctxErr
+		}
 		return "", fault.Wrap(
 			fault.KindUnavailable, "gateway_image_unavailable",
 			"Docker Engine platform information could not be read before Gateway startup.", true, err,
@@ -196,33 +253,45 @@ func parseAPIOrZero(value string) int {
 }
 
 func (r *Runtime) inspectGatewayImage(ctx context.Context, image string) (gatewayImageMetadata, error) {
-	output, err := r.runner.Output(
-		ctx, []string{"image", "inspect", "--format", "{{json .}}", image}, os.Environ(),
-	)
+	observed, err := r.inspectBoundedComponentImage(ctx, image)
 	if err != nil {
 		return gatewayImageMetadata{}, err
 	}
 	var metadata gatewayImageMetadata
-	decoder := json.NewDecoder(bytes.NewReader(output))
-	if err := decoder.Decode(&metadata); err != nil {
-		return gatewayImageMetadata{}, fmt.Errorf("decode Gateway image metadata: %w", err)
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return gatewayImageMetadata{}, fmt.Errorf("Gateway image metadata contains trailing data")
-	}
+	metadata.ID = observed.ID
+	metadata.RepoDigests = observed.RepoDigests
+	metadata.Architecture = observed.Architecture
+	metadata.OS = observed.OS
+	metadata.Config.User = observed.Config.User
+	metadata.Config.Labels = observed.Config.Labels
+	metadata.Config.Entrypoint = observed.Config.Entrypoint
+	metadata.Config.Volumes = observed.Config.Volumes
 	return metadata, nil
 }
 
 func (r *Runtime) inspectDockerServer(ctx context.Context) (dockerServerMetadata, error) {
-	output, err := r.runner.Output(
-		ctx, []string{"version", "--format", "{{json .Server}}"}, os.Environ(),
+	inspectContext, cancel := context.WithTimeout(ctx, componentImageInspectTimeout)
+	defer cancel()
+	stdout := &boundedBuffer{limit: 2048}
+	stderr := &boundedBuffer{limit: 2048}
+	err := r.runner.Run(
+		inspectContext, []string{"version", "--format", `{"Arch":{{json .Server.Arch}},"Os":{{json .Server.Os}}}`},
+		os.Environ(), nil, stdout, stderr,
 	)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return dockerServerMetadata{}, ctxErr
+	}
+	if stdout.overflow || stderr.overflow {
+		return dockerServerMetadata{}, fmt.Errorf("Docker Engine platform metadata exceeds bounded output")
+	}
 	if err != nil {
 		return dockerServerMetadata{}, err
 	}
+	if len(bytes.TrimSpace(stderr.buffer.Bytes())) != 0 {
+		return dockerServerMetadata{}, fmt.Errorf("Docker Engine platform inspect emitted diagnostic output")
+	}
 	var metadata dockerServerMetadata
-	if err := json.Unmarshal(output, &metadata); err != nil {
+	if err := decodeStrictJSON(bytes.TrimSpace(stdout.buffer.Bytes()), &metadata); err != nil {
 		return dockerServerMetadata{}, fmt.Errorf("decode Docker Engine platform: %w", err)
 	}
 	return metadata, nil

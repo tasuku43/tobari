@@ -103,6 +103,15 @@ func TestServiceReturnsNoManifestCandidateForAnAbsentCatalog(t *testing.T) {
 }
 
 func TestServiceClassifiesReadAndCandidateFailures(t *testing.T) {
+	t.Run("template read", func(t *testing.T) {
+		fake := completionRuntimeFixture()
+		fake.contextErr = errors.New("private path detail")
+		_, err := New(fake).Candidates(context.Background(), CandidateManifestName)
+		public, ok := fault.PublicCopy(err)
+		if !ok || public.Code != "completion_template_read_failed" || strings.Contains(public.Message, "private path detail") {
+			t.Fatalf("fault = %+v, %v", public, err)
+		}
+	})
 	t.Run("runtime read", func(t *testing.T) {
 		fake := completionRuntimeFixture()
 		fake.runtimeErr = errors.New("private path detail")

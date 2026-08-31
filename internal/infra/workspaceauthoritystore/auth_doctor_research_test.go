@@ -48,13 +48,13 @@ func finalAuthDoctorCollection(t *testing.T) tobari.WorkspaceAuthorityCollection
 	templateReceipt := tobari.TemplatePolicyActivationReceipt{ContextID: contextID, TemplateID: base.Templates[0].ID, PolicySliceDigest: revision.Slices.PolicySliceDigest}
 	memoryReceipt := tobari.PolicyMemoryActivationReceipt{ContextID: contextID, Revision: memory.Revision}
 	activeMemory := memory.Clone()
-	record := tobari.WorkspaceAuthorityContextRecord{Context: tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, ProjectRoot: "/workspace/second", TemplateID: base.Templates[0].ID}, PolicyMemory: memory, ActiveTemplatePolicy: &templateReceipt, ActivePolicyMemory: &activeMemory, ActivePolicyMemoryRef: &memoryReceipt}
+	record := tobari.WorkspaceAuthorityContextRecord{Context: tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: base.Templates[0].ID}, PolicyMemory: memory, ActiveTemplatePolicy: &templateReceipt, ActivePolicyMemory: &activeMemory, ActivePolicyMemoryRef: &memoryReceipt}
 	workspace := base.Workspaces[0]
 	if workspace.LastSuccessfulEntry != nil {
 		entry := *workspace.LastSuccessfulEntry
 		workspace.LastSuccessfulEntry = &entry
 	}
-	workspace.ID, workspace.ContextID, workspace.ProjectRoot, workspace.Home = workspaceID, contextID, record.Context.ProjectRoot, "/workspace/home-second"
+	workspace.ID, workspace.ContextID, workspace.ProjectRoot, workspace.Home = workspaceID, contextID, "/workspace/second", "/workspace/home-second"
 	entry := *workspace.LastSuccessfulEntry
 	entry.ContextID = contextID
 	workspace.LastSuccessfulEntry = &entry

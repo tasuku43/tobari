@@ -280,7 +280,7 @@ func finalManagedRuntimeProtectionCollection(t *testing.T) (tobari.WorkspaceAuth
 	}
 	workspace := tobari.WorkspaceBinding{
 		SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: finalProjectionWorkspaceA, ContextID: binding.ID,
-		ProjectRoot: binding.ProjectRoot, Home: "/workspace/runtime-protection-home", CreationDefaults: first.Slices.CreationDefaultsDigest,
+		ProjectRoot: "/workspace/example", Home: "/workspace/runtime-protection-home", CreationDefaults: first.Slices.CreationDefaultsDigest,
 		LastSuccessfulEntry: &entry,
 	}
 	collection, _, err := tobari.PublishWorkspaceAuthorityCollection(

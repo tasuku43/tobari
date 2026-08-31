@@ -70,11 +70,7 @@ func (r *Runtime) loginPupInRuntimeImage(
 	if err != nil {
 		return hostCredentialPayload{}, hostCLIUnavailableError{provider: "datadog", stage: hostCLIStagePupImageContract}
 	}
-	if err := r.validateCompatibleImage(ctx, image); err != nil {
-		return hostCredentialPayload{}, hostCLIUnavailableError{provider: "datadog", stage: hostCLIStagePupImageContract}
-	}
-	imageOutput, err := r.boundedPupDockerOutput(ctx, []string{"image", "inspect", "--format", "{{.Id}}", image})
-	imageID := strings.TrimSpace(string(imageOutput))
+	imageID, err := r.resolveCompatibleImageID(ctx, image)
 	if err != nil || !pupImageIDPattern.MatchString(imageID) {
 		return hostCredentialPayload{}, hostCLIUnavailableError{provider: "datadog", stage: hostCLIStagePupImageContract}
 	}

@@ -287,20 +287,20 @@ func TestWorkspaceTemplateCompleteBodyDrivesCopyAndEntryWithoutParallelAuthority
 	}
 }
 
-func TestContextBindingsEnforceOneProjectTemplatePair(t *testing.T) {
-	first := ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: testContextAuthorityID, ProjectRoot: "/workspace/example", TemplateID: testTemplateAuthorityID}
+func TestContextBindingsAreLocationFreeAndRequireOnlyUniqueIDs(t *testing.T) {
+	first := ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: testContextAuthorityID, TemplateID: testTemplateAuthorityID}
 	if err := ValidateContextBindings([]ContextBinding{first}); err != nil {
 		t.Fatal(err)
 	}
 	duplicatePair := first
 	duplicatePair.ID = "01912345-6789-7abc-8def-0123456789a4"
-	if err := ValidateContextBindings([]ContextBinding{first, duplicatePair}); err == nil {
-		t.Fatal("duplicate Project/Template Context passed")
+	if err := ValidateContextBindings([]ContextBinding{first, duplicatePair}); err != nil {
+		t.Fatalf("two Contexts may independently bind the same Template: %v", err)
 	}
-	otherTemplate := duplicatePair
-	otherTemplate.TemplateID = "01912345-6789-7abc-8def-0123456789a5"
-	if err := ValidateContextBindings([]ContextBinding{first, otherTemplate}); err != nil {
-		t.Fatalf("same Project with another Template failed: %v", err)
+	duplicateID := first
+	duplicateID.TemplateID = "01912345-6789-7abc-8def-0123456789a5"
+	if err := ValidateContextBindings([]ContextBinding{first, duplicateID}); err == nil {
+		t.Fatal("duplicate Context ID passed")
 	}
 }
 
@@ -346,7 +346,7 @@ func TestPolicyMemoryPublishesCompleteIndependentRevisions(t *testing.T) {
 }
 
 func TestWorkspaceBindingAndIndependentReceiptsRejectCrossOwnerState(t *testing.T) {
-	context := ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: testContextAuthorityID, ProjectRoot: "/workspace/example", TemplateID: testTemplateAuthorityID}
+	context := ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: testContextAuthorityID, TemplateID: testTemplateAuthorityID}
 	revision, err := NewWorkspaceTemplateRevision(testTemplateAuthorityID, 1, templateBodyFixture("a"))
 	if err != nil {
 		t.Fatal(err)
@@ -360,7 +360,7 @@ func TestWorkspaceBindingAndIndependentReceiptsRejectCrossOwnerState(t *testing.
 		EntrySliceDigest: revision.Slices.EntrySliceDigest, RuntimeID: StandardRuntimeID,
 		RuntimeRevision: revision.Slices.RuntimeRevision, ResolvedSpec: authorityDigest("7"), ReconciledAt: time.Unix(1, 0).UTC(),
 	}
-	workspace := WorkspaceBinding{SchemaVersion: WorkspaceBindingSchemaVersion, ID: testWorkspaceAuthorityID, ContextID: testContextAuthorityID, ProjectRoot: context.ProjectRoot, Home: "/workspace/home", CreationDefaults: revision.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied}
+	workspace := WorkspaceBinding{SchemaVersion: WorkspaceBindingSchemaVersion, ID: testWorkspaceAuthorityID, ContextID: testContextAuthorityID, ProjectRoot: "/workspace/example", Home: "/workspace/home", CreationDefaults: revision.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied}
 	if err := workspace.ValidateFor(context); err != nil {
 		t.Fatal(err)
 	}
@@ -396,7 +396,7 @@ func TestWorkspaceBindingAndIndependentReceiptsRejectCrossOwnerState(t *testing.
 }
 
 func TestWorkspaceEntryPlanAndExactContainerReceiptBindCurrentAuthority(t *testing.T) {
-	contextBinding := ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: testContextAuthorityID, ProjectRoot: "/workspace/example", TemplateID: testTemplateAuthorityID}
+	contextBinding := ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: testContextAuthorityID, TemplateID: testTemplateAuthorityID}
 	revision, err := NewWorkspaceTemplateRevision(testTemplateAuthorityID, 1, templateBodyFixture("entry"))
 	if err != nil {
 		t.Fatal(err)
@@ -415,7 +415,7 @@ func TestWorkspaceEntryPlanAndExactContainerReceiptBindCurrentAuthority(t *testi
 		EntrySliceDigest: revision.Slices.EntrySliceDigest, RuntimeID: revision.Slices.RuntimeID,
 		RuntimeRevision: revision.Slices.RuntimeRevision, ResolvedSpec: authorityDigest("7"), ReconciledAt: time.Unix(2, 0).UTC(),
 	}
-	workspace := WorkspaceBinding{SchemaVersion: WorkspaceBindingSchemaVersion, ID: testWorkspaceAuthorityID, ContextID: testContextAuthorityID, ProjectRoot: contextBinding.ProjectRoot, Home: "/workspace/home", CreationDefaults: revision.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied}
+	workspace := WorkspaceBinding{SchemaVersion: WorkspaceBindingSchemaVersion, ID: testWorkspaceAuthorityID, ContextID: testContextAuthorityID, ProjectRoot: "/workspace/example", Home: "/workspace/home", CreationDefaults: revision.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied}
 	authority, err := DeriveWorkspaceTemplateEntryAuthority(template.Current)
 	if err != nil {
 		t.Fatal(err)
@@ -489,7 +489,7 @@ func TestWorkspaceSessionBindingCarriesCompleteFinalPrincipalAndEntryAuthority(t
 		t.Fatal(err)
 	}
 	template := WorkspaceTemplate{SchemaVersion: WorkspaceTemplateSchemaVersion, ID: testTemplateAuthorityID, Name: "restricted", Current: revision, Retained: []WorkspaceTemplateRevision{revision.Clone()}}
-	contextBinding := ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: testContextAuthorityID, ProjectRoot: "/workspace/example", TemplateID: testTemplateAuthorityID}
+	contextBinding := ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: testContextAuthorityID, TemplateID: testTemplateAuthorityID}
 	memory, _, err := PublishPolicyMemory(testContextAuthorityID, []PolicyMemoryRule{}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -503,7 +503,7 @@ func TestWorkspaceSessionBindingCarriesCompleteFinalPrincipalAndEntryAuthority(t
 	}
 	workspace := WorkspaceBinding{
 		SchemaVersion: WorkspaceBindingSchemaVersion, ID: testWorkspaceAuthorityID, ContextID: contextBinding.ID,
-		ProjectRoot: contextBinding.ProjectRoot, Home: "/workspace/home", CreationDefaults: revision.Slices.CreationDefaultsDigest,
+		ProjectRoot: "/workspace/example", Home: "/workspace/home", CreationDefaults: revision.Slices.CreationDefaultsDigest,
 		LastSuccessfulEntry: &applied,
 	}
 	snapshot := ContextAuthoritySnapshot{
@@ -518,7 +518,7 @@ func TestWorkspaceSessionBindingCarriesCompleteFinalPrincipalAndEntryAuthority(t
 		t.Fatal(err)
 	}
 	if binding.ContextID != contextBinding.ID || binding.WorkspaceID != workspace.ID || binding.TemplateID != template.ID ||
-		binding.ContextPresentation != template.Name || binding.ProjectRoot != contextBinding.ProjectRoot ||
+		binding.ContextPresentation != template.Name || binding.ProjectRoot != workspace.ProjectRoot ||
 		binding.ContainerID != receipt.ContainerID || binding.AppliedEntry != applied {
 		t.Fatalf("final session binding = %#v", binding)
 	}

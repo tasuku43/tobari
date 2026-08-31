@@ -236,7 +236,9 @@ func (r *Runtime) resolveStatusClusterImageIDs(ctx context.Context, references .
 	format := `{"id":{{json .Id}},"repo_tags":{{json .RepoTags}},"repo_digests":{{json .RepoDigests}}}`
 	args := append([]string{"image", "inspect", "--format", format}, references...)
 	stdout, stderr := &boundedBuffer{limit: 32 * 1024}, &boundedBuffer{limit: 4096}
-	if err := r.runner.Run(ctx, args, os.Environ(), nil, stdout, stderr); err != nil {
+	inspectContext, cancel := context.WithTimeout(ctx, runtimeImageInspectTimeout)
+	defer cancel()
+	if err := r.runner.Run(inspectContext, args, os.Environ(), nil, stdout, stderr); err != nil {
 		return nil, fmt.Errorf("resolve status cluster image authority: %w: %s", err, boundedDiagnostic(stderr.buffer.Bytes()))
 	}
 	if stdout.overflow || stderr.overflow || len(bytes.TrimSpace(stderr.buffer.Bytes())) != 0 {

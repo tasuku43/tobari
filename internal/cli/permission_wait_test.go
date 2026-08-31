@@ -65,6 +65,10 @@ func TestPermissionWaitCatalogOwnsOnlyPlainBoundedUtilityInput(t *testing.T) {
 	if produced, consumed := wait.ProducedRefs(), wait.ConsumedRefs(); len(produced) != 0 || len(consumed) != 0 {
 		t.Fatalf("permission wait reference edges = produced:%+v consumed:%+v", produced, consumed)
 	}
+	missing := commandErrorByCode(t, wait.Agent.Errors, "missing_permission_wait_observer")
+	if missing.Kind != fault.KindInternal || missing.Phase != fault.PhaseObservation || missing.ChangeState != fault.ChangeNotApplicable {
+		t.Fatalf("missing permission wait observer fault = %+v", missing)
+	}
 	foundGlobal := false
 	for _, command := range catalog.PublicCommands() {
 		if command.Program == PermissionProgramName && command.Path == "wait" {
@@ -143,6 +147,18 @@ func TestPermissionWaitRejectsInvalidInputBeforeObservation(t *testing.T) {
 	if code := command.RunContext(context.Background(), []string{"wait", "--id", "pwt_0123456789abcdef0123456789abcdeg"}); code != ExitNotFound || observer.calls != 0 ||
 		!strings.Contains(stderr.String(), "invalid_permission_wait") {
 		t.Fatalf("invalid domain ID = code:%d calls:%d stderr:%q", code, observer.calls, stderr.String())
+	}
+}
+
+func TestPermissionWaitMissingObserverNeverCollapsesToUndeclaredContract(t *testing.T) {
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	command := newPermissionWaitTestCLI(nil, stdout, stderr)
+	command.permissionWait = permissionwaitcmd.New(nil)
+	if code := command.RunContext(context.Background(), []string{"wait", "--id=" + permissionWaitTestID, "--format=json"}); code != ExitInternal {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "missing_permission_wait_observer") || strings.Contains(stderr.String(), "undeclared_fault_contract") {
+		t.Fatalf("stderr=%q", stderr.String())
 	}
 }
 

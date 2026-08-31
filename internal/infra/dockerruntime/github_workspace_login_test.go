@@ -57,16 +57,26 @@ func TestGitHubDeviceLoginBridgeFailsClosedBeforeHostOpenOrListener(t *testing.T
 		t.Fatal(err)
 	}
 	for _, test := range []struct {
-		name      string
-		runner    *codexBridgeRunner
-		browser   *recordingBrowser
-		wantOpens int
+		name        string
+		runner      *codexBridgeRunner
+		browser     *recordingBrowser
+		wantOpens   int
+		wantInitErr bool
 	}{
-		{name: "ownership mismatch", runner: &codexBridgeRunner{projectID: "018bcfe5-687b-7000-8000-000000000099"}, browser: &recordingBrowser{}},
+		{name: "ownership mismatch", runner: &codexBridgeRunner{projectID: "018bcfe5-687b-7000-8000-000000000099"}, browser: &recordingBrowser{}, wantInitErr: true},
 		{name: "browser failure", runner: &codexBridgeRunner{projectID: projectID}, browser: &recordingBrowser{err: fmt.Errorf("opener unavailable")}, wantOpens: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			bridge := newWorkspaceLoginBridge(context.Background(), &Runtime{runner: test.runner, browser: test.browser}, container, projectID)
+			bridge, err := newWorkspaceLoginBridge(context.Background(), &Runtime{runner: test.runner, browser: test.browser}, container, projectID)
+			if test.wantInitErr {
+				if err == nil || bridge != nil || len(test.browser.targets) != 0 {
+					t.Fatalf("ownership mismatch init=(%v,%v), browser=%q", bridge, err, test.browser.targets)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
 			defer bridge.close()
 			listenCalls := 0
 			bridge.listen = func(string) (net.Listener, error) {

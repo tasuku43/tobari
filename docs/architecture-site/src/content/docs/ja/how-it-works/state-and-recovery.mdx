@@ -30,7 +30,7 @@ Tobari は、プロジェクト、Workspace、Workspace Template、Runtime、ク
 | Workspace Template revision                                  | stable ID、reviewed edit 可能な Boundary、static policy、exact Runtime binding、typed defaults    | Context、Workspace、cluster runtime より長く残り、exact Template delete でだけ消える     |
 | Runtime `source/` と不変リビジョン                           | インストール全体で再利用するビルドソースと成功履歴                                                | Workspace と Workspace Template のライフサイクルを越えて残り、build だけでは展開されない |
 | Workspace Template のポリシーデータ                          | 再利用可能な canonical typed policy data                                                          | complete immutable Template revision の発行でだけ変わる                                  |
-| Context Policy Memory                                        | 一つの Project/Template Context が所有する完全な remembered-decision revision                     | Workspace replacement 後も残り、Context と一緒にだけ消える                               |
+| Context Policy Memory                                        | 一つのlocation-freeな Template Context が所有する完全な remembered-decision revision              | Workspace replacement 後も残り、Context と一緒にだけ消える                               |
 | 統合ポリシー生成物                                           | OPA に読み取り専用でマウントする全 Context 用ルーター、データ、モジュールの写し                   | 原本から不可分に公開し、クラスター稼働中だけ有効                                         |
 | 現在有効なポリシーバンドル                                   | owner label 付きの Docker 管理ボリュームにある完全な OPA bundle                                   | `cluster down --purge` だけが削除し、原本から再構築する                                  |
 | プリンシパル台帳                                             | host-issued の Workspace 送信元、Gateway endpoint、network、Context／Workspace の結び付き         | Workspace network に合わせて調整し、Gateway に read-only で mount                        |
@@ -85,7 +85,7 @@ outcome が unknown なら fail closed します。Docker resource から replac
 ホスト再起動後、Workspace container と専用 network はありませんが、active authority generation
 には Context と Workspace が残り、Workspace home も保持されています。
 
-1. `tobari` が canonical root、installation default Template、exact Context を解決する
+1. `tobari` が canonical root の Workspace と、installation default Template に属するその exact Context を解決する
 2. Context の current Template revision と exact Runtime binding を検証する
 3. 内部 network と container を再作成する
 4. Gateway を接続し、Workspace guard と exact Context/Workspace principal 登録を記録に合わせる

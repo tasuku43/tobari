@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"debug/elf"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -39,12 +40,14 @@ const (
 )
 
 type exposureHelperImageMetadata struct {
-	Architecture     string `json:"architecture"`
-	OS               string `json:"os"`
-	ExposureAPI      string `json:"exposure_api"`
-	ExposureSource   string `json:"exposure_source"`
-	PermissionAPI    string `json:"permission_api"`
-	PermissionSource string `json:"permission_source"`
+	ID               string                     `json:"id"`
+	Architecture     string                     `json:"architecture"`
+	OS               string                     `json:"os"`
+	ExposureAPI      string                     `json:"exposure_api"`
+	ExposureSource   string                     `json:"exposure_source"`
+	PermissionAPI    string                     `json:"permission_api"`
+	PermissionSource string                     `json:"permission_source"`
+	Volumes          map[string]json.RawMessage `json:"volumes"`
 }
 
 type exposureHelperIdentity struct {
@@ -72,10 +75,16 @@ func (r *Runtime) materializeWorkspaceHelpers(ctx context.Context, image string)
 	}
 	metadata, err := r.inspectExposureHelperImage(ctx, image)
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		return fmt.Errorf("inspect Workspace service helper image: %w", err)
 	}
 	server, err := r.inspectDockerServer(ctx)
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		return fmt.Errorf("inspect Docker Engine for Workspace service helper: %w", err)
 	}
 	imageOS, imageArch := normalizePlatform(metadata.OS, metadata.Architecture)
@@ -83,7 +92,8 @@ func (r *Runtime) materializeWorkspaceHelpers(ctx context.Context, image string)
 	if imageOS != "linux" || (imageArch != "amd64" && imageArch != "arm64") ||
 		serverOS != imageOS || serverArch != imageArch ||
 		metadata.ExposureAPI != "1" || metadata.ExposureSource != expectedSource ||
-		metadata.PermissionAPI != "1" || metadata.PermissionSource != expectedSource {
+		metadata.PermissionAPI != "1" || metadata.PermissionSource != expectedSource ||
+		!imageIDPattern.MatchString(metadata.ID) || validateComponentImageVolumes(metadata.Volumes) != nil {
 		return fmt.Errorf("Workspace helper image identity is incompatible with this Tobari build and Docker Engine")
 	}
 
@@ -122,7 +132,7 @@ func (r *Runtime) materializeWorkspaceHelpers(ctx context.Context, image string)
 		"--user", "65534:65534",
 		"--label", ownerLabel + "=" + ownerValue,
 		"--label", componentLabel + "=exposure-helper-extract",
-		"--entrypoint", "/bin/sleep", image, fmt.Sprintf("%d", exposureHelperAutoRemoveSeconds),
+		"--entrypoint", "/bin/sleep", metadata.ID, fmt.Sprintf("%d", exposureHelperAutoRemoveSeconds),
 	}, os.Environ(), nil, io.Discard, createDiagnostic); err != nil {
 		return fmt.Errorf("create Workspace service helper extraction container: %w: %s", err, boundedDiagnostic(createDiagnostic.buffer.Bytes()))
 	}
@@ -166,17 +176,16 @@ func (r *Runtime) materializeWorkspaceHelpers(ctx context.Context, image string)
 }
 
 func (r *Runtime) inspectExposureHelperImage(ctx context.Context, image string) (exposureHelperImageMetadata, error) {
-	output, err := r.runner.Output(ctx, []string{
-		"image", "inspect", "--format",
-		`{"architecture":{{json .Architecture}},"os":{{json .Os}},"exposure_api":{{json (index .Config.Labels "` + exposureHelperAPILabel + `")}},"exposure_source":{{json (index .Config.Labels "` + exposureHelperSourceLabel + `")}},"permission_api":{{json (index .Config.Labels "` + permissionHelperAPILabel + `")}},"permission_source":{{json (index .Config.Labels "` + permissionHelperSourceLabel + `")}}}`,
-		image,
-	}, os.Environ())
+	observed, err := r.inspectBoundedComponentImage(ctx, image)
 	if err != nil {
 		return exposureHelperImageMetadata{}, err
 	}
-	var metadata exposureHelperImageMetadata
-	if decodeStrictJSON(bytes.TrimSpace(output), &metadata) != nil {
-		return exposureHelperImageMetadata{}, fmt.Errorf("decode Workspace service helper image identity")
+	labels := observed.Config.Labels
+	metadata := exposureHelperImageMetadata{
+		ID: observed.ID, Architecture: observed.Architecture, OS: observed.OS,
+		ExposureAPI: labels[exposureHelperAPILabel], ExposureSource: labels[exposureHelperSourceLabel],
+		PermissionAPI: labels[permissionHelperAPILabel], PermissionSource: labels[permissionHelperSourceLabel],
+		Volumes: observed.Config.Volumes,
 	}
 	return metadata, nil
 }

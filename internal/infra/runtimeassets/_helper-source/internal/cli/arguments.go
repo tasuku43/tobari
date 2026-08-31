@@ -103,7 +103,7 @@ func parseCommandInputs(command CommandSpec, args []string) (ParsedInputs, error
 			name, inlineValue, hasInlineValue := strings.Cut(argument, "=")
 			input, exists := flags[name]
 			if !exists {
-				return ParsedInputs{}, fmt.Errorf("unknown flag %q", name)
+				return ParsedInputs{}, fmt.Errorf("unknown flag %q", boundedHumanCommand(name))
 			}
 
 			value := inlineValue
@@ -129,16 +129,16 @@ func parseCommandInputs(command CommandSpec, args []string) (ParsedInputs, error
 
 		if positionalIndex >= len(positionals) {
 			if strings.HasPrefix(argument, "-") {
-				return ParsedInputs{}, fmt.Errorf("unknown flag %q", argument)
+				return ParsedInputs{}, fmt.Errorf("unknown flag %q", boundedHumanCommand(argument))
 			}
-			return ParsedInputs{}, fmt.Errorf("unexpected argument %q", argument)
+			return ParsedInputs{}, fmt.Errorf("unexpected argument %q", boundedHumanCommand(argument))
 		}
 		input := positionals[positionalIndex]
 		if input.PositionalOnly && !positionalOnly {
 			return ParsedInputs{}, fmt.Errorf("%s must follow the positional-only marker --", input.Name)
 		}
 		if !positionalOnly && strings.HasPrefix(argument, "-") && input.ValueKind != InputValueInteger {
-			return ParsedInputs{}, fmt.Errorf("unknown flag %q", argument)
+			return ParsedInputs{}, fmt.Errorf("unknown flag %q", boundedHumanCommand(argument))
 		}
 		if err := addParsedInput(&parsed, input, argument); err != nil {
 			return ParsedInputs{}, err

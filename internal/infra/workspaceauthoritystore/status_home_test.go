@@ -69,7 +69,7 @@ func TestStatusHomeFrozenDockerBudgetIsSixNormalTwelveAfterOneRetry(t *testing.T
 				t.Fatal(err)
 			}
 			runtime := &statusHomeRuntimeFixture{}
-			root := defaultPairRootFixture{cwd: collection.Contexts[0].Context.ProjectRoot, root: collection.Contexts[0].Context.ProjectRoot}
+			root := defaultPairRootFixture{cwd: collection.Workspaces[0].ProjectRoot, root: collection.Workspaces[0].ProjectRoot}
 			adapter, err := NewStatusHomeAdapter(store, root, runtime)
 			if err != nil {
 				t.Fatal(err)
@@ -111,10 +111,10 @@ func TestStatusHomeFreshWithoutDefaultUsesZeroDockerAndCreatesNothing(t *testing
 	}
 }
 
-func TestStatusHomeSelectsNearestExistingRootBeforeDefaultTemplate(t *testing.T) {
+func TestStatusHomeIgnoresLocationFreeContextWithoutWorkspace(t *testing.T) {
 	base := storeCollectionFixture(t)
 	nestedContextID := tobari.ContextID("01912345-6789-7abc-8def-0123456789b2")
-	nestedContext := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: nestedContextID, ProjectRoot: "/workspace/example/src", TemplateID: base.Templates[0].ID}
+	nestedContext := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: nestedContextID, TemplateID: base.Templates[0].ID}
 	nestedMemory, _, err := tobari.PublishPolicyMemory(nestedContextID, []tobari.PolicyMemoryRule{}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -140,7 +140,7 @@ func TestStatusHomeSelectsNearestExistingRootBeforeDefaultTemplate(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if observation.ProjectRoot != "/workspace/example/src" || runtime.dockerCalls != 5 {
+	if observation.ProjectRoot != "/workspace/example" || runtime.dockerCalls != 6 {
 		t.Fatalf("root=%q Docker calls=%d", observation.ProjectRoot, runtime.dockerCalls)
 	}
 }

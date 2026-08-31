@@ -4,13 +4,22 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/app/serviceexposurecmd"
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
+
+type serviceRestoreFailMode struct{}
+
+func (serviceRestoreFailMode) Enter(io.Reader) (func() error, error) {
+	return func() error { return errors.New("restore failed") }, nil
+}
 
 type cliServiceExposurePort struct {
 	exposure    tobari.ServiceExposure
@@ -72,6 +81,19 @@ func serviceCLIForTest(input string, port *cliServiceExposurePort) (*CLI, *bytes
 	return command, out, errOut
 }
 
+func TestServiceReviewRestoreFailureRejectsTheSelectedMutation(t *testing.T) {
+	port, _ := cliServiceFixture()
+	command, _, stderr := serviceCLIForTest("a", port)
+	command.interactive = func(io.Reader, io.Writer, io.Writer) bool { return true }
+	command.serviceReviewMode = serviceRestoreFailMode{}
+	if code := command.RunContext(context.Background(), []string{"review", "services"}); code == ExitOK {
+		t.Fatalf("restore failure returned success: stderr=%q", stderr.String())
+	}
+	if len(port.events) != 0 {
+		t.Fatalf("restore failure reached mutation port: %v", port.events)
+	}
+}
+
 func TestServiceCatalogFixesTaskPartitionAndRecursiveReferenceGraph(t *testing.T) {
 	catalog := DefaultCatalog()
 	for _, path := range []string{"review services", "service status", "service allow", "service deny", "service open", "service stop"} {
@@ -102,6 +124,42 @@ func TestServiceCatalogFixesTaskPartitionAndRecursiveReferenceGraph(t *testing.T
 	want := []ProducedRef{{Kind: tobari.ServiceRequestKind, Field: "requests[].id"}, {Kind: tobari.ServiceExposureKind, Field: "exposures[].id"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("status refs = %#v, want %#v", got, want)
+	}
+	for _, test := range []struct {
+		catalog Catalog
+		path    string
+	}{{catalog: helper, path: ExposureProgramName}, {catalog: catalog, path: "service allow"}} {
+		spec, found := test.catalog.Lookup(test.path)
+		if !found {
+			t.Fatalf("missing %s", test.path)
+		}
+		declared := commandErrorByCode(t, spec.Agent.Errors, "invalid_service_exposure_result")
+		if declared.Kind != fault.KindContract || declared.Phase != fault.PhaseVerification || declared.ChangeState != fault.ChangeUnknown {
+			t.Fatalf("%s invalid result fault = %+v", test.path, declared)
+		}
+	}
+	for _, path := range []string{"service allow", "service deny", "service open", "service stop"} {
+		spec, _ := catalog.Lookup(path)
+		for _, code := range []string{"ambiguous_service_request", "ambiguous_service_exposure"} {
+			declared := commandErrorByCode(t, spec.Agent.Errors, code)
+			if declared.Kind != fault.KindContract || declared.Phase != fault.PhasePrecondition || declared.ChangeState != fault.ChangeNone {
+				t.Fatalf("%s %s = %+v", path, code, declared)
+			}
+		}
+	}
+}
+
+func TestExposureHelperInvalidResultNeverCollapsesToUndeclaredContract(t *testing.T) {
+	port, _ := cliServiceFixture()
+	port.exposure = tobari.ServiceExposure{}
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	command := newCLI(strings.NewReader(""), stdout, stderr, DefaultCatalog().ForProgram(ExposureProgramName), nil)
+	command.serviceExposure = serviceexposurecmd.New(port)
+	if code := command.RunContext(context.Background(), []string{"--error-format=json", "3000"}); code != ExitContract {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !json.Valid(stderr.Bytes()) || !strings.Contains(stderr.String(), "invalid_service_exposure_result") || strings.Contains(stderr.String(), "undeclared_fault_contract") {
+		t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }
 
@@ -146,6 +204,56 @@ func TestExposureHelperWritesOnlyOneFinalSuccessJSONToStdout(t *testing.T) {
 	helper.catalog = DefaultCatalog().ForProgram(ExposureProgramName)
 	if code := runCLI(helper, []string{"3000", "--format=json"}); code != ExitUsage {
 		t.Fatalf("helper accepted undeclared format flag: code=%d", code)
+	}
+}
+
+func TestExposureHelperAgentHelpUsesExecutableDefaultJSONInvocations(t *testing.T) {
+	helper := DefaultCatalog().ForProgram(ExposureProgramName)
+	for _, test := range []struct {
+		path        string
+		wantSuccess string
+		wantError   string
+	}{
+		{path: ExposureProgramName, wantSuccess: "tobari-expose <port>", wantError: "tobari-expose --error-format=json <port>"},
+		{path: "status", wantSuccess: "tobari-expose status", wantError: "tobari-expose --error-format=json status"},
+		{path: "stop", wantSuccess: "tobari-expose stop <exposure-ref>", wantError: "tobari-expose --error-format=json stop <exposure-ref>"},
+	} {
+		command, found := helper.Lookup(test.path)
+		if !found {
+			t.Fatalf("missing helper command %q", test.path)
+		}
+		got := machineInvocationsForCommand(command)
+		if got.SuccessJSON != test.wantSuccess || got.ErrorJSON != test.wantError {
+			t.Errorf("%s machine invocations = %+v, want success=%q error=%q", test.path, got, test.wantSuccess, test.wantError)
+		}
+	}
+}
+
+func TestExposureHelperJSONFailureWritesOnlyOneJSONDocumentToStderr(t *testing.T) {
+	port, _ := cliServiceFixture()
+	helper, _, stderr := serviceCLIForTest("", port)
+	helper.catalog = DefaultCatalog().ForProgram(ExposureProgramName)
+	helper.serviceExposure = nil
+	helper.serviceExposureInitErr = errors.New("missing test socket")
+	if code := helper.RunContext(context.Background(), []string{"--error-format=json", "3000"}); code == ExitOK {
+		t.Fatalf("unavailable attachment returned success: stderr=%q", stderr.String())
+	}
+	if !json.Valid(stderr.Bytes()) || !strings.Contains(stderr.String(), "service_attachment_unavailable") || strings.Contains(stderr.String(), "Waiting for trusted-host review") || strings.Contains(stderr.String(), "undeclared_fault_contract") {
+		t.Fatalf("JSON error stream is not one JSON document: %q", stderr.String())
+	}
+}
+
+func TestExposureHelperStatusDeclaresUnavailableAttachment(t *testing.T) {
+	port, _ := cliServiceFixture()
+	helper, _, stderr := serviceCLIForTest("", port)
+	helper.catalog = DefaultCatalog().ForProgram(ExposureProgramName)
+	helper.serviceExposure = nil
+	helper.serviceExposureInitErr = errors.New("missing test socket")
+	if code := helper.RunContext(context.Background(), []string{"--error-format=json", "status"}); code != ExitUnavailable {
+		t.Fatalf("status exit=%d stderr=%q", code, stderr.String())
+	}
+	if !json.Valid(stderr.Bytes()) || !strings.Contains(stderr.String(), "service_attachment_unavailable") || strings.Contains(stderr.String(), "undeclared_fault_contract") {
+		t.Fatalf("status JSON fault=%q", stderr.String())
 	}
 }
 

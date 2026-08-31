@@ -125,7 +125,11 @@ func runRuntimePruneApply(ctx context.Context, c *CLI, command CommandSpec, inte
 		if !ok {
 			classified = fault.Wrap(fault.KindContract, "output_encoding_failed", "Runtime prune result output could not be encoded", false, err)
 		}
-		return c.fail(ctx, fault.WithClassification(classified, fault.PhasePresentation, fault.ChangeConfirmed))
+		phase := fault.PhasePresentation
+		if classified.Code == "invalid_runtime_retirement_result_confirmed" {
+			phase = fault.PhaseVerification
+		}
+		return c.fail(ctx, fault.WithClassification(classified, phase, fault.ChangeConfirmed))
 	}
 	return c.emitMutationResult(ctx, command, output)
 }
@@ -252,7 +256,7 @@ func renderRuntimePrunePlan(path string, plan tobari.RuntimePrunePlan, format su
 
 func renderRuntimePruneResult(path string, result tobari.RuntimePruneResult, format successFormat, color bool) ([]byte, error) {
 	if err := result.Validate(); err != nil {
-		return nil, fault.Wrap(fault.KindContract, "invalid_runtime_retirement_result", "Runtime prune result is invalid", false, err)
+		return nil, fault.Wrap(fault.KindContract, "invalid_runtime_retirement_result_confirmed", "Runtime prune result is invalid", false, err)
 	}
 	projection := runtimePruneResultProjectionFrom(result)
 	if format == successFormatJSON {

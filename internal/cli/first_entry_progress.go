@@ -93,7 +93,11 @@ func (p *firstEntryProgress) Start(stage tobari.FirstEntryStage) error {
 		return fmt.Errorf("first-entry progress stage is out of order")
 	}
 	if !p.heading {
-		fmt.Fprintln(p.out, applyStyleToken(p.color, styleAccent, "Tobari · Starting Workspace"))
+		heading := "Tobari · Starting Workspace"
+		if p.existingContext {
+			heading = "Tobari · Entering Workspace"
+		}
+		fmt.Fprintln(p.out, applyStyleToken(p.color, styleAccent, heading))
 		fmt.Fprintln(p.out)
 		p.heading = true
 	}
@@ -280,6 +284,9 @@ func firstEntryElapsedText(elapsed time.Duration) string {
 func (p *firstEntryProgress) stageLabel(stage tobari.FirstEntryStage) string {
 	switch stage {
 	case tobari.FirstEntryCheckRequirements:
+		if p.existingContext {
+			return "Check environment"
+		}
 		return "Check requirements"
 	case tobari.FirstEntryResolveContext:
 		if p.existingContext {
@@ -287,8 +294,14 @@ func (p *firstEntryProgress) stageLabel(stage tobari.FirstEntryStage) string {
 		}
 		return "Save setup"
 	case tobari.FirstEntryPrepareProtection:
+		if p.existingContext {
+			return "Ensure protection"
+		}
 		return "Prepare protection"
 	case tobari.FirstEntryPrepareWorkspace:
+		if p.existingContext {
+			return "Ensure Workspace"
+		}
 		return "Prepare Workspace"
 	case tobari.FirstEntryEnterWorkspace:
 		return "Enter Workspace"
@@ -307,8 +320,14 @@ func (p *firstEntryProgress) stageWaitReason(stage tobari.FirstEntryStage) strin
 		}
 		return "saving the reviewed setup"
 	case tobari.FirstEntryPrepareProtection:
+		if p.existingContext {
+			return "confirming Gateway and OPA readiness"
+		}
 		return "waiting for Gateway and OPA readiness"
 	case tobari.FirstEntryPrepareWorkspace:
+		if p.existingContext {
+			return "confirming Workspace readiness"
+		}
 		return "waiting for Workspace reconciliation"
 	case tobari.FirstEntryEnterWorkspace:
 		return "waiting for child handoff"

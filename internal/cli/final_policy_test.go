@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"reflect"
 	"strings"
@@ -26,6 +27,12 @@ type finalPolicyPortFixture struct {
 	allowCalls int
 	denyCalls  int
 	resetCalls int
+}
+
+type finalPolicyInputFailure struct{}
+
+func (finalPolicyInputFailure) Read([]byte) (int, error) {
+	return 0, errors.New("synthetic Permission Inbox input failure")
 }
 
 func (f *finalPolicyPortFixture) ListPolicyCandidatesIncludingAttachments(context.Context) (tobari.PolicyCandidateAuthorityList, error) {
@@ -95,8 +102,8 @@ func finalPolicyCLIFixture(t *testing.T) (*finalPolicyPortFixture, string, strin
 		t.Fatal(err)
 	}
 	template := tobari.WorkspaceTemplate{SchemaVersion: tobari.WorkspaceTemplateSchemaVersion, ID: templateID, Name: "payments", Current: revision, Retained: []tobari.WorkspaceTemplateRevision{revision.Clone()}}
-	binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, ProjectRoot: "/workspace/payments", TemplateID: templateID}
-	workspace := tobari.WorkspaceBinding{SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: workspaceID, ContextID: contextID, ProjectRoot: binding.ProjectRoot, Home: "/workspace/home", CreationDefaults: revision.Slices.CreationDefaultsDigest}
+	binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: templateID}
+	workspace := tobari.WorkspaceBinding{SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: workspaceID, ContextID: contextID, ProjectRoot: "/workspace/payments", Home: "/workspace/home", CreationDefaults: revision.Slices.CreationDefaultsDigest}
 	empty, _, err := tobari.PublishPolicyMemory(contextID, []tobari.PolicyMemoryRule{}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -198,6 +205,26 @@ func TestFinalPolicyCatalogHasExactSchemaAndReferenceGraph(t *testing.T) {
 		}
 		commandErrorByCode(t, spec.Agent.Errors, "output_encoding_failed")
 	}
+	review, _ := catalog.Lookup("review permissions")
+	for _, test := range []struct {
+		code   string
+		kind   fault.Kind
+		phase  fault.Phase
+		change fault.ChangeState
+	}{
+		{code: "policy_review_terminal_failed", kind: fault.KindInternal, phase: fault.PhasePresentation, change: fault.ChangeNotApplicable},
+		{code: "terminal_restore_failed", kind: fault.KindInternal, phase: fault.PhasePresentation, change: fault.ChangeNotApplicable},
+		{code: "terminal_input_failed", kind: fault.KindInternal, phase: fault.PhasePresentation, change: fault.ChangeNotApplicable},
+		{code: "invalid_policy_review_result", kind: fault.KindInternal, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
+		{code: "invalid_policy_review_set", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeNone},
+		{code: "policy_review_scope_mixed", kind: fault.KindRejected, phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{code: "invalid_catalog", kind: fault.KindContract, phase: fault.PhasePrecondition, change: fault.ChangeNone},
+	} {
+		declared := commandErrorByCode(t, review.Agent.Errors, test.code)
+		if declared.Kind != test.kind || declared.Phase != test.phase || declared.ChangeState != test.change || declared.Retryable {
+			t.Errorf("review permissions %s = %+v", test.code, declared)
+		}
+	}
 	candidates, _ := catalog.Lookup("policy candidates")
 	rules, _ := catalog.Lookup("policy rules")
 	if candidates.Agent.Output.JSONSchemaVersion != 3 || rules.Agent.Output.JSONSchemaVersion != 3 {
@@ -225,6 +252,54 @@ func TestFinalPolicyCatalogHasExactSchemaAndReferenceGraph(t *testing.T) {
 		if strings.Contains(string(encoded), forbidden) {
 			t.Fatalf("apply reviewed output publishes forbidden owner ref %q: %s", forbidden, encoded)
 		}
+	}
+}
+
+func TestFinalPolicyReviewInteractionErrorPreservesStructuredFaultsAndBoundsRawIO(t *testing.T) {
+	structured := fault.WithClassification(fault.New(fault.KindUnavailable, "policy_review_read_failed", "synthetic classified fault", false), fault.PhaseObservation, fault.ChangeNotApplicable)
+	if got, ok := fault.PublicCopy(finalPolicyReviewInteractionError(errors.New("raw"), structured)); !ok || got.Code != structured.Code || got.Phase != structured.Phase || got.ChangeState != structured.ChangeState {
+		t.Fatalf("structured fault was not preserved: %+v ok=%t", got, ok)
+	}
+	if !errors.Is(finalPolicyReviewInteractionError(context.Canceled), context.Canceled) {
+		t.Fatal("pure cancellation was not preserved")
+	}
+	got, ok := fault.PublicCopy(finalPolicyReviewInteractionError(context.Canceled, errors.New("cleanup failed")))
+	if !ok || got.Code != "policy_review_terminal_failed" || got.Phase != fault.PhasePresentation || got.ChangeState != fault.ChangeNotApplicable {
+		t.Fatalf("raw interaction fault = %+v ok=%t", got, ok)
+	}
+}
+
+func TestFinalPolicyReviewLineInputFailureIsDeclared(t *testing.T) {
+	port, _, _ := finalPolicyCLIFixture(t)
+	var stdout, stderr bytes.Buffer
+	command := newCLI(finalPolicyInputFailure{}, &stdout, &stderr, DefaultCatalog(), nil)
+	command.finalPolicy = workspaceauthoritycmd.NewPolicyMemoryService(port)
+	command.interactive = func(io.Reader, io.Writer, io.Writer) bool { return true }
+	if code := command.RunContext(context.Background(), []string{"review", "permissions"}); code != ExitInternal {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{"terminal_input_failed", "presentation", "not_applicable"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("input failure stderr lacks %q: %q", want, stderr.String())
+		}
+	}
+	if strings.Contains(stderr.String(), "undeclared_fault_contract") {
+		t.Fatalf("input failure collapsed to undeclared contract: %q", stderr.String())
+	}
+}
+
+func TestFinalPolicyInvalidReviewedSetIsDeclared(t *testing.T) {
+	port, _, _ := finalPolicyCLIFixture(t)
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.finalPolicy = workspaceauthoritycmd.NewPolicyMemoryService(port)
+	ctx := withCommandPath(withErrorFormat(context.Background(), errorFormatJSON), "review permissions")
+	if code := applyFinalPolicyReviewSet(ctx, command, port.review, map[string]tobari.PolicyMemoryDecision{"missing": tobari.PolicyMemoryAllow}); code != ExitContract {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var document errorDocument
+	if err := json.Unmarshal(stderr.Bytes(), &document); err != nil || document.Error.Code != "invalid_policy_review_set" || document.Error.Phase != fault.PhaseVerification || document.Error.ChangeState != fault.ChangeNone || strings.Contains(stderr.String(), "undeclared_fault_contract") {
+		t.Fatalf("invalid set document=%+v err=%v stderr=%q", document, err, stderr.String())
 	}
 }
 

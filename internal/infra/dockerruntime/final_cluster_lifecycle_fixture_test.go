@@ -73,6 +73,16 @@ func (r *finalClusterLifecycleRunner) Run(ctx context.Context, args, environment
 		return nil
 	}
 	if len(args) >= 2 && args[0] == "image" && args[1] == "inspect" {
+		if len(args) >= 5 && args[3] == componentImageInspectFormat {
+			imageID, component := r.base.candidate.OPAImageID, "opa"
+			if args[len(args)-1] == "tobari-gateway:test" {
+				imageID, component = r.base.candidate.GatewayImageID, "gateway"
+			} else if args[len(args)-1] == r.base.candidate.AuthBrokerImage {
+				imageID, component = r.base.candidate.AuthBrokerImageID, "auth-broker"
+			}
+			_, _ = io.WriteString(out, componentMetadataFixture(imageID, component))
+			return nil
+		}
 		if len(args) >= 5 && strings.Contains(args[3], `"repo_tags"`) {
 			for index := len(args) - 1; index >= 4; index-- {
 				reference := args[index]
@@ -391,6 +401,12 @@ func TestFinalClusterCleanDaemonReconcilesThroughBootstrapAndPublishesActiveAuth
 	}
 	if runner.base.composeCalls != 1 {
 		t.Fatalf("clean activation Compose calls=%d, want one journaled exact bootstrap", runner.base.composeCalls)
+	}
+	if brokerRuntimeEnabled {
+		environment := runner.base.composeEnvironments[0]
+		if got := environmentValue(environment, "TOBARI_AUTH_BROKER_IMAGE"); got != runner.base.candidate.AuthBrokerImageID || got == runner.base.candidate.AuthBrokerImage {
+			t.Fatalf("bootstrap Auth Broker execution image=%q want immutable %q, mutable selector=%q", got, runner.base.candidate.AuthBrokerImageID, runner.base.candidate.AuthBrokerImage)
+		}
 	}
 	if !runner.policyVolumeExists || runner.policyVolumeCreates < 2 || runner.policyVolumeRemoves < 1 {
 		t.Fatalf("fresh policy volume lifecycle exists=%t creates=%d removes=%d", runner.policyVolumeExists, runner.policyVolumeCreates, runner.policyVolumeRemoves)

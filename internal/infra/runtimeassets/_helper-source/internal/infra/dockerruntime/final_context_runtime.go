@@ -57,19 +57,21 @@ func (r *Runtime) observeFinalContextLoginRuntimeImage(ctx context.Context, bind
 		return finalContextLoginRuntimeObservation{}, fmt.Errorf("Runtime lifecycle recovery must complete before credential acquisition")
 	}
 
-	manifest, err := r.standardRuntimeManifest()
-	if err != nil {
-		return finalContextLoginRuntimeObservation{}, err
-	}
-	if binding.RuntimeID != tobari.StandardRuntimeID {
+	expected := binding
+	var manifest tobari.RuntimeManifest
+	if binding.RuntimeID == tobari.StandardRuntimeID {
+		if err := r.validateExactStandardRuntimeBinding(binding); err != nil {
+			return finalContextLoginRuntimeObservation{}, err
+		}
+	} else {
 		manifest, err = r.resolveManagedRuntimeReferenceUnlocked(tobari.RuntimeRef(binding.RuntimeID))
 		if err != nil {
 			return finalContextLoginRuntimeObservation{}, err
 		}
-	}
-	expected, err := manifest.Binding(binding.Ordinal)
-	if err != nil || !reflect.DeepEqual(expected, binding) || expected.Revision != binding.Revision {
-		return finalContextLoginRuntimeObservation{}, fmt.Errorf("final Context Runtime binding does not match immutable Runtime authority")
+		expected, err = manifest.Binding(binding.Ordinal)
+		if err != nil || !reflect.DeepEqual(expected, binding) || expected.Revision != binding.Revision {
+			return finalContextLoginRuntimeObservation{}, fmt.Errorf("final Context Runtime binding does not match immutable Runtime authority")
+		}
 	}
 
 	var imageID string
@@ -105,22 +107,36 @@ func (r *Runtime) inspectFinalStandardRuntimeImage(ctx context.Context, selector
 	format := `{"id":{{json .Id}},` +
 		`"api":{{json (index .Config.Labels "` + tobari.RuntimeImageAPILabel + `")}},` +
 		`"lifetime":{{json (index .Config.Labels "` + tobari.RuntimeImageLifetimeLabel + `")}},` +
-		`"user":{{json .Config.User}},"entrypoint":{{json .Config.Entrypoint}}}`
+		`"user":{{json .Config.User}},"entrypoint":{{json .Config.Entrypoint}},"volumes":{{json .Config.Volumes}}}`
 	stdout := &boundedBuffer{limit: 4096}
 	stderr := &boundedBuffer{limit: 4096}
-	if err := r.runner.Run(ctx, []string{"image", "inspect", "--format", format, selector}, os.Environ(), nil, stdout, stderr); err != nil || stdout.overflow || stderr.overflow {
+	inspectContext, cancel := context.WithTimeout(ctx, runtimeImageInspectTimeout)
+	defer cancel()
+	if err := r.runner.Run(inspectContext, []string{"image", "inspect", "--format", format, selector}, os.Environ(), nil, stdout, stderr); err != nil || stdout.overflow || stderr.overflow {
+		if !stdout.overflow && !stderr.overflow && (isMissingRuntimeImageInspect(err, stderr.buffer.Bytes(), selector) || isMissingRuntimeImageInspect(err, stdout.buffer.Bytes(), selector)) {
+			canonical, canonicalErr := r.defaultRuntimeImage()
+			if canonicalErr != nil {
+				return "", fmt.Errorf("resolve canonical standard Runtime while classifying missing execution material: %w", canonicalErr)
+			}
+			if selector == canonical {
+				return "", tobari.ErrRuntimeNotReady
+			}
+			return "", fmt.Errorf("historical standard Runtime execution material is missing")
+		}
 		return "", fmt.Errorf("inspect standard Runtime execution material: %w", err)
 	}
 	var evidence struct {
-		ID         string   `json:"id"`
-		API        string   `json:"api"`
-		Lifetime   string   `json:"lifetime"`
-		User       string   `json:"user"`
-		Entrypoint []string `json:"entrypoint"`
+		ID         string                     `json:"id"`
+		API        string                     `json:"api"`
+		Lifetime   string                     `json:"lifetime"`
+		User       string                     `json:"user"`
+		Entrypoint []string                   `json:"entrypoint"`
+		Volumes    map[string]json.RawMessage `json:"volumes"`
 	}
 	if err := json.Unmarshal(stdout.buffer.Bytes(), &evidence); err != nil || tobari.ValidateDigest(evidence.ID) != nil ||
 		evidence.API != tobari.RuntimeImageAPI || evidence.Lifetime != tobari.RuntimeImageLifetimeCommand ||
-		evidence.User != "tobari" || !equalStrings(evidence.Entrypoint, []string{"/usr/bin/tini", "--", "/usr/local/bin/tobari-entrypoint"}) {
+		evidence.User != "tobari" || !equalStrings(evidence.Entrypoint, []string{"/usr/bin/tini", "--", "/usr/local/bin/tobari-entrypoint"}) ||
+		len(evidence.Volumes) != 0 {
 		return "", fmt.Errorf("standard Runtime execution material is incompatible")
 	}
 	return evidence.ID, nil

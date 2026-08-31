@@ -57,7 +57,7 @@ func (c *CLI) customizeRecommendedTemplateBody(ctx context.Context, draft tobari
 		selection.sourceAccess = tobari.ManifestSourceAccess([]string{string(tobari.ManifestSourceAccessReadWrite), string(tobari.ManifestSourceAccessReadOnly)}[selected])
 
 		selected, chooseErr = chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{
-			title: "Tobari · Customize Workspace", current: string(selection.methodPolicy.Default), prompt: "Other network requests",
+			title: "Tobari · Customize Workspace", current: string(selection.methodPolicy.Default), prompt: "New public traffic",
 			options: []configurationWizardOption{
 				{label: "Exact review", description: "Ask for an exact decision when no reviewed rule applies.", value: string(tobari.ManifestMethodExactReview)},
 				{label: "Deny", description: "Deny requests that have no reviewed rule.", value: string(tobari.ManifestMethodDeny)},
@@ -131,7 +131,7 @@ func (c *CLI) customizeRecommendedTemplateBody(ctx context.Context, draft tobari
 	body.EntryDefaults.Runtime = binding
 	if err := body.Validate(); err != nil {
 		return tobari.WorkspaceTemplateBody{}, fault.WithClassification(fault.Wrap(
-			fault.KindContract, "invalid_template_body", "The customized Workspace Template is invalid.", false, err,
+			fault.KindContract, "invalid_customized_template_body", "The customized Workspace Template is invalid.", false, err,
 			fault.NextAction{Command: "help template create", Reason: "Inspect the supported Template body contract."},
 		), fault.PhasePrecondition, fault.ChangeNone)
 	}
@@ -152,9 +152,10 @@ func recommendedCustomizedFirstUseSummary(
 		{{value: "", token: styleText}},
 		{{value: "Boundary", token: styleText}},
 		recommendedFirstUseSummaryRow("Project files", string(selection.sourceAccess), styleText),
-		recommendedFirstUseSummaryRow("Routine network", "allowed", styleSuccess),
-		recommendedFirstUseSummaryRow("Other network", otherNetwork, methodDecisionStyle(selection.methodPolicy.Default)),
-		recommendedFirstUseSummaryRow("Private network", "denied", styleDanger),
+		recommendedFirstUseSummaryRow("Reviewed traffic", "allowed", styleSuccess),
+		recommendedFirstUseSummaryRow("New public traffic", otherNetwork, methodDecisionStyle(selection.methodPolicy.Default)),
+		recommendedFirstUseSummaryRow("Local/private", "denied", styleDanger),
+		recommendedFirstUseSummaryRow("Host loopback", "explicit review only", styleWarning),
 		{{value: "", token: styleText}},
 		{{value: "Environment", token: styleText}},
 		recommendedFirstUseSummaryRow("Runtime", fmt.Sprintf("%s@%d", safeExternalText(selection.runtimeName), selection.runtimeOrdinal), styleText),

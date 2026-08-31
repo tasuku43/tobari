@@ -1,12 +1,12 @@
 ---
 title: Workspace Templates and Contexts
-description: Reuse one reviewed setup, bind it to a Project with a Context, and enter its replaceable Workspace.
+description: Reuse one reviewed setup through a location-free Context and enter a Project-bound Workspace.
 ---
 
-A **Workspace Template** is reusable installation setup. A **Context** binds one
-canonical Project root to one Template and owns that Project's remembered
-policy decisions. A **Workspace** is the replaceable applied instance and
-persistent home for one Context.
+A **Workspace Template** is reusable installation setup. A **Context** binds
+location-free authority to one Template and owns remembered policy decisions.
+A **Workspace** is the replaceable Project-root-bound applied instance for one
+Context.
 
 ## Discover Templates
 
@@ -55,12 +55,17 @@ tobari template default set --id TEMPLATE_REF
 Default selection affects only bare root entry and bare `status`. It never
 retargets an existing Context or Workspace.
 
-## Bind this Project and enter
+## Create a Context, then bind a Workspace
 
-From the Project root:
+Context creation is location-free and may run from any directory:
 
 ```sh
 tobari context create --template TEMPLATE_REF
+```
+
+From the Project root, bind or reuse that Context's Workspace and enter it:
+
+```sh
 tobari context enter --id CONTEXT_REF
 ```
 

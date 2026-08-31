@@ -43,7 +43,7 @@ func (r *exposureHelperAssetRunner) Output(_ context.Context, args, _ []string) 
 		if err != nil {
 			return nil, err
 		}
-		return []byte(fmt.Sprintf(`{"architecture":%q,"os":"linux","exposure_api":"1","exposure_source":%q,"permission_api":"1","permission_source":%q}`, r.architecture, source, source)), nil
+		return []byte(fmt.Sprintf(`{"Id":"sha256:%s","Architecture":%q,"Os":"linux","Config":{"Labels":{"io.tobari.exposure-helper-api":"1","io.tobari.exposure-helper-source":%q,"io.tobari.permission-helper-api":"1","io.tobari.permission-helper-source":%q}}}`, strings.Repeat("a", 64), r.architecture, source, source)), nil
 	}
 	if len(args) >= 1 && args[0] == "version" {
 		return []byte(fmt.Sprintf(`{"Arch":%q,"Os":"linux"}`, r.architecture)), nil
@@ -59,10 +59,11 @@ func TestFinalWorkspaceHelpersUseCanonicalBaseForCustomRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	validMetadata := []byte(fmt.Sprintf(
-		`{"architecture":"arm64","os":"linux","exposure_api":"1","exposure_source":%q,"permission_api":"1","permission_source":%q}`,
+		`{"Id":"sha256:%s","Architecture":"arm64","Os":"linux","Config":{"Labels":{"io.tobari.exposure-helper-api":"1","io.tobari.exposure-helper-source":%q,"io.tobari.permission-helper-api":"1","io.tobari.permission-helper-source":%q}}}`,
+		strings.Repeat("a", 64),
 		validSource, validSource,
 	))
-	customMetadata := []byte(`{"architecture":"arm64","os":"linux","exposure_api":"","exposure_source":"","permission_api":"","permission_source":""}`)
+	customMetadata := []byte(`{"Id":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","Architecture":"arm64","Os":"linux","Config":{"Labels":{}}}`)
 	customImage := "tobari-runtime-custom:revision"
 	runner := &exposureHelperAssetRunner{
 		architecture: "arm64",
@@ -97,8 +98,8 @@ func TestWorkspaceHelpersRequireBothVerifiedImageIdentities(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &exposureHelperAssetRunner{architecture: "amd64", metadata: []byte(fmt.Sprintf(
-		`{"architecture":"amd64","os":"linux","exposure_api":"1","exposure_source":%q,"permission_api":"","permission_source":%q}`,
-		source, source,
+		`{"Id":"sha256:%s","Architecture":"amd64","Os":"linux","Config":{"Labels":{"io.tobari.exposure-helper-api":"1","io.tobari.exposure-helper-source":%q,"io.tobari.permission-helper-api":"","io.tobari.permission-helper-source":%q}}}`,
+		strings.Repeat("a", 64), source, source,
 	))}
 	base := t.TempDir()
 	runtime, err := newRuntimeWithData(filepath.Join(base, "config"), filepath.Join(base, "state"), filepath.Join(base, "data"), runner)
@@ -113,7 +114,47 @@ func TestWorkspaceHelpersRequireBothVerifiedImageIdentities(t *testing.T) {
 	}
 }
 
+func TestWorkspaceHelpersRejectImageDeclaredVolumeBeforeExtraction(t *testing.T) {
+	t.Parallel()
+	source, err := runtimeassets.ExposureHelperSourceVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata := []byte(fmt.Sprintf(
+		`{"Id":"sha256:%s","Architecture":"amd64","Os":"linux","Config":{"Labels":{"io.tobari.exposure-helper-api":"1","io.tobari.exposure-helper-source":%q,"io.tobari.permission-helper-api":"1","io.tobari.permission-helper-source":%q},"Volumes":{"/leak":{}}}}`,
+		strings.Repeat("a", 64), source, source,
+	))
+	runner := &exposureHelperAssetRunner{architecture: "amd64", metadata: metadata}
+	base := t.TempDir()
+	runtime, err := newRuntimeWithData(filepath.Join(base, "config"), filepath.Join(base, "state"), filepath.Join(base, "data"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.materializeWorkspaceHelpers(context.Background(), "tobari-runtime:mutable"); err == nil {
+		t.Fatal("helper image declared volume was accepted")
+	}
+	if len(runner.runs) != 0 {
+		t.Fatalf("incompatible image reached container create: %v", runner.runs)
+	}
+}
+
 func (r *exposureHelperAssetRunner) Run(_ context.Context, args, _ []string, _ io.Reader, out, _ io.Writer) error {
+	if len(args) >= 1 && args[0] == "version" {
+		data, err := r.Output(context.Background(), args, nil)
+		if err != nil {
+			return err
+		}
+		_, err = out.Write(data)
+		return err
+	}
+	if len(args) >= 2 && args[0] == "image" && args[1] == "inspect" {
+		metadata, err := r.Output(context.Background(), args, nil)
+		if err != nil {
+			return err
+		}
+		_, err = out.Write(metadata)
+		return err
+	}
 	r.runs = append(r.runs, append([]string{}, args...))
 	if len(args) >= 2 && args[0] == "container" && args[1] == "cp" {
 		if r.copyErr != nil {
@@ -177,7 +218,7 @@ func TestWorkspaceServiceHelperIsExtractedFromVerifiedEngineImageAtomically(t *t
 		componentLabel + "=exposure-helper-extract",
 		"--rm", "--network", "none", "--read-only", "--cap-drop", "ALL",
 		"--security-opt", "no-new-privileges", "--user", "65534:65534",
-		"--entrypoint", "/bin/sleep", fmt.Sprintf("%d", exposureHelperAutoRemoveSeconds),
+		"--entrypoint", "/bin/sleep", "sha256:" + strings.Repeat("a", 64), fmt.Sprintf("%d", exposureHelperAutoRemoveSeconds),
 	} {
 		if !slices.Contains(create, required) {
 			t.Fatalf("create argv=%v missing %q", create, required)

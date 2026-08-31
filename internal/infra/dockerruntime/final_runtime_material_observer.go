@@ -122,6 +122,15 @@ func (r *Runtime) validateFinalRuntimeMaterials(ctx context.Context, snapshot to
 				return nil, fmt.Errorf("final Template Runtime lifecycle is active")
 			}
 		}
+		if binding.RuntimeID == tobari.StandardRuntimeID {
+			if err := r.validateExactStandardRuntimeBinding(binding); err != nil {
+				return nil, fmt.Errorf("final Template standard Runtime binding is invalid: %w", err)
+			}
+			if _, err := r.inspectFinalStandardRuntimeImage(ctx, binding.Image); err != nil {
+				return nil, fmt.Errorf("final Template standard Runtime material is incompatible or unavailable: %w", err)
+			}
+			continue
+		}
 		manifest, exists := runtimes[binding.RuntimeID]
 		if !exists {
 			return nil, fmt.Errorf("final Template Runtime authority is unavailable")
@@ -152,13 +161,7 @@ func (r *Runtime) validateFinalRuntimeMaterials(ctx context.Context, snapshot to
 			}
 			continue
 		}
-		image, err := r.resolveBuiltinImageSelector(observedBinding.Image)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := r.inspectFinalStandardRuntimeImage(ctx, image); err != nil {
-			return nil, fmt.Errorf("final Template standard Runtime material is incompatible or unavailable: %w", err)
-		}
+		return nil, fmt.Errorf("final Template Runtime kind is unsupported")
 	}
 	return append([]tobari.RuntimeBinding{}, bindings...), nil
 }

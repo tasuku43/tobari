@@ -39,6 +39,7 @@ func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, 
 	}
 	fresh := !selected.Selection.CollectionPresent
 	var customized *tobari.WorkspaceTemplateBody
+	var preparedFirstUse bool
 	if fresh {
 		if c.interactive == nil || !c.interactive(c.In, c.Out, c.Err) {
 			return c.failRootBeforeHandoff(ctx, fault.WithClassification(fault.New(
@@ -47,6 +48,11 @@ func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, 
 				fault.NextAction{Command: "help tobari", Reason: "Open an interactive terminal in the Project, then run tobari."},
 			), fault.PhasePrecondition, fault.ChangeNone))
 		}
+		prepareErr := c.finalEntryReadiness.Check(ctx)
+		if prepareErr != nil {
+			return c.failRootBeforeHandoff(ctx, prepareErr)
+		}
+		preparedFirstUse = true
 		draft, draftErr := tobari.NewRecommendedFirstUseDraft(selected.Selection.CanonicalCWD, session)
 		if draftErr != nil {
 			return c.failRootBeforeHandoff(ctx, fault.WithClassification(fault.Wrap(
@@ -80,18 +86,52 @@ func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, 
 		}
 	}
 
+	intent.Target = operation.TargetRef{Kind: tobari.CurrentDirectoryTargetKind, ParentID: tobari.CurrentDirectoryTargetID}
+	intent.Impact = command.Agent.Mutation.Impact
+	if !fresh && selectedDefaultPairHasWorkspace(selected) {
+		resolution, resolveErr := c.finalDefaultPair.ResolveSelected(ctx, intent, nil, selected)
+		if resolveErr != nil {
+			return c.failRootBeforeHandoff(ctx, resolveErr)
+		}
+		if err := rootCancellationAfterResolution(ctx, resolution); err != nil {
+			return c.failRootBeforeHandoff(ctx, err)
+		}
+		if currentWorkspaceAuthorityReady(resolution) {
+			result, entryErr := c.finalDefaultPair.EnterResolvedCurrent(ctx, resolution, session, c.In, c.Out, c.Err)
+			if entryErr == nil {
+				emitWorkspaceCleanupAttention(c.Err, result.Outcome)
+				return result.Outcome.ExitCode
+			}
+			if !errors.Is(entryErr, tobari.ErrWorkspaceEntryRuntimeNotCurrent) && !errors.Is(entryErr, tobari.ErrWorkspaceEntryProtectionNotCurrent) {
+				return c.failRootBeforeHandoff(ctx, entryErr)
+			}
+		}
+	}
+
 	progress := newFirstEntryProgress(
 		c.Err, !fresh, terminal.IsTerminal(c.Err), humanStyleAllowed(ctx, c, c.Err),
 	)
-	if err := progress.Start(tobari.FirstEntryCheckRequirements); err != nil {
-		return c.failRootBeforeHandoff(ctx, err)
-	}
-	if err := c.finalEntryReadiness.Check(ctx); err != nil {
-		_ = progress.Finish(firstEntryFailureState(err))
-		return c.failRootBeforeHandoff(ctx, err)
-	}
-	if err := progress.Finish(tobari.FirstEntryStageSucceeded); err != nil {
-		return c.failRootBeforeHandoff(ctx, err)
+	if preparedFirstUse {
+		// Fresh readiness is confirmed before the interactive review so no
+		// Docker mutation can precede that gate. After review, project the
+		// already-confirmed checkpoint without repeating the observation.
+		if err := progress.Start(tobari.FirstEntryCheckRequirements); err != nil {
+			return c.failRootBeforeHandoff(ctx, err)
+		}
+		if err := progress.Finish(tobari.FirstEntryStageSucceeded); err != nil {
+			return c.failRootBeforeHandoff(ctx, err)
+		}
+	} else {
+		if err := progress.Start(tobari.FirstEntryCheckRequirements); err != nil {
+			return c.failRootBeforeHandoff(ctx, err)
+		}
+		if err := c.finalEntryReadiness.Check(ctx); err != nil {
+			_ = progress.Finish(firstEntryFailureState(err))
+			return c.failRootBeforeHandoff(ctx, err)
+		}
+		if err := progress.Finish(tobari.FirstEntryStageSucceeded); err != nil {
+			return c.failRootBeforeHandoff(ctx, err)
+		}
 	}
 
 	if err := progress.Start(tobari.FirstEntryResolveContext); err != nil {
@@ -111,9 +151,8 @@ func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, 
 			freshBody = &body
 		}
 	}
-	intent.Target = operation.TargetRef{Kind: tobari.CurrentDirectoryTargetKind, ParentID: tobari.CurrentDirectoryTargetID}
-	intent.Impact = command.Agent.Mutation.Impact
-	resolution, err := c.finalDefaultPair.ResolveSelected(ctx, intent, freshBody, selected)
+	var resolution workspaceauthoritycmd.DefaultPairResolution
+	resolution, err = c.finalDefaultPair.ResolveSelected(ctx, intent, freshBody, selected)
 	if err != nil {
 		_ = progress.Finish(firstEntryFailureState(err))
 		return c.failRootBeforeHandoff(ctx, err)
@@ -183,6 +222,28 @@ func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, 
 	}
 	emitWorkspaceCleanupAttention(c.Err, result.Outcome)
 	return result.Outcome.ExitCode
+}
+
+func selectedDefaultPairHasWorkspace(selected workspaceauthoritycmd.SelectedDefaultPair) bool {
+	observation, err := selected.Selection.Observation(selected.Choice)
+	return err == nil && observation.Context != nil && observation.Context.Workspace != nil
+}
+
+func currentWorkspaceAuthorityReady(resolution workspaceauthoritycmd.DefaultPairResolution) bool {
+	if resolution.Validate() != nil || resolution.AuthorityChanged || resolution.Observation.DefaultTemplate == nil || resolution.Observation.Context == nil || resolution.Observation.Context.Workspace == nil {
+		return false
+	}
+	snapshot := resolution.Observation.Context
+	workspace := snapshot.Workspace
+	applied := workspace.LastSuccessfulEntry
+	if snapshot.ActiveTemplatePolicy == nil || snapshot.ActivePolicyMemory == nil || snapshot.ActivePolicyMemoryRef == nil || applied == nil ||
+		snapshot.ActiveTemplatePolicy.ValidateFor(snapshot.Context, snapshot.Template.Current) != nil ||
+		snapshot.ActivePolicyMemory.Revision != snapshot.PolicyMemory.Revision || snapshot.ActivePolicyMemoryRef.ValidateFor(snapshot.Context, snapshot.PolicyMemory) != nil {
+		return false
+	}
+	current := snapshot.Template.Current
+	return applied.ContextID == snapshot.Context.ID && applied.TemplateID == snapshot.Template.ID && applied.TemplateRevision == current.Revision &&
+		applied.EntrySliceDigest == current.Slices.EntrySliceDigest && applied.RuntimeID == current.Slices.RuntimeID && applied.RuntimeRevision == current.Slices.RuntimeRevision
 }
 
 type finalDefaultPairMutationRecoveryObserver interface {

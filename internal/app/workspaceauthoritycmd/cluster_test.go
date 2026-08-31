@@ -106,6 +106,27 @@ func TestFinalClusterDownServiceForwardsAndConfirmsExactPurgeIntent(t *testing.T
 	}
 }
 
+func TestFinalClusterLifecycleRejectsAbsentAuthorityBeforeMutation(t *testing.T) {
+	up := &fakeFinalClusterPort{err: tobari.ErrFinalAuthorityNotFound}
+	if _, err := NewFinalClusterService(up).Reconcile(context.Background(), finalClusterIntent()); err == nil {
+		t.Fatal("cluster up accepted absent final authority")
+	} else if public, ok := fault.PublicCopy(err); !ok || public.Code != "authority_not_found" || public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone {
+		t.Fatalf("cluster up absent-authority fault = %+v, structured=%t", public, ok)
+	}
+
+	down := &fakeFinalClusterDownPort{err: tobari.ErrFinalAuthorityNotFound}
+	intent := operation.Intent{
+		Command: TaskClusterDown, Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.ClusterTargetKind, ID: tobari.ClusterTargetID},
+		Impact: FinalClusterDownImpact(),
+	}
+	if _, err := NewFinalClusterLifecycleService(down).Down(context.Background(), intent, false); err == nil {
+		t.Fatal("cluster down accepted absent final authority")
+	} else if public, ok := fault.PublicCopy(err); !ok || public.Code != "authority_not_found" || public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone {
+		t.Fatalf("cluster down absent-authority fault = %+v, structured=%t", public, ok)
+	}
+}
+
 func TestFinalClusterServiceBindsFixedTargetAndReturnsExactReceipts(t *testing.T) {
 	port := &fakeFinalClusterPort{plan: finalClusterPlanFixture(t), identity: finalClusterIdentityFixture()}
 	result, err := NewFinalClusterService(port).Reconcile(context.Background(), finalClusterIntent())
@@ -193,6 +214,37 @@ func TestFinalClusterServicePreservesLegacyAndUnknownMutationClassification(t *t
 		if !ok || public.Code != "unclassified_mutation_outcome" || public.Phase != fault.PhaseMutation ||
 			public.ChangeState != fault.ChangeUnknown || port.calls != 1 {
 			t.Fatalf("unknown fault=%#v ok=%t calls=%d", public, ok, port.calls)
+		}
+	})
+	t.Run("fresh preflight cancellation", func(t *testing.T) {
+		port := &fakeFinalClusterPort{err: context.Canceled}
+		_, err := NewFinalClusterService(port).Reconcile(context.Background(), finalClusterIntent())
+		public, ok := fault.PublicCopy(err)
+		if !ok || public.Code != "operation_canceled" || public.Kind != fault.KindCanceled || public.Phase != fault.PhasePrecondition ||
+			public.ChangeState != fault.ChangeNone || !public.Retryable || port.calls != 1 {
+			t.Fatalf("preflight cancellation=%#v ok=%t calls=%d", public, ok, port.calls)
+		}
+	})
+	t.Run("post-decision cancellation preserves recovery classification", func(t *testing.T) {
+		structured := fault.WithClassification(fault.Wrap(
+			fault.KindUnavailable, "final_authority_mutation_interrupted", "durable decision retained", false, context.Canceled,
+			fault.NextAction{Command: "status", Reason: "Recover the retained decision."},
+		), fault.PhaseMutation, fault.ChangePartial)
+		port := &fakeFinalClusterPort{err: structured}
+		_, err := NewFinalClusterService(port).Reconcile(context.Background(), finalClusterIntent())
+		public, ok := fault.PublicCopy(err)
+		if !ok || public.Code != "final_authority_mutation_interrupted" || public.Kind != fault.KindUnavailable ||
+			public.Phase != fault.PhaseMutation || public.ChangeState != fault.ChangePartial || port.calls != 1 {
+			t.Fatalf("post-decision cancellation=%#v ok=%t calls=%d", public, ok, port.calls)
+		}
+	})
+	t.Run("active decision recovery sentinel precedes cancellation", func(t *testing.T) {
+		port := &fakeFinalClusterPort{err: errors.Join(tobari.ErrFinalAuthorityMutationRecoveryRequired, context.Canceled)}
+		_, err := NewFinalClusterService(port).Reconcile(context.Background(), finalClusterIntent())
+		public, ok := fault.PublicCopy(err)
+		if !ok || public.Code != "final_authority_mutation_recovery_required" || public.Kind != fault.KindUnavailable ||
+			public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone || port.calls != 1 {
+			t.Fatalf("active recovery cancellation=%#v ok=%t calls=%d", public, ok, port.calls)
 		}
 	})
 	t.Run("structured adapter failure", func(t *testing.T) {

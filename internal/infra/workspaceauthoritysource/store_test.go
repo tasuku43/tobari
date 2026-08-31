@@ -59,6 +59,33 @@ func sourceRuntimeBindingFixture() tobari.RuntimeBinding {
 	return tobari.RuntimeBinding{RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Revision: "sha256:" + strings.Repeat("f", 64), Ordinal: 1, Image: "tobari-runtime:test"}
 }
 
+func TestReplaceTemplateSnapshotUsesExactFingerprintAndClosedPair(t *testing.T) {
+	store, err := New(filepath.Join(t.TempDir(), "sources"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := sourceTemplateFixture(t)
+	if err := store.PublishTemplate(context.Background(), initial); err != nil {
+		t.Fatal(err)
+	}
+	_, fingerprint, present, err := store.ReadTemplateSnapshot(context.Background(), sourceTemplateID)
+	if err != nil || !present {
+		t.Fatalf("snapshot present=%v err=%v", present, err)
+	}
+	next := initial.Clone()
+	next.Template.SourceAccess = tobari.ManifestSourceAccessReadWrite
+	if err := store.ReplaceTemplateSnapshot(context.Background(), next, strings.Repeat("0", 64)); !errors.Is(err, tobari.ErrResourceSourceChanged) {
+		t.Fatalf("stale replacement error=%v", err)
+	}
+	if err := store.ReplaceTemplateSnapshot(context.Background(), next, fingerprint); err != nil {
+		t.Fatal(err)
+	}
+	got, _, present, err := store.ReadTemplateSnapshot(context.Background(), sourceTemplateID)
+	if err != nil || !present || got.Template.SourceAccess != tobari.ManifestSourceAccessReadWrite {
+		t.Fatalf("replacement=%+v present=%v err=%v", got.Template, present, err)
+	}
+}
+
 func sourceMigrationCollectionFixture(t *testing.T) tobari.WorkspaceAuthorityCollection {
 	t.Helper()
 	source := sourceTemplateFixture(t)
@@ -74,7 +101,7 @@ func sourceMigrationCollectionFixture(t *testing.T) tobari.WorkspaceAuthorityCol
 	if err := tobari.InitializeWorkspaceTemplateMetadata(&template); err != nil {
 		t.Fatal(err)
 	}
-	binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: sourceContextID, ProjectRoot: "/workspace/example", TemplateID: sourceTemplateID}
+	binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: sourceContextID, TemplateID: sourceTemplateID}
 	memory, _, err := tobari.PublishPolicyMemory(sourceContextID, []tobari.PolicyMemoryRule{}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -390,7 +417,7 @@ func TestStorePublishesConceptSeparatedClosedSources(t *testing.T) {
 	if err := store.PublishTemplate(context.Background(), source); err != nil {
 		t.Fatal(err)
 	}
-	contextSource := tobari.ContextSource{SchemaVersion: tobari.ContextSourceSchemaVersion, ContextID: sourceContextID, ProjectRoot: "/workspace/example", TemplateID: sourceTemplateID}
+	contextSource := tobari.ContextSource{SchemaVersion: tobari.ContextSourceSchemaVersion, ContextID: sourceContextID, TemplateID: sourceTemplateID}
 	if err := store.PublishContext(context.Background(), contextSource); err != nil {
 		t.Fatal(err)
 	}
@@ -1126,7 +1153,7 @@ func TestStoreRejectsSymlinkHardlinkUnsafeModeAndDirectoryIdentityDrift(t *testi
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store, _ := New(filepath.Join(t.TempDir(), "config"))
-			source := tobari.ContextSource{SchemaVersion: tobari.ContextSourceSchemaVersion, ContextID: sourceContextID, ProjectRoot: "/workspace/example", TemplateID: sourceTemplateID}
+			source := tobari.ContextSource{SchemaVersion: tobari.ContextSourceSchemaVersion, ContextID: sourceContextID, TemplateID: sourceTemplateID}
 			if err := store.PublishContext(context.Background(), source); err != nil {
 				t.Fatal(err)
 			}

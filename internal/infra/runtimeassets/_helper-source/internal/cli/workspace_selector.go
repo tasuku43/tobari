@@ -98,11 +98,11 @@ func (s *workspaceSelector) SelectFinalDefaultPair(
 			runtime = tobari.RuntimeDiagnosticUnknown
 		}
 		view.Candidates = append(view.Candidates, tobari.WorkspaceSelectionCandidate{
-			ID: string(candidate.Snapshot.Context.ID), Root: candidate.Snapshot.Context.ProjectRoot,
+			ID: string(candidate.Snapshot.Context.ID), Root: candidate.Snapshot.Workspace.ProjectRoot,
 			WorkspaceManifestID: string(selection.DefaultTemplate.ID), WorkspaceManifestName: selection.DefaultTemplate.Name,
 			Runtime: runtime,
 		})
-		if candidate.Snapshot.Context.ProjectRoot == selection.CanonicalCWD {
+		if candidate.Snapshot.Workspace.ProjectRoot == selection.CanonicalCWD {
 			view.CanCreate = false
 		}
 	}
@@ -180,20 +180,17 @@ func selectWorkspaceRaw(
 	lineCount := 0
 	for {
 		if err := ctx.Err(); err != nil {
-			finishWorkspaceSelector(out, lineCount)
-			return tobari.ProjectSelectionChoice{}, err
+			return tobari.ProjectSelectionChoice{}, errors.Join(err, finishWorkspaceSelector(out, lineCount))
 		}
 		top := selectorWindowTop(selected, len(options), selectorMaxVisibleOptions)
 		currentLines := renderWorkspaceSelector(out, selection, options, selected, top, message, lineCount, style)
 		if currentLines < 0 {
-			finishWorkspaceSelector(out, lineCount)
-			return tobari.ProjectSelectionChoice{}, fmt.Errorf("render Workspace selector")
+			return tobari.ProjectSelectionChoice{}, errors.Join(fmt.Errorf("render Workspace selector"), finishWorkspaceSelector(out, lineCount))
 		}
 		lineCount = currentLines
 		key, err := readSelectorKey(ctx, in)
 		if err != nil {
-			finishWorkspaceSelector(out, lineCount)
-			return tobari.ProjectSelectionChoice{}, err
+			return tobari.ProjectSelectionChoice{}, errors.Join(err, finishWorkspaceSelector(out, lineCount))
 		}
 		switch key.kind {
 		case selectorKeyNone:
@@ -215,8 +212,7 @@ func selectWorkspaceRaw(
 				message = "A Workspace already exists at the current directory."
 				continue
 			}
-			finishWorkspaceSelector(out, lineCount)
-			return tobari.ProjectSelectionChoice{Kind: tobari.ProjectSelectionCreate}, nil
+			return tobari.ProjectSelectionChoice{Kind: tobari.ProjectSelectionCreate}, finishWorkspaceSelector(out, lineCount)
 		case selectorKeyNumber:
 			if key.index < 0 || key.index >= len(options) {
 				message = "That Workspace option does not exist."
@@ -228,18 +224,15 @@ func selectWorkspaceRaw(
 				message = "That Workspace is unavailable."
 				continue
 			}
-			finishWorkspaceSelector(out, lineCount)
-			return workspaceChoice(options[selected]), nil
+			return workspaceChoice(options[selected]), finishWorkspaceSelector(out, lineCount)
 		case selectorKeyEnter:
 			if !options[selected].selectable {
 				message = "That Workspace is unavailable."
 				continue
 			}
-			finishWorkspaceSelector(out, lineCount)
-			return workspaceChoice(options[selected]), nil
+			return workspaceChoice(options[selected]), finishWorkspaceSelector(out, lineCount)
 		case selectorKeyCancel:
-			finishWorkspaceSelector(out, lineCount)
-			return tobari.ProjectSelectionChoice{}, context.Canceled
+			return tobari.ProjectSelectionChoice{}, errors.Join(context.Canceled, finishWorkspaceSelector(out, lineCount))
 		default:
 			message = "Use ↑/↓ to move, Enter to select, n to create, or q to cancel."
 		}
@@ -496,8 +489,8 @@ func writeSelectorLine(out io.Writer, line string) error {
 	return err
 }
 
-func finishWorkspaceSelector(out io.Writer, lines int) {
-	finishSelectorScreen(out, lines)
+func finishWorkspaceSelector(out io.Writer, lines int) error {
+	return finishSelectorScreen(out, lines)
 }
 
 func readSelectorKey(ctx context.Context, in io.Reader) (selectorKey, error) {

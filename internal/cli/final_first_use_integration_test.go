@@ -60,6 +60,10 @@ func (r *firstUseIntegrationRuntime) ResolveWorkspaceTemplateRuntimeRevision(_ c
 	}, nil
 }
 
+func (r *firstUseIntegrationRuntime) ResolveRetainedWorkspaceTemplateRuntimeBinding(_ context.Context, binding tobari.RuntimeBinding) (tobari.RuntimeBinding, error) {
+	return binding, binding.Validate()
+}
+
 type firstUseIntegrationActivation struct {
 	confirmCalls int
 }
@@ -120,6 +124,10 @@ func (s *firstUseIntegrationSettlement) ConfirmFinalReviewedPolicyAuthority(cont
 	return tobari.PolicyMemoryReviewedSettlementReceipt{}, errors.New("reviewed policy settlement is not part of first-use bootstrap")
 }
 
+func (s *firstUseIntegrationSettlement) PreflightFinalClusterAuthority(_ context.Context, plan tobari.WorkspacePolicyProjection) error {
+	return plan.Validate()
+}
+
 func (s *firstUseIntegrationSettlement) ReconcileFinalClusterAuthorityWithIdentity(_ context.Context, previous, next tobari.WorkspaceAuthorityCollection, _, _ string) (tobari.PolicyProjectionIdentity, error) {
 	transition, err := tobari.PlanWorkspaceAuthorityClusterReconciliation(previous)
 	if err != nil {
@@ -165,8 +173,16 @@ type firstUseIntegrationEntryRuntime struct {
 	confirmCalls   int
 }
 
-func (r *firstUseIntegrationEntryRuntime) WorkspaceHomeForID(_ context.Context, id tobari.WorkspaceID) (string, error) {
-	return "/workspace/home-" + string(id), nil
+func (r *firstUseIntegrationEntryRuntime) AcquireWorkspaceEntryAttachment(_ context.Context, _ tobari.ContextID, _ string) (func() error, error) {
+	return func() error { return nil }, nil
+}
+
+func (r *firstUseIntegrationEntryRuntime) AcquireWorkspaceReconciliationFence(context.Context) (func() error, error) {
+	return func() error { return nil }, nil
+}
+
+func (r *firstUseIntegrationEntryRuntime) ContextHomeForID(_ context.Context, id tobari.ContextID) (string, error) {
+	return "/context/home-" + string(id), nil
 }
 
 func (r *firstUseIntegrationEntryRuntime) PrepareWorkspaceRuntimeMaterial(_ context.Context, binding tobari.RuntimeBinding) error {
@@ -177,7 +193,7 @@ func (r *firstUseIntegrationEntryRuntime) PrepareWorkspaceRuntimeMaterial(_ cont
 	return nil
 }
 
-func (r *firstUseIntegrationEntryRuntime) PlanWorkspaceEntry(_ context.Context, snapshot tobari.ContextAuthoritySnapshot, authority tobari.WorkspaceTemplateEntryAuthority, workspaceID tobari.WorkspaceID, reconciledAt time.Time) (tobari.WorkspaceEntryReconciliationPlan, error) {
+func (r *firstUseIntegrationEntryRuntime) PlanWorkspaceEntry(_ context.Context, snapshot tobari.ContextAuthoritySnapshot, authority tobari.WorkspaceTemplateEntryAuthority, projectRoot string, workspaceID tobari.WorkspaceID, reconciledAt time.Time) (tobari.WorkspaceEntryReconciliationPlan, error) {
 	r.planCalls++
 	if err := authority.ValidateFor(snapshot.Template.Current); err != nil {
 		return tobari.WorkspaceEntryReconciliationPlan{}, err
@@ -191,8 +207,8 @@ func (r *firstUseIntegrationEntryRuntime) PlanWorkspaceEntry(_ context.Context, 
 		SchemaVersion:    tobari.WorkspaceBindingSchemaVersion,
 		ID:               workspaceID,
 		ContextID:        snapshot.Context.ID,
-		ProjectRoot:      snapshot.Context.ProjectRoot,
-		Home:             "/workspace/home-" + string(workspaceID),
+		ProjectRoot:      projectRoot,
+		Home:             "/context/home-" + string(snapshot.Context.ID),
 		CreationDefaults: snapshot.Template.Current.Slices.CreationDefaultsDigest,
 	}
 	applied := tobari.WorkspaceAppliedEntry{
@@ -240,16 +256,31 @@ func firstUseIntegrationEntryReceipt(plan tobari.WorkspaceEntryReconciliationPla
 	}
 }
 
-type firstUseIntegrationTemplatePolicy struct{}
+type firstUseIntegrationTemplatePolicy struct {
+	memory *firstUseIntegrationActivation
+}
 
-func (firstUseIntegrationTemplatePolicy) ConfirmTemplatePolicyActive(_ context.Context, collection tobari.WorkspaceAuthorityCollection, contextID tobari.ContextID, receipt tobari.TemplatePolicyActivationReceipt) error {
+func (firstUseIntegrationTemplatePolicy) ObserveWorkspacePolicyAxesCurrent(context.Context, tobari.WorkspaceAuthorityCollection, tobari.ContextID, tobari.TemplatePolicyActivationReceipt, tobari.PolicyMemoryActivationReceipt) (bool, error) {
+	return true, nil
+}
+
+func (f firstUseIntegrationTemplatePolicy) ConfirmWorkspacePolicyAxesActive(_ context.Context, collection tobari.WorkspaceAuthorityCollection, contextID tobari.ContextID, templateReceipt tobari.TemplatePolicyActivationReceipt, memoryReceipt tobari.PolicyMemoryActivationReceipt) error {
 	for _, record := range collection.Contexts {
 		if record.Context.ID != contextID {
 			continue
 		}
 		for _, template := range collection.Templates {
 			if template.ID == record.Context.TemplateID {
-				return receipt.ValidateFor(record.Context, template.Current)
+				if err := templateReceipt.ValidateFor(record.Context, template.Current); err != nil {
+					return err
+				}
+				if record.ActivePolicyMemory == nil || record.ActivePolicyMemoryRef == nil || memoryReceipt != *record.ActivePolicyMemoryRef || memoryReceipt.Revision != record.ActivePolicyMemory.Revision {
+					return fmt.Errorf("Policy Memory active receipt mismatch")
+				}
+				if f.memory != nil {
+					f.memory.confirmCalls++
+				}
+				return nil
 			}
 		}
 	}
@@ -367,7 +398,7 @@ func TestFinalRootFreshStartBootstrapsAuthorityClusterAndWorkspaceFromEmptyXDG(t
 	}
 	entryRuntime := &firstUseIntegrationEntryRuntime{}
 	sessions := &firstUseIntegrationSession{}
-	entry, err := workspaceauthoritystore.NewContextEntryAdapter(mutator, entryRuntime, firstUseIntegrationTemplatePolicy{}, sessions, lifetime)
+	entry, err := workspaceauthoritystore.NewContextEntryAdapter(mutator, entryRuntime, firstUseIntegrationTemplatePolicy{memory: activation}, sessions, lifetime, resources)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -463,6 +494,6 @@ var _ workspaceauthoritystore.WorkspaceTemplateRuntimeRevisionAuthority = (*firs
 var _ workspaceauthoritystore.PolicyMemoryActivationAuthority = (*firstUseIntegrationActivation)(nil)
 var _ workspaceauthoritystore.FinalAuthoritySettlementAuthority = (*firstUseIntegrationSettlement)(nil)
 var _ workspaceauthoritystore.WorkspaceEntryRuntimeAuthority = (*firstUseIntegrationEntryRuntime)(nil)
-var _ workspaceauthoritystore.TemplatePolicyActivationAuthority = firstUseIntegrationTemplatePolicy{}
+var _ workspaceauthoritystore.WorkspacePolicyActivationAuthority = firstUseIntegrationTemplatePolicy{}
 var _ workspaceauthoritystore.WorkspaceSessionAuthority = (*firstUseIntegrationSession)(nil)
 var _ workspaceauthoritystore.FinalCanonicalProjectRootAuthority = firstUseIntegrationProjectRoot{}

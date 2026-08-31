@@ -1,7 +1,6 @@
 package dockerruntime
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -14,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
@@ -895,7 +895,7 @@ func (r *Runtime) RecoverRuntimeBuildBuilding(ctx context.Context) error {
 			if inspectErr != nil {
 				return fmt.Errorf("Runtime building image outcome requires review: %w", inspectErr)
 			}
-			if err := r.validateManagedRuntimeBuildCompatibility(recoveryContext, journal.StagingImage); err != nil {
+			if err := r.validateManagedRuntimeBuildCompatibility(recoveryContext, imageDigest); err != nil {
 				return fmt.Errorf("Runtime building image compatibility requires review: %w", err)
 			}
 			if err := r.requireRuntimeBuildSnapshotRevision(recoveryContext, journal.SnapshotPath, journal.Revision); err != nil {
@@ -1038,7 +1038,11 @@ func (r *Runtime) retainRuntimeBuildFailure(ctx context.Context, journal runtime
 	if failed.StagingArtifact == runtimeBuildStagingUnknown {
 		return fmt.Errorf("Runtime build staging outcome requires reconciliation: %w", errors.Join(cause, inspectErr))
 	}
-	return cause
+	return fault.WithClassification(fault.Wrap(
+		fault.KindRejected, "runtime_build_failed",
+		"Runtime build material was retained for exact reconciliation.", false, cause,
+		fault.NextAction{Command: "review runtimes", Reason: "Inspect the retained failed build journal and exact staging disposition."},
+	), fault.PhaseMutation, fault.ChangePartial)
 }
 
 type managedRuntimeBuildEvidence struct {
@@ -1062,7 +1066,9 @@ func (r *Runtime) inspectManagedRuntimeBuildEvidence(ctx context.Context, image,
 		`"attempt_id":{{json (index .Config.Labels "` + managedRuntimeBuildAttemptLabel + `")}}}`
 	stdout := &boundedBuffer{limit: 4096}
 	stderr := &boundedBuffer{limit: 4096}
-	err := r.runner.Run(ctx, []string{"image", "inspect", "--format", format, image}, os.Environ(), nil, stdout, stderr)
+	inspectContext, cancel := context.WithTimeout(ctx, runtimeImageInspectTimeout)
+	defer cancel()
+	err := r.runner.Run(inspectContext, []string{"image", "inspect", "--format", format, image}, os.Environ(), nil, stdout, stderr)
 	if stdout.overflow || stderr.overflow {
 		return "", fmt.Errorf("managed Runtime build evidence exceeds the observation bound")
 	}
@@ -1087,29 +1093,11 @@ func (r *Runtime) validateManagedRuntimeBuildCompatibility(ctx context.Context, 
 	if tobari.ValidateImageSelector(image) != nil {
 		return fmt.Errorf("managed Runtime compatibility request is invalid")
 	}
-	format := `{"api":{{json (index .Config.Labels "` + tobari.RuntimeImageAPILabel + `")}},` +
-		`"lifetime":{{json (index .Config.Labels "` + tobari.RuntimeImageLifetimeLabel + `")}},` +
-		`"user":{{json .Config.User}},"entrypoint":{{json .Config.Entrypoint}}}`
-	stdout := &boundedBuffer{limit: 4096}
-	stderr := &boundedBuffer{limit: 4096}
-	err := r.runner.Run(ctx, []string{"image", "inspect", "--format", format, image}, os.Environ(), nil, stdout, stderr)
-	if stdout.overflow || stderr.overflow {
-		return fmt.Errorf("managed Runtime compatibility evidence exceeds the observation bound")
-	}
+	evidence, err := r.inspectRuntimeImageCompatibility(ctx, image)
 	if err != nil {
 		return fmt.Errorf("inspect managed Runtime compatibility: %w", err)
 	}
-	var configuration struct {
-		API        string   `json:"api"`
-		Lifetime   string   `json:"lifetime"`
-		User       string   `json:"user"`
-		Entrypoint []string `json:"entrypoint"`
-	}
-	if decodeStrictJSON(bytes.TrimSpace(stdout.buffer.Bytes()), &configuration) != nil ||
-		configuration.API != tobari.RuntimeImageAPI ||
-		configuration.Lifetime != tobari.RuntimeImageLifetimeCommand ||
-		configuration.User != "tobari" ||
-		!equalStrings(configuration.Entrypoint, []string{"/usr/bin/tini", "--", "/usr/local/bin/tobari-entrypoint"}) {
+	if !validRuntimeImageCompatibility(evidence) || strings.HasPrefix(image, "sha256:") && evidence.ID != image {
 		return fmt.Errorf("managed Runtime compatibility evidence is invalid")
 	}
 	return nil
