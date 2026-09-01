@@ -499,7 +499,11 @@ The semantic-policy cutover advances the pre-public final generation,
 Workspace Template, Policy Memory, and authority collection schemas to 2.
 Schema-1 generation state is unsupported development state and returns
 `legacy_state_present` with reset/recreate guidance; it is not eligible for the
-typed `authority.json` migration and no old AWS or Kubernetes coordinate is
+typed `authority.json` migration. The guidance names all three closed roots,
+`${XDG_CONFIG_HOME:-$HOME/.config}/tobari`,
+`${XDG_STATE_HOME:-$HOME/.local/state}/tobari`, and
+`${XDG_DATA_HOME:-$HOME/.local/share}/tobari`; removing only configuration and
+state cannot be presented as a complete reset. No old AWS or Kubernetes coordinate is
 inferred. Source-only alpha migration remains available only when the active
 authority already uses the current generation schema.
 
@@ -875,6 +879,11 @@ review runs through `tobari review permissions` in a separate host terminal.
   complete semantic tree into a private immutable snapshot while hashing the
   copied bytes and builds only from that snapshot.
 - `runtime build --id <runtime-ref>` is a direct reference-bound action. The
+  selected managed source may name the exact canonical source-addressed
+  standard parent emitted by `runtime create`. When that local-only parent is
+  absent, build prepares it from the CLI's embedded source before
+  starting the managed image build. This is part of the explicit Runtime task,
+  not an implicit Workspace-entry prerequisite or a registry pull. The
   separate `review runtimes` discover command returns the exhaustive catalog;
   redirected and JSON invocation remain read-only. Interactive review hands
   the unchanged Runtime or Runtime-revision reference to the exact build,
@@ -891,6 +900,11 @@ review runs through `tobari review permissions` in a separate host terminal.
   Restore never appends or rewrites history, changes a Workspace Template, or
   changes a Workspace. An interrupted restore remains fail-closed and resumes
   through the same one-confirmation `review runtimes` recovery path.
+- An active retained build journal rejects a new build as
+  `runtime_lifecycle_active` and routes to `review runtimes`; it is not wrapped
+  as another indistinguishable build failure. Interactive review uses the
+  Program's final TTY decision, confirms exact recovery, and may return
+  `recovered=true` without claiming that a failed draft has successful history.
 - Runtime schema 1 publishes revision identity as `source_digest`, never the
   provisional `revision` alias. Each managed revision separately reports typed
   `availability`, `storage`, `last_used`, and `snapshot` evidence; `storage` is
@@ -950,7 +964,9 @@ review runs through `tobari review permissions` in a separate host terminal.
 - `runtime build` is the explicit exception to the no-implicit-pull rule. It
   runs a host Docker build using only the immutable snapshot of the selected
   installation Runtime source tree as build context; Docker may obtain a
-  missing base image for this explicit build.
+  missing external base image for this explicit build. The exact canonical
+  Tobari standard parent is different: it is local-only and Tobari prepares it
+  from its embedded source when absent.
   Tobari requests plain BuildKit progress and forwards the visible-projected
   Docker stdout and stderr diagnostic stream to host stderr while the build
   runs, including in non-TTY environments. The diagnostic stream retains the

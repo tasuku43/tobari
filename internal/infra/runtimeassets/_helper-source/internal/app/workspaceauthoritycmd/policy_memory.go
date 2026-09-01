@@ -145,11 +145,11 @@ func (s *PolicyMemoryService) Deny(ctx context.Context, intent operation.Intent,
 }
 
 func (s *PolicyMemoryService) applyCandidate(ctx context.Context, intent operation.Intent, candidateRef string, decision tobari.PolicyMemoryDecision) (tobari.PolicyCandidateDecisionPublication, error) {
-	if s == nil || portcheck.IsNil(s.candidate) {
-		return tobari.PolicyCandidateDecisionPublication{}, missingPort("Policy Memory candidate")
-	}
 	if err := tobari.ValidatePolicyCandidateID(candidateRef); err != nil {
 		return tobari.PolicyCandidateDecisionPublication{}, invalidFault("invalid_policy_candidate_ref", "policy candidate reference is invalid", err, "policy candidates")
+	}
+	if s == nil || portcheck.IsNil(s.candidate) {
+		return tobari.PolicyCandidateDecisionPublication{}, missingPort("Policy Memory candidate")
 	}
 	command := TaskPolicyAllow
 	if decision == tobari.PolicyMemoryDeny {
@@ -192,11 +192,11 @@ func (s *PolicyMemoryService) applyCandidate(ctx context.Context, intent operati
 }
 
 func (s *PolicyMemoryService) Reset(ctx context.Context, intent operation.Intent, ruleRef string) (tobari.PolicyRuleResetPublication, error) {
-	if s == nil || portcheck.IsNil(s.rule) {
-		return tobari.PolicyRuleResetPublication{}, missingPort("Policy Memory rule")
-	}
 	if err := tobari.ValidatePolicyMemoryRuleID(ruleRef); err != nil {
 		return tobari.PolicyRuleResetPublication{}, invalidFault("invalid_policy_rule_ref", "policy rule reference is invalid", err, "policy rules")
+	}
+	if s == nil || portcheck.IsNil(s.rule) {
+		return tobari.PolicyRuleResetPublication{}, missingPort("Policy Memory rule")
 	}
 	target := operation.TargetRef{Kind: tobari.PolicyRuleKind, ID: ruleRef}
 	request := execution.Request{Intent: intent, ExpectedCommand: TaskPolicyReset, ExpectedEffect: operation.EffectWrite, ExpectedTarget: target, ExpectedImpact: PolicyMemoryImpact()}
@@ -220,13 +220,13 @@ func (s *PolicyMemoryService) ApplyReviewed(
 	intent operation.Intent,
 	set tobari.PolicyMemoryReviewedDecisionSet,
 ) (tobari.PolicyMemoryReviewedSetPublication, error) {
-	if s == nil || portcheck.IsNil(s.reviewed) {
-		return tobari.PolicyMemoryReviewedSetPublication{}, missingPort("reviewed Policy Memory")
-	}
 	if err := set.Validate(); err != nil {
 		return tobari.PolicyMemoryReviewedSetPublication{}, invalidFault(
 			"invalid_policy_review_set", "reviewed Policy Memory decision set is invalid", err, "review permissions",
 		)
+	}
+	if s == nil || portcheck.IsNil(s.reviewed) {
+		return tobari.PolicyMemoryReviewedSetPublication{}, missingPort("reviewed Policy Memory")
 	}
 	target := operation.TargetRef{Kind: tobari.PolicyDecisionSetKind, ParentID: tobari.PolicyDecisionSetID}
 	request := execution.Request{Intent: intent, ExpectedCommand: TaskPolicyApply, ExpectedEffect: operation.EffectCreate, ExpectedTarget: target, ExpectedImpact: PolicyMemoryImpact()}

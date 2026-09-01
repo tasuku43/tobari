@@ -534,6 +534,22 @@ func finalContextDraftText(value finalContextDraftProjection, templateRef string
 	})
 }
 
+func finalContextApplyText(value finalContextProjection, changed, color bool) []byte {
+	marker, title, headingStyle := "✓", "Context activated", styleSuccess
+	if !changed {
+		marker, title, headingStyle = "·", "Context already active", styleMuted
+	}
+	section := safeExternalText(value.TemplateName)
+	if section == "" {
+		section = "Context"
+	}
+	return finalAuthorityHumanCard(color, marker, title, headingStyle, section, []finalAuthorityHumanRow{
+		{label: "Changed", value: humanBool(changed), token: humanOutcomeBoolToken(changed)},
+		{label: "Status", value: "✓ active", token: styleSuccess},
+		{label: "Template revision", value: value.DesiredTemplateRevision, token: styleText},
+	}, "context enter --id "+value.ContextRef, "Bind this location-free Context to the current Project and enter its Workspace.", []finalAuthorityHumanRow{{label: "Reference", value: value.ContextRef, token: styleText}})
+}
+
 func finalWorkspaceStatusText(value finalWorkspaceProjection, color bool) []byte {
 	applied, token := "absent", styleWarning
 	if value.Applied {
@@ -956,19 +972,7 @@ func runFinalContextApply(ctx context.Context, c *CLI, command CommandSpec, inte
 		finalContextProjection
 		Changed bool `json:"changed"`
 	}{finalContextProjection: value, Changed: result.Changed}
-	marker, title, headingStyle := "✓", "Context activated", styleSuccess
-	if !result.Changed {
-		marker, title, headingStyle = "·", "Context already active", styleMuted
-	}
-	section := safeExternalText(value.TemplateName)
-	if section == "" {
-		section = "Context"
-	}
-	human := finalAuthorityHumanCard(humanStyleAllowed(ctx, c, c.Out), marker, title, headingStyle, section, []finalAuthorityHumanRow{
-		{label: "Changed", value: humanBool(result.Changed), token: humanOutcomeBoolToken(result.Changed)},
-		{label: "Status", value: "✓ active", token: styleSuccess},
-		{label: "Template revision", value: value.DesiredTemplateRevision, token: styleText},
-	}, "", "", []finalAuthorityHumanRow{{label: "Reference", value: value.ContextRef, token: styleText}})
+	human := finalContextApplyText(value, result.Changed, humanStyleAllowed(ctx, c, c.Out))
 	output, err := finalAuthorityOutput(command.Path, "context", document, format, human)
 	if err != nil {
 		return c.fail(ctx, err)

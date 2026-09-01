@@ -28,7 +28,7 @@ func runtimeReviewChooser(c *CLI) *terminalContextConfigurationWizard {
 
 func runtimeReviewAvailable(ctx context.Context, c *CLI, format successFormat) bool {
 	return format == successFormatText && invocationErrorFormat(ctx) != errorFormatJSON &&
-		c != nil && c.tobari != nil && c.tobari.IsInteractive(c.In, c.Err)
+		c != nil && c.interactive != nil && c.interactive(c.In, c.Out, c.Err)
 }
 
 func runtimeReviewUnavailable(ctx context.Context, c *CLI, command CommandSpec, selector string) int {

@@ -1728,10 +1728,16 @@ func (r *Runtime) buildManagedRuntimeLifecycleLockedFromSource(ctx context.Conte
 		if err != nil {
 			return r.rollbackRuntimeBuildBeforeDocker(ctx, err, journal)
 		}
-		pullBase, err := runtimeSourceUsesRefreshableBase(dockerfile, defaultImage, r.imageResolver().ShouldPullRuntimeImage(defaultImage))
+		usesCanonicalBase, err := runtimeSourceUsesRefreshableBase(dockerfile, defaultImage, true)
 		if err != nil {
 			return r.rollbackRuntimeBuildBeforeDocker(ctx, err, journal)
 		}
+		if usesCanonicalBase && r.imageResolver().ShouldBuildRuntimeImage(defaultImage) {
+			if err := r.ensureLocalBaseRuntimeImageWithDiagnostics(ctx, defaultImage, diagnostics); err != nil {
+				return r.rollbackRuntimeBuildBeforeDocker(ctx, err, journal)
+			}
+		}
+		pullBase := usesCanonicalBase && r.imageResolver().ShouldPullRuntimeImage(defaultImage)
 		args := []string{"buildx", "build", "--progress=plain", "--load",
 			"--label", ownerLabel + "=" + ownerValue,
 			"--label", componentLabel + "=" + managedRuntimeComponentLabel,

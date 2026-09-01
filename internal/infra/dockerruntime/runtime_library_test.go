@@ -37,6 +37,7 @@ type managedRuntimeBuildRunner struct {
 	inspectFailure       string
 	inspectOverflow      bool
 	failImageRemove      bool
+	rejectCanceled       bool
 	removeThenFail       bool
 	keepImageOnRemove    bool
 	blockInspect         bool
@@ -46,10 +47,24 @@ type managedRuntimeBuildRunner struct {
 }
 
 func newManagedRuntimeBuildRunner() *managedRuntimeBuildRunner {
-	return &managedRuntimeBuildRunner{images: make(map[string]managedRuntimeTestImage), containerLists: make(map[string]string), containers: make(map[string]runtimeContainerObservation)}
+	runner := &managedRuntimeBuildRunner{images: make(map[string]managedRuntimeTestImage), containerLists: make(map[string]string), containers: make(map[string]runtimeContainerObservation)}
+	// Most lifecycle tests begin after installation standard material is ready.
+	// The dedicated cold-build test removes this exact image to prove managed
+	// Runtime build owns first preparation rather than inheriting Workspace use.
+	if image, err := newImageResolver().DefaultRuntimeImage(); err == nil {
+		runner.images[image] = managedRuntimeTestImage{id: "sha256:" + strings.Repeat("9", 64), labels: map[string]string{}}
+	}
+	return runner
 }
 
 func (r *managedRuntimeBuildRunner) Run(ctx context.Context, args, _ []string, _ io.Reader, out, errOut io.Writer) error {
+	if r.rejectCanceled {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+	}
 	if len(args) >= 2 && args[0] == "container" && args[1] == "ls" {
 		r.outputs = append(r.outputs, runnerCall{args: append([]string{}, args...)})
 		for _, arg := range args {
@@ -104,6 +119,10 @@ func (r *managedRuntimeBuildRunner) Run(ctx context.Context, args, _ []string, _
 			}
 			_, _ = io.WriteString(errOut, diagnostic)
 			return errors.New("image inspect failed")
+		}
+		if args[3] == "{{.Id}}" {
+			_, err := io.WriteString(out, image.id)
+			return err
 		}
 		if r.inspectOverflow {
 			_, _ = io.WriteString(out, strings.Repeat("x", 8192))
@@ -279,6 +298,128 @@ func TestManagedRuntimeBuildCreatesImmutableRevisionWithoutChangingContext(t *te
 	}
 	if _, err := os.Lstat(runtime.runtimeBuildJournalPath()); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("successful build retained journal: %v", err)
+	}
+}
+
+func TestManagedRuntimeBuildPreparesMissingCanonicalStandardParentBeforeBuild(t *testing.T) {
+	root := t.TempDir()
+	runner := newManagedRuntimeBuildRunner()
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindEmptyFinalRuntimeProtection(t, runtime)
+	created, err := runtime.CreateRuntime(context.Background(), "coding", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, err := runtime.defaultRuntimeImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !runtime.imageResolver().ShouldBuildRuntimeImage(parent) {
+		t.Skip("resolver channel requires prebuilt standard material")
+	}
+	delete(runner.images, parent)
+
+	report, err := runtime.BuildManagedRuntimeByReference(context.Background(), tobari.RuntimeRef(created.Runtime.ID), io.Discard)
+	if err != nil {
+		t.Fatalf("cold managed Runtime build: %v", err)
+	}
+	if !report.Built || report.Runtime.ID != created.Runtime.ID {
+		t.Fatalf("cold managed Runtime report = %+v", report)
+	}
+	if len(runner.runs) < 2 {
+		t.Fatalf("cold managed Runtime calls = %+v", runner.runs)
+	}
+	firstTag := slices.Index(runner.runs[0].args, "--tag")
+	secondTag := slices.Index(runner.runs[1].args, "--tag")
+	if firstTag < 0 || firstTag+1 >= len(runner.runs[0].args) || runner.runs[0].args[firstTag+1] != parent {
+		t.Fatalf("first build did not prepare canonical parent %q: %+v", parent, runner.runs[0].args)
+	}
+	if secondTag < 0 || secondTag+1 >= len(runner.runs[1].args) || runner.runs[1].args[secondTag+1] == parent {
+		t.Fatalf("second build did not target managed staging: %+v", runner.runs[1].args)
+	}
+	if journal, err := runtime.readRuntimeBuildJournalObserved(); err != nil || journal != nil {
+		t.Fatalf("successful cold build retained journal = %+v/%v", journal, err)
+	}
+}
+
+func TestManagedRuntimeBuildParentFailureRetainsNoManagedAttemptAndRetryCloses(t *testing.T) {
+	root := t.TempDir()
+	runner := newManagedRuntimeBuildRunner()
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindEmptyFinalRuntimeProtection(t, runtime)
+	created, err := runtime.CreateRuntime(context.Background(), "coding", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, err := runtime.defaultRuntimeImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !runtime.imageResolver().ShouldBuildRuntimeImage(parent) {
+		t.Skip("resolver channel requires prebuilt standard material")
+	}
+	delete(runner.images, parent)
+	runner.failBuild = true
+
+	_, err = runtime.BuildManagedRuntimeByReference(context.Background(), tobari.RuntimeRef(created.Runtime.ID), io.Discard)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "runtime_image_build_failed" {
+		t.Fatalf("cold parent failure = %+v/%v", public, err)
+	}
+	if journal, readErr := runtime.readRuntimeBuildJournalObserved(); readErr != nil || journal != nil {
+		t.Fatalf("parent failure retained managed attempt = %+v/%v", journal, readErr)
+	}
+	if len(runner.runs) != 1 {
+		t.Fatalf("parent failure crossed managed BuildKit = %+v", runner.runs)
+	}
+
+	runner.failBuild = false
+	if _, err := runtime.BuildManagedRuntimeByReference(context.Background(), tobari.RuntimeRef(created.Runtime.ID), io.Discard); err != nil {
+		t.Fatalf("retry after observable parent material: %v", err)
+	}
+	if journal, readErr := runtime.readRuntimeBuildJournalObserved(); readErr != nil || journal != nil {
+		t.Fatalf("successful retry retained journal = %+v/%v", journal, readErr)
+	}
+}
+
+func TestManagedRuntimeBuildCanceledParentPreparationStillClosesPreparedJournal(t *testing.T) {
+	root := t.TempDir()
+	runner := newManagedRuntimeBuildRunner()
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.lifetimeContext = context.Background()
+	bindEmptyFinalRuntimeProtection(t, runtime)
+	created, err := runtime.CreateRuntime(context.Background(), "coding", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, err := runtime.defaultRuntimeImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !runtime.imageResolver().ShouldBuildRuntimeImage(parent) {
+		t.Skip("resolver channel requires prebuilt standard material")
+	}
+	delete(runner.images, parent)
+	runner.failBuild = true
+	runner.rejectCanceled = true
+	ctx, cancel := context.WithCancel(context.Background())
+	runner.duringBuild = func(string) { cancel() }
+
+	_, err = runtime.BuildManagedRuntimeByReference(ctx, tobari.RuntimeRef(created.Runtime.ID), io.Discard)
+	if err == nil {
+		t.Fatal("canceled canonical parent build succeeded")
+	}
+	if journal, readErr := runtime.readRuntimeBuildJournalObserved(); readErr != nil || journal != nil {
+		t.Fatalf("canceled parent preparation retained managed authority = %+v/%v", journal, readErr)
 	}
 }
 

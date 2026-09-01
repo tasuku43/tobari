@@ -476,6 +476,37 @@ func TestDeletedStableIDsCannotReenterTemplateOrContextApply(t *testing.T) {
 	}
 }
 
+func TestTemplatePlanClassifiesAbsentOrUnknownTemplateBeforeSourceFailure(t *testing.T) {
+	templateID := tobari.WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789a1")
+	templateRef, err := tobari.WorkspaceTemplateRef(templateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, mutator, _, _, _ := newMutationFixture(t, nil)
+	_, err = mutator.PlanWorkspaceTemplateSourceByReference(context.Background(), templateRef, func(context.Context) (tobari.WorkspaceTemplateSource, string, error) {
+		return tobari.WorkspaceTemplateSource{}, "", tobari.ErrResourceSourceMissing
+	})
+	if !errors.Is(err, tobari.ErrWorkspaceTemplateNotFound) {
+		t.Fatalf("absent-authority Template plan error=%v", err)
+	}
+
+	existing := storeCollectionFixture(t)
+	_, mutator, _, _, _ = newMutationFixture(t, &existing)
+	unknownID := tobari.WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789af")
+	unknownRef, err := tobari.WorkspaceTemplateRef(unknownID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaderCalled := false
+	_, err = mutator.PlanWorkspaceTemplateSourceByReference(context.Background(), unknownRef, func(context.Context) (tobari.WorkspaceTemplateSource, string, error) {
+		loaderCalled = true
+		return tobari.WorkspaceTemplateSource{}, "", tobari.ErrResourceSourceMissing
+	})
+	if !errors.Is(err, tobari.ErrWorkspaceTemplateNotFound) || loaderCalled {
+		t.Fatalf("unknown active Template plan error=%v loader_called=%t", err, loaderCalled)
+	}
+}
+
 func TestTemplateApplySamePlanSettlesPublishedAuthorityBeforeBaseBookkeeping(t *testing.T) {
 	existing := storeCollectionFixture(t)
 	_, mutator, _, _, _ := newMutationFixture(t, &existing)
@@ -1086,6 +1117,40 @@ func TestMutatorPublishesExactCandidateAndResetAuthority(t *testing.T) {
 	}
 	if _, err := mutator.AllowPolicyCandidateByReference(context.Background(), candidate.ID); !errors.Is(err, tobari.ErrPolicyMemoryTargetNotFound) {
 		t.Fatalf("consumed candidate err=%v", err)
+	}
+}
+
+func TestPolicyMutationPreflightReadFailureIsObservationFault(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	store, mutator, lifecycle, _, _ := newMutationFixture(t, &existing)
+	activePath := filepath.Join(store.root, activeFileName)
+	if err := os.WriteFile(activePath, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := mutator.AllowPolicyCandidateByReference(context.Background(), existing.PendingCandidates[0].ID)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "final_authority_read_failed" || public.Kind != fault.KindUnavailable || public.Phase != fault.PhaseObservation || public.ChangeState != fault.ChangeNotApplicable || len(public.NextActions) != 1 || public.NextActions[0].Command != "status" {
+		t.Fatalf("preflight read fault=%#v ok=%t err=%v", public, ok, err)
+	}
+	if lifecycle.attempts.Load() != 0 {
+		t.Fatalf("preflight read failure entered mutation lifecycle: attempts=%d", lifecycle.attempts.Load())
+	}
+}
+
+func TestPolicyMutationPreflightCancellationIsRetryablePrecondition(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	_, mutator, lifecycle, _, _ := newMutationFixture(t, &existing)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := mutator.AllowPolicyCandidateByReference(ctx, existing.PendingCandidates[0].ID)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "operation_canceled" || public.Kind != fault.KindCanceled || public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone || !public.Retryable {
+		t.Fatalf("preflight cancellation fault=%#v ok=%t err=%v", public, ok, err)
+	}
+	if lifecycle.attempts.Load() != 0 {
+		t.Fatalf("preflight cancellation entered mutation lifecycle: attempts=%d", lifecycle.attempts.Load())
 	}
 }
 

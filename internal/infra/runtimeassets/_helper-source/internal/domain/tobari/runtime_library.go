@@ -577,12 +577,13 @@ func (r RuntimeListResult) ValidatePublic() error {
 }
 
 type RuntimeReport struct {
-	Task     string               `json:"task"`
-	Runtime  RuntimeManifest      `json:"runtime"`
-	Created  bool                 `json:"created,omitempty"`
-	Built    bool                 `json:"built,omitempty"`
-	NoChange bool                 `json:"no_change,omitempty"`
-	Public   *RuntimePublicReport `json:"-"`
+	Task      string               `json:"task"`
+	Runtime   RuntimeManifest      `json:"runtime"`
+	Created   bool                 `json:"created,omitempty"`
+	Built     bool                 `json:"built,omitempty"`
+	NoChange  bool                 `json:"no_change,omitempty"`
+	Recovered bool                 `json:"recovered,omitempty"`
+	Public    *RuntimePublicReport `json:"-"`
 }
 
 func (r RuntimeReport) Validate() error {
@@ -600,6 +601,12 @@ func (r RuntimeReport) Validate() error {
 	if (r.Built || r.NoChange) && r.Task != TaskRuntimeBuildV1 {
 		return fmt.Errorf("Runtime build state is invalid")
 	}
+	if r.Recovered && (r.Task != TaskRuntimeBuildV1 || r.Created) {
+		return fmt.Errorf("Runtime recovery state is invalid")
+	}
+	if r.Recovered && r.NoChange {
+		return fmt.Errorf("Runtime recovery cannot claim a source no-change build")
+	}
 	if r.Built && r.NoChange {
 		return fmt.Errorf("Runtime build cannot be new and unchanged")
 	}
@@ -614,11 +621,12 @@ func (r RuntimeReport) Validate() error {
 // inspected content digests, and private snapshot paths cannot cross this
 // boundary.
 type RuntimePublicReport struct {
-	Task     string                `json:"task"`
-	Runtime  RuntimePublicManifest `json:"runtime"`
-	Created  bool                  `json:"created,omitempty"`
-	Built    bool                  `json:"built,omitempty"`
-	NoChange bool                  `json:"no_change,omitempty"`
+	Task      string                `json:"task"`
+	Runtime   RuntimePublicManifest `json:"runtime"`
+	Created   bool                  `json:"created,omitempty"`
+	Built     bool                  `json:"built,omitempty"`
+	NoChange  bool                  `json:"no_change,omitempty"`
+	Recovered bool                  `json:"recovered,omitempty"`
 }
 
 type RuntimePublicManifest struct {
@@ -725,6 +733,12 @@ func (r RuntimePublicReport) Validate() error {
 	}
 	if (r.Built || r.NoChange) && r.Task != TaskRuntimeBuildV1 {
 		return fmt.Errorf("public Runtime build state is invalid")
+	}
+	if r.Recovered && (r.Task != TaskRuntimeBuildV1 || r.Created) {
+		return fmt.Errorf("public Runtime recovery state is invalid")
+	}
+	if r.Recovered && r.NoChange {
+		return fmt.Errorf("public Runtime recovery cannot claim a source no-change build")
 	}
 	if r.Built && r.NoChange {
 		return fmt.Errorf("public Runtime build cannot be new and unchanged")
@@ -874,7 +888,7 @@ func RuntimeReportFromLifecycleSnapshot(snapshot RuntimeLifecycleSnapshot, task,
 
 func runtimePublicReportFromSnapshot(report RuntimeReport, snapshot RuntimeLifecycleSnapshot) (RuntimePublicReport, error) {
 	manifest := report.Runtime
-	public := RuntimePublicReport{Task: report.Task, Created: report.Created, Built: report.Built, NoChange: report.NoChange, Runtime: RuntimePublicManifest{
+	public := RuntimePublicReport{Task: report.Task, Created: report.Created, Built: report.Built, NoChange: report.NoChange, Recovered: report.Recovered, Runtime: RuntimePublicManifest{
 		SchemaVersion: manifest.SchemaVersion, ID: manifest.ID, RuntimeRef: RuntimeRef(manifest.ID), Name: manifest.Name,
 		Kind: manifest.Kind, SourcePath: manifest.SourcePath, Revisions: make([]RuntimePublicRevision, len(manifest.Revisions)),
 	}}

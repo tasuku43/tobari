@@ -176,6 +176,12 @@ type finalAuthorityDeleteCounter struct{ calls int }
 
 type finalAuthorityMissingFixture struct{ finalAuthorityReadFixture }
 
+type finalTemplatePlanMissingFixture struct{ finalAuthorityReadFixture }
+
+func (finalTemplatePlanMissingFixture) PlanWorkspaceTemplateSourceByReference(context.Context, string) (tobari.WorkspaceTemplateChangePlan, error) {
+	return tobari.WorkspaceTemplateChangePlan{}, tobari.ErrWorkspaceTemplateNotFound
+}
+
 type finalInvalidReferencePorts struct{ finalAuthorityMissingFixture }
 
 func (finalInvalidReferencePorts) PlanWorkspaceTemplateSourceByReference(context.Context, string) (tobari.WorkspaceTemplateChangePlan, error) {
@@ -333,7 +339,13 @@ func TestFinalAuthorityCRUDCatalogDeclaresApplicationFaultClassifications(t *tes
 		{path: "template show", code: "invalid_template_name", kind: fault.KindInvalidInput, phase: fault.PhasePrecondition, change: fault.ChangeNone},
 		{path: "template show", code: "invalid_template", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
 		{path: "template plan", code: "invalid_template_ref", kind: fault.KindInvalidInput, phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{path: "template plan", code: "template_not_found", kind: fault.KindNotFound, phase: fault.PhaseObservation, change: fault.ChangeNotApplicable},
+		{path: "template plan", code: "resource_source_missing", kind: fault.KindNotFound, phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{path: "template plan", code: "resource_source_invalid", kind: fault.KindInvalidInput, phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{path: "template plan", code: "resource_source_modified", kind: fault.KindRejected, phase: fault.PhasePrecondition, change: fault.ChangeNone},
 		{path: "template migration plan", code: "invalid_template_ref", kind: fault.KindInvalidInput, phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{path: "template migration plan", code: "resource_source_missing", kind: fault.KindNotFound, phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{path: "template migration plan", code: "resource_source_invalid", kind: fault.KindInvalidInput, phase: fault.PhasePrecondition, change: fault.ChangeNone},
 		{path: "template create", code: "invalid_template_create_result", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
 		{path: "template create", code: "invalid_standard_template_body", kind: fault.KindContract, phase: fault.PhasePrecondition, change: fault.ChangeNone},
 		{path: "template apply", code: "resource_source_recovery_required", kind: fault.KindUnavailable, phase: fault.PhaseMutation, change: fault.ChangePartial},
@@ -478,6 +490,9 @@ func TestFinalAuthorityCRUDNotFoundFaultsNeverCollapseToUndeclaredContract(t *te
 		wire func(*CLI)
 	}{
 		{name: "template show", args: []string{"template", "show", "--name", "missing"}, code: "template_not_found", wire: func(c *CLI) { c.finalTemplates = workspaceauthoritycmd.NewTemplateService(fixture) }},
+		{name: "template plan", args: []string{"template", "plan", "--id", templateRef}, code: "template_not_found", wire: func(c *CLI) {
+			c.finalTemplates = workspaceauthoritycmd.NewTemplateService(finalTemplatePlanMissingFixture{})
+		}},
 		{name: "context show", args: []string{"context", "show", "--id", contextRef}, code: "context_not_found", wire: func(c *CLI) { c.finalContexts = workspaceauthoritycmd.NewContextService(fixture) }},
 		{name: "workspace status", args: []string{"workspace", "status", "--id", workspaceRef}, code: "workspace_not_found", wire: func(c *CLI) { c.finalWorkspaces = workspaceauthoritycmd.NewWorkspaceService(fixture) }},
 		{name: "template stale delete", args: []string{"template", "delete", "--id", templateRef, "--confirm=delete"}, code: "template_not_found", wire: func(c *CLI) { c.finalTemplates = workspaceauthoritycmd.NewTemplateService(fixture) }},
@@ -945,6 +960,21 @@ func TestFinalContextProjectionEmitsNullForInactiveAxes(t *testing.T) {
 	for _, retired := range []string{"template_policy_active", "policy_memory_active", "policy_memory_revision"} {
 		if _, exists := document.Context[retired]; exists {
 			t.Errorf("inactive context retained inference field %q: %s", retired, encoded)
+		}
+	}
+}
+
+func TestFinalContextApplyHumanResultNamesExactExplicitEntry(t *testing.T) {
+	contextRef := "ctx1_01912345-6789-7abc-8def-0123456789a2"
+	value := finalContextProjection{
+		ContextRef: contextRef, TemplateName: "coding",
+		DesiredTemplateRevision: "sha256:" + strings.Repeat("a", 64),
+	}
+	for _, changed := range []bool{false, true} {
+		output := string(finalContextApplyText(value, changed, false))
+		if !strings.Contains(output, "context enter --id "+contextRef) ||
+			!strings.Contains(output, "Bind this location-free Context to the current Project") {
+			t.Fatalf("Context Apply continuation changed=%t output=%q", changed, output)
 		}
 	}
 }

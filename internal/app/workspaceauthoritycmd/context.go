@@ -476,6 +476,13 @@ func (s *ContextService) Delete(ctx context.Context, intent operation.Intent, co
 }
 
 func contextMutationFault(err error) error {
+	// Infrastructure owns the durable mutation decision boundary. Preserve a
+	// valid structured outcome before inspecting its private sentinel cause;
+	// otherwise a post-decision ErrContextBindingProtected would be rewritten
+	// as the precondition-only context_in_use/ChangeNone fault.
+	if _, ok := fault.PublicCopy(err); ok {
+		return err
+	}
 	if classified, ok := preReleaseLegacyMutationFault(err); ok {
 		return classified
 	}

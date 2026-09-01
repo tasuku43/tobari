@@ -106,16 +106,21 @@ func (runner osCommandRunner) RunWorkspacePermissionControl(ctx context.Context,
 
 // Runtime owns filesystem state and Docker process execution.
 type Runtime struct {
-	lifetimeContext             context.Context
-	configDirectory             string
-	stateDirectory              string
-	dataDirectory               string
-	shortTemporaryDirectory     string
-	hostHomeDirectory           string
-	runner                      commandRunner
-	images                      imageResolver
-	browser                     hostBrowserOpener
-	serviceBrowser              serviceBrowserDispatcher
+	lifetimeContext         context.Context
+	configDirectory         string
+	stateDirectory          string
+	dataDirectory           string
+	shortTemporaryDirectory string
+	hostHomeDirectory       string
+	runner                  commandRunner
+	images                  imageResolver
+	browser                 hostBrowserOpener
+	serviceBrowser          serviceBrowserDispatcher
+	// serviceOwnerProcessAlive is the read-only liveness boundary for
+	// attachment service-owner records. Tests replace it with a deterministic
+	// predicate; peer credentials and the rendezvous nonce remain the
+	// authoritative identity checks for every contacted owner.
+	serviceOwnerProcessAlive    func(int) bool
 	gitIdentity                 hostGitIdentityResolver
 	companion                   companionruntime.Launcher
 	companionEntropy            io.Reader
@@ -398,6 +403,7 @@ func newRuntimeWithData(configDirectory, stateDirectory, dataDirectory string, r
 		runner:                       runner,
 		browser:                      osHostBrowserOpener{},
 		serviceBrowser:               osServiceBrowserDispatcher{},
+		serviceOwnerProcessAlive:     serviceOwnerProcessIsAlive,
 		gitIdentity:                  newOSHostGitIdentityResolver(),
 		companion:                    companionruntime.NewOSLauncher(),
 		companionEntropy:             rand.Reader,

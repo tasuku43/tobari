@@ -477,6 +477,17 @@ func TestWorkspaceServiceConcurrentOwnersAndUnsafeRegistryFailWithoutReadCleanup
 	if err != nil || len(requests.Requests) != 2 || requests.Requests[0].AttachmentID == requests.Requests[1].AttachmentID {
 		t.Fatalf("concurrent requests=%+v err=%v", requests, err)
 	}
+	contextID, err := tobari.ParseContextID(first.principal.contextID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspaceID, err := tobari.ParseWorkspaceID(first.principal.workspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.ObserveStatusServices(context.Background(), contextID, workspaceID); err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("two live same-scope service owners were not ambiguous: %v", err)
+	}
 	if err := first.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -551,6 +562,48 @@ func TestWorkspaceServiceObservationDistinguishesPartialUnavailableAndKnownEmpty
 	status, err = runtime.ServiceStatus(context.Background())
 	if err != nil || status.Observation != tobari.ServiceObservationComplete || status.ObservedOwnerCount != 0 || status.UnavailableOwnerCount != 0 || len(status.Requests) != 0 || len(status.Exposures) != 0 {
 		t.Fatalf("known-empty status=%+v err=%v", status, err)
+	}
+}
+
+func TestStatusServiceOwnerAnchorOmitsDeadSameScopeRecordsWithoutCleanup(t *testing.T) {
+	runtime, controller := newTestServiceController(t, &serviceExposureRunner{})
+	runtime.serviceOwnerProcessAlive = func(pid int) bool { return pid == os.Getpid() }
+	deadPaths := make([]string, 0, 2)
+	for index, suffix := range []string{"a", "b"} {
+		attachment := "att_" + strings.Repeat(suffix, 32)
+		nonce := strings.Repeat(suffix, 64)
+		record := serviceRendezvousRecord{
+			SchemaVersion: 1, AttachmentID: attachment,
+			ContextID: controller.principal.contextID, WorkspaceID: controller.principal.workspaceID,
+			Context: controller.principal.contextPresentation, ProjectRoot: controller.principal.projectRoot,
+			Nonce: nonce, SocketName: "owner-" + nonce[:32] + ".sock", OwnerPID: 31001 + index, OwnerUID: os.Getuid(),
+		}
+		path := filepath.Join(runtime.serviceExposureLiveDirectory(), attachment+".json")
+		if err := writeAtomicJSON(path, record); err != nil {
+			t.Fatal(err)
+		}
+		deadPaths = append(deadPaths, path)
+	}
+	contextID, err := tobari.ParseContextID(controller.principal.contextID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspaceID, err := tobari.ParseWorkspaceID(controller.principal.workspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := runtime.ObserveStatusServices(context.Background(), contextID, workspaceID)
+	if err != nil || status.Observation != tobari.ServiceObservationComplete || status.UnavailableOwnerCount != 0 {
+		t.Fatalf("status with dead owners=%+v err=%v", status, err)
+	}
+	anchor, err := runtime.anchorServiceOwners(context.Background())
+	if err != nil || len(anchor.records) != 1 || anchor.records[0].AttachmentID != controller.attachmentID {
+		t.Fatalf("live owner anchor=%+v err=%v", anchor, err)
+	}
+	for _, path := range deadPaths {
+		if _, err := os.Lstat(path); err != nil {
+			t.Fatalf("read-only anchor cleaned dead owner %s: %v", path, err)
+		}
 	}
 }
 

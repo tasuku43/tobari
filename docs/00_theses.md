@@ -1192,11 +1192,15 @@ OPA allow.
   current revision and its Workspace adopts that entry slice on next entry
   while preserving identity and home.
   Fully specified Runtime mutations consume stable references and remain
-  deterministic for agents and scripts. `review runtimes` is the separate
+  deterministic for agents and scripts. When a managed source names the exact
+  canonical source-addressed standard parent, `runtime build` prepares that
+  local-only parent itself before crossing the managed BuildKit attempt; prior
+  Workspace entry is never a hidden prerequisite. `review runtimes` is the separate
   read-only discovery surface: redirected and JSON use list the exhaustive
   catalog, while interactive text filters action choices to managed Runtimes
   and crosses into `runtime build --id` or exact interrupted lifecycle recovery
-  only after confirmation.
+  only after confirmation. Confirmed recovery projects recovery as its own
+  result and never invents a successful revision for a failed draft.
 - Managed Runtime lifecycle closure keeps immutable revision identity separate
   from replaceable local execution material. Whole-Runtime deletion consumes a
   stable Runtime reference and preserves Workspace Template, Workspace, home,

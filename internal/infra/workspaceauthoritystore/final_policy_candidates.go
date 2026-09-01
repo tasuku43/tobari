@@ -141,6 +141,23 @@ func (a *FinalPolicyCandidateAdapter) DenyPolicyCandidateByReference(ctx context
 	return a.mutator.DenyPolicyCandidateByReference(ctx, ref)
 }
 
+// ResetPolicyMemoryRuleByReference exposes the existing final-authority rule
+// mutation through the same adapter that owns candidate actions. Keeping this
+// forwarding method here ensures the composed CLI port remains complete when
+// the application service discovers its PolicyRulePort.
+func (a *FinalPolicyCandidateAdapter) ResetPolicyMemoryRuleByReference(ctx context.Context, ref string) (tobari.PolicyRuleResetPublication, error) {
+	return a.mutator.ResetPolicyMemoryRuleByReference(ctx, ref)
+}
+
+// ApplyReviewedPolicyMemory exposes the one complete reviewed-set mutation
+// through the final-authority adapter. The Mutator remains the sole owner of
+// lifecycle locking, settlement, publication, and recovery.
+func (a *FinalPolicyCandidateAdapter) ApplyReviewedPolicyMemory(
+	ctx context.Context, set tobari.PolicyMemoryReviewedDecisionSet,
+) (tobari.PolicyMemoryReviewedSetPublication, error) {
+	return a.mutator.ApplyReviewedPolicyMemory(ctx, set)
+}
+
 func finalCurrentDenials(
 	collection tobari.WorkspaceAuthorityCollection, denials []tobari.PolicyDenial,
 ) ([]tobari.PolicyDenial, []tobari.PolicyDenial) {

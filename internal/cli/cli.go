@@ -85,6 +85,11 @@ type finalWorkspaceEntryReadiness interface {
 }
 
 var (
+	_ workspaceauthoritycmd.PolicyCandidatePort                 = (*finalPolicyAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.PolicyRulePort                      = (*finalPolicyAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.PolicyReviewedPort                  = (*finalPolicyAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.AttachmentPolicyCandidatePort       = (*finalPolicyAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.PolicyMemoryReviewPort              = (*finalPolicyAuthorityAdapter)(nil)
 	_ workspaceauthoritycmd.TemplateReadPort                    = (*finalWorkspaceAuthorityAdapter)(nil)
 	_ workspaceauthoritycmd.TemplateDraftCreatePort             = (*finalWorkspaceAuthorityAdapter)(nil)
 	_ workspaceauthoritycmd.TemplateDraftCopyPort               = (*finalWorkspaceAuthorityAdapter)(nil)

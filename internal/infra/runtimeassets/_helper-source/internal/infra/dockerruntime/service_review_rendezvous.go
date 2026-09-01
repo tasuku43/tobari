@@ -94,6 +94,8 @@ func readExactServiceOwnerRecord(path string, entry os.DirEntry) (serviceRendezv
 
 // anchorServiceOwners takes one immutable directory-entry anchor. Reads never
 // remove or repair records; an unsafe or contradictory owner fails the task.
+// A safely decoded record whose host owner process is proved absent is not
+// live authority and is omitted without turning this read into cleanup.
 func (r *Runtime) anchorServiceOwners(ctx context.Context) (serviceOwnerAnchor, error) {
 	if err := ctx.Err(); err != nil {
 		return serviceOwnerAnchor{}, err
@@ -122,6 +124,13 @@ func (r *Runtime) anchorServiceOwners(ctx context.Context) (serviceOwnerAnchor, 
 		record, err := readExactServiceOwnerRecord(filepath.Join(directory, entry.Name()), entry)
 		if err != nil {
 			return serviceOwnerAnchor{}, fault.Wrap(fault.KindContract, "unsafe_service_owner", "service owner registry is unsafe", false, err)
+		}
+		alive := serviceOwnerProcessIsAlive
+		if r.serviceOwnerProcessAlive != nil {
+			alive = r.serviceOwnerProcessAlive
+		}
+		if !alive(record.OwnerPID) {
+			continue
 		}
 		if _, duplicate := attachments[record.AttachmentID]; duplicate {
 			return serviceOwnerAnchor{}, fault.New(fault.KindContract, "duplicate_service_owner", "service attachment authority is duplicated", false)
@@ -227,8 +236,9 @@ func (r *Runtime) ServiceStatus(ctx context.Context) (tobari.ServiceStatusSnapsh
 }
 
 // ObserveStatusServices returns only counts for one exact selected Workspace.
-// It never returns a request/exposure reference, URL, or port and contacts at
-// most the one matching live owner from the bounded registry anchor.
+// It never returns a request/exposure reference, URL, or port. Matching
+// liveness-qualified records are contacted only to distinguish unavailable
+// residue from responsive owners; only two responsive owners are ambiguous.
 func (r *Runtime) ObserveStatusServices(ctx context.Context, contextID tobari.ContextID, workspaceID tobari.WorkspaceID) (tobari.ServiceSummary, error) {
 	if contextID.Validate() != nil || workspaceID.Validate() != nil {
 		return tobari.ServiceSummary{}, fmt.Errorf("status Service scope is invalid")
@@ -238,28 +248,25 @@ func (r *Runtime) ObserveStatusServices(ctx context.Context, contextID tobari.Co
 		return tobari.ServiceSummary{}, err
 	}
 	status := tobari.ServiceStatusSnapshot{SchemaVersion: 1, ServiceOwnerObservation: observationFor(anchor.value, 0, 0), Requests: []tobari.ServiceRequest{}, Exposures: []tobari.ServiceExposure{}}
-	var selected *serviceRendezvousRecord
+	observed, unavailable := 0, 0
 	for _, record := range anchor.records {
 		if record.ContextID != string(contextID) || record.WorkspaceID != string(workspaceID) {
 			continue
 		}
-		if selected != nil {
-			return tobari.ServiceSummary{}, fmt.Errorf("status Service owner scope is ambiguous")
-		}
-		copy := record
-		selected = &copy
-	}
-	if selected != nil {
 		callContext, cancel := context.WithTimeout(ctx, workspaceServiceSetupTimeout)
-		response, callErr := r.callServiceOwner(callContext, *selected, serviceRendezvousRequest{Operation: "snapshot"})
+		response, callErr := r.callServiceOwner(callContext, record, serviceRendezvousRequest{Operation: "snapshot"})
 		cancel()
 		if callErr != nil {
-			status.ServiceOwnerObservation = observationFor(anchor.value, 0, 1)
-		} else {
-			status.ServiceOwnerObservation = observationFor(anchor.value, 1, 0)
-			status.Requests, status.Exposures = response.Requests, response.Exposures
+			unavailable++
+			continue
 		}
+		observed++
+		if observed > 1 {
+			return tobari.ServiceSummary{}, fmt.Errorf("status Service owner scope is ambiguous")
+		}
+		status.Requests, status.Exposures = response.Requests, response.Exposures
 	}
+	status.ServiceOwnerObservation = observationFor(anchor.value, observed, unavailable)
 	if err := status.Validate(); err != nil {
 		return tobari.ServiceSummary{}, err
 	}

@@ -384,9 +384,8 @@ func (s *Service) Recover(ctx context.Context, intent operation.Intent, recovery
 			}
 			return fault.Wrap(fault.KindContract, "runtime_recovery_contract_invalid", "Recovered Runtime identity is invalid", false, err, fault.NextAction{Command: "review runtimes", Reason: "Reconcile the current Runtime catalog."})
 		}
-		result = tobari.RuntimeReport{Task: tobari.TaskRuntimeBuildV1, Runtime: manifest, NoChange: true}
+		result = tobari.RuntimeReport{Task: tobari.TaskRuntimeBuildV1, Runtime: manifest, Recovered: true}
 		if recovery.Kind == tobari.RuntimeBuildRecoveryPublication {
-			result.NoChange = false
 			result.Built = true
 		}
 		if err := result.Validate(); err != nil {
@@ -853,8 +852,18 @@ func (s *Service) Build(ctx context.Context, intent operation.Intent, runtimeRef
 				fault.NextAction{Command: "review runtimes", Reason: "Inspect the current revision material before choosing an explicit recovery action."},
 			), fault.PhasePrecondition, fault.ChangeNone)
 		}
+		if errors.Is(err, tobari.ErrRuntimeLifecycleActive) {
+			return fault.WithClassification(fault.New(
+				fault.KindRejected, "runtime_lifecycle_active",
+				"A retained Runtime lifecycle operation must be recovered before another build.", false,
+				fault.NextAction{Command: "review runtimes", Reason: "Review and recover the exact retained Runtime lifecycle authority."},
+			), fault.PhasePrecondition, fault.ChangeNone)
+		}
 		if err != nil {
 			if structured, ok := fault.PublicCopy(err); ok {
+				if structured.Code == "runtime_image_build_failed" {
+					return fault.WithClassification(structured, fault.PhaseMutation, fault.ChangeUnknown)
+				}
 				return structured
 			}
 			return fault.Wrap(fault.KindRejected, "runtime_build_failed", "Runtime could not be built", false, err, fault.NextAction{Command: "review runtimes", Reason: "Inspect the unchanged Runtime history and source path."})

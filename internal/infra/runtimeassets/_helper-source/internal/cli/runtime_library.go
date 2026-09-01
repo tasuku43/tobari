@@ -424,8 +424,14 @@ func renderRuntimeReport(path string, result tobari.RuntimeReport, format succes
 	if result.Built {
 		writeContextCardValue(&output, color, "Build", "revision created · no Workspace Template changed", styleAccent)
 	}
+	if result.Recovered {
+		writeContextCardValue(&output, color, "Recovery", "confirmed · current lifecycle authority re-observed", styleSuccess)
+		writeContextCardValue(&output, color, "Next", ProgramName+" review runtimes", styleAccent)
+	}
 	if path == "runtime build" && (result.Built || result.NoChange) && len(manifest.Revisions) != 0 {
-		writeContextCardValue(&output, color, "Next", ProgramName+" template list", styleAccent)
+		if !result.Recovered {
+			writeContextCardValue(&output, color, "Next", ProgramName+" template list", styleAccent)
+		}
 	}
 	return []byte(output.String()), nil
 }
@@ -503,7 +509,7 @@ func runtimeReportOutputWithRevisionReferences(includeRevisionReferences bool) C
 	}
 	manifestFields := []OutputField{{Name: "schema_version", Type: OutputFieldTypeInteger, Description: "Runtime manifest schema version."}, {Name: "id", Type: OutputFieldTypeString, Description: "Stable Runtime authority ID."}, {Name: "runtime_ref", Type: OutputFieldTypeString, Description: "Opaque stable Runtime reference.", ReferenceKind: tobari.RuntimeReferenceKind}, {Name: "name", Type: OutputFieldTypeString, Description: "Unique local Runtime name."}, {Name: "kind", Type: OutputFieldTypeString, Description: "Built-in or managed source.", Enum: []string{"builtin", "managed"}}, {Name: "source_path", Type: OutputFieldTypeString, Description: "Managed editable source directory; its root and children must have no group/other permissions and stay within the declared Runtime source limits.", Optional: true}, {Name: "revisions", Type: OutputFieldTypeArray, Description: "Ordered immutable successful revisions.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One successful Runtime revision.", Fields: revisionFields}}}
 	return CommandOutput{Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
-		Fields:   []OutputField{{Name: "task", Type: OutputFieldTypeString, Description: "Declared Runtime task identity."}, {Name: "runtime", Type: OutputFieldTypeObject, Description: "Complete Runtime authority record.", Fields: manifestFields}, {Name: "created", Type: OutputFieldTypeBoolean, Description: "Whether this invocation created the Runtime.", Optional: true}, {Name: "built", Type: OutputFieldTypeBoolean, Description: "Whether this invocation appended a revision.", Optional: true}, {Name: "no_change", Type: OutputFieldTypeBoolean, Description: "Whether source matched existing history.", Optional: true}},
+		Fields:   []OutputField{{Name: "task", Type: OutputFieldTypeString, Description: "Declared Runtime task identity."}, {Name: "runtime", Type: OutputFieldTypeObject, Description: "Complete Runtime authority record.", Fields: manifestFields}, {Name: "created", Type: OutputFieldTypeBoolean, Description: "Whether this invocation created the Runtime.", Optional: true}, {Name: "built", Type: OutputFieldTypeBoolean, Description: "Whether this invocation appended a revision.", Optional: true}, {Name: "no_change", Type: OutputFieldTypeBoolean, Description: "Whether source matched existing history.", Optional: true}, {Name: "recovered", Type: OutputFieldTypeBoolean, Description: "Whether this invocation confirmed one retained Runtime lifecycle recovery step.", Optional: true}},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable, JSONEnvelope: "runtime", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1}
 }
 

@@ -756,9 +756,28 @@ func (m *Mutator) PlanWorkspaceTemplateSourceByReference(
 		if err != nil {
 			return plan, err
 		}
+	} else {
+		found := false
+		for _, template := range current.Templates {
+			if template.ID == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return plan, tobari.ErrWorkspaceTemplateNotFound
+		}
 	}
 	source, fingerprint, err := load(ctx)
 	if err != nil {
+		// During first use an authority envelope does not exist yet, but the
+		// Configurator may already have materialized the exact draft source.
+		// Only that absent-authority/source-absent combination denotes a
+		// missing Template; an existing authority with a missing source keeps
+		// the more specific resource-source fault for reconciliation.
+		if !present && errors.Is(err, tobari.ErrResourceSourceMissing) {
+			return plan, tobari.ErrWorkspaceTemplateNotFound
+		}
 		return plan, err
 	}
 	plan, err = m.planWorkspaceTemplateChange(ctx, current, id, source, fingerprint)
@@ -1776,8 +1795,30 @@ func (m *Mutator) effectfulMutate(
 	// Reject pre-existing clean-break residue before the concrete lifecycle
 	// authority creates its state directory and lock. The lock-held read and
 	// ConfirmSelected fences below remain authoritative for concurrent drift.
-	if _, _, err := m.store.ReadComplete(ctx); err != nil {
+	if _, present, err := m.store.ReadComplete(ctx); err != nil {
+		if isPolicyMemoryMutation(operation) && !errors.Is(err, tobari.ErrFinalAuthorityMigrationRequired) && !errors.Is(err, tobari.ErrPreReleaseLegacyAuthority) {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return committed, fault.WithClassification(fault.Wrap(
+					fault.KindCanceled,
+					"operation_canceled",
+					"Policy Memory mutation was canceled before the final authority could be read.",
+					true,
+					err,
+					fault.NextAction{Command: policyMemoryMutationRecoveryCommand(operation), Reason: "Retry the same exact Policy Memory action when ready."},
+				), fault.PhasePrecondition, fault.ChangeNone)
+			}
+			return committed, fault.WithClassification(fault.Wrap(
+				fault.KindUnavailable,
+				"final_authority_read_failed",
+				"Final Workspace authority could not be read before the Policy Memory mutation.",
+				false,
+				err,
+				fault.NextAction{Command: "status", Reason: "Read and reconcile the current final authority before retrying the exact Policy Memory action."},
+			), fault.PhaseObservation, fault.ChangeNotApplicable)
+		}
 		return committed, err
+	} else if !present {
+		return committed, tobari.ErrFinalAuthorityNotFound
 	}
 	resultErr = m.lifecycle.WithLifecycleLock(ctx, func(lockedContext context.Context) error {
 		if err := lockedContext.Err(); err != nil {
@@ -1953,6 +1994,30 @@ func (m *Mutator) effectfulMutate(
 		return m.clearEffectDecision()
 	})
 	return committed, resultErr
+}
+
+func isPolicyMemoryMutation(operation string) bool {
+	switch operation {
+	case "policy-allow", "policy-deny", "policy-reset", "policy-apply-reviewed":
+		return true
+	default:
+		return false
+	}
+}
+
+func policyMemoryMutationRecoveryCommand(operation string) string {
+	switch operation {
+	case "policy-allow":
+		return "policy allow"
+	case "policy-deny":
+		return "policy deny"
+	case "policy-reset":
+		return "policy reset"
+	case "policy-apply-reviewed":
+		return "review permissions"
+	default:
+		return "status"
+	}
 }
 
 func isResearchAuthOperation(operation string) bool {

@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/tasuku43/tobari/internal/app/runtimecmd"
-	"github.com/tasuku43/tobari/internal/app/tobaricmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -289,7 +288,7 @@ func TestRuntimeRestoreReviewUsesOneConfirmationAndExactRecoveryReference(t *tes
 	}
 	command, fake, stdout, stderr := newRuntimeRestoreTestCLI(manifest, result, "\n")
 	fake.recovery = &recovery
-	command.tobari = tobaricmd.New(&policyReviewRuntimeFake{terminal: true})
+	command.interactive = func(io.Reader, io.Writer, io.Writer) bool { return true }
 	command.config = &terminalContextConfigurationWizard{mode: nil, style: false}
 	if code := command.RunContext(context.Background(), []string{"review", "runtimes"}); code != ExitOK {
 		t.Fatalf("restore recovery code = %d, stderr = %q", code, stderr.String())

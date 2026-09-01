@@ -445,6 +445,15 @@ func templateMutationFault(err error) error {
 }
 
 func templatePlanFault(err error) error {
+	if errors.Is(err, tobari.ErrWorkspaceTemplateNotFound) || errors.Is(err, tobari.ErrWorkspaceTemplateRevisionNotFound) {
+		return fault.WithClassification(fault.New(
+			fault.KindNotFound,
+			"template_not_found",
+			"Workspace Template authority no longer exists",
+			false,
+			fault.NextAction{Command: "template list", Reason: "Discover current Template references."},
+		), fault.PhaseObservation, fault.ChangeNotApplicable)
+	}
 	return templateFault(err, func(cause error) error {
 		return readFault(cause, "template_plan_read_failed", "Workspace Template change plan could not be read")
 	})

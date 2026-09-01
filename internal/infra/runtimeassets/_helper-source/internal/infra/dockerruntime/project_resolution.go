@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -270,6 +271,10 @@ func (r *Runtime) prepareActiveContextImage(ctx context.Context) error {
 }
 
 func (r *Runtime) ensureLocalBaseRuntimeImage(ctx context.Context, image string) error {
+	return r.ensureLocalBaseRuntimeImageWithDiagnostics(ctx, image, nil)
+}
+
+func (r *Runtime) ensureLocalBaseRuntimeImageWithDiagnostics(ctx context.Context, image string, diagnostics io.Writer) error {
 	if _, err := r.inspectRuntimeImageID(ctx, image); err == nil {
 		return nil
 	} else if !errors.Is(err, errRuntimeImageMissing) {
@@ -307,11 +312,13 @@ func (r *Runtime) ensureLocalBaseRuntimeImage(ctx context.Context, image string)
 		"--build-context", "helper-source=" + helperSourceDirectory,
 		filepath.Join(runtimeDirectory, "tobari"),
 	}
-	var output bytes.Buffer
-	if err := r.runner.Run(ctx, args, os.Environ(), nil, &output, &output); err != nil {
+	var tail runtimeBuildDiagnosticTail
+	stream := io.MultiWriter(&bestEffortDiagnosticWriter{writer: diagnostics}, &tail)
+	if err := r.runner.Run(ctx, args, os.Environ(), nil, stream, stream); err != nil {
 		return fault.Wrap(
 			fault.KindUnavailable, "runtime_image_build_failed",
-			"the pinned agent-ready base could not be built locally", false, err,
+			"the pinned agent-ready base could not be built locally", false,
+			fmt.Errorf("build canonical standard Runtime: %w: %s", err, boundedDiagnostic(tail.Bytes())),
 			fault.NextAction{Command: "doctor", Reason: "Inspect Docker build support and network access for pinned agent downloads."},
 		)
 	}

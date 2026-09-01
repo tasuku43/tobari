@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"reflect"
 	"sort"
 	"strings"
@@ -85,6 +86,34 @@ func TestRuntimePublicSurfaceUsesFinalAuthorityAndOpaqueNext(t *testing.T) {
 	for _, line := range strings.Split(output, "\n") {
 		if strings.Contains(line, "Next") && strings.Contains(line, manifest.Name+"@1") {
 			t.Fatalf("runtime build Next reconstructed a name@ordinal selector: %q", line)
+		}
+	}
+}
+
+func TestRuntimeReviewRecoversFailedDraftWithoutInventingBuildHistory(t *testing.T) {
+	manifest := testRuntimeManifest()
+	recovery := tobari.RuntimeBuildRecovery{RuntimeID: manifest.ID, RuntimeRef: tobari.RuntimeRef(manifest.ID), Name: manifest.Name, Kind: tobari.RuntimeBuildRecoveryFailed}
+	fake := &runtimeCatalogCLI{manifest: manifest, list: runtimeReviewList(manifest), recovery: &recovery}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader("\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command.runtime = runtimecmd.New(fake)
+	command.interactive = func(io.Reader, io.Writer, io.Writer) bool { return true }
+	command.config = &terminalContextConfigurationWizard{style: false}
+
+	if code := command.RunContext(context.Background(), []string{"review", "runtimes"}); code != ExitOK {
+		t.Fatalf("failed draft recovery code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.recoveryReads != 1 || fake.recoveries != 1 || fake.buildCalls != 0 || fake.listCalls != 0 || fake.recoveredRef != recovery.RuntimeRef || fake.recoveredKind != recovery.Kind {
+		t.Fatalf("failed draft recovery calls = reads:%d recoveries:%d builds:%d lists:%d ref:%q kind:%q", fake.recoveryReads, fake.recoveries, fake.buildCalls, fake.listCalls, fake.recoveredRef, fake.recoveredKind)
+	}
+	for _, want := range []string{"Runtime " + manifest.Name, "Status", "draft", "Recovery", "confirmed", invocationForPath("review runtimes")} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("failed draft recovery omitted %q: %q", want, stdout.String())
+		}
+	}
+	for _, invented := range []string{"revision created", "unchanged · no revision created"} {
+		if strings.Contains(stdout.String(), invented) {
+			t.Errorf("failed draft recovery invented %q: %q", invented, stdout.String())
 		}
 	}
 }

@@ -269,6 +269,11 @@ func TestPreReleaseLegacyCauseUsesOnlyResetRecreateGuidance(t *testing.T) {
 				!strings.Contains(check.Recovery.Action, "reset or recreate") {
 				t.Fatalf("%s recovery = %+v", id, check.Recovery)
 			}
+			for _, root := range []string{"$XDG_CONFIG_HOME/tobari", "$XDG_STATE_HOME/tobari", "$XDG_DATA_HOME/tobari", "~/.config/tobari", "~/.local/state/tobari", "~/.local/share/tobari"} {
+				if !strings.Contains(check.Recovery.Action, root) {
+					t.Errorf("%s recovery omitted reset root %q: %+v", id, root, check.Recovery)
+				}
+			}
 			if strings.Contains(check.Recovery.Action, "Migrate") || strings.Contains(check.Recovery.NextCommand, "migrate") {
 				t.Fatalf("%s recovery advertises retired migration: %+v", id, check.Recovery)
 			}

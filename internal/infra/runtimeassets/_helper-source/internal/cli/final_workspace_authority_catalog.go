@@ -347,10 +347,10 @@ func finalTemplatePlanSpec() CommandSpec {
 	errors := append(finalAuthorityReadErrors("template plan", "template list"),
 		declaredCommandError(fault.KindUnavailable, "template_plan_read_failed", false, "template list", "Inspect the current Template source and authority before planning again."),
 		classifiedCommandError(fault.KindInvalidInput, "invalid_template_ref", false, fault.PhasePrecondition, fault.ChangeNone, "template list", "Use one exact opaque Workspace Template reference emitted by Template discovery."),
-		declaredCommandError(fault.KindNotFound, "template_not_found", false, "template list", "Discover an active or draft Template reference before planning."),
-		declaredCommandError(fault.KindNotFound, "resource_source_missing", false, "template show", "Restore the canonical source pair before planning."),
-		declaredCommandError(fault.KindInvalidInput, "resource_source_invalid", false, "template show", "Correct the strict source schema before planning."),
-		declaredCommandError(fault.KindRejected, "resource_source_modified", false, "template show", "Rebase the desired source on the exact active revision."),
+		classifiedCommandError(fault.KindNotFound, "template_not_found", false, fault.PhaseObservation, fault.ChangeNotApplicable, "template list", "Discover an active or draft Template reference before planning."),
+		classifiedCommandError(fault.KindNotFound, "resource_source_missing", false, fault.PhasePrecondition, fault.ChangeNone, "template show", "Restore the canonical source pair before planning."),
+		classifiedCommandError(fault.KindInvalidInput, "resource_source_invalid", false, fault.PhasePrecondition, fault.ChangeNone, "template show", "Correct the strict source schema before planning."),
+		classifiedCommandError(fault.KindRejected, "resource_source_modified", false, fault.PhasePrecondition, fault.ChangeNone, "template show", "Rebase the desired source on the exact active revision."),
 	)
 	return CommandSpec{Path: "template plan", Summary: "Review one exact desired Template change", Args: "--id <template-ref> [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{
 		CapabilityID: "workspace.authority", Outcome: "Classify one exact Template source change and bind all Apply-relevant authority without mutation",
@@ -374,8 +374,8 @@ func finalTemplateMigrationPlanFields() []OutputField {
 func finalTemplateMigrationPlanSpec() CommandSpec {
 	errors := append(finalAuthorityReadErrors("template migration plan", "template list"),
 		classifiedCommandError(fault.KindInvalidInput, "invalid_template_ref", false, fault.PhasePrecondition, fault.ChangeNone, "template list", "Use an exact active Template reference."),
-		declaredCommandError(fault.KindInvalidInput, "resource_source_invalid", false, "template show", "The alpha source must be strict, in sync, and losslessly representable in V1."),
-		declaredCommandError(fault.KindNotFound, "resource_source_missing", false, "template show", "Restore the exact source pair before migration planning."),
+		classifiedCommandError(fault.KindInvalidInput, "resource_source_invalid", false, fault.PhasePrecondition, fault.ChangeNone, "template show", "The alpha source must be strict, in sync, and losslessly representable in V1."),
+		classifiedCommandError(fault.KindNotFound, "resource_source_missing", false, fault.PhasePrecondition, fault.ChangeNone, "template show", "Restore the exact source pair before migration planning."),
 	)
 	return CommandSpec{Path: "template migration plan", Summary: "Review an alpha policy source migration to V1", Args: "--id <template-ref> [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{
 		CapabilityID: "workspace.authority", Outcome: "Bind one in-sync alpha source and its exact non-activating V1 replacement without mutation",

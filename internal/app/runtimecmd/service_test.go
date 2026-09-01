@@ -3,6 +3,7 @@ package runtimecmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 	"strings"
@@ -442,8 +443,20 @@ func TestRuntimeRecoveryReviewAndMutationKeepExactReference(t *testing.T) {
 	impact := operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}
 	intent := operation.Intent{Command: "runtime build", Effect: operation.EffectWrite, Target: operation.TargetRef{Kind: tobari.RuntimeReferenceKind, ID: recovery.RuntimeRef}, Impact: impact}
 	report, err := service.Recover(context.Background(), intent, recovery)
-	if err != nil || !report.NoChange || report.Runtime.RuntimeRef != recovery.RuntimeRef || fake.recoveries != 1 || fake.recoveredRef != recovery.RuntimeRef || fake.recoveredKind != recovery.Kind {
+	if err != nil || report.NoChange || !report.Recovered || report.Runtime.RuntimeRef != recovery.RuntimeRef || fake.recoveries != 1 || fake.recoveredRef != recovery.RuntimeRef || fake.recoveredKind != recovery.Kind {
 		t.Fatalf("recovery mutation = %+v/%v calls=%d ref=%q kind=%q", report, err, fake.recoveries, fake.recoveredRef, fake.recoveredKind)
+	}
+}
+
+func TestRuntimeFailedBuildRecoveryProjectsDraftWithoutInventingSuccessfulHistory(t *testing.T) {
+	manifest := runtimeFixture()
+	manifest.Revisions = []tobari.RuntimeRevision{}
+	recovery := tobari.RuntimeBuildRecovery{RuntimeID: manifest.ID, RuntimeRef: tobari.RuntimeRef(manifest.ID), Name: manifest.Name, Kind: tobari.RuntimeBuildRecoveryFailed}
+	fake := &runtimeFake{manifest: manifest, recovery: &recovery}
+	intent := operation.Intent{Command: "runtime build", Effect: operation.EffectWrite, Target: operation.TargetRef{Kind: tobari.RuntimeReferenceKind, ID: recovery.RuntimeRef}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}
+	report, err := New(fake).Recover(context.Background(), intent, recovery)
+	if err != nil || !report.Recovered || report.Built || report.NoChange || len(report.Runtime.Revisions) != 0 || report.Public == nil || !report.Public.Recovered {
+		t.Fatalf("draft failed-build recovery = %+v/%v", report, err)
 	}
 }
 
@@ -838,6 +851,16 @@ func TestRuntimeCreateUsesCatalogScopeAndBuildUsesRuntimeReference(t *testing.T)
 	}
 }
 
+func TestRuntimeBuildClassifiesRetainedLifecycleBeforeAnotherAttempt(t *testing.T) {
+	fake := &runtimeFake{manifest: runtimeFixture(), buildErr: fmt.Errorf("%w: synthetic retained build journal", tobari.ErrRuntimeLifecycleActive)}
+	intent := operation.Intent{Command: "runtime build", Effect: operation.EffectWrite, Target: operation.TargetRef{Kind: tobari.RuntimeReferenceKind, ID: tobari.RuntimeRef(fake.manifest.ID)}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}
+	_, err := New(fake).Build(context.Background(), intent, tobari.RuntimeRef(fake.manifest.ID), io.Discard)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "runtime_lifecycle_active" || public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone || len(public.NextActions) != 1 || public.NextActions[0].Command != "review runtimes" {
+		t.Fatalf("retained lifecycle fault = %+v/%v", public, err)
+	}
+}
+
 func TestRuntimeCreateRejectsInvalidBaseBeforeAdapter(t *testing.T) {
 	fake := &runtimeFake{manifest: runtimeFixture()}
 	service := New(fake)
@@ -895,6 +918,20 @@ func TestRuntimeBuildPreservesReviewedSourceValidationFault(t *testing.T) {
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Code != "runtime_source_invalid" || public.Kind != fault.KindRejected || public.Retryable || strings.Contains(public.Message, privateCause.Error()) {
 		t.Fatalf("public source fault = %+v/%v", public, err)
+	}
+}
+
+func TestRuntimeBuildClassifiesCanonicalParentPreparationFailure(t *testing.T) {
+	fake := &runtimeFake{manifest: runtimeFixture(), buildErr: fault.New(
+		fault.KindUnavailable, "runtime_image_build_failed",
+		"the pinned agent-ready base could not be built locally", false,
+		fault.NextAction{Command: "doctor", Reason: "Inspect Docker build support and network access for pinned agent downloads."},
+	)}
+	intent := operation.Intent{Command: "runtime build", Effect: operation.EffectWrite, Target: operation.TargetRef{Kind: tobari.RuntimeReferenceKind, ID: tobari.RuntimeRef(fake.manifest.ID)}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}
+	_, err := New(fake).Build(context.Background(), intent, fake.manifest.ID, nil)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "runtime_image_build_failed" || public.Phase != fault.PhaseMutation || public.ChangeState != fault.ChangeUnknown || len(public.NextActions) != 1 || public.NextActions[0].Command != "doctor" {
+		t.Fatalf("canonical parent preparation fault = %+v/%v", public, err)
 	}
 }
 

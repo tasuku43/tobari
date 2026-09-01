@@ -107,7 +107,10 @@ func recoveryFor(id doctor.CheckID, status doctor.CheckStatus, cause doctor.Obse
 	}
 	if cause == doctor.ObservationCauseLegacyStatePresent {
 		return &doctor.Recovery{
-			Action:      "legacy_state_present: reset or recreate the unsupported pre-release installation; Tobari does not migrate or adopt development state.",
+			Action: "legacy_state_present: reset or recreate all three Tobari installation roots: " +
+				"$XDG_CONFIG_HOME/tobari, $XDG_STATE_HOME/tobari, and $XDG_DATA_HOME/tobari " +
+				"(defaults: ~/.config/tobari, ~/.local/state/tobari, and ~/.local/share/tobari); " +
+				"Tobari does not migrate or adopt unsupported development state.",
 			NextCommand: "help",
 		}
 	}

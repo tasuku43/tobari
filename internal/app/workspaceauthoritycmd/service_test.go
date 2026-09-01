@@ -344,6 +344,19 @@ func TestTemplatePlanClassifiesUnknownPlannerFailureAsObservationFault(t *testin
 	}
 }
 
+func TestTemplatePlanClassifiesMissingTemplateAsObservationFault(t *testing.T) {
+	templateRef, err := tobari.WorkspaceTemplateRef(templateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakePort{planErr: tobari.ErrWorkspaceTemplateNotFound}
+	_, err = NewTemplateService(fake).Plan(context.Background(), templateRef)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "template_not_found" || public.Kind != fault.KindNotFound || public.Phase != fault.PhaseObservation || public.ChangeState != fault.ChangeNotApplicable || len(public.NextActions) != 1 || public.NextActions[0].Command != "template list" {
+		t.Fatalf("missing Template fault=%#v ok=%t", public, ok)
+	}
+}
+
 func TestContextPlanClassifiesLegacyAndUnknownPlannerFailuresAsReadFaults(t *testing.T) {
 	contextRef, err := tobari.ContextRef(contextID)
 	if err != nil {
@@ -380,6 +393,25 @@ func TestContextMutationFaultClassifiesStaleActivationPlanBeforeMutation(t *test
 	public, ok := fault.PublicCopy(contextMutationFault(tobari.ErrWorkspaceTemplateChangePlanStale))
 	if !ok || public.Code != "context_activation_plan_stale" || public.Kind != fault.KindRejected || public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone || public.Retryable {
 		t.Fatalf("stale Context activation fault=%#v ok=%t", public, ok)
+	}
+}
+
+func TestContextMutationFaultPreservesStructuredPostDecisionOutcome(t *testing.T) {
+	interrupted := fault.WithClassification(fault.Wrap(
+		fault.KindUnavailable,
+		"final_authority_mutation_interrupted",
+		"The final-authority mutation crossed its durable decision boundary but external settlement did not complete.",
+		false,
+		tobari.ErrContextBindingProtected,
+		fault.NextAction{Command: "status", Reason: "Read the preserved decision and recover it through the exact initiating command."},
+	), fault.PhaseMutation, fault.ChangePartial)
+	public, ok := fault.PublicCopy(contextMutationFault(interrupted))
+	if !ok || public.Code != "final_authority_mutation_interrupted" || public.Kind != fault.KindUnavailable || public.Phase != fault.PhaseMutation || public.ChangeState != fault.ChangePartial || public.Retryable {
+		t.Fatalf("post-decision Context fault=%#v ok=%t", public, ok)
+	}
+	protected, ok := fault.PublicCopy(contextMutationFault(tobari.ErrContextBindingProtected))
+	if !ok || protected.Code != "context_in_use" || protected.Phase != fault.PhasePrecondition || protected.ChangeState != fault.ChangeNone {
+		t.Fatalf("pre-decision protected Context fault=%#v ok=%t", protected, ok)
 	}
 }
 
@@ -521,6 +553,52 @@ func TestPolicyMemoryActionRejectsCrossBoundaryAndKeepsCandidateRef(t *testing.T
 	bad.Template.Current.Body.Boundary.DestinationCeiling.Authorities[0].Host = "other.example.dev"
 	if err := bad.PolicyMemory.ValidateFor(bad.Context, bad.Template.Current); err == nil {
 		t.Fatal("cross-Boundary Policy Memory passed")
+	}
+}
+
+func TestPolicyMemoryValidatesReferencesBeforePortAvailability(t *testing.T) {
+	service := NewPolicyMemoryService(nil)
+	for _, test := range []struct {
+		name string
+		run  func() error
+		code string
+	}{
+		{name: "allow", run: func() error {
+			_, err := service.Allow(context.Background(), intent(TaskPolicyAllow, operation.EffectWrite, operation.TargetRef{Kind: tobari.PolicyCandidateKind, ID: "bad"}, PolicyMemoryImpact()), "bad")
+			return err
+		}, code: "invalid_policy_candidate_ref"},
+		{name: "deny", run: func() error {
+			_, err := service.Deny(context.Background(), intent(TaskPolicyDeny, operation.EffectWrite, operation.TargetRef{Kind: tobari.PolicyCandidateKind, ID: "bad"}, PolicyMemoryImpact()), "bad")
+			return err
+		}, code: "invalid_policy_candidate_ref"},
+		{name: "reset", run: func() error {
+			_, err := service.Reset(context.Background(), intent(TaskPolicyReset, operation.EffectWrite, operation.TargetRef{Kind: tobari.PolicyRuleKind, ID: "bad"}, PolicyMemoryImpact()), "bad")
+			return err
+		}, code: "invalid_policy_rule_ref"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			public, ok := fault.PublicCopy(test.run())
+			if !ok || public.Code != test.code || public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone {
+				t.Fatalf("fault=%#v ok=%t", public, ok)
+			}
+		})
+	}
+
+	_, err := service.ApplyReviewed(context.Background(), intent(TaskPolicyApply, operation.EffectCreate, operation.TargetRef{Kind: tobari.PolicyDecisionSetKind, ParentID: tobari.PolicyDecisionSetID}, PolicyMemoryImpact()), tobari.PolicyMemoryReviewedDecisionSet{})
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "invalid_policy_review_set" || public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone {
+		t.Fatalf("invalid reviewed set fault=%#v ok=%t", public, ok)
+	}
+}
+
+func TestPolicyMemoryMutationFaultPreservesPreflightAuthorityReadFailure(t *testing.T) {
+	public, ok := fault.PublicCopy(policyMemoryMutationFault(fault.WithClassification(
+		fault.New(fault.KindUnavailable, "final_authority_read_failed", "synthetic authority read failure", false, fault.NextAction{Command: "status", Reason: "read"}),
+		fault.PhaseObservation,
+		fault.ChangeNotApplicable,
+	)))
+	if !ok || public.Code != "final_authority_read_failed" || public.Phase != fault.PhaseObservation || public.ChangeState != fault.ChangeNotApplicable {
+		t.Fatalf("preflight authority read fault=%#v ok=%t", public, ok)
 	}
 }
 

@@ -60,6 +60,10 @@ func (r *Runtime) runtimeBuildRecoveryContext(parent context.Context) (context.C
 	return context.WithTimeout(parent, timeout)
 }
 
+func (r *Runtime) runtimeBuildRollbackContext(caller context.Context) (context.Context, context.CancelFunc) {
+	return r.runtimeBuildRecoveryContext(r.lifetimeParent(caller))
+}
+
 type runtimeBuildJournal struct {
 	SchemaVersion       int    `json:"schema_version"`
 	Phase               string `json:"phase"`
@@ -282,16 +286,16 @@ func (r *Runtime) beginRuntimeBuildJournal(ctx context.Context, runtimeID, runti
 	if prune, err := r.readRuntimePruneJournalObserved(); err != nil {
 		return runtimeBuildJournal{}, err
 	} else if prune != nil {
-		return runtimeBuildJournal{}, fmt.Errorf("a Runtime prune journal requires recovery before another build")
+		return runtimeBuildJournal{}, fmt.Errorf("%w: a Runtime prune journal requires recovery before another build", tobari.ErrRuntimeLifecycleActive)
 	}
 	if deletion, err := r.readRuntimeDeleteJournalObserved(); err != nil {
 		return runtimeBuildJournal{}, err
 	} else if deletion != nil {
-		return runtimeBuildJournal{}, fmt.Errorf("a Runtime delete journal requires recovery before another build")
+		return runtimeBuildJournal{}, fmt.Errorf("%w: a Runtime delete journal requires recovery before another build", tobari.ErrRuntimeLifecycleActive)
 	}
 	path := r.runtimeBuildJournalPath()
 	if _, err := os.Lstat(path); err == nil {
-		return runtimeBuildJournal{}, fmt.Errorf("a Runtime build journal requires recovery before another build")
+		return runtimeBuildJournal{}, fmt.Errorf("%w: a Runtime build journal requires recovery before another build", tobari.ErrRuntimeLifecycleActive)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return runtimeBuildJournal{}, err
 	}
@@ -1012,7 +1016,9 @@ func (r *Runtime) rollbackRuntimeBuildBeforeDocker(ctx context.Context, cause er
 	if !matched {
 		return fmt.Errorf("Runtime build did not start but journal authority requires reconciliation: %w", errors.Join(cause, observeErr))
 	}
-	if cleanupErr := r.completeRuntimeBuildJournal(ctx, *current); cleanupErr != nil {
+	cleanupContext, cancel := r.runtimeBuildRollbackContext(ctx)
+	defer cancel()
+	if cleanupErr := r.completeRuntimeBuildJournal(cleanupContext, *current); cleanupErr != nil {
 		return fmt.Errorf("Runtime build did not start and owned staging cleanup requires reconciliation: %w", errors.Join(cause, cleanupErr))
 	}
 	return cause

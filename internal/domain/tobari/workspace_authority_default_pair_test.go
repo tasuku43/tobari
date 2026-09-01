@@ -113,6 +113,25 @@ func TestFinalDefaultPairSelectionReusesExactRootWithoutChoice(t *testing.T) {
 	}
 }
 
+func TestFinalDefaultPairSelectionDoesNotInferProjectFromUnboundContext(t *testing.T) {
+	base := workspaceAuthorityCollectionFixture(t)
+	withoutWorkspace, changed, err := PublishWorkspaceAuthorityCollection(
+		base.Templates, base.Contexts, []WorkspaceBinding{}, []PolicyCandidateAuthority{},
+		base.DefaultTemplateID, &base,
+	)
+	if err != nil || !changed {
+		t.Fatalf("publish location-free Context fixture: changed=%t err=%v", changed, err)
+	}
+	selection, err := NewFinalDefaultPairSelection(withoutWorkspace, true, "/workspace/new-project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	choice, automatic := selection.AutomaticChoice()
+	if len(selection.Candidates) != 0 || !automatic || choice.Kind != FinalDefaultPairSelectionCreate || choice.ContextID != "" {
+		t.Fatalf("unbound Context inferred from Project: selection=%+v choice=%+v automatic=%t", selection, choice, automatic)
+	}
+}
+
 func TestValidateRootContainsRejectsSiblingPrefix(t *testing.T) {
 	if err := ValidateRootContains("/workspace/project", "/workspace/project/src"); err != nil {
 		t.Fatal(err)

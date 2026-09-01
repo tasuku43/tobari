@@ -37,6 +37,31 @@ func TestRuntimePublicReportProjectsSemanticLifecycleWithoutInfrastructureIdenti
 	}
 }
 
+func TestRuntimeRecoveryIsDistinctFromSourceNoChange(t *testing.T) {
+	id := "018bcfe5-687b-7000-8000-000000000077"
+	digest := "sha256:" + strings.Repeat("a", 64)
+	runtime := lifecycleRuntime(id, "frontend", digest)
+	if err := (RuntimeReport{Task: TaskRuntimeBuildV1, Runtime: runtime, Recovered: true}).Validate(); err != nil {
+		t.Fatalf("recovery-only report = %v", err)
+	}
+	if err := (RuntimeReport{Task: TaskRuntimeBuildV1, Runtime: runtime, Recovered: true, NoChange: true}).Validate(); err == nil {
+		t.Fatal("Runtime recovery claimed an unrelated source no-change build")
+	}
+	snapshot := lifecycleSnapshot([]RuntimeManifest{runtime}, []RuntimeProtection{}, []RuntimeMaterialObservation{{
+		RuntimeID: id, Revision: digest, Availability: RuntimeAvailabilityAvailable, TagPresent: true,
+		ContentPresent: true, OwnershipVerified: true, ObservationComplete: true,
+	}})
+	projected, err := RuntimeReportWithLifecycleEvidence(RuntimeReport{Task: TaskRuntimeBuildV1, Runtime: runtime, NoChange: true}, snapshot)
+	if err != nil || projected.Public == nil {
+		t.Fatalf("source no-change projection = %+v/%v", projected.Public, err)
+	}
+	public := *projected.Public
+	public.Recovered = true
+	if err := public.Validate(); err == nil {
+		t.Fatal("public Runtime recovery claimed an unrelated source no-change build")
+	}
+}
+
 func TestRuntimeListKeepsHistoryReadySeparateFromPrunedHead(t *testing.T) {
 	id := "018bcfe5-687b-7000-8000-000000000077"
 	digest := "sha256:" + strings.Repeat("a", 64)

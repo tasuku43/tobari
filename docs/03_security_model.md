@@ -436,8 +436,12 @@ ensures its pinned agent-ready base from embedded source under the
 `tobari-runtime:base-<source-id>` tag derived from the exact checked source
 identity; contributor development selects the same tag when its checked inputs
 are equal. The resolver channel owns preparation and recovery rather than image
-provenance. `runtime build` may obtain that declared base only because the user
-explicitly requested a host build. Docker receives one immutable Runtime
+provenance. `runtime build` may prepare that declared local-only base only when
+the frozen managed source names the exact canonical selector and because the
+user explicitly requested a host build. Its bounded diagnostic stream is the
+same controlled BuildKit boundary used by entry, and parent failure or caller
+cancellation closes the pre-attempt managed journal under a finite
+process-lifetime cleanup context. Docker receives one immutable Runtime
 revision snapshot as its complete build context; Workspace Template policy, provider manifests, credential
 metadata, encrypted vaults, root keys, secret files, the host home, Docker
 sockets, and Workspace mounts are outside it. The generated image must pass the

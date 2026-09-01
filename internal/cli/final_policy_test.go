@@ -243,6 +243,20 @@ func TestFinalPolicyCatalogHasExactSchemaAndReferenceGraph(t *testing.T) {
 			t.Fatalf("%s output contract leaks forbidden reference/legacy fields: %s", path, encoded)
 		}
 	}
+	for _, path := range []string{"policy allow", "policy deny", "policy reset", "policy apply-reviewed"} {
+		spec, found := catalog.lookupRegistered(path)
+		if !found {
+			t.Fatalf("missing mutation command %q", path)
+		}
+		read := commandErrorByCode(t, spec.Agent.Errors, "final_authority_read_failed")
+		if read.Kind != fault.KindUnavailable || read.Phase != fault.PhaseObservation || read.ChangeState != fault.ChangeNotApplicable {
+			t.Fatalf("%s preflight read fault contract = %+v", path, read)
+		}
+		notFound := commandErrorByCode(t, spec.Agent.Errors, "authority_not_found")
+		if notFound.Kind != fault.KindNotFound || notFound.Phase != fault.PhasePrecondition || notFound.ChangeState != fault.ChangeNone {
+			t.Fatalf("%s missing authority fault contract = %+v", path, notFound)
+		}
+	}
 	apply, found := catalog.lookupRegistered("policy apply-reviewed")
 	if !found || apply.Visibility != CommandVisibilityInternal || !reflect.DeepEqual(apply.ProducedRefs(), []ProducedRef{{Kind: tobari.PolicyRuleKind, Field: "decisions[].rule_id"}}) || apply.Agent.FixedTarget == nil || apply.Effect != operation.EffectCreate {
 		t.Fatalf("apply reviewed contract=%+v", apply)

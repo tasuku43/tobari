@@ -346,6 +346,12 @@ fixed-target read or write remains reference-free. A fixed-target create may
 return confirmed opaque child-resource references, but consumes none and cannot
 return the fixed creation-scope kind.
 
+Interactive review availability comes from the final CLI composition's one TTY
+probe, never from an optional predecessor command implementation. Runtime
+review uses that probe to enter exact lifecycle recovery; a recovered failed
+draft is projected as recovery, not as a no-change build with fabricated
+history.
+
 The Catalog spans the host Program and both helper Programs. `review services`
 and `service status` produce request refs; host status and confirmed helper
 create/status produce exposure refs; allow consumes a request and may produce
@@ -839,6 +845,11 @@ The combined base declares `NOASSERTION` and is permanently local-build-only.
 builds the multi-architecture source with cache-only output; it has no registry
 permission, login, or push step. The released CLI materializes the same recipe
 and builds it on the user's Docker host when its source-derived tag is absent.
+Both final Workspace entry and an explicit managed `runtime build` call the
+same preparation boundary. Managed build does so only after freezing its own
+source snapshot and proving that snapshot names the exact canonical parent,
+and before starting the managed BuildKit attempt; therefore it neither depends
+on an earlier Workspace nor mistakes Docker Hub for parent authority.
 Contributor development resolves `builtin` to the same source-addressed local
 combined base selected by the embedded resolver when the checked source inputs
 are equal. Final entry treats an owner-authoritative retained standard binding
