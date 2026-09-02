@@ -1356,9 +1356,6 @@ func (m *Mutator) DeleteContextByReference(ctx context.Context, ref string) (res
 		if index < 0 {
 			return effectPlan{}, tobari.ErrContextBindingNotFound
 		}
-		if current.CurrentContextID != nil && *current.CurrentContextID == id {
-			return effectPlan{}, tobari.ErrContextBindingProtected
-		}
 		for _, workspace := range current.Workspaces {
 			if workspace.ContextID == id {
 				return effectPlan{}, tobari.ErrContextBindingProtected
@@ -1378,7 +1375,16 @@ func (m *Mutator) DeleteContextByReference(ctx context.Context, ref string) (res
 			}
 		}
 		result = tobari.ContextDeleteResult{ContextID: id, Deleted: true}
-		next, changed, err := publishCollection(current, true, current.Templates, contexts, current.Workspaces, candidates, current.DefaultTemplateID)
+		var next tobari.WorkspaceAuthorityCollection
+		var changed bool
+		if current.CurrentContextID != nil && *current.CurrentContextID == id {
+			next, changed, err = tobari.PublishWorkspaceAuthorityCollectionWithCurrentContext(
+				current.Templates, contexts, current.Workspaces, candidates,
+				current.DefaultTemplateID, nil, &current,
+			)
+		} else {
+			next, changed, err = publishCollection(current, true, current.Templates, contexts, current.Workspaces, candidates, current.DefaultTemplateID)
+		}
 		if err != nil {
 			return effectPlan{}, err
 		}

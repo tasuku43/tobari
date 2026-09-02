@@ -69,10 +69,12 @@ Select the location-free current Context without consulting CWD:
 tobari context use --id CONTEXT_REF
 ```
 
-From a Project root without a Workspace, bare `tobari` creates one from the
-current Context. At a root with an existing Workspace, CWD selects that
-Workspace and its permanent Context binding regardless of the current
-selection. Context-aware options use current when omitted and accept one
+From a Project root without a Workspace, bare `tobari` binds the current
+Context when it is unattached. If current already owns a Workspace, explicit
+create-here publishes a distinct Context from the default Template. At a root
+with an existing Workspace, CWD selects that Workspace and its permanent
+Context binding regardless of the current selection. Neither creation path
+rewrites current. Context-aware options use current when omitted and accept one
 invocation-local exact override when present.
 
 ```sh

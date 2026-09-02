@@ -1181,12 +1181,14 @@ collected.
 - `workspace delete --id <workspace-ref> --confirm=delete [--force]` removes
   one exact Workspace, home, native credentials, and owned runtime resources
   while preserving Context Policy Memory. `context delete` requires no
-  Workspace/attachment/research credential; `template delete` requires no
-  default selection or Context reference.
+  Workspace/attachment/research credential; deleting the current Context
+  atomically clears the selector after those blockers are absent. `template
+  delete` requires no default selection or Context reference.
 
-Bare root composes canonical Template/default/Context initialization,
-current Context resolution for a new Workspace, `cluster up`, Workspace entry,
-and child handoff in dependency order. Each
+Bare root composes canonical Template/default/Context initialization, bounded
+current Context resolution for a new Workspace, distinct default-Template
+Context creation when current is already attached, `cluster up`, Workspace
+entry, and child handoff in dependency order. Each
 boundary keeps its own intent, journal, impact, receipt, and mutation-complete
 output. A later failure never rolls back or hides an earlier confirmed result.
 Root never builds, restores, prunes, retires, garbage-collects, or force-removes
@@ -1445,7 +1447,7 @@ treats a failed read as no candidates, never as shell source or authority.
 | Attached sessions are not removed accidentally | Exact work-container Exec ID observation, guard-before-delete tests, and explicit force-override tests |
 | Each root and XDG home are its Tobari's only host write scopes | Canonical-root, mount-encoding, dangling-symlink, immediate pre-effect drift, remote-context visibility/type, mount-spec, and path-containment tests |
 | Ambiguous CWD selection cannot mutate before a valid choice | Typed candidate snapshot, locked stale-choice revalidation, and zero-call cancellation tests |
-| Current Context cannot acquire location authority | Generation-bound selector validation, current-or-exact-override application ports with no CWD input, existing-Workspace precedence, and `context use` zero-Workspace/zero-Docker tests |
+| Current Context cannot acquire location authority | Generation-bound selector validation and atomic clear-on-delete, current-or-exact-override application ports with no CWD input, existing-Workspace precedence, attached-current create-here isolation, and `context use` zero-Workspace/zero-Docker tests |
 | One Workspace cannot consume unbounded CPU, memory, PIDs, or container logs | Fixed create-argv and spec-hash tests plus runtime HostConfig assertions |
 | A custom image cannot expand its runtime specification | Compatibility inspection, fixed create-argv tests, and integration test |
 | Selected Workspace Template pup cannot become an ambient host helper | Runtime API and immutable-image checks, bounded semantic version observation, Docker-streamed executable digest, fixed argv/status/state capture, no mounts, and no host/base fallback |

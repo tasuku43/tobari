@@ -65,10 +65,13 @@ location-freeなcurrent Contextを、CWDを参照せず選択します。
 tobari context use --id CONTEXT_REF
 ```
 
-WorkspaceがないProject rootでは、bare `tobari`がcurrent ContextからWorkspaceを
-作成します。既存Workspaceがあるrootでは、CWDがそのWorkspaceを選び、current
-Contextにかかわらず永久bindingされたContextを使います。Context optionを省略
-するとcurrentを使い、指定したexact referenceはそのinvocationだけをoverrideします。
+WorkspaceがないProject rootでは、current Contextが未使用ならbare `tobari`が
+そのContextをWorkspaceにbindingします。currentがすでにWorkspaceを所有する場合、
+明示的なcreate-hereはdefault Templateから別Contextを作ります。既存Workspaceが
+あるrootでは、CWDがそのWorkspaceを選び、currentにかかわらず永久bindingされた
+Contextを使います。どちらの作成経路もcurrent selectorを変更しません。Context
+optionを省略するとcurrentを使い、指定したexact referenceはそのinvocationだけを
+overrideします。
 
 ```sh
 tobari context list --format json

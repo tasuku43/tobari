@@ -422,7 +422,10 @@ admission, exact durable-Plan Apply recovery without agent/review/re-Plan, and
 confirmed settlement-incomplete classification. Stage-lease lifetime and
 Context-binding predicate tests keep
 both unconfirmed and confirmed policy tasks protected from Context deletion
-until Stage settlement. Fresh-root composition tests independently prove
+until Stage settlement. Context lifecycle tests prove that deleting an
+otherwise-empty selected Context atomically removes it and clears the selector,
+while Workspace, attachment, credential, and Stage references remain blockers.
+Fresh-root composition tests independently prove
 that Manual review composes the canonical final default pair, final cluster,
 Workspace entry, and child handoff without Configurator calls.
 Negative fixtures prove invalid root/direct-child rejection, non-TTY zero
@@ -1109,7 +1112,7 @@ Every strong statement should identify its enforcement path.
 | Action target composition | Reachable reference-graph validation and byte-preserving round trips for reference-bound acts; complete and exclusive declarations for command-bound fixed targets; reference-free fixed reads/writes; and fixed-create canaries that allow only distinct confirmed child-resource refs while rejecting consumed refs and escaped scope refs |
 | Recursive produced references | One bounded `OutputField.Fields`/`Items` traversal with deterministic dot/`[]` paths; forcing-shape, duplicate/cursor-collision, reachability, scoped-help, and workflow tests; typed inputs remain the consumed-reference authority |
 | Side-effect ordering | Fake adapter counters and failure-before-I/O tests |
-| Ancestor Workspace choice | Typed nearest-first candidate fixtures, selector key/fallback tests, locked stale-choice checks, zero-downstream-call cancellation tests, and a release-binary real-Docker PTY canary proving descendant-CWD ancestor reuse versus explicit nested creation after the exact parent test container is stopped |
+| Ancestor Workspace choice | Typed nearest-first candidate fixtures, selector key/fallback tests, locked stale-choice checks, zero-downstream-call cancellation tests, attached-current versus unattached-current creation tests, and a release-binary real-Docker PTY canary proving descendant-CWD ancestor reuse versus explicit distinct-Context nested creation after the exact parent test container is stopped without selector mutation |
 | Session-versus-Workspace lifecycle | Child exit-status preservation, host stderr guidance, stdout/stderr ownership, logical-state-after-exit, and explicit delete tests |
 | Attached-session deletion guard | Docker Exec ID observation, guard-before-delete negative tests, force override, and stable structured fault/help contract |
 | Context/Workspace lifecycle target safety | Exact opaque-reference round trips, duplicate/empty parser rejection, unknown/stale zero-I/O counters, immutable Context binding, explicit attachment states, typed `end_active_session`, and frozen presentation evidence |

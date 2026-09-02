@@ -7,12 +7,13 @@
 
 - [x] Read the theses, public-repository contract, and release contract.
 - [x] Confirm the next tag and absence of local, remote, and Release conflicts.
-- [x] Pass the required local release gates on the final tree.
-- [x] Review the final diff and public boundary.
+- [x] Pass the required local release gates on the final repair tree.
+- [x] Review the final repair diff and public boundary.
 
 ## Commit and prepare
 
-- [ ] Commit the reviewed revision and push main without rewriting history.
+- [x] Commit and push the initial reviewed revision without rewriting history.
+- [ ] Commit and push the cold first-use repair without rewriting history.
 - [ ] Verify the exact main-push CI run succeeds.
 - [ ] Run and verify non-publishing Release preparation.
 

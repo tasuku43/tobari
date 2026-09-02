@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-02
+- Revised: 2026-09-02 after cold nested-entry evidence
 - Deciders: Tobari product owner and maintainers
 - Scope: Product, domain, CLI, architecture, security, state, assistance,
   research authentication, harness, and public boundary
@@ -64,9 +65,12 @@ and `context use`.
 Bare `tobari` remains the Workspace entry surface. It selects an existing
 Workspace from canonical CWD and uses that Workspace's permanent Context
 binding, regardless of the installation current Context. At a root without a
-Workspace, it uses the current Context to create the CWD-owned Workspace.
-Fresh first use selects the first Context it activates. `status` remains a
-non-creating CWD-to-Workspace observation and never rewrites current Context.
+Workspace, explicit create-here binds current only when it is unattached. If
+current already owns a Workspace, it publishes a distinct Context from the
+default Template and binds the new CWD-owned Workspace there. Neither path
+rewrites current. Fresh first use selects the first Context it activates.
+`status` remains a non-creating CWD-to-Workspace observation and never rewrites
+current Context.
 
 ## Consequences
 
@@ -82,19 +86,24 @@ non-creating CWD-to-Workspace observation and never rewrites current Context.
 
 - Existing development authority without a current selection needs
   `context use` before a Context-aware omission or new-Workspace entry.
-- A current Context that already owns its one Workspace cannot create another
-  Workspace under the current one-Workspace-per-Context model.
+- Create-here has two typed cases: bind an unattached current Context, or create
+  a distinct default-Template Context when current is already attached.
 - Catalog target validation must represent an optional current-Context
   fallback without treating omission as name or CWD rediscovery.
 
 ### Risks and mitigations
 
 - A stale selector could point outside the collection. Collection validation
-  rejects it, the generation digest binds it, and current Context deletion is
-  blocked until another Context is selected.
+  rejects it and the generation digest binds it. Deleting an otherwise-empty
+  current Context atomically removes the Context and clears the selector in one
+  generation; Workspace, attachment, credential, and Stage references remain
+  deletion blockers.
 - A handler could accidentally resolve Context from CWD. Application ports for
   current resolution have no root or Workspace input, and negative tests keep
   CWD out of the path.
+- A nested create could accidentally reuse its ancestor Context. Root tests and
+  the cold stopped-ancestor scenario require a distinct Context while leaving
+  CurrentContextID unchanged.
 
 ## Mechanical enforcement
 

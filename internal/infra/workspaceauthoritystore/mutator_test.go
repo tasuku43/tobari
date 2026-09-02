@@ -402,6 +402,8 @@ func TestMutatorPersistsCurrentContextSelectionWithoutWorkspaceMutation(t *testi
 	if lifecycle.attempts.Load() != 1 {
 		t.Fatalf("lifecycle attempts=%d", lifecycle.attempts.Load())
 	}
+	// The Workspace remains the deletion blocker; current selection alone is
+	// cleared atomically when an otherwise-empty Context is deleted.
 	if _, err := mutator.DeleteContextByReference(context.Background(), contextRef); !errors.Is(err, tobari.ErrContextBindingProtected) {
 		t.Fatalf("current Context deletion err=%v", err)
 	}
@@ -433,6 +435,17 @@ func TestFirstContextActivationBecomesCurrentWithoutCreatingWorkspace(t *testing
 	current, err := store.ReadCurrentContextAuthority(context.Background())
 	if err != nil || current.Context.ID != id || current.Workspace != nil {
 		t.Fatalf("current=%+v err=%v", current, err)
+	}
+	ref, err := tobari.ContextRef(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := mutator.DeleteContextByReference(context.Background(), ref)
+	if err != nil || !deleted.Deleted || deleted.ContextID != id {
+		t.Fatalf("delete current=%+v err=%v", deleted, err)
+	}
+	if _, err := store.ReadCurrentContextAuthority(context.Background()); !errors.Is(err, tobari.ErrCurrentContextRequired) {
+		t.Fatalf("deleted current selector err=%v", err)
 	}
 }
 

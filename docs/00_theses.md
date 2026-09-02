@@ -703,10 +703,12 @@ XDG-owned home directory.
   surviving borrower therefore yields a retryable no-change busy result.
 - Bare `status` and `tobari` select the nearest canonical Workspace root and
   then resolve that Workspace's permanently bound Context without consulting
-  the installation current Context. At a new root, `tobari` uses the current
-  Context to create its Workspace; fresh first use selects the first Context it
-  activates. `context use --id CONTEXT_REF` changes only that location-free
-  installation selector. `workspace list`
+  the installation current Context. At a new root, explicit create-here binds
+  current only while it is unattached; when it already owns a Workspace, Tobari
+  creates a distinct Context from the default Template. Fresh first use selects
+  the first Context it activates. No entry path changes the selector.
+  `context use --id CONTEXT_REF` changes only that location-free installation
+  selector. `workspace list`
   discovers exact Workspace references; `workspace status` and `workspace
   delete` consume one unchanged reference and never rediscover by CWD or name.
 - A Context identity is independent from every Project root. One Context owns
@@ -1106,9 +1108,11 @@ Workspace Template. A research-surface development installation additionally run
 Auth Broker.
 The installation default Template seeds fresh authority and is prospective
 status only when no Workspace is selected; changing it cannot retarget or
-mutate existing Contexts, Workspaces, or shared enforcement. Nondefault work
-selects current Context by opaque reference, then bare entry creates a
-Workspace only at a root that has none.
+mutate existing Contexts, Workspaces, or shared enforcement. `context use`
+selects current Context by opaque reference without reading CWD. At a root
+without a Workspace, explicit create-here binds that Context only while it is
+unattached; if it already owns a Workspace, Tobari creates a distinct Context
+from the default Template. Neither path rewrites the current selector.
 Tool-native authentication state remains below each Workspace home and is not a
 Workspace Template secret. In the research surface, a brokered credential is owned once by a stable Context and
 enables that Context's Workspace to receive a Context/Workspace-bound

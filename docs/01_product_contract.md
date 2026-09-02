@@ -436,7 +436,7 @@ The public commands are:
 | `installation migration plan [--format text|json]` | discover | read | Bind one exact supported typed `authority.json` to a read-only installed-state migration plan |
 | `installation migration apply --plan <installation-migration-plan-ref> [--format text|json]` | act | write | Revalidate one migration plan, publish concept sources and one verified generation, then retire `authority.json` |
 | `context use --id <context-ref> [--format text|json]` | act | write | Select one exact location-free Context as the installation current Context without reading CWD or changing Workspace/Docker state |
-| `context delete --id <context-ref> --confirm=delete [--format text|json]` | act | write | Delete one exact Context, its Policy Memory, complete managed Home, and unresolved candidates after no Configurator or Workspace attachment remains |
+| `context delete --id <context-ref> --confirm=delete [--format text|json]` | act | write | Delete one exact Context, its Policy Memory, complete managed Home, and unresolved candidates after no Configurator or Workspace attachment remains; atomically clear the selector when deleting the current Context |
 | `workspace list [--format text|json]` | discover | read | Return every final Workspace and its exact owner binding |
 | `workspace status --id <workspace-ref> [--format text|json]` | discover | read | Return one exact Workspace and its applied authority |
 | `workspace delete --id <workspace-ref> --confirm=delete [--force] [--format text|json]` | act | write | Retire one exact Workspace and owned runtime resources while preserving Context Policy Memory and the complete Context-owned managed Home |
@@ -545,11 +545,14 @@ The release-surface development binary and release archives omit this command.
 The CWD entry/read commands `tobari` and `status` resolve Workspace authority,
 not current Context authority, from the canonical Project root. An existing
 Workspace retains its own Context binding regardless of `context use`. At a
-root without a Workspace, bare `tobari` uses the installation current Context
-to create that CWD-owned Workspace; absence fails before Docker with recovery
-through `context list` and `context use`. Context-aware commands may accept an
-optional opaque `--context` override that applies only to that invocation and
-never rewrites the durable selection.
+root without a Workspace, explicit create-here binds the installation current
+Context when it is unattached. If it already owns a Workspace, create-here
+publishes a distinct Context from the default Template so one Context never
+owns two Workspaces. Missing current selection fails before Docker with
+recovery through `context list` and `context use`. Neither creation path changes
+the selector. Context-aware commands may accept an optional opaque `--context`
+override that applies only to that invocation and never rewrites the durable
+selection.
 
 Fresh root configuration and default-shell entry require the existing
 interactive terminal contract. With no persisted final Template/Context
@@ -1025,10 +1028,12 @@ review runs through `tobari review permissions` in a separate host terminal.
   boundary as one separately reported checkpoint before Workspace entry.
 - Bare root and bare `status` accept no Template, Context, Workspace, or root
   selector. Canonical CWD selects only Workspace candidates. An existing
-  Workspace supplies its permanent Context binding; at a new root, bare root
-  uses current Context while status remains non-creating. Same-root ambiguity
-  never guesses. Context selection uses `context list` then `context use`, and
-  every deletion consumes its exact Context or Workspace reference.
+  Workspace supplies its permanent Context binding. At a new root, explicit
+  create-here uses an unattached current Context or creates a distinct Context
+  from the default Template when current is already attached; status remains
+  non-creating. Same-root ambiguity never guesses. Context selection uses
+  `context list` then `context use`, and every deletion consumes its exact
+  Context or Workspace reference.
 
 ## Output and exit contract
 

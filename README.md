@@ -130,7 +130,8 @@ tobari cluster up
 # Select the location-free current Context by its unchanged opaque reference.
 tobari context use --id <context-ref>
 
-# At a root without a Workspace, bare entry creates it from that current Context.
+# At a root without a Workspace, bare entry binds current when unattached.
+# If current already owns a Workspace, create-here makes a distinct Context.
 tobari
 tobari -- claude
 ```

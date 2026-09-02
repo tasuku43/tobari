@@ -27,27 +27,28 @@ func (failingConfiguratorStatusWriter) Write([]byte) (int, error) {
 }
 
 type firstEntryPairFixture struct {
-	order           *[]string
-	observation     tobari.FinalDefaultPairObservation
-	resolution      workspaceauthoritycmd.DefaultPairResolution
-	resolveBody     *tobari.WorkspaceTemplateBody
-	session         tobari.WorkspaceSessionRequest
-	outcome         tobari.WorkspaceSessionOutcome
-	resolveCalls    int
-	refreshCalls    int
-	refreshContext  context.Context
-	refreshCtxErr   error
-	entryCalls      int
-	cancelAt        string
-	cancel          context.CancelFunc
-	resolveErr      error
-	refreshErr      error
-	entryErr        error
-	currentEntryErr error
-	recovery        tobari.FinalAuthorityMutationObservation
-	recoveryErr     error
-	selectionErr    error
-	selected        *workspaceauthoritycmd.SelectedDefaultPair
+	order               *[]string
+	observation         tobari.FinalDefaultPairObservation
+	resolution          workspaceauthoritycmd.DefaultPairResolution
+	resolveBody         *tobari.WorkspaceTemplateBody
+	session             tobari.WorkspaceSessionRequest
+	outcome             tobari.WorkspaceSessionOutcome
+	resolveCalls        int
+	contextResolveCalls int
+	refreshCalls        int
+	refreshContext      context.Context
+	refreshCtxErr       error
+	entryCalls          int
+	cancelAt            string
+	cancel              context.CancelFunc
+	resolveErr          error
+	refreshErr          error
+	entryErr            error
+	currentEntryErr     error
+	recovery            tobari.FinalAuthorityMutationObservation
+	recoveryErr         error
+	selectionErr        error
+	selected            *workspaceauthoritycmd.SelectedDefaultPair
 }
 
 func (f *firstEntryPairFixture) Observe(context.Context) (tobari.FinalDefaultPairObservation, error) {
@@ -115,6 +116,32 @@ func TestFinalRootIgnoresRetiredAggregateConfiguratorDrafts(t *testing.T) {
 	}
 	if reviewer.calls != 0 || readiness.calls != 1 || cluster.calls != 1 || pair.resolveCalls != 1 || !reflect.DeepEqual(*order, []string{"observe", "readiness", "resolve", "cluster", "refresh", "entry"}) {
 		t.Fatalf("retired aggregate state affected root entry: order=%v", *order)
+	}
+}
+
+func TestFinalRootExplicitCreateDoesNotReuseAttachedCurrentContext(t *testing.T) {
+	command, pair, _, _, _, _, stderr, _ := newFirstEntryCLI(t, false, true, recommendedFirstUseStart)
+	if code := command.RunContext(context.Background(), nil); code != ExitOK {
+		t.Fatalf("create-here exit=%d stderr=%q", code, stderr.String())
+	}
+	if pair.contextResolveCalls != 0 || pair.resolveCalls != 1 {
+		t.Fatalf("attached current Context was reused: context resolves=%d ordinary resolves=%d", pair.contextResolveCalls, pair.resolveCalls)
+	}
+}
+
+func TestFinalRootExplicitCreateUsesUnattachedCurrentContext(t *testing.T) {
+	command, pair, _, _, _, _, stderr, _ := newFirstEntryCLI(t, false, true, recommendedFirstUseStart)
+	snapshot := finalCurrentContextEntrySnapshotFixture(t)
+	snapshot.Workspace = nil
+	if err := snapshot.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	command.finalContexts = workspaceauthoritycmd.NewContextService(&currentContextSelectionFixture{snapshot: snapshot})
+	if code := command.RunContext(context.Background(), nil); code != ExitOK {
+		t.Fatalf("create-here exit=%d stderr=%q", code, stderr.String())
+	}
+	if pair.contextResolveCalls != 1 || pair.resolveCalls != 1 {
+		t.Fatalf("unattached current Context was not used: context resolves=%d ordinary resolves=%d", pair.contextResolveCalls, pair.resolveCalls)
 	}
 }
 
@@ -266,6 +293,7 @@ func (f *firstEntryPairFixture) ResolveSelected(ctx context.Context, intent oper
 }
 
 func (f *firstEntryPairFixture) ResolveSelectedContext(ctx context.Context, _ tobari.ContextID, selected workspaceauthoritycmd.SelectedDefaultPair) (workspaceauthoritycmd.DefaultPairResolution, error) {
+	f.contextResolveCalls++
 	intent := operation.Intent{Command: WorkspaceEntryCommandPath, Effect: operation.EffectCreate, Target: operation.TargetRef{Kind: tobari.CurrentDirectoryTargetKind, ParentID: tobari.CurrentDirectoryTargetID}}
 	return f.ResolveSelected(ctx, intent, nil, selected)
 }

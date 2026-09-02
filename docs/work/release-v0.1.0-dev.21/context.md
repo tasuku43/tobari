@@ -5,8 +5,9 @@
 - The latest existing development tag is `v0.1.0-dev.20`.
 - No local tag, remote tag, or GitHub Release named `v0.1.0-dev.21` exists.
 - Existing tags are annotated and use the message `Tobari <tag>`.
-- The working tree contains the reviewed current-Context implementation and documentation.
-- The current branch is `main`; its pre-release HEAD is one commit ahead of `origin/main`.
+- Main contains the reviewed current-Context implementation and documentation
+  at `37b93f0089354e1c9b9bb853cc22722a67aa8850`; the final repair is pending a
+  follow-up commit.
 - Release preparation requires a successful exact-revision main-push CI run and must precede tag creation.
 
 ## Constraints
@@ -36,5 +37,29 @@
 - `release:check` found one ShellCheck SC1007 regression in the changed
   integration fixture; explicit empty-string initialization fixed it before
   the final gates.
+- Exact-revision main CI run `33577765071` succeeded in release packaging,
+  container policy/Gateway, public, security, and implementation-quality jobs,
+  but its cold first-use job rejected stopped-ancestor nested creation with
+  `context_in_use`. The attached current Context had been reused even though it
+  already owned the parent Workspace.
+- Root creation now binds the current Context only while it is unattached. If
+  it is already attached, explicit create-here publishes a distinct Context
+  from the default Template and leaves the installation selector unchanged.
+- The repaired cleanup exposed a second selector edge: deleting an otherwise
+  unreferenced current Context was rejected even though the public command
+  contract listed only Workspace, attachment, credential, and Stage blockers.
+  Context deletion now atomically removes that Context and clears the selector
+  in one authority generation.
+- A fresh non-default `colima-tobari-dev21-nested-fix-cold` profile passed the
+  complete first-use scenario, including cold entry, re-entry, descendant
+  selection, stopped-ancestor nested creation, and cleanup. The dedicated
+  profile was deleted afterward and the ambient Docker context remained
+  `colima`.
+- The ambient `colima` daemon later returned a containerd metadata
+  `input/output error` while `task check` pulled the pinned OPA image. Without
+  restarting or deleting that unrelated daemon, a fresh isolated
+  `colima-tobari-dev21-final-gates` profile passed `task check`, `task
+  security`, `task public:check`, and `task release:check`. That dedicated
+  profile was deleted and the ambient Docker context was restored to `colima`.
 - Final diff review finds no dependency manifest, workflow, license, notice,
   binary, credential, private identifier, or local absolute path change.

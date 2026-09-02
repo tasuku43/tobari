@@ -464,16 +464,23 @@ Runtime, shell, Git, and bootstrap setters are not a parallel authority path.
 Context creation consumes one Template reference and no CWD. `context use`
 consumes one Context reference and changes only the installation selector.
 Bare `tobari` selects an existing Workspace from CWD; when none exists there,
-it creates the CWD-owned Workspace from the current Context. Workspace and
-Context deletion consume their own exact references. Names remain read-only
-discovery/presentation input and cannot authorize mutation.
+explicit create-here binds an unattached current Context, or publishes a
+distinct Context from the default Template when current already owns a
+Workspace. Workspace and Context deletion consume their own exact references.
+Deleting an otherwise-unreferenced current Context publishes the same authority
+generation with that Context removed and CurrentContextID absent; selection
+alone is not a deletion blocker.
+Names remain read-only discovery/presentation input and cannot authorize
+mutation.
 
 The installation owns one optional DefaultTemplateSelection and one optional
 CurrentContextID. The former seeds fresh authority; the latter supplies the
-default for Context-aware commands and new-Workspace entry. Existing Workspace
+default for Context-aware commands and an unattached exact Context for
+new-Workspace entry. When it is already attached, explicit create-here uses the
+default Template to create a distinct Context instead. Existing Workspace
 selection and status derive from canonical CWD and then follow that Workspace's
-permanent Context binding. An explicit Context option overrides only one
-invocation and never rewrites CurrentContextID.
+permanent Context binding. No entry path rewrites CurrentContextID. An explicit
+Context option overrides only one invocation.
 
 ### Independent activation axes
 
@@ -1077,7 +1084,9 @@ Context deletion takes the existing Catalog-to-Template-Stage lock order and
 rejects while any retained Stage names that exact Context, whether or not Apply
 is confirmed. This keeps the Context authority and complete Home alive through
 the gap between pending-Plan discovery and canonical Apply; deletion becomes
-eligible only after Stage settlement.
+eligible only after Stage settlement. When the eligible Context is the current
+Context, the same atomic publication clears CurrentContextID rather than
+requiring an unrelated Context selection first.
 An unmaterialized Runtime task whose source authority has drifted is
 first marked `retiring` durably, then cleaned idempotently and marked `retired`;
 discovery completes an interrupted retirement before admitting another task.

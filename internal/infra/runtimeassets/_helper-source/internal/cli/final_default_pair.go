@@ -158,7 +158,14 @@ func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, 
 			_ = progress.Finish(firstEntryFailureState(contextErr))
 			return c.failRootBeforeHandoff(ctx, contextErr)
 		}
-		resolution, err = c.finalDefaultPair.ResolveSelectedContext(ctx, view.Snapshot.Context.ID, selected)
+		if view.Snapshot.Workspace == nil {
+			resolution, err = c.finalDefaultPair.ResolveSelectedContext(ctx, view.Snapshot.Context.ID, selected)
+		} else {
+			// Explicit create-here must not attach a second Workspace to the
+			// current Context. The ordinary create path publishes a distinct
+			// Context from the default Template without changing the selector.
+			resolution, err = c.finalDefaultPair.ResolveSelected(ctx, intent, nil, selected)
+		}
 	} else {
 		resolution, err = c.finalDefaultPair.ResolveSelected(ctx, intent, freshBody, selected)
 	}
