@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"reflect"
 	"strings"
@@ -52,6 +53,14 @@ func (f policyAssistContextReadFixture) ReadContextAuthorityByReference(_ contex
 		return tobari.ContextAuthoritySnapshot{}, tobari.ErrContextBindingNotFound
 	}
 	return f.snapshot.Clone(), nil
+}
+
+func (f policyAssistContextReadFixture) ReadCurrentContextAuthority(context.Context) (tobari.ContextAuthoritySnapshot, error) {
+	return f.snapshot.Clone(), nil
+}
+
+func (f policyAssistContextReadFixture) SetCurrentContextByReference(context.Context, string) (tobari.ContextSelectionResult, error) {
+	return tobari.ContextSelectionResult{}, errors.New("unexpected current Context mutation")
 }
 
 func (f policyAssistTemplateFixture) PlanWorkspaceTemplateSourceByReference(_ context.Context, ref string) (tobari.WorkspaceTemplateChangePlan, error) {
@@ -285,10 +294,6 @@ func TestPolicyAssistUsesContextRuntimeAndCanonicalTemplatePlanApply(t *testing.
 	stagePort := configuratorStageFixture{order: &order, ref: stageRef, fingerprint: fingerprint}
 	drafts := firstEntryConfiguratorDraftFixture{order: &order, draft: draft, body: seed.Initial}
 	runner := firstEntryConfiguratorRunnerFixture{order: &order}
-	contextRef, err := tobari.ContextRef(snapshot.Context.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
 	command.interactive = func(io.Reader, io.Writer, io.Writer) bool { return true }
@@ -300,7 +305,7 @@ func TestPolicyAssistUsesContextRuntimeAndCanonicalTemplatePlanApply(t *testing.
 	command.configurator = configuratorcmd.New(drafts, runner, stagePort, runner)
 	command.finalTemplates = workspaceauthoritycmd.NewTemplateService(policyAssistTemplateFixture{t: t, order: &order, template: snapshot.Template, fp: fingerprint})
 
-	if code := command.RunContext(context.Background(), []string{"policy", "assist", "--context", contextRef}); code != ExitOK {
+	if code := command.RunContext(context.Background(), []string{"policy", "assist"}); code != ExitOK {
 		t.Fatalf("policy assist exit=%d order=%v stdout=%q stderr=%q", code, order, stdout.String(), stderr.String())
 	}
 	want := []string{"setup", "readiness", "draft reserve", "draft materialize", "runtime prepare", "agent", "draft freeze", "submission review", "stage", "template plan", "plan review", "task confirm", "template apply", "task settle"}

@@ -10,6 +10,8 @@ fixed by [ADR 0085](decisions/0085-make-status-the-cwd-home.md).
 The task-scoped non-Workspace Configurator, its direct-egress/complete-managed-
 Home trade-off, copied evidence, and frozen submission are fixed by
 [ADR 0090](decisions/0090-agent-guided-configurator-first-use.md).
+Location-free current-Context selection and CWD-only Workspace routing are
+fixed by [ADR 0093](decisions/0093-select-current-context-without-cwd.md).
 
 `status` reads one exact CWD-selected scope through non-creating observation
 seams. It never creates or acquires a mutation lock, initializes state, repairs
@@ -45,7 +47,7 @@ direct-egress objective. It may reach the Internet only under its separate exact
 role and receives no Project, host Home, unrelated task Home, active authority,
 writable Policy Memory, Docker socket, host network, or arbitrary host
 executor. Its only writable persistent data mount is one complete managed Home:
-Context-scoped for explicit policy assistance and installation-agent-scoped for
+Context-scoped after current-or-exact-override policy resolution and installation-agent-scoped for
 Runtime assistance. Copied evidence and one task working source inside it
 grant no authority. Its sole live host cooperation is the binary-owned
 read-only native-login opener and existing bounded schema-v1 control stream.
@@ -1172,8 +1174,9 @@ collected.
   draft bound only to an exact active Template. Context Plan/Apply
   activates the immutable identity and initializes empty Policy Memory without
   Docker reconciliation.
-- `context enter --id <context-ref>` and bare root are the only Workspace
-  reconciliation boundaries. Attached pending adoption returns typed
+- Bare root is the only Workspace reconciliation boundary. `context use --id
+  <context-ref>` changes only the installation current Context and performs no
+  CWD, Workspace, credential, process, network, or Docker operation. Attached pending adoption returns typed
   `end_active_session` before Docker; it neither falls back nor polls.
 - `workspace delete --id <workspace-ref> --confirm=delete [--force]` removes
   one exact Workspace, home, native credentials, and owned runtime resources
@@ -1182,7 +1185,8 @@ collected.
   default selection or Context reference.
 
 Bare root composes canonical Template/default/Context initialization,
-`cluster up`, Context entry, and child handoff in dependency order. Each
+current Context resolution for a new Workspace, `cluster up`, Workspace entry,
+and child handoff in dependency order. Each
 boundary keeps its own intent, journal, impact, receipt, and mutation-complete
 output. A later failure never rolls back or hides an earlier confirmed result.
 Root never builds, restores, prunes, retires, garbage-collects, or force-removes
@@ -1441,6 +1445,7 @@ treats a failed read as no candidates, never as shell source or authority.
 | Attached sessions are not removed accidentally | Exact work-container Exec ID observation, guard-before-delete tests, and explicit force-override tests |
 | Each root and XDG home are its Tobari's only host write scopes | Canonical-root, mount-encoding, dangling-symlink, immediate pre-effect drift, remote-context visibility/type, mount-spec, and path-containment tests |
 | Ambiguous CWD selection cannot mutate before a valid choice | Typed candidate snapshot, locked stale-choice revalidation, and zero-call cancellation tests |
+| Current Context cannot acquire location authority | Generation-bound selector validation, current-or-exact-override application ports with no CWD input, existing-Workspace precedence, and `context use` zero-Workspace/zero-Docker tests |
 | One Workspace cannot consume unbounded CPU, memory, PIDs, or container logs | Fixed create-argv and spec-hash tests plus runtime HostConfig assertions |
 | A custom image cannot expand its runtime specification | Compatibility inspection, fixed create-argv tests, and integration test |
 | Selected Workspace Template pup cannot become an ambient host helper | Runtime API and immutable-image checks, bounded semantic version observation, Docker-streamed executable digest, fixed argv/status/state capture, no mounts, and no host/base fallback |
@@ -1456,7 +1461,7 @@ treats a failed read as no candidates, never as shell source or authority.
 | Denials support safe policy learning | Typed Context/scheme/host/port/method/path denial validation, fixed navigation-response schema, host-only session summary, secret canaries, and integration projection |
 | Learned permissions stay explicit and Context-bound | Context-scoped opaque-reference round trips, exact effect domain tests, fixed-evaluator cross-Context canaries, preflight-before-aggregate activation tests, and Docker integration |
 | One bad Workspace Template cannot replace known-good policy | Strict host-paired source validation, mutex plus cross-process locking, digest-bound source journal recovery, serialized content-addressed aggregate generation, reserved namespace validation, whole-candidate OPA tests, atomic publish, rollback tests, and integration |
-| Workspace Template changes cannot mutate existing Context or Workspace authority | Immutable Context binding, permanent Workspace-to-Context binding, desired-versus-AppliedEntry tests, and explicit-entry reconciliation |
+| Workspace Template changes cannot mutate existing Context or Workspace authority | Immutable Context binding, permanent Workspace-to-Context binding, desired-versus-AppliedEntry tests, and Workspace-entry reconciliation |
 | Source access is exact and not a snapshot claim | Runtime spec/hash and Docker inspect tests, read-only mutation/Git-metadata failures, writable home/tmpfs canaries, no writable alias, and same-root host/read-write observation tests |
 | Workspace Template policy ceilings cannot be bypassed | Default-plus-override method-decision tests plus destination/method terminal zero-candidate/DNS/Broker/upstream canaries and exact-Deny precedence above broad Allow, baseline, and learned policy |
 | Overlapping roots cannot exchange a descendant mount source | Workspace Template-selected direct mounts, project-lock-scoped exact owned-container observations, live-RW-strict-ancestor rejection, RO/stopped/same-root/descendant/already-running allowances, malformed/ambiguous evidence fail-closed tests, unstarted-target cleanup, and same-root/parent-child live-file canaries |

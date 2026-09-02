@@ -52,8 +52,8 @@ tobari template list --format json
 tobari template default set --id TEMPLATE_REF
 ```
 
-Default selection affects only bare root entry and bare `status`. It never
-retargets an existing Context or Workspace.
+Default selection seeds fresh authority. It never retargets an existing
+Context or Workspace.
 
 ## Create a Context, then bind a Workspace
 
@@ -63,21 +63,23 @@ Context creation is location-free and may run from any directory:
 tobari context create --template TEMPLATE_REF
 ```
 
-From the Project root, bind or reuse that Context's Workspace and enter it:
+Select the location-free current Context without consulting CWD:
 
 ```sh
-tobari context enter --id CONTEXT_REF
+tobari context use --id CONTEXT_REF
 ```
 
-For ordinary default work, bare `tobari` creates or reuses the default
-Template/Context pair and enters its Workspace. For nondefault work, obtain the
-Context reference from `context list` or `context show` and pass it unchanged
-to `context enter`.
+From a Project root without a Workspace, bare `tobari` creates one from the
+current Context. At a root with an existing Workspace, CWD selects that
+Workspace and its permanent Context binding regardless of the current
+selection. Context-aware options use current when omitted and accept one
+invocation-local exact override when present.
 
 ```sh
 tobari context list --format json
 tobari context show --id CONTEXT_REF --format json
-tobari context enter --id CONTEXT_REF -- codex exec ...
+tobari context use --id CONTEXT_REF
+tobari -- codex exec ...
 ```
 
 ## Configure one exact Template

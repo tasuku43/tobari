@@ -109,6 +109,8 @@ type fakePort struct {
 	createContextErr  error
 	deleteContextErr  error
 	readErr           error
+	currentErr        error
+	currentSet        tobari.ContextSelectionResult
 }
 
 func (f *fakePort) PlanWorkspaceTemplatePolicyMigrationByReference(_ context.Context, ref string) (tobari.WorkspaceTemplatePolicyMigrationPlan, error) {
@@ -177,6 +179,23 @@ func (f *fakePort) ReadContextAuthorityByReference(_ context.Context, ref string
 	f.lastRef = ref
 	return f.snapshot, nil
 }
+func (f *fakePort) ReadCurrentContextAuthority(context.Context) (tobari.ContextAuthoritySnapshot, error) {
+	if f.currentErr != nil {
+		return tobari.ContextAuthoritySnapshot{}, f.currentErr
+	}
+	return f.snapshot, nil
+}
+func (f *fakePort) SetCurrentContextByReference(_ context.Context, ref string) (tobari.ContextSelectionResult, error) {
+	f.calls++
+	f.lastRef = ref
+	if f.currentErr != nil {
+		return tobari.ContextSelectionResult{}, f.currentErr
+	}
+	if f.currentSet.ContextID == "" {
+		return tobari.ContextSelectionResult{ContextID: f.snapshot.Context.ID, Selected: true}, nil
+	}
+	return f.currentSet, nil
+}
 func (f *fakePort) CreateContextByTemplateReference(_ context.Context, ref, root string) (tobari.ContextAuthoritySnapshot, error) {
 	f.calls++
 	f.lastRef = ref
@@ -244,6 +263,56 @@ func (f *fakePort) ApplyReviewedPolicyMemory(_ context.Context, set tobari.Polic
 
 func intent(command string, effect operation.Effect, target operation.TargetRef, impact operation.Impact) operation.Intent {
 	return operation.Intent{Command: command, Effect: effect, Target: target, Impact: impact}
+}
+
+func TestContextUseSelectsExactReferenceAndCurrentResolutionHonorsOverride(t *testing.T) {
+	snapshot := snapshotFixture(t, false, false)
+	port := &fakePort{snapshot: snapshot}
+	service := NewContextService(port)
+	contextRef, err := tobari.ContextRef(snapshot.Context.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.Use(context.Background(), intent(TaskContextUse, operation.EffectWrite, operation.TargetRef{Kind: tobari.ContextReferenceKind, ID: contextRef}, ContextUseImpact()), contextRef)
+	if err != nil || result.ContextID != snapshot.Context.ID || !result.Selected || port.calls != 1 || port.lastRef != contextRef {
+		t.Fatalf("use result=%+v calls=%d ref=%q err=%v", result, port.calls, port.lastRef, err)
+	}
+	current, err := service.ResolveCurrentOrOverride(context.Background(), "")
+	if err != nil || current.ContextRef != contextRef {
+		t.Fatalf("current resolution=%+v err=%v", current, err)
+	}
+	override, err := service.ResolveCurrentOrOverride(context.Background(), contextRef)
+	if err != nil || override.ContextRef != contextRef || port.lastRef != contextRef {
+		t.Fatalf("override resolution=%+v ref=%q err=%v", override, port.lastRef, err)
+	}
+}
+
+func TestContextListMarksTheInstallationCurrentSelection(t *testing.T) {
+	snapshot := snapshotFixture(t, false, false)
+	result, err := NewContextService(&fakePort{snapshot: snapshot}).List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 1 || result.Items[0].Current == nil || !*result.Items[0].Current {
+		t.Fatalf("Context list did not mark current selection: %+v", result.Items)
+	}
+
+	result, err = NewContextService(&fakePort{snapshot: snapshot, currentErr: tobari.ErrCurrentContextRequired}).List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 1 || result.Items[0].Current == nil || *result.Items[0].Current {
+		t.Fatalf("Context list did not represent absent selection: %+v", result.Items)
+	}
+}
+
+func TestContextCurrentResolutionRequiresSelectionWithoutReadingCWD(t *testing.T) {
+	port := &fakePort{snapshot: snapshotFixture(t, false, false), currentErr: tobari.ErrCurrentContextRequired}
+	_, err := NewContextService(port).ResolveCurrentOrOverride(context.Background(), "")
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "current_context_required" || port.calls != 0 {
+		t.Fatalf("current fault=%+v err=%v calls=%d", public, err, port.calls)
+	}
 }
 
 func TestTemplatePublicCopyCreatesOnlyAnUnpublishedDraft(t *testing.T) {

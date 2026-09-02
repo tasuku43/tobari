@@ -245,14 +245,14 @@ func TestFinalWorkspaceAuthorityCatalogOwnsExactReferenceGraph(t *testing.T) {
 	}
 	for _, path := range []string{
 		"template list", "template show", "template create", "template copy", "template migration plan", "template migration apply", "template plan", "template apply", "template default set", "template delete",
-		"context list", "context show", "context apply", "context create", "context enter", "context delete",
+		"context list", "context show", "context apply", "context create", "context use", "context delete",
 		"workspace list", "workspace status", "workspace delete",
 	} {
 		if _, found := catalog.Lookup(path); !found {
 			t.Fatalf("final command %q is absent", path)
 		}
 	}
-	for _, retired := range []string{"manifest list", "manifest show", "manifest create", "manifest default set", "manifest delete", "manifest runtime set", "list", "delete", "config shell", "config git", "config bootstrap aws", "config bootstrap kubernetes eks", "template runtime set"} {
+	for _, retired := range []string{"manifest list", "manifest show", "manifest create", "manifest default set", "manifest delete", "manifest runtime set", "context enter", "list", "delete", "config shell", "config git", "config bootstrap aws", "config bootstrap kubernetes eks", "template runtime set"} {
 		if _, found := catalog.Lookup(retired); found {
 			t.Fatalf("retired command %q remains reachable", retired)
 		}
@@ -271,7 +271,6 @@ func TestFinalWorkspaceAuthorityCatalogOwnsExactReferenceGraph(t *testing.T) {
 		"context show":             {{Kind: tobari.ContextReferenceKind, Field: "context_ref"}},
 		"workspace list":           {{Kind: tobari.WorkspaceReferenceKind, Field: "items[].workspace_ref"}},
 		"workspace status":         {{Kind: tobari.WorkspaceReferenceKind, Field: "workspace_ref"}},
-		"context enter":            {{Kind: tobari.WorkspaceReferenceKind, Field: "workspace_ref"}},
 	}
 	for path, want := range wantProduced {
 		command, _ := catalog.Lookup(path)
@@ -279,7 +278,7 @@ func TestFinalWorkspaceAuthorityCatalogOwnsExactReferenceGraph(t *testing.T) {
 			t.Fatalf("%s ProducedRefs() = %+v, want %+v", path, got, want)
 		}
 	}
-	for _, path := range []string{"template apply", "template migration apply", "template default set", "template delete", "context show", "context apply", "context enter", "context delete", "workspace status", "workspace delete"} {
+	for _, path := range []string{"template apply", "template migration apply", "template default set", "template delete", "context show", "context apply", "context use", "context delete", "workspace status", "workspace delete"} {
 		command, _ := catalog.Lookup(path)
 		if command.Role == RoleUtility || len(command.ConsumedRefs()) == 0 {
 			t.Fatalf("%s role/consumed refs = %q %+v", path, command.Role, command.ConsumedRefs())
@@ -304,9 +303,9 @@ func TestFinalWorkspaceAuthorityCatalogOwnsExactReferenceGraph(t *testing.T) {
 	if got := templateDelete.Agent.Output.Fields[1].Name; got != "deleted" {
 		t.Fatalf("template delete output state = %q", got)
 	}
-	contextEnter, _ := catalog.Lookup("context enter")
-	if !reflect.DeepEqual(contextEnter.Agent.Output.Formats, []OutputFormat{OutputFormatText, OutputFormatJSON}) || contextEnter.Agent.Output.JSONEnvelope != "entry" || contextEnter.Agent.Output.JSONSchemaVersion != 1 {
-		t.Fatalf("context enter output must expose the final entry receipt without writing to child stdout: %+v", contextEnter.Agent.Output)
+	contextUse, _ := catalog.Lookup("context use")
+	if !reflect.DeepEqual(contextUse.Agent.Output.Formats, []OutputFormat{OutputFormatText, OutputFormatJSON}) || contextUse.Agent.Output.JSONEnvelope != "result" || contextUse.Agent.Output.JSONSchemaVersion != 1 {
+		t.Fatalf("context use output must expose the confirmed selection: %+v", contextUse.Agent.Output)
 	}
 }
 
@@ -358,10 +357,9 @@ func TestFinalAuthorityCRUDCatalogDeclaresApplicationFaultClassifications(t *tes
 		{path: "context show", code: "invalid_context", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
 		{path: "context plan", code: "invalid_context_ref", kind: fault.KindInvalidInput, phase: fault.PhasePrecondition, change: fault.ChangeNone},
 		{path: "context create", code: "invalid_context_create_result", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
-		{path: "context enter", code: "invalid_context_ref", kind: fault.KindInvalidInput, phase: fault.PhasePrecondition, change: fault.ChangeNone},
-		{path: "context enter", code: "invalid_root", kind: fault.KindInvalidInput, phase: fault.PhasePrecondition, change: fault.ChangeNone},
-		{path: "context enter", code: "invalid_project_root_resolution", kind: fault.KindContract, phase: fault.PhasePrecondition, change: fault.ChangeNone},
-		{path: "context enter", code: "workspace_entry_cleanup_failed", kind: fault.KindUnavailable, phase: fault.PhaseMutation, change: fault.ChangePartial},
+		{path: "context use", code: "invalid_context_ref", kind: fault.KindInvalidInput, phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{path: "context use", code: "context_not_found", kind: fault.KindNotFound, phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{path: "context use", code: "invalid_context_use_result", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
 		{path: "context delete", code: "context_not_found", kind: fault.KindNotFound, phase: fault.PhasePrecondition, change: fault.ChangeNone},
 		{path: "context delete", code: "invalid_context_delete_result", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
 		{path: "workspace list", code: "invalid_workspace_list", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
@@ -386,14 +384,9 @@ func TestFinalAuthorityCRUDCatalogDeclaresApplicationFaultClassifications(t *tes
 	}
 }
 
-func TestFinalContextEnterInterruptedRecoveryPreservesExplicitTargetWorkflow(t *testing.T) {
-	spec, found := DefaultCatalog().Lookup("context enter")
-	if !found {
-		t.Fatal("context enter is absent")
-	}
-	declared := commandErrorByCode(t, spec.Agent.Errors, "workspace_entry_interrupted")
-	if len(declared.NextActions) != 1 || declared.NextActions[0].Command != "help context enter" {
-		t.Fatalf("workspace entry interrupted recovery = %+v", declared.NextActions)
+func TestFinalContextEnterIsRetiredWithoutAlias(t *testing.T) {
+	if _, found := DefaultCatalog().Lookup("context enter"); found {
+		t.Fatal("context enter remains public")
 	}
 }
 
@@ -447,32 +440,6 @@ func TestFinalAuthorityInvalidSelectorsNeverCollapseToUndeclaredContract(t *test
 				t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
 			}
 		})
-	}
-}
-
-func TestFinalContextEnterInvalidRootNeverCollapsesToUndeclaredContract(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
-	command.finalContexts = workspaceauthoritycmd.NewContextService(finalInvalidReferencePorts{})
-	command.finalProjectRoot = unavailableFinalProjectRoot{}
-	if code := command.RunContext(context.Background(), []string{"--error-format=json", "context", "enter", "--id=ctx1_01912345-6789-7abc-8def-0123456789a2"}); code != ExitUsage {
-		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
-	}
-	if !json.Valid(stderr.Bytes()) || !strings.Contains(stderr.String(), "invalid_root") || strings.Contains(stderr.String(), "undeclared_fault_contract") {
-		t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
-	}
-}
-
-func TestFinalContextEnterInvalidResolvedRootNeverCollapsesToUndeclaredContract(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
-	command.finalContexts = workspaceauthoritycmd.NewContextService(finalInvalidReferencePorts{})
-	command.finalProjectRoot = invalidFinalProjectRoot{}
-	if code := command.RunContext(context.Background(), []string{"--error-format=json", "context", "enter", "--id=ctx1_01912345-6789-7abc-8def-0123456789a2"}); code != ExitContract {
-		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
-	}
-	if !json.Valid(stderr.Bytes()) || !strings.Contains(stderr.String(), "invalid_project_root_resolution") || strings.Contains(stderr.String(), "undeclared_fault_contract") {
-		t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }
 
@@ -964,7 +931,7 @@ func TestFinalContextProjectionEmitsNullForInactiveAxes(t *testing.T) {
 	}
 }
 
-func TestFinalContextApplyHumanResultNamesExactExplicitEntry(t *testing.T) {
+func TestFinalContextApplyHumanResultNamesExactUse(t *testing.T) {
 	contextRef := "ctx1_01912345-6789-7abc-8def-0123456789a2"
 	value := finalContextProjection{
 		ContextRef: contextRef, TemplateName: "coding",
@@ -972,8 +939,8 @@ func TestFinalContextApplyHumanResultNamesExactExplicitEntry(t *testing.T) {
 	}
 	for _, changed := range []bool{false, true} {
 		output := string(finalContextApplyText(value, changed, false))
-		if !strings.Contains(output, "context enter --id "+contextRef) ||
-			!strings.Contains(output, "Bind this location-free Context to the current Project") {
+		if !strings.Contains(output, "context use --id "+contextRef) ||
+			!strings.Contains(output, "Select this location-free Context") {
 			t.Fatalf("Context Apply continuation changed=%t output=%q", changed, output)
 		}
 	}
@@ -1023,7 +990,7 @@ func TestBareStatusSchemaThreeOwnsFinalDefaultPairContract(t *testing.T) {
 		}
 	}
 	wantFields := []string{
-		"task", "authority_state", "project_root", "default_template_state", "template", "context", "workspace", "runtime", "cluster",
+		"task", "authority_state", "project_root", "template_state", "template", "context", "workspace", "runtime", "cluster",
 		"permissions", "services", "login_validity", "siblings", "next", "attention",
 	}
 	gotFields := make([]string, len(spec.Agent.Output.Fields))
@@ -1075,100 +1042,6 @@ func TestFinalAuthorityHelpAndCompletionComeFromAtomicCatalog(t *testing.T) {
 		if !strings.Contains(human, spec.Usage()) || strings.Contains(human, "--manifest") {
 			t.Fatalf("%s human help = %q", path, human)
 		}
-	}
-}
-
-func TestFinalContextEnterHelpAndInvocationPermitFirstEntrySettlement(t *testing.T) {
-	const (
-		templateID  tobari.WorkspaceTemplateID = "01912345-6789-7abc-8def-0123456789a1"
-		contextID   tobari.ContextID           = "01912345-6789-7abc-8def-0123456789a2"
-		workspaceID tobari.WorkspaceID         = "01912345-6789-7abc-8def-0123456789a3"
-	)
-	digest := func(value string) tobari.SemanticDigest {
-		return tobari.SemanticDigest("sha256:" + strings.Repeat(value, 64))
-	}
-	body := tobari.WorkspaceTemplateBody{
-		Boundary:      tobari.WorkspaceTemplateBoundary{SourceAccess: tobari.ManifestSourceAccessReadOnly, DestinationCeiling: tobari.ManifestPolicyDestinationCeiling{Mode: "exact", Authorities: []tobari.ManifestPolicyAuthority{{Scheme: "https", Host: "api.example.dev", Port: 443}}}, MethodPolicy: tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview, Overrides: []tobari.ManifestMethodOverride{{Method: "GET", Decision: tobari.ManifestMethodAllow}}}},
-		Policy:        tobari.WorkspaceTemplatePolicyBody{AgentProfile: tobari.DefaultProfile, NativeReadiness: tobari.ManifestNativeReadinessEnabled, BaselineGrants: []tobari.ManifestPolicyExactRule{{Scheme: "https", Host: "api.example.dev", Port: 443, Method: "GET", Path: "/items"}}, BaselineTemplates: []tobari.ManifestPolicyPathTemplateRule{}, MCPBaselineGrants: []tobari.ManifestPolicyMCPRule{}, BaselineDenies: []tobari.ManifestPolicyExactRule{}, GraphQLEndpoints: []tobari.ManifestPolicyExactRule{}, MCPEndpoints: []tobari.ManifestPolicyExactRule{}},
-		EntryDefaults: tobari.WorkspaceTemplateEntryDefaults{Runtime: tobari.RuntimeBinding{RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Revision: string(digest("f")), Ordinal: 1, Image: "tobari-runtime:test"}}, SessionDefaults: tobari.WorkspaceTemplateSessionDefaults{ShellEnvironment: []tobari.ManifestShellEnvironmentSetting{}}, CreationDefaults: tobari.WorkspaceTemplateCreationDefaults{},
-	}
-	revision, err := tobari.NewWorkspaceTemplateRevision(templateID, 1, body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	template := tobari.WorkspaceTemplate{SchemaVersion: tobari.WorkspaceTemplateSchemaVersion, ID: templateID, Name: "standard", Current: revision, Retained: []tobari.WorkspaceTemplateRevision{revision.Clone()}}
-	memory, _, err := tobari.PublishPolicyMemory(contextID, []tobari.PolicyMemoryRule{}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	templateReceipt := tobari.TemplatePolicyActivationReceipt{ContextID: contextID, TemplateID: templateID, PolicySliceDigest: revision.Slices.PolicySliceDigest}
-	memoryReceipt := tobari.PolicyMemoryActivationReceipt{ContextID: contextID, Revision: memory.Revision}
-	activeMemory := memory.Clone()
-	applied := tobari.WorkspaceAppliedEntry{ContextID: contextID, TemplateID: templateID, TemplateRevision: revision.Revision, EntrySliceDigest: revision.Slices.EntrySliceDigest, RuntimeID: tobari.StandardRuntimeID, RuntimeRevision: revision.Slices.RuntimeRevision, ResolvedSpec: digest("7"), ReconciledAt: time.Unix(1, 0).UTC()}
-	snapshot := tobari.ContextAuthoritySnapshot{Context: tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: templateID}, Template: template, PolicyMemory: memory, ActiveTemplatePolicy: &templateReceipt, ActivePolicyMemory: &activeMemory, ActivePolicyMemoryRef: &memoryReceipt,
-		Workspace: &tobari.WorkspaceBinding{SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: workspaceID, ContextID: contextID, ProjectRoot: "/workspace/example", Home: "/workspace/home", CreationDefaults: revision.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied}}
-	if err := snapshot.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	port := &finalFirstEntryFixture{publication: tobari.ContextEntryPublication{Snapshot: snapshot, Outcome: tobari.WorkspaceSessionOutcome{ExitCode: 0, CleanupIssues: []tobari.WorkspaceAttachmentCleanupIssue{}}}}
-	var out, errOut bytes.Buffer
-	command := newCLI(strings.NewReader(""), &out, &errOut, DefaultCatalog(), nil)
-	command.finalContexts = workspaceauthoritycmd.NewContextService(port)
-	command.finalProjectRoot = firstUseIntegrationProjectRoot{root: "/workspace/example"}
-	spec, _ := command.catalog.Lookup("context enter")
-	if help := string(renderCommandHelp(spec)); strings.Contains(help, "already active") || strings.Contains(help, "cluster up") {
-		t.Fatalf("first-entry help retained an external activation prerequisite: %s", help)
-	}
-	contextRef, _ := tobari.ContextRef(contextID)
-	if code := command.RunContext(context.Background(), []string{"context", "enter", "--id", contextRef}); code != ExitOK || port.calls != 1 {
-		t.Fatalf("first entry code=%d calls=%d stdout=%q stderr=%q", code, port.calls, out.String(), errOut.String())
-	}
-	directScript := `port=$1; printf "%s\n" "$TOBARI_CAPABILITIES_JSON" > /var/lib/tobari/host-probe`
-	if code := command.RunContext(context.Background(), []string{"context", "enter", "--id", contextRef, "--", "/bin/bash", "-lc", directScript, "bash", "3000"}); code != ExitOK {
-		t.Fatalf("direct first entry code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
-	}
-	wantArgv := []string{"/bin/bash", "-lc", directScript, "bash", "3000"}
-	if !port.session.Direct() || !reflect.DeepEqual(port.session.Argv(), wantArgv) {
-		t.Fatalf("direct session argv=%q", port.session.Argv())
-	}
-}
-
-func TestFinalContextEnterEmitsDeclaredWorkspaceBusyFault(t *testing.T) {
-	const contextRef = "ctx1_01912345-6789-7abc-8def-0123456789a2"
-	port := &finalFirstEntryFixture{err: errors.Join(tobari.ErrWorkspaceEntryObservationUnavailable, tobari.ErrContextBindingProtected)}
-	var stdout, stderr bytes.Buffer
-	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
-	command.finalContexts = workspaceauthoritycmd.NewContextService(port)
-	command.finalProjectRoot = firstUseIntegrationProjectRoot{root: "/workspace/example"}
-	if code := command.RunContext(context.Background(), []string{"context", "enter", "--id", contextRef}); code != ExitUnavailable {
-		t.Fatalf("context enter exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
-	}
-	if !strings.Contains(stderr.String(), "workspace_entry_busy") || strings.Contains(stderr.String(), "undeclared_fault_contract") {
-		t.Fatalf("context enter busy fault=%q", stderr.String())
-	}
-}
-
-func TestFinalContextEnterPreservesChildStatusAndReportsSecondaryCleanup(t *testing.T) {
-	snapshot := finalCurrentContextEntrySnapshotFixture(t)
-	contextRef, err := tobari.ContextRef(snapshot.Context.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := &finalFirstEntryFixture{publication: tobari.ContextEntryPublication{
-		Snapshot: snapshot,
-		Outcome: tobari.WorkspaceSessionOutcome{ExitCode: 29, CleanupIssues: []tobari.WorkspaceAttachmentCleanupIssue{
-			tobari.WorkspaceCleanupPermissionChannel,
-		}},
-	}}
-	var stdout, stderr bytes.Buffer
-	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
-	command.finalContexts = workspaceauthoritycmd.NewContextService(port)
-	command.finalProjectRoot = firstUseIntegrationProjectRoot{root: "/workspace/example"}
-	if code := command.RunContext(context.Background(), []string{"context", "enter", "--id", contextRef, "--", "codex", "exec"}); code != 29 {
-		t.Fatalf("child exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
-	}
-	if stdout.Len() != 0 || strings.Count(stderr.String(), "Tobari cleanup needs attention") != 1 || !strings.Contains(stderr.String(), "Next: tobari status") || strings.Contains(stderr.String(), "Command failed") {
-		t.Fatalf("child boundary stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }
 

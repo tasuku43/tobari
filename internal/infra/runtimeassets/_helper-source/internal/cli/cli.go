@@ -73,6 +73,7 @@ func (a *finalPolicyAuthorityAdapter) DenyPolicyCandidateByReference(ctx context
 type finalDefaultPairEntry interface {
 	Select(context.Context, io.Reader, io.Writer) (workspaceauthoritycmd.SelectedDefaultPair, error)
 	ResolveSelected(context.Context, operation.Intent, *tobari.WorkspaceTemplateBody, workspaceauthoritycmd.SelectedDefaultPair) (workspaceauthoritycmd.DefaultPairResolution, error)
+	ResolveSelectedContext(context.Context, tobari.ContextID, workspaceauthoritycmd.SelectedDefaultPair) (workspaceauthoritycmd.DefaultPairResolution, error)
 	ResolveSelectedWithTemplateID(context.Context, operation.Intent, *tobari.WorkspaceTemplateBody, tobari.WorkspaceTemplateID, workspaceauthoritycmd.SelectedDefaultPair) (workspaceauthoritycmd.DefaultPairResolution, error)
 	ResolveSelectedWithConfiguratorIDs(context.Context, operation.Intent, *tobari.WorkspaceTemplateBody, tobari.WorkspaceTemplateID, tobari.ContextID, workspaceauthoritycmd.SelectedDefaultPair) (workspaceauthoritycmd.DefaultPairResolution, error)
 	RefreshAfterCluster(context.Context, workspaceauthoritycmd.DefaultPairResolution, workspaceauthoritycmd.FinalClusterReconciliation) (workspaceauthoritycmd.DefaultPairResolution, error)
@@ -100,6 +101,8 @@ var (
 	_ workspaceauthoritycmd.TemplateDefaultPort                 = (*finalWorkspaceAuthorityAdapter)(nil)
 	_ workspaceauthoritycmd.TemplateDeletePort                  = (*finalWorkspaceAuthorityAdapter)(nil)
 	_ workspaceauthoritycmd.ContextReadPort                     = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.CurrentContextReadPort              = (*finalWorkspaceAuthorityAdapter)(nil)
+	_ workspaceauthoritycmd.CurrentContextSelectionPort         = (*finalWorkspaceAuthorityAdapter)(nil)
 	_ workspaceauthoritycmd.ContextDraftCreatePort              = (*finalWorkspaceAuthorityAdapter)(nil)
 	_ workspaceauthoritycmd.ContextPlanPort                     = (*finalWorkspaceAuthorityAdapter)(nil)
 	_ workspaceauthoritycmd.ContextApplyPlanPort                = (*finalWorkspaceAuthorityAdapter)(nil)
@@ -145,7 +148,6 @@ type CLI struct {
 	finalDefaultPair      finalDefaultPairEntry
 	finalEntryReadiness   finalWorkspaceEntryReadiness
 	finalClusterCLIState
-	finalProjectRoot       finalProjectRootAuthority
 	config                 contextConfigurationWizard
 	contextCreate          contextCreateWizard
 	firstUse               recommendedFirstUseReviewer
@@ -309,7 +311,6 @@ func New(lifetime context.Context, in io.Reader, out, errOut io.Writer) *CLI {
 		return command
 	}
 	command.statusHome = statuscmd.New(statusHome)
-	command.finalProjectRoot = runtime
 	command.runtime = runtimecmd.New(runtime)
 	command.completion = completioncmd.New(runtime)
 	command.serviceExposure = serviceexposurecmd.New(runtime)

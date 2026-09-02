@@ -64,8 +64,8 @@ type DefaultPairMutationRecoveryPort interface {
 	ObserveMutationRecovery(context.Context) (tobari.FinalAuthorityMutationObservation, error)
 }
 
-// DefaultPairResolution is one invocation-local receipt for the exact default
-// Template and canonical Project Context selected by root entry. It does not
+// DefaultPairResolution is one invocation-local receipt for the exact selected
+// Workspace Template and canonical Project Context used by root entry. It does not
 // create another durable authority or selection.
 type DefaultPairResolution struct {
 	Observation      tobari.FinalDefaultPairObservation
@@ -328,6 +328,37 @@ func (s *DefaultPairService) Resolve(ctx context.Context, intent operation.Inten
 // one selected ancestor or creating only after an explicit create-here choice.
 func (s *DefaultPairService) ResolveSelected(ctx context.Context, intent operation.Intent, freshBody *tobari.WorkspaceTemplateBody, selected SelectedDefaultPair) (DefaultPairResolution, error) {
 	return s.resolveSelected(ctx, intent, freshBody, "", "", selected)
+}
+
+// ResolveSelectedContext binds one already-resolved location-free Context to
+// the CWD-owned Workspace creation path. It never derives the Context from CWD
+// and never changes the installation current Context selection.
+func (s *DefaultPairService) ResolveSelectedContext(ctx context.Context, contextID tobari.ContextID, selected SelectedDefaultPair) (DefaultPairResolution, error) {
+	if err := selected.Validate(); err != nil || selected.Choice.Kind != tobari.FinalDefaultPairSelectionCreate || contextID.Validate() != nil {
+		return DefaultPairResolution{}, invalidFault("invalid_default_pair_selection", "The new Workspace Context selection is invalid", errors.Join(err, contextID.Validate()), "status")
+	}
+	current, err := s.observeSelectionStable(ctx)
+	if err != nil {
+		return DefaultPairResolution{}, defaultPairMutationFault(err)
+	}
+	if !current.SameReceipt(selected.Selection) || !reflect.DeepEqual(current, selected.Selection) {
+		return DefaultPairResolution{}, defaultPairMutationFault(fmt.Errorf("final authority changed after selection"))
+	}
+	observation, err := s.observeSelectedContext(ctx, current, contextID)
+	if err != nil {
+		return DefaultPairResolution{}, defaultPairMutationFault(err)
+	}
+	if observation.Context == nil || observation.Context.Workspace != nil || observation.ProjectRoot != current.CanonicalCWD {
+		return DefaultPairResolution{}, fault.WithClassification(fault.New(
+			fault.KindRejected, "context_in_use", "The selected Context already owns a Workspace at another Project root.", false,
+			fault.NextAction{Command: "workspace list", Reason: "Use the Context's existing Workspace or select an unattached Context."},
+		), fault.PhasePrecondition, fault.ChangeNone)
+	}
+	resolution := DefaultPairResolution{Observation: observation.Clone(), InvocationRoot: current.CanonicalCWD}
+	if err := resolution.Validate(); err != nil {
+		return DefaultPairResolution{}, contractFault("invalid_default_pair", "The selected Context and new Workspace root are invalid", err)
+	}
+	return resolution, nil
 }
 
 func (s *DefaultPairService) ResolveSelectedWithTemplateID(ctx context.Context, intent operation.Intent, freshBody *tobari.WorkspaceTemplateBody, templateID tobari.WorkspaceTemplateID, selected SelectedDefaultPair) (DefaultPairResolution, error) {

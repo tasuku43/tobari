@@ -20,7 +20,6 @@ const (
 	statusHomePathReviewRuntimes        = "review runtimes"
 	statusHomePathReviewPermissions     = "review permissions"
 	statusHomePathReviewServices        = "review services"
-	statusHomePathHelpContextEnter      = "help context enter"
 	statusHomePathHelpContextDelete     = "help context delete"
 	statusHomePathHelpWorkspaceDelete   = "help workspace delete"
 	statusHomePathHelpPolicyAllow       = "help policy allow"
@@ -46,7 +45,6 @@ func StatusHomeRecoveryPaths() []string {
 		statusHomePathReviewRuntimes,
 		statusHomePathReviewPermissions,
 		statusHomePathReviewServices,
-		statusHomePathHelpContextEnter,
 		statusHomePathHelpContextDelete,
 		statusHomePathHelpWorkspaceDelete,
 		statusHomePathHelpPolicyAllow,
@@ -243,7 +241,7 @@ type StatusHomeSnapshot struct {
 	Task                 string                             `json:"task"`
 	AuthorityState       string                             `json:"authority_state"`
 	ProjectRoot          string                             `json:"project_root"`
-	DefaultTemplateState string                             `json:"default_template_state"`
+	DefaultTemplateState string                             `json:"template_state"`
 	Template             *StatusHomeTemplate                `json:"template"`
 	Context              *StatusHomeContext                 `json:"context"`
 	Workspace            StatusHomeWorkspace                `json:"workspace"`
@@ -486,7 +484,7 @@ func statusHomeMutationRecoveryPath(observation *FinalAuthorityMutationObservati
 	}
 	switch observation.Operation {
 	case "context-entry":
-		return statusHomePathHelpContextEnter
+		return statusHomePathEntry
 	case "context-delete":
 		return statusHomePathHelpContextDelete
 	case "workspace-delete", "workspace-delete-force":

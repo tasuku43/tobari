@@ -265,6 +265,11 @@ func (f *firstEntryPairFixture) ResolveSelected(ctx context.Context, intent oper
 	return f.Resolve(ctx, intent, body)
 }
 
+func (f *firstEntryPairFixture) ResolveSelectedContext(ctx context.Context, _ tobari.ContextID, selected workspaceauthoritycmd.SelectedDefaultPair) (workspaceauthoritycmd.DefaultPairResolution, error) {
+	intent := operation.Intent{Command: WorkspaceEntryCommandPath, Effect: operation.EffectCreate, Target: operation.TargetRef{Kind: tobari.CurrentDirectoryTargetKind, ParentID: tobari.CurrentDirectoryTargetID}}
+	return f.ResolveSelected(ctx, intent, nil, selected)
+}
+
 func (f *firstEntryPairFixture) ResolveSelectedWithTemplateID(ctx context.Context, intent operation.Intent, body *tobari.WorkspaceTemplateBody, _ tobari.WorkspaceTemplateID, selected workspaceauthoritycmd.SelectedDefaultPair) (workspaceauthoritycmd.DefaultPairResolution, error) {
 	return f.ResolveSelected(ctx, intent, body, selected)
 }
@@ -486,6 +491,9 @@ func newFirstEntryCLI(t *testing.T, fresh, interactive bool, action recommendedF
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
 	command.processLifetime = context.WithValue(context.Background(), firstEntryProcessLifetimeMarker{}, "injected")
 	command.finalDefaultPair = pair
+	if !fresh {
+		command.finalContexts = workspaceauthoritycmd.NewContextService(&currentContextSelectionFixture{snapshot: finalCurrentContextEntrySnapshotFixture(t)})
+	}
 	command.finalEntryReadiness = readiness
 	command.finalCluster = cluster
 	command.firstUse = reviewer

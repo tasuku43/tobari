@@ -32,11 +32,11 @@ func TestStatusHomeFreshJSONAndHumanAreCWDFirstAndZeroAuthority(t *testing.T) {
 	if document.SchemaVersion != tobari.StatusHomeSchemaVersion {
 		t.Fatalf("schema_version=%d", document.SchemaVersion)
 	}
-	wantKeys := []string{"attention", "authority_state", "cluster", "context", "default_template_state", "login_validity", "next", "permissions", "project_root", "runtime", "services", "siblings", "task", "template", "workspace"}
+	wantKeys := []string{"attention", "authority_state", "cluster", "context", "login_validity", "next", "permissions", "project_root", "runtime", "services", "siblings", "task", "template", "template_state", "workspace"}
 	if got := sortedStatusKeys(document.Status); !reflect.DeepEqual(got, wantKeys) {
 		t.Fatalf("status keys=%v want=%v\n%s", got, wantKeys, jsonOutput)
 	}
-	for name, want := range map[string]string{"authority_state": `"empty"`, "default_template_state": `"absent"`, "project_root": `"/workspace/fresh"`, "template": "null", "context": "null"} {
+	for name, want := range map[string]string{"authority_state": `"empty"`, "template_state": `"absent"`, "project_root": `"/workspace/fresh"`, "template": "null", "context": "null"} {
 		if got := string(document.Status[name]); got != want {
 			t.Errorf("status.%s=%s want=%s", name, got, want)
 		}
@@ -82,7 +82,7 @@ func TestStatusHomeJSONPreservesIndependentTemplateContextWorkspaceAxes(t *testi
 		}
 	}
 	human := runStatusHomeFixture(t, observation, "text")
-	if !strings.Contains(human, "Current        Context selected · Workspace present") || !strings.Contains(human, "Next           "+ProgramName+" —") {
+	if !strings.Contains(human, "Current        Workspace-bound Context · Workspace present") || !strings.Contains(human, "Next           "+ProgramName+" —") {
 		t.Fatalf("human Current/Next separation is unclear: %q", human)
 	}
 }

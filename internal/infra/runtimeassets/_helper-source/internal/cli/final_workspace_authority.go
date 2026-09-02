@@ -45,6 +45,7 @@ type finalTemplateDraftProjection struct {
 
 type finalContextProjection struct {
 	Lifecycle                        string                        `json:"lifecycle"`
+	Current                          *bool                         `json:"current,omitempty"`
 	ContextRef                       string                        `json:"context_ref,omitempty"`
 	ContextID                        string                        `json:"context_id"`
 	TemplateID                       string                        `json:"workspace_template_id"`
@@ -154,34 +155,6 @@ type finalWorkspaceProjection struct {
 	WorkspaceHome        string `json:"workspace_home"`
 	Applied              bool   `json:"applied"`
 	AppliedEntryRevision string `json:"applied_entry_revision,omitempty"`
-}
-
-// finalProjectRootAuthority is the smallest non-creating Workspace entry scope
-// seam. Context identity remains location-free.
-type finalProjectRootAuthority interface {
-	CurrentDirectory(context.Context) (string, error)
-	ResolveProjectRoot(context.Context, string) (string, error)
-}
-
-func resolveFinalProjectRoot(ctx context.Context, authority finalProjectRootAuthority) (string, error) {
-	if authority == nil {
-		return "", missingRuntimeFault()
-	}
-	cwd, err := authority.CurrentDirectory(ctx)
-	if err != nil {
-		return "", fault.Wrap(fault.KindInvalidInput, "invalid_root", "The current directory is unavailable.", false, err)
-	}
-	root, err := authority.ResolveProjectRoot(ctx, cwd)
-	if err != nil {
-		return "", fault.Wrap(fault.KindInvalidInput, "invalid_root", "The current Project root is not eligible for a Workspace.", false, err)
-	}
-	if err := tobari.ValidateCanonicalRoot(root); err != nil {
-		return "", fault.WithClassification(
-			fault.Wrap(fault.KindContract, "invalid_project_root_resolution", "The resolved Project root is invalid.", false, err),
-			fault.PhasePrecondition, fault.ChangeNone,
-		)
-	}
-	return root, nil
 }
 
 func projectTemplate(view interface{ Validate() error }) error { return view.Validate() }
@@ -312,7 +285,7 @@ func finalContextFromView(view workspaceauthoritycmd.ContextView) (finalContextP
 		return finalContextProjection{}, err
 	}
 	result := finalContextProjection{
-		Lifecycle: "active", ContextRef: contextRef, ContextID: string(snapshot.Context.ID), TemplateID: string(snapshot.Context.TemplateID), TemplateName: snapshot.Template.Name,
+		Lifecycle: "active", Current: view.Current, ContextRef: contextRef, ContextID: string(snapshot.Context.ID), TemplateID: string(snapshot.Context.TemplateID), TemplateName: snapshot.Template.Name,
 		DesiredTemplateGeneration: axes.DesiredTemplateGeneration, DesiredTemplateRevision: string(axes.DesiredTemplateRevision), DesiredTemplatePolicySliceDigest: string(axes.DesiredTemplatePolicySliceDigest),
 		CurrentPolicyMemoryRevision: string(axes.CurrentPolicyMemoryRevision), AppliedEntry: axes.AppliedEntry,
 	}
@@ -453,7 +426,11 @@ func finalContextListText(items []finalContextProjection, color bool) []byte {
 				output.row("Template ID", item.TemplateID, styleText)
 				output.row("Source", safeExternalText(item.SourcePath), styleText)
 			} else {
-				output.row("Status", "✓ active", styleSuccess)
+				status := "✓ active"
+				if item.Current != nil && *item.Current {
+					status += " · current"
+				}
+				output.row("Status", status, styleSuccess)
 				output.row("Template", safeExternalText(item.TemplateName), styleText)
 			}
 			output.row("Reference", item.ContextRef, styleText)
@@ -547,7 +524,7 @@ func finalContextApplyText(value finalContextProjection, changed, color bool) []
 		{label: "Changed", value: humanBool(changed), token: humanOutcomeBoolToken(changed)},
 		{label: "Status", value: "✓ active", token: styleSuccess},
 		{label: "Template revision", value: value.DesiredTemplateRevision, token: styleText},
-	}, "context enter --id "+value.ContextRef, "Bind this location-free Context to the current Project and enter its Workspace.", []finalAuthorityHumanRow{{label: "Reference", value: value.ContextRef, token: styleText}})
+	}, "context use --id "+value.ContextRef, "Select this location-free Context for later Context-aware commands.", []finalAuthorityHumanRow{{label: "Reference", value: value.ContextRef, token: styleText}})
 }
 
 func finalWorkspaceStatusText(value finalWorkspaceProjection, color bool) []byte {
@@ -910,6 +887,8 @@ func runFinalContextList(ctx context.Context, c *CLI, command CommandSpec, _ ope
 	}
 	for _, draft := range result.Drafts {
 		value := finalContextFromDraft(draft)
+		current := false
+		value.Current = &current
 		items = append(items, value)
 	}
 	output, err := finalAuthorityOutput(command.Path, "contexts", map[string]any{"items": items}, format, finalContextListText(items, humanStyleAllowed(ctx, c, c.Out)))
@@ -1028,47 +1007,18 @@ func runFinalContextCreate(ctx context.Context, c *CLI, command CommandSpec, int
 	return c.emitMutationResult(ctx, command, output)
 }
 
-func runFinalContextEnter(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {
+func runFinalContextUse(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {
 	if c == nil || c.finalContexts == nil {
 		return c.fail(ctx, missingRuntimeFault())
 	}
-	session := tobari.NewWorkspaceShellSession()
-	if inputs.Provided("command") {
-		var err error
-		session, err = tobari.NewWorkspaceDirectSession(inputs.Values("command"))
-		if err != nil {
-			return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help context enter", "Supply exact child argv after --.")
-		}
-	}
 	ref := inputs.One("--id")
-	root, err := resolveFinalProjectRoot(ctx, c.finalProjectRoot)
-	if err != nil {
-		return c.fail(ctx, err)
-	}
-	format, code, ok := finalFormat(ctx, c, command, inputs)
-	if !ok {
-		return code
-	}
-	intent.Target = operation.TargetRef{Kind: tobari.WorkspaceReferenceKind, ParentID: ref}
+	intent.Target = operation.TargetRef{Kind: tobari.ContextReferenceKind, ID: ref}
 	intent.Impact = command.Agent.Mutation.Impact
-	result, err := c.finalContexts.EnterAtRoot(ctx, intent, ref, root, session, c.In, c.Out, c.Err)
+	result, err := c.finalContexts.Use(ctx, intent, ref)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	value := map[string]any{"workspace_ref": result.WorkspaceRef, "workspace_id": string(result.Snapshot.Workspace.ID), "context_id": string(result.Snapshot.Context.ID), "exit_code": result.Outcome.ExitCode}
-	marker, title, headingStyle := "✓", "Workspace session finished", styleSuccess
-	rows := []finalAuthorityHumanRow{{label: "Exit code", value: fmt.Sprintf("%d", result.Outcome.ExitCode), token: humanStatusToken(map[bool]string{true: "ready", false: "failed"}[result.Outcome.ExitCode == 0])}}
-	if len(result.Outcome.CleanupIssues) > 0 {
-		marker, title, headingStyle = "!", "Workspace session needs attention", styleWarning
-		rows = append(rows, finalAuthorityHumanRow{label: "Cleanup", value: workspaceCleanupAttention, token: styleWarning})
-	}
-	text := finalAuthorityHumanCard(humanStyleAllowed(ctx, c, c.Err), marker, title, headingStyle, "Workspace", rows, "", "", []finalAuthorityHumanRow{{label: "Reference", value: result.WorkspaceRef, token: styleText}})
-	output, err := finalAuthorityOutput(command.Path, "entry", value, format, text)
-	if err != nil {
-		return c.fail(ctx, err)
-	}
-	_ = c.emitMutationResultTo(ctx, command, output, c.Err)
-	return result.Outcome.ExitCode
+	return c.emitFinalSimpleResult(ctx, command, inputs, "context_id", string(result.ContextID), "selected", result.Selected)
 }
 
 func runFinalContextDelete(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {

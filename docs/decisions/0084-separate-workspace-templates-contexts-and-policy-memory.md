@@ -13,7 +13,8 @@
 - Revised by: ADR 0087 at the executable-policy and evaluator-identity seam;
   ADR 0088 at the persistence, desired-source, Boundary revision, draft, and
   explicit installed-state migration seams; ADR 0092 at Context location and
-  Workspace ownership seams
+  Workspace ownership seams; ADR 0093 at current Context selection and CWD
+  routing seams
 - Superseded by: None
 
 ADR 0088 makes Template and Context desired sources concept-separated files
@@ -121,13 +122,15 @@ monotonic correlation only.
 
 ContextID uniqueness is the only Context uniqueness rule. Multiple Contexts may
 bind the same WorkspaceTemplateID. Context has no ProjectRoot, second human
-name, mutable Template binding, or current/default/use selector.
+name, or mutable Template binding. ADR 0093 adds one installation-owned current
+Context selector without adding location to Context itself.
 
-The installation owns one optional `DefaultTemplateSelection`. Bare `tobari`
-and bare `status` own only the command-local default-Template/canonical-CWD pair
-and revalidate that exact selection. An explicit nondefault action consumes an
-opaque Context or Workspace reference unchanged. Mutable names are allowed only
-for bounded read-only discovery and completion.
+The installation owns one optional `DefaultTemplateSelection` and, per ADR
+0093, one optional current Context selector. CWD selects only Workspace
+candidates; an existing Workspace supplies its permanent Context binding.
+Context-aware commands use the current selector unless one exact reference
+overrides that invocation. Mutable names are allowed only for bounded
+read-only discovery and completion.
 
 ### Immutable Template Boundary and revisions
 
@@ -221,10 +224,10 @@ template show -> workspace-template-revision
   -> template copy
 
 context list/show/create -> context
-  -> context show / context enter / context delete
+  -> context show / context use / context delete
   -> research auth login/import/status/logout
 
-context enter / status / workspace list/status -> workspace
+bare tobari / status / workspace list/status -> workspace
   -> workspace status / workspace delete
 
 policy candidates / review permissions -> policy-candidate

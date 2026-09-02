@@ -61,6 +61,7 @@ func finalTemplateShowErrors(path, recovery string) []CommandError {
 func finalContextListErrors(path, recovery string) []CommandError {
 	return append(finalAuthorityReadErrors(path, recovery),
 		declaredCommandError(fault.KindUnavailable, "context_read_failed", false, recovery, "Read the final Context authority again."),
+		declaredCommandError(fault.KindUnavailable, "current_context_read_failed", false, recovery, "Read the installation current Context selection again."),
 		declaredCommandError(fault.KindUnavailable, "context_source_read_failed", false, recovery, "Inspect canonical Context sources and drafts."),
 		finalReadVerificationError("invalid_context_list", recovery, "Repair contradictory Context authority or source projections."))
 }
@@ -83,28 +84,6 @@ func finalWorkspaceStatusErrors(path, recovery string) []CommandError {
 		classifiedCommandError(fault.KindInvalidInput, "invalid_workspace_ref", false, fault.PhasePrecondition, fault.ChangeNone, recovery, "Use one exact Workspace reference from Workspace discovery."),
 		declaredCommandError(fault.KindNotFound, "workspace_not_found", false, recovery, "Discover current Workspace authority."),
 		finalReadVerificationError("invalid_workspace", recovery, "Repair the selected Workspace authority."))
-}
-
-func finalContextEnterErrors(path, recovery string) []CommandError {
-	return append(finalAuthorityMutationErrors(path, recovery),
-		classifiedCommandError(fault.KindInvalidInput, "invalid_context_ref", false, fault.PhasePrecondition, fault.ChangeNone, recovery, "Use one exact Context reference from Context discovery."),
-		classifiedCommandError(fault.KindInvalidInput, "invalid_root", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Use a current directory eligible for one Workspace Project root."),
-		classifiedCommandError(fault.KindContract, "invalid_project_root_resolution", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Repair the canonical Project-root resolver before entering a Workspace."),
-		declaredCommandError(fault.KindNotFound, "context_not_found", false, recovery, "Discover current Context authority."),
-		finalMutationVerificationError("invalid_context_entry_result", recovery, "Reconcile the confirmed Context and Workspace entry authority."),
-		classifiedCommandError(fault.KindUnavailable, "workspace_entry_attachment_unavailable", false, fault.PhaseAttachment, fault.ChangeConfirmed, "context list", "Discover the confirmed Context authority before another explicit entry."),
-		classifiedCommandError(fault.KindUnavailable, "workspace_entry_interrupted", false, fault.PhaseMutation, fault.ChangePartial, "help context enter", "Inspect the exact Context entry contract, then repeat it with the same Context reference."),
-		classifiedCommandError(fault.KindRejected, "workspace_entry_template_policy_inactive", false, fault.PhasePrecondition, fault.ChangeNone, "cluster status", "Read the current Template policy activation before explicit cluster reconciliation."),
-		classifiedCommandError(fault.KindRejected, "workspace_entry_policy_memory_inactive", false, fault.PhasePrecondition, fault.ChangeNone, "context list", "Discover current Context authority before explicit policy reconciliation."),
-		classifiedCommandError(fault.KindUnavailable, "workspace_entry_repair_required", true, fault.PhasePrecondition, fault.ChangeNone, "tobari", "Use root entry so readiness and the staged recovery flow can reconcile the exact current Workspace."),
-		classifiedCommandError(fault.KindUnavailable, "workspace_runtime_preparation_uncertain", false, fault.PhaseMutation, fault.ChangeUnknown, "status", "Read current authority and Runtime material before deciding whether to retry entry."),
-		classifiedCommandError(fault.KindUnavailable, "workspace_entry_observation_unavailable", false, fault.PhaseObservation, fault.ChangeNotApplicable, "context list", "Discover desired, applied, and active Context authority without reconciling it."),
-		classifiedCommandError(fault.KindUnavailable, "workspace_entry_busy", true, fault.PhasePrecondition, fault.ChangeNone, "context list", "Read current Context authority, then retry after the blocking Workspace session or exclusive Context Home operation finishes."),
-		classifiedCommandError(fault.KindRejected, "workspace_entry_overlap_unsafe", false, fault.PhasePrecondition, fault.ChangeNone, "workspace list", "Inspect the live read-write ancestor Workspace before retrying descendant entry."),
-		classifiedCommandError(fault.KindContract, "workspace_entry_overlap_unverified", false, fault.PhasePrecondition, fault.ChangeNone, "workspace list", "Repair contradictory owned work-container mount evidence before retrying entry."),
-		classifiedCommandError(fault.KindUnavailable, "workspace_entry_cleanup_failed", false, fault.PhaseMutation, fault.ChangePartial, "status", "Inspect the partial Workspace runtime before another entry attempt."),
-		classifiedCommandError(fault.KindCanceled, "workspace_entry_canceled", false, fault.PhasePrecondition, fault.ChangeNone, "context list", "Discover current Context authority before deciding whether to enter again."),
-	)
 }
 
 func finalJSONOutput(envelope string, fields []OutputField, coverage CollectionCoverage) CommandOutput {
@@ -206,6 +185,7 @@ func finalTemplateCreateFields() []OutputField {
 func finalContextFields(includeContextRef bool) []OutputField {
 	fields := []OutputField{
 		{Name: "lifecycle", Type: OutputFieldTypeString, Description: "Context lifecycle.", Enum: []string{"draft", "active"}},
+		{Name: "current", Type: OutputFieldTypeBoolean, Description: "Whether this Context is the installation current selection; present in list output.", Optional: true},
 		{Name: "context_id", Type: OutputFieldTypeString, Description: "Exact final Context identity."},
 		{Name: "workspace_template_id", Type: OutputFieldTypeString, Description: "Exact bound Template identity.", Optional: true},
 		{Name: "template_name", Type: OutputFieldTypeString, Description: "Bound Template display name.", Optional: true},
@@ -493,11 +473,18 @@ func finalContextCreateSpec() CommandSpec {
 		finalMutationVerificationError("invalid_context_create_result", "context list", "Reconcile the created Context draft."))
 	return CommandSpec{Path: "context create", Summary: "Create a location-free draft Context", Args: "--template <template-ref> [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Write one draft context.yaml bound only to an active Template", Inputs: []CommandInput{finalReferenceInput("--template", "Opaque parent active Workspace Template reference.", tobari.WorkspaceTemplateReferenceKind), formatInput()}, Output: finalJSONOutput("context", fields, CollectionCoverageNotApplicable), Prerequisites: []string{"The exact active Template is available."}, Errors: errors, Mutation: &MutationContract{TargetKind: tobari.ContextReferenceKind, TargetInputs: []string{"--template"}, ParentInput: "--template", Impact: workspaceauthoritycmd.ContextCreateImpact()}}, handler: runFinalContextCreate}
 }
-func finalContextEnterSpec() CommandSpec {
-	output := CommandOutput{Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
-		Fields:   []OutputField{{Name: "workspace_ref", Type: OutputFieldTypeString, Description: "Opaque resulting Workspace reference.", ReferenceKind: tobari.WorkspaceReferenceKind}, {Name: "workspace_id", Type: OutputFieldTypeString, Description: "Exact resulting Workspace identity."}, {Name: "context_id", Type: OutputFieldTypeString, Description: "Exact owning Context identity."}, {Name: "exit_code", Type: OutputFieldTypeInteger, Description: "Authoritative child exit code."}},
-		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable, JSONEnvelope: "entry", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1}
-	return CommandSpec{Path: "context enter", Summary: "Enter one explicit final Context", Args: "--id <context-ref> [--format text|json] [-- <command>...]", Effect: operation.EffectCreate, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Reconcile and enter one exact Context Workspace", Inputs: []CommandInput{finalReferenceInput("--id", "Opaque Context parent reference.", tobari.ContextReferenceKind), formatInput(), {Name: "command", Source: InputSourceArgument, ValueKind: InputValueText, Cardinality: InputCardinalityRepeatable, Description: "Exact child argv after --.", AllowedValues: []string{}, PositionalOnly: true}}, Output: output, Prerequisites: []string{"The exact final Context, Runtime, and cluster settlement authorities are available without a conflicting lifecycle or session owner."}, Errors: finalContextEnterErrors("context enter", "context list"), Mutation: &MutationContract{TargetKind: tobari.WorkspaceReferenceKind, TargetInputs: []string{"--id"}, ParentInput: "--id", Impact: workspaceauthoritycmd.ContextEnterImpact()}}, handler: runFinalContextEnter}
+func finalContextUseSpec() CommandSpec {
+	errors := append(finalAuthorityMutationErrors("context use", "context list"),
+		declaredCommandError(fault.KindInvalidInput, "invalid_context_ref", false, "context list", "Use one exact Context reference from Context discovery."),
+		declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Discover current Context authority."),
+		finalMutationVerificationError("invalid_context_use_result", "context list", "Reconcile the installation current Context selection."))
+	return CommandSpec{Path: "context use", Summary: "Select the installation current Context", Args: "--id <context-ref> [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct, Agent: AgentContract{
+		CapabilityID: "context.selection", Outcome: "Select one exact location-free Context as the default for later Context-aware tasks",
+		Inputs:        []CommandInput{finalReferenceInput("--id", "Opaque Context reference emitted by Context discovery and consumed unchanged.", tobari.ContextReferenceKind), formatInput()},
+		Output:        finalJSONOutput("result", []OutputField{{Name: "context_id", Type: OutputFieldTypeString, Description: "Exact selected Context identity."}, {Name: "selected", Type: OutputFieldTypeBoolean, Description: "Always true after confirmed selection."}}, CollectionCoverageNotApplicable),
+		Prerequisites: []string{"The exact Context exists in the coherent final authority collection."}, Errors: errors,
+		Mutation: &MutationContract{TargetKind: tobari.ContextReferenceKind, TargetInputs: []string{"--id"}, TargetIDInput: "--id", Impact: workspaceauthoritycmd.ContextUseImpact()},
+	}, handler: runFinalContextUse}
 }
 func finalContextDeleteSpec() CommandSpec {
 	errors := append(finalAuthorityMutationErrors("context delete", "context list"),

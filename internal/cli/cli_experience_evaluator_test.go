@@ -86,7 +86,7 @@ func evaluateCLIExperience() ([]cliExperienceViolation, error) {
 		"context show":            "runFinalContextShow",
 		"context create":          "runFinalContextCreate",
 		"context apply":           "runFinalContextApply",
-		"context enter":           "runFinalContextEnter",
+		"context use":             "runFinalContextUse",
 		"workspace list":          "runFinalWorkspaceList",
 		"workspace status":        "runFinalWorkspaceStatus",
 		"workspace delete":        "runFinalWorkspaceDelete",

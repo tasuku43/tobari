@@ -12,6 +12,8 @@ Tobari-owned terminal interaction uses the main-screen inline renderer defined
 by [ADR 0091](decisions/0091-keep-tobari-owned-tui-inline.md).
 Location-free Context authority and Workspace-only root ownership follow
 [ADR 0092](decisions/0092-make-context-location-free.md).
+Installation current-Context selection and CWD-only Workspace routing follow
+[ADR 0093](decisions/0093-select-current-context-without-cwd.md).
 
 ## System topology
 
@@ -29,8 +31,9 @@ egress network:                              Gateway --> policy-allowed HTTPS
 ```
 
 Configurator is a separate non-Workspace container and network role. Policy
-assistance resolves the explicit Context's recorded Runtime image ID under the
-lifecycle/store fence; Runtime assistance resolves the installation-owned
+assistance resolves the installation current Context or one exact
+invocation-local override, then resolves that Context's recorded Runtime image
+ID under the lifecycle/store fence; Runtime assistance resolves the installation-owned
 standard Runtime and never reads CWD, Workspace, or Context.
 The Runtime source being edited is never an execution selector. `container create` consumes
 only that immutable ID, and post-create inspection compares Docker's actual
@@ -458,16 +461,19 @@ identity with no lineage. Template Apply consumes one
 and reviewed the complete
 desired Runtime/session/creation and static-policy source pair. Granular
 Runtime, shell, Git, and bootstrap setters are not a parallel authority path.
-Context creation consumes one Template reference and no CWD. Context entry
-consumes one Context reference and binds Workspace location from the invocation.
-Workspace and
+Context creation consumes one Template reference and no CWD. `context use`
+consumes one Context reference and changes only the installation selector.
+Bare `tobari` selects an existing Workspace from CWD; when none exists there,
+it creates the CWD-owned Workspace from the current Context. Workspace and
 Context deletion consume their own exact references. Names remain read-only
 discovery/presentation input and cannot authorize mutation.
 
-The installation owns one optional DefaultTemplateSelection. Bare root and
-bare status combine only that selection with canonical CWD. Nondefault work
-starts from Context discovery. There is no root Template/Context selector and
-no Context default/use state.
+The installation owns one optional DefaultTemplateSelection and one optional
+CurrentContextID. The former seeds fresh authority; the latter supplies the
+default for Context-aware commands and new-Workspace entry. Existing Workspace
+selection and status derive from canonical CWD and then follow that Workspace's
+permanent Context binding. An explicit Context option overrides only one
+invocation and never rewrites CurrentContextID.
 
 ### Independent activation axes
 
@@ -478,7 +484,8 @@ Workspace AppliedEntry, and live observation are independent:
 - `cluster up` validates and atomically activates one complete installation
   projection with separate Template-policy and Policy-Memory receipts per
   Context.
-- root entry or `context enter` alone reconciles one Workspace entry slice.
+- root entry alone reconciles one Workspace entry slice; `context use` performs
+  no Workspace or Docker reconciliation.
 - session defaults affect only a newly handed-off child session.
 - creation defaults affect only a newly created Workspace home.
 - status, list, show, doctor, and completion are zero-mutation observations.
@@ -999,7 +1006,8 @@ The MVP owns one shared cluster `tool_local` target with stable ID
 active Workspace-authority generation selected by
 `$XDG_STATE_HOME/tobari/authority/active.json`. The referenced manifest binds
 immutable Template, Context, Context-owned Policy Memory, and optional Workspace
-objects plus the installation default Template selection and independent
+objects plus the installation default Template selection, the location-free
+current Context selector, and independent
 desired/applied/active receipts. Each Workspace owns its
 separate persistent home and is permanently bound to one Context. Logical
 authority, not Docker inspection, defines whether a Context or Workspace
@@ -1019,7 +1027,8 @@ Task assistance is a sibling of Workspace attachment, not part of fresh root:
 runtime assist --id RUNTIME_REF -> reserve Runtime-scoped task
   -> materialize target source + installation-owned per-agent Home
   -> prepare installation standard Runtime -> attach bounded Configurator
-policy assist --context CONTEXT_REF -> reserve Context-scoped task
+policy assist [--context CONTEXT_REF] -> resolve current or exact override
+  -> reserve Context-scoped task
   -> revalidate Context/Template/Policy Memory under catalog fence
   -> materialize policy source in the complete Context Home
   -> prepare exact Context Runtime -> attach bounded Configurator
@@ -1097,7 +1106,7 @@ protection mismatch returns to the ordinary root readiness and
 cluster/Workspace recovery flow. Unknown image observation and recovery-journal
 residue fail closed; the current-only path leaves every recovery artifact
 byte-exact, and cleanup remains owned by the ordinary recovery flow. In that ordinary
-flow, Context entry takes the global session key exclusively before writing a
+flow, Workspace entry takes the global session key exclusively before writing a
 durable repair decision. It holds that fence through Workspace runtime
 reconciliation, then releases it before Gateway settlement, which reacquires
 the same key for its own no-session proof. The surrounding lifecycle fence
@@ -1219,10 +1228,10 @@ otherwise manages the Docker provider.
 Root then calls the canonical final cluster reconciler with its own Catalog
 Intent and retains the returned collection generation/revision. A bounded
 read-only refresh must match that exact receipt plus the reviewed
-Project/default-Template/Context desired authority and selected Context
+Project/selected-Workspace/Context desired authority and selected Context
 activation receipts before entry. This prevents cluster activation A→B from
 being mistaken for caller drift while still stopping on real post-mutation
-drift. The Context-entry application boundary alone reconciles the Workspace
+drift. The Workspace-entry application boundary alone reconciles the Workspace
 AppliedEntry and establishes child ownership. Its infrastructure port first
 prepares the exact Runtime binding selected by final authority, but only when
 that binding is the canonical built-in standard Runtime and its source-addressed

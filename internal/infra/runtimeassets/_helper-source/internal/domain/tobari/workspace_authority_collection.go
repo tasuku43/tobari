@@ -98,6 +98,7 @@ type WorkspaceAuthorityCollection struct {
 	Workspaces        []WorkspaceBinding                `json:"workspaces"`
 	PendingCandidates []PolicyCandidateAuthority        `json:"pending_candidates"`
 	DefaultTemplateID *WorkspaceTemplateID              `json:"default_workspace_template_id,omitempty"`
+	CurrentContextID  *ContextID                        `json:"current_context_id,omitempty"`
 }
 
 type workspaceAuthorityCollectionContent struct {
@@ -106,6 +107,7 @@ type workspaceAuthorityCollectionContent struct {
 	Workspaces        []WorkspaceBinding
 	PendingCandidates []PolicyCandidateAuthority
 	DefaultTemplateID *WorkspaceTemplateID
+	CurrentContextID  *ContextID
 }
 
 func PublishWorkspaceAuthorityCollection(
@@ -114,6 +116,49 @@ func PublishWorkspaceAuthorityCollection(
 	workspaces []WorkspaceBinding,
 	candidates []PolicyCandidateAuthority,
 	defaultTemplateID *WorkspaceTemplateID,
+	previous *WorkspaceAuthorityCollection,
+) (WorkspaceAuthorityCollection, bool, error) {
+	var currentContextID *ContextID
+	if previous != nil && previous.CurrentContextID != nil {
+		preserved := false
+		for _, record := range contexts {
+			if record.Context.ID == *previous.CurrentContextID {
+				value := *previous.CurrentContextID
+				currentContextID = &value
+				preserved = true
+				break
+			}
+		}
+		if !preserved {
+			return WorkspaceAuthorityCollection{}, false, fmt.Errorf("current Context selection cannot be removed implicitly")
+		}
+	}
+	return publishWorkspaceAuthorityCollection(templates, contexts, workspaces, candidates, defaultTemplateID, currentContextID, previous)
+}
+
+// PublishWorkspaceAuthorityCollectionWithCurrentContext publishes the same
+// coherent authority envelope while deliberately changing only the
+// installation-owned current Context selection. A nil selection is an
+// explicit known absence and is never derived from CWD or Workspace state.
+func PublishWorkspaceAuthorityCollectionWithCurrentContext(
+	templates []WorkspaceTemplate,
+	contexts []WorkspaceAuthorityContextRecord,
+	workspaces []WorkspaceBinding,
+	candidates []PolicyCandidateAuthority,
+	defaultTemplateID *WorkspaceTemplateID,
+	currentContextID *ContextID,
+	previous *WorkspaceAuthorityCollection,
+) (WorkspaceAuthorityCollection, bool, error) {
+	return publishWorkspaceAuthorityCollection(templates, contexts, workspaces, candidates, defaultTemplateID, currentContextID, previous)
+}
+
+func publishWorkspaceAuthorityCollection(
+	templates []WorkspaceTemplate,
+	contexts []WorkspaceAuthorityContextRecord,
+	workspaces []WorkspaceBinding,
+	candidates []PolicyCandidateAuthority,
+	defaultTemplateID *WorkspaceTemplateID,
+	currentContextID *ContextID,
 	previous *WorkspaceAuthorityCollection,
 ) (WorkspaceAuthorityCollection, bool, error) {
 	if templates == nil || contexts == nil || workspaces == nil || candidates == nil {
@@ -130,6 +175,10 @@ func PublishWorkspaceAuthorityCollection(
 	if defaultTemplateID != nil {
 		value := *defaultTemplateID
 		result.DefaultTemplateID = &value
+	}
+	if currentContextID != nil {
+		value := *currentContextID
+		result.CurrentContextID = &value
 	}
 	sort.Slice(result.Templates, func(i, j int) bool { return result.Templates[i].ID < result.Templates[j].ID })
 	sort.Slice(result.Contexts, func(i, j int) bool { return result.Contexts[i].Context.ID < result.Contexts[j].Context.ID })
@@ -156,6 +205,7 @@ func workspaceAuthorityCollectionRevision(collection WorkspaceAuthorityCollectio
 	content := workspaceAuthorityCollectionContent{
 		Templates: collection.Templates, Contexts: collection.Contexts, Workspaces: collection.Workspaces,
 		PendingCandidates: collection.PendingCandidates, DefaultTemplateID: collection.DefaultTemplateID,
+		CurrentContextID: collection.CurrentContextID,
 	}
 	return semanticIdentity(content)
 }
@@ -315,6 +365,14 @@ func (c WorkspaceAuthorityCollection) Validate() error {
 			return fmt.Errorf("default Workspace Template is unavailable")
 		}
 	}
+	if c.CurrentContextID != nil {
+		if err := c.CurrentContextID.Validate(); err != nil {
+			return err
+		}
+		if _, exists := records[*c.CurrentContextID]; !exists {
+			return fmt.Errorf("current Context is unavailable")
+		}
+	}
 	want, err := workspaceAuthorityCollectionRevision(c)
 	if err != nil {
 		return err
@@ -414,6 +472,10 @@ func (c WorkspaceAuthorityCollection) Clone() WorkspaceAuthorityCollection {
 	if c.DefaultTemplateID != nil {
 		value := *c.DefaultTemplateID
 		result.DefaultTemplateID = &value
+	}
+	if c.CurrentContextID != nil {
+		value := *c.CurrentContextID
+		result.CurrentContextID = &value
 	}
 	return result
 }

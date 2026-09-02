@@ -18,6 +18,14 @@ type ContextReadPort interface {
 	ReadContextAuthorityByReference(context.Context, string) (ContextSnapshot, error)
 }
 
+type CurrentContextReadPort interface {
+	ReadCurrentContextAuthority(context.Context) (tobari.ContextAuthoritySnapshot, error)
+}
+
+type CurrentContextSelectionPort interface {
+	SetCurrentContextByReference(context.Context, string) (tobari.ContextSelectionResult, error)
+}
+
 type ContextSourceObservationPort interface {
 	ObserveContextSource(context.Context, tobari.ContextBinding) (tobari.ResourceSourceObservation, error)
 }
@@ -93,6 +101,8 @@ func (contextMutationPolicy) Check(_ context.Context, intent operation.Intent) e
 
 type ContextService struct {
 	read        ContextReadPort
+	currentRead CurrentContextReadPort
+	currentSet  CurrentContextSelectionPort
 	draftCreate ContextDraftCreatePort
 	planner     ContextPlanPort
 	applyPlan   ContextApplyPlanPort
@@ -106,6 +116,8 @@ type ContextService struct {
 func NewContextService(port any) *ContextService {
 	service := &ContextService{mutator: execution.New(contextMutationPolicy{})}
 	service.read, _ = port.(ContextReadPort)
+	service.currentRead, _ = port.(CurrentContextReadPort)
+	service.currentSet, _ = port.(CurrentContextSelectionPort)
 	service.draftCreate, _ = port.(ContextDraftCreatePort)
 	service.planner, _ = port.(ContextPlanPort)
 	service.applyPlan, _ = port.(ContextApplyPlanPort)
@@ -122,6 +134,10 @@ func ContextCreateImpact() operation.Impact {
 
 func ContextApplyImpact() operation.Impact {
 	return operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}
+}
+
+func ContextUseImpact() operation.Impact {
+	return operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo}
 }
 
 type ContextApplyResult struct {
@@ -148,6 +164,30 @@ func (s *ContextService) List(ctx context.Context) (ContextList, error) {
 	result, err := NewContextList(snapshots)
 	if err != nil {
 		return ContextList{}, contractFault("invalid_context_list", "Context list is invalid", err)
+	}
+	if !portcheck.IsNil(s.currentRead) {
+		current, currentErr := s.currentRead.ReadCurrentContextAuthority(ctx)
+		if currentErr != nil && !errors.Is(currentErr, tobari.ErrCurrentContextRequired) {
+			return ContextList{}, readFault(currentErr, "current_context_read_failed", "Current Context could not be read")
+		}
+		for index := range result.Items {
+			value := false
+			result.Items[index].Current = &value
+		}
+		if currentErr == nil {
+			found := false
+			for index := range result.Items {
+				if result.Items[index].Snapshot.Context.ID == current.Context.ID {
+					value := true
+					result.Items[index].Current = &value
+					found = true
+					break
+				}
+			}
+			if !found {
+				return ContextList{}, contractFault("invalid_context_list", "Current Context is absent from Context discovery", fmt.Errorf("selected Context %s is missing", current.Context.ID))
+			}
+		}
 	}
 	if !portcheck.IsNil(s.sources) {
 		for index := range result.Items {
@@ -236,6 +276,61 @@ func (s *ContextService) Show(ctx context.Context, contextRef string) (ContextVi
 		view.Source = &observation
 	}
 	return view, nil
+}
+
+// ResolveCurrentOrOverride resolves Context authority without observing CWD.
+// An explicit opaque reference wins for this invocation only; omission reads
+// the installation-owned current selection.
+func (s *ContextService) ResolveCurrentOrOverride(ctx context.Context, contextRef string) (ContextView, error) {
+	if contextRef != "" {
+		return s.Show(ctx, contextRef)
+	}
+	if s == nil || portcheck.IsNil(s.currentRead) {
+		return ContextView{}, missingPort("current Context read")
+	}
+	snapshot, err := s.currentRead.ReadCurrentContextAuthority(ctx)
+	if errors.Is(err, tobari.ErrCurrentContextRequired) {
+		return ContextView{}, fault.WithClassification(fault.New(
+			fault.KindRejected, "current_context_required", "No current Context is selected.", false,
+			fault.NextAction{Command: "context list", Reason: "Discover a Context reference, then select it with context use."},
+		), fault.PhasePrecondition, fault.ChangeNone)
+	}
+	if err != nil {
+		return ContextView{}, readFault(err, "context_read_failed", "Current Context could not be read")
+	}
+	ref, err := tobari.ContextRef(snapshot.Context.ID)
+	if err != nil {
+		return ContextView{}, contractFault("invalid_context", "Current Context is invalid", err)
+	}
+	return s.Show(ctx, ref)
+}
+
+func (s *ContextService) Use(ctx context.Context, intent operation.Intent, contextRef string) (tobari.ContextSelectionResult, error) {
+	if s == nil || portcheck.IsNil(s.currentSet) {
+		return tobari.ContextSelectionResult{}, missingPort("current Context selection")
+	}
+	id, err := tobari.ParseContextRef(contextRef)
+	if err != nil {
+		return tobari.ContextSelectionResult{}, invalidFault("invalid_context_ref", "Context reference is invalid", err, "context list")
+	}
+	target := operation.TargetRef{Kind: tobari.ContextReferenceKind, ID: contextRef}
+	request := execution.Request{Intent: intent, ExpectedCommand: TaskContextUse, ExpectedEffect: operation.EffectWrite, ExpectedTarget: target, ExpectedImpact: ContextUseImpact()}
+	var result tobari.ContextSelectionResult
+	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		selected, selectErr := s.currentSet.SetCurrentContextByReference(actionContext, contextRef)
+		if errors.Is(selectErr, tobari.ErrContextBindingNotFound) {
+			return notFoundFault("context_not_found", "Context does not exist", "context list")
+		}
+		if selectErr != nil {
+			return contextMutationFault(selectErr)
+		}
+		if selected.ContextID != id || !selected.Selected {
+			return contractFault("invalid_context_use_result", "Context selection returned another authority", fmt.Errorf("Context reference mismatch"))
+		}
+		result = selected
+		return nil
+	})
+	return result, err
 }
 
 func (s *ContextService) CreateDraft(ctx context.Context, intent operation.Intent, templateRef string) (ContextDraftView, error) {
@@ -346,7 +441,7 @@ func (s *ContextService) Enter(ctx context.Context, intent operation.Intent, con
 
 func (s *ContextService) EnterAtRoot(ctx context.Context, intent operation.Intent, contextRef, projectRoot string, session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer) (ContextEntryResult, error) {
 	if err := tobari.ValidateCanonicalRoot(projectRoot); err != nil {
-		return ContextEntryResult{}, invalidFault("invalid_root", "Workspace Project root is invalid", err, "help context enter")
+		return ContextEntryResult{}, invalidFault("invalid_root", "Workspace Project root is invalid", err, "tobari")
 	}
 	return s.runEntryWithProgress(ctx, intent, contextRef, session, in, out, errOut, nil, projectRoot, nil, false)
 }
@@ -394,7 +489,7 @@ func (s *ContextService) runEntryWithProgress(ctx context.Context, intent operat
 		return ContextEntryResult{}, invalidFault("invalid_context_ref", "Context reference is invalid", err, "context list")
 	}
 	if err := session.Validate(); err != nil {
-		return ContextEntryResult{}, invalidFault("invalid_arguments", "Workspace session command is invalid", err, "help context enter")
+		return ContextEntryResult{}, invalidFault("invalid_arguments", "Workspace session command is invalid", err, "tobari")
 	}
 	target := operation.TargetRef{Kind: tobari.WorkspaceReferenceKind, ParentID: contextRef}
 	request := execution.Request{Intent: intent, ExpectedCommand: TaskContextEnter, ExpectedEffect: operation.EffectCreate, ExpectedTarget: target, ExpectedImpact: ContextEnterImpact()}
@@ -511,7 +606,7 @@ func contextMutationFault(err error) error {
 	case errors.Is(err, tobari.ErrWorkspaceEntryReconciliationConfirmed):
 		return fault.WithClassification(fault.Wrap(fault.KindUnavailable, "workspace_entry_attachment_unavailable", "Workspace entry reconciliation is confirmed, but the interactive attachment did not start", false, err, fault.NextAction{Command: "context list", Reason: "Discover the confirmed Context authority before another explicit entry."}), fault.PhaseAttachment, fault.ChangeConfirmed)
 	case errors.Is(err, tobari.ErrWorkspaceEntryInterrupted):
-		return fault.WithClassification(fault.Wrap(fault.KindUnavailable, "workspace_entry_interrupted", "Workspace entry reconciliation requires exact same-Context recovery", false, err, fault.NextAction{Command: "help context enter", Reason: "Inspect the entry contract, then repeat it with the same Context reference."}), fault.PhaseMutation, fault.ChangePartial)
+		return fault.WithClassification(fault.Wrap(fault.KindUnavailable, "workspace_entry_interrupted", "Workspace entry reconciliation requires exact same-Context recovery", false, err, fault.NextAction{Command: "tobari", Reason: "Repeat root entry so it can reconcile the exact CWD-selected Workspace."}), fault.PhaseMutation, fault.ChangePartial)
 	case errors.Is(err, tobari.ErrWorkspaceEntryTemplatePolicyInactive):
 		return fault.WithClassification(fault.Wrap(fault.KindRejected, "workspace_entry_template_policy_inactive", "Workspace entry requires the current Template policy activation", false, err, fault.NextAction{Command: "cluster status", Reason: "Read the current Template policy activation before explicit cluster reconciliation."}), fault.PhasePrecondition, fault.ChangeNone)
 	case errors.Is(err, tobari.ErrWorkspaceEntryPolicyMemoryInactive):

@@ -1558,6 +1558,17 @@ func (a *Adapter) SetDefaultWorkspaceTemplateByReference(ctx context.Context, re
 	return a.mutator.SetDefaultWorkspaceTemplateByReference(ctx, ref)
 }
 
+// SetCurrentContextByReference changes only the installation current Context
+// pointer. Context remains location-free and no Workspace or Docker state is
+// read or mutated.
+func (a *Adapter) SetCurrentContextByReference(ctx context.Context, ref string) (tobari.ContextSelectionResult, error) {
+	return a.mutator.SetCurrentContextByReference(ctx, ref)
+}
+
+func (a *Adapter) ReadCurrentContextAuthority(ctx context.Context) (tobari.ContextAuthoritySnapshot, error) {
+	return a.Store.ReadCurrentContextAuthority(ctx)
+}
+
 // DeleteWorkspaceByReference is an explicit dependency-checked resource
 // deletion, not a Template semantic writer.
 func (a *Adapter) DeleteWorkspaceByReference(ctx context.Context, ref string, force bool) (tobari.WorkspaceAuthorityDeleteResult, error) {

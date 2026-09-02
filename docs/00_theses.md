@@ -41,8 +41,9 @@ assist one explicit Runtime-source or static-policy editing task. Runtime
 assistance is installation-owned: one Runtime reference selects the target,
 the built-in standard Runtime selects the editor, and one agent-specific
 installation Home is its only mutable data mount. Policy assistance instead
-consumes one explicit Context reference and uses that Context's exact Runtime
-and complete managed Home. Neither path depends on ambient CWD. Configurator is
+uses the installation current Context unless one explicit Context reference
+overrides it for that invocation, then uses that Context's exact Runtime and
+complete managed Home. Neither path depends on ambient CWD. Configurator is
 not a Workspace and receives no Project, host Home, unrelated managed Home,
 active authority, Docker socket, or arbitrary host execution. The host freezes
 one task-typed submission after the container exits; task validation, review,
@@ -226,10 +227,10 @@ through exact ownership checks.
   Claude Code session and never means manual editing. Runtime assistance
   consumes only the exact Runtime reference plus optional agent choice and uses
   the built-in standard editor Runtime and installation-owned agent Home.
-  Static-policy assistance consumes an explicit Context reference and derives
-  its exact Template, execution Runtime, managed Home, evidence revision,
-  validator, and canonical publication path. Neither command selects authority
-  from ambient CWD. Manual editing remains separately visible through the
+  Static-policy assistance uses the installation current Context or one exact
+  invocation-local override and derives its exact Template, execution Runtime,
+  managed Home, evidence revision, validator, and canonical publication path.
+  Neither command selects authority from ambient CWD. Manual editing remains separately visible through the
   canonical source path. Context is the location-free Template binding and
   Policy Memory owner, not something an agent is asked to configure.
 
@@ -667,7 +668,7 @@ XDG-owned home directory.
   whenever the selected shared projection is not ready; on first use it does so
   only after the authority-free recommended Template/Context review confirms
   Start. It then revalidates the exact selected Context, reconciles only that
-  Workspace through Context entry, and hands off the child.
+  Workspace through Workspace entry, and hands off the child.
 - Shared-component and Workspace-helper image validation is bounded and closes
   over Docker's declared volume defaults before create. Execution consumes the
   immutable image ID from that same observation; mutable selectors cannot
@@ -701,9 +702,11 @@ XDG-owned home directory.
   that installation-wide fence exclusively before recording a decision; a
   surviving borrower therefore yields a retryable no-change busy result.
 - Bare `status` and `tobari` select the nearest canonical Workspace root and
-  then resolve that Workspace's Context. At a new root, first use creates a
-  fresh Context from the installation default Template before creating its
-  Workspace. `workspace list`
+  then resolve that Workspace's permanently bound Context without consulting
+  the installation current Context. At a new root, `tobari` uses the current
+  Context to create its Workspace; fresh first use selects the first Context it
+  activates. `context use --id CONTEXT_REF` changes only that location-free
+  installation selector. `workspace list`
   discovers exact Workspace references; `workspace status` and `workspace
   delete` consume one unchanged reference and never rediscover by CWD or name.
 - A Context identity is independent from every Project root. One Context owns
@@ -928,7 +931,7 @@ test, lint, policy test, or integration scenario.
   both resolver channels: equal exact checked source identity selects equal
   local material. A newer binary does not invalidate an immutable Template's
   older exact source-addressed binding: entry reuses that verified local image
-  without rebuilding it or silently rebinding the Template. Bare and explicit Context entry invoke that closed standard
+  without rebuilding it or silently rebinding the Template. Bare Workspace entry invokes that closed standard
   preparation boundary before immutable Workspace planning; custom Runtime
   material remains explicit. The resolver channel still owns preparation and
   recovery.
@@ -1101,9 +1104,11 @@ authority.
 The standard installation runs one shared Gateway and one shared OPA for every
 Workspace Template. A research-surface development installation additionally runs one locked
 Auth Broker.
-The installation default Template is used only by bare root entry and bare
-`status`; changing it cannot retarget or mutate existing Contexts, Workspaces,
-or shared enforcement. Nondefault entry consumes an opaque Context reference.
+The installation default Template seeds fresh authority and is prospective
+status only when no Workspace is selected; changing it cannot retarget or
+mutate existing Contexts, Workspaces, or shared enforcement. Nondefault work
+selects current Context by opaque reference, then bare entry creates a
+Workspace only at a root that has none.
 Tool-native authentication state remains below each Workspace home and is not a
 Workspace Template secret. In the research surface, a brokered credential is owned once by a stable Context and
 enables that Context's Workspace to receive a Context/Workspace-bound
@@ -1246,8 +1251,9 @@ OPA allow.
   leaves active authority untouched. A normal `template plan/apply` is still
   required to activate the reviewed V1 policy. Alpha shapes that cannot be
   represented without widening fail with manual-edit guidance.
-- Research auth login/import affects one explicit Context and makes that
-  Context's Workspace eligibility explicit. Login does not rewrite running
+- Research auth login/import affects the installation current Context or one
+  exact invocation-local Context override and makes that Context's Workspace
+  eligibility explicit. Login does not rewrite running
   Workspaces; their next matching entry issues project-bound handles and
   recreates only a changed work container while preserving home.
 - Workspace Template source changes become active only through a fresh
@@ -1335,8 +1341,9 @@ OPA allow.
 - Runtime, Gateway, OPA, Auth Broker, and integration tests prove Context secrets and learned
   permissions do not cross Context principals, aggregate activation is
   all-or-nothing, and forged or stale Context/Template bindings fail closed.
-- Agent-readiness validation records default Template discovery, explicit
-  Context entry, and installation-wide permission review.
+- Agent-readiness validation records default Template discovery, location-free
+  Context selection, CWD-owned Workspace entry, and installation-wide
+  permission review.
 - Runtime/Workspace Template-policy compatibility tests bind both pinned agent versions to
   the exact agent-ready grant catalog and retain method-deny zero-grant canaries,
   distinguish capability bootstrap from MCP action, exclude payload and

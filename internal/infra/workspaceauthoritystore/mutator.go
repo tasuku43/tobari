@@ -693,7 +693,15 @@ func (m *Mutator) ApplyContextSourceByPlan(ctx context.Context, planRef string, 
 			return current, false, err
 		}
 		record := tobari.WorkspaceAuthorityContextRecord{Context: binding, PolicyMemory: memory}
-		next, published, err := publishCollection(current, true, current.Templates, append(cloneContextRecords(current.Contexts), record), current.Workspaces, current.PendingCandidates, current.DefaultTemplateID)
+		contexts := append(cloneContextRecords(current.Contexts), record)
+		var next tobari.WorkspaceAuthorityCollection
+		var published bool
+		if current.CurrentContextID == nil {
+			currentID := id
+			next, published, err = tobari.PublishWorkspaceAuthorityCollectionWithCurrentContext(current.Templates, contexts, current.Workspaces, current.PendingCandidates, current.DefaultTemplateID, &currentID, &current)
+		} else {
+			next, published, err = publishCollection(current, true, current.Templates, contexts, current.Workspaces, current.PendingCandidates, current.DefaultTemplateID)
+		}
 		if err != nil {
 			return current, false, err
 		}
@@ -1207,6 +1215,24 @@ func (m *Mutator) SetDefaultWorkspaceTemplateByReference(ctx context.Context, re
 	return result, resultErr
 }
 
+func (m *Mutator) SetCurrentContextByReference(ctx context.Context, ref string) (result tobari.ContextSelectionResult, resultErr error) {
+	id, err := tobari.ParseContextRef(ref)
+	if err != nil {
+		return result, err
+	}
+	resultErr = m.mutate(ctx, func(_ context.Context, current tobari.WorkspaceAuthorityCollection, present bool) (tobari.WorkspaceAuthorityCollection, bool, error) {
+		if !present || contextRecordIndex(current, id) < 0 {
+			return current, false, tobari.ErrContextBindingNotFound
+		}
+		result = tobari.ContextSelectionResult{ContextID: id, Selected: true}
+		return tobari.PublishWorkspaceAuthorityCollectionWithCurrentContext(
+			current.Templates, current.Contexts, current.Workspaces, current.PendingCandidates,
+			current.DefaultTemplateID, &id, &current,
+		)
+	})
+	return result, resultErr
+}
+
 func (m *Mutator) DeleteWorkspaceTemplateByReference(ctx context.Context, ref string) (result tobari.WorkspaceTemplateDeleteResult, resultErr error) {
 	id, err := tobari.ParseWorkspaceTemplateRef(ref)
 	if err != nil {
@@ -1329,6 +1355,9 @@ func (m *Mutator) DeleteContextByReference(ctx context.Context, ref string) (res
 		index := contextRecordIndex(current, id)
 		if index < 0 {
 			return effectPlan{}, tobari.ErrContextBindingNotFound
+		}
+		if current.CurrentContextID != nil && *current.CurrentContextID == id {
+			return effectPlan{}, tobari.ErrContextBindingProtected
 		}
 		for _, workspace := range current.Workspaces {
 			if workspace.ContextID == id {

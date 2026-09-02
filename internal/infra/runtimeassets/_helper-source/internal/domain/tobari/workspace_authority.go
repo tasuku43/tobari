@@ -42,6 +42,7 @@ var (
 	ErrContextBindingExists                   = errors.New("Context already exists")
 	ErrContextBindingNotFound                 = errors.New("Context does not exist")
 	ErrContextBindingProtected                = errors.New("Context still owns live authority")
+	ErrCurrentContextRequired                 = errors.New("current Context selection is required")
 	ErrWorkspaceBindingNotFound               = errors.New("Workspace does not exist")
 	ErrWorkspaceBindingProtected              = errors.New("Workspace still has a live attachment")
 	ErrWorkspaceEntryReconciliationConfirmed  = errors.New("Workspace entry reconciliation is confirmed but the interactive attachment did not start")
@@ -74,6 +75,14 @@ const (
 type WorkspaceTemplateID string
 type ContextID string
 type WorkspaceID string
+
+// ContextSelectionResult is the confirmed installation-owned current Context
+// selection. Selection changes no Context, Workspace, Project, or policy
+// authority.
+type ContextSelectionResult struct {
+	ContextID ContextID
+	Selected  bool
+}
 
 func (id WorkspaceTemplateID) Validate() error {
 	return validateAuthorityUUID("Workspace Template", string(id))

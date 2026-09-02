@@ -16,7 +16,7 @@ const authCapabilityID = "authentication.broker"
 
 const (
 	authContextRecoveryCommand = "context list"
-	authContextRecoveryReason  = "Run context list, then pass its exact Context reference unchanged to auth status."
+	authContextRecoveryReason  = "Run context list, then select one exact Context with context use or pass it unchanged to auth status."
 )
 
 func authCommandSpecs() []CommandSpec {
@@ -25,7 +25,7 @@ func authCommandSpecs() []CommandSpec {
 
 func finalAuthContextInput(description string) CommandInput {
 	return CommandInput{
-		Name: "--context", Source: InputSourceFlag, Required: true,
+		Name: "--context", Source: InputSourceFlag, Required: false,
 		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
 		Description: description, AllowedValues: []string{}, ReferenceKind: tobari.ContextReferenceKind,
 	}
@@ -38,10 +38,10 @@ func authProviderInput(description string) CommandInput {
 func authLoginSpec() CommandSpec {
 	providerIDs := authbroker.ReviewedLoginProviderIDs()
 	inputs := []CommandInput{
-		finalAuthContextInput("Opaque final Context reference, passed unchanged from context list or auth status."),
+		finalAuthContextInput("Invocation-local opaque Context override; omission uses the installation current Context without observing CWD."),
 		{Name: "--provider", Source: InputSourceFlag, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Reviewed provider to authenticate; omission opens the bounded interactive provider selector.", AllowedValues: providerIDs},
 	}
-	args := "--context <context-ref> [--provider " + strings.Join(providerIDs, "|") + "]"
+	args := "[--context <context-ref>] [--provider " + strings.Join(providerIDs, "|") + "]"
 	if authbroker.SupportsReviewedLoginProvider(authbroker.BuiltinAWSProviderID) {
 		inputs = append(inputs, CommandInput{Name: "--method", Source: InputSourceFlag, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Reviewed AWS login method; requires an explicit provider.", AllowedValues: []string{string(authcmd.LoginMethodIdentityCenter), string(authcmd.LoginMethodConsole)}, Requires: []string{"--provider"}})
 		args += " [--method identity-center|console]"
@@ -52,7 +52,7 @@ func authLoginSpec() CommandSpec {
 		Args: args + " [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: authCapabilityID,
-			Outcome:      "Acquire and durably bind one reviewed provider credential to one unchanged final Context reference",
+			Outcome:      "Acquire and durably bind one reviewed provider credential to the current or explicitly overridden final Context",
 			Inputs:       inputs, Output: finalAuthResultOutput(),
 			Prerequisites: []string{"The exact final Context and reviewed provider authority exist.", "The research Auth Broker is ready and unlocked.", "Interactive login has terminal stdin and stderr; Runtime-backed providers have exact immutable Runtime material."},
 			Errors: authMutationErrors("auth login",
@@ -60,7 +60,7 @@ func authLoginSpec() CommandSpec {
 				declaredCommandError(fault.KindInvalidInput, "auth_login_selector_unavailable", false, "help auth login", "Pass an explicit reviewed provider or use the interactive selector."),
 				declaredCommandError(fault.KindInvalidInput, "auth_login_tty_required", false, "help auth login", "Run the reviewed login from an interactive terminal."),
 			),
-			Mutation: &MutationContract{TargetKind: authbroker.ContextCredentialTargetKind, TargetInputs: []string{"--context"}, ParentInput: "--context", Impact: authcmd.FinalContextMutationImpact()},
+			Mutation: &MutationContract{TargetKind: authbroker.ContextCredentialTargetKind, TargetInputs: []string{"--context"}, ParentInput: "--context", CurrentContextFallback: true, Impact: authcmd.FinalContextMutationImpact()},
 		},
 		handler: runAuthLogin,
 	}
@@ -69,13 +69,13 @@ func authLoginSpec() CommandSpec {
 func authImportSpec() CommandSpec {
 	return CommandSpec{
 		Path: "auth import", Summary: "Import one final Context provider credential through protected stdin",
-		Args: "<provider> --context <context-ref> [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct,
+		Args: "<provider> [--context <context-ref>] [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: authCapabilityID,
-			Outcome:      "Import one bounded credential from stdin and bind it to one unchanged final Context reference",
+			Outcome:      "Import one bounded credential from stdin and bind it to the current or explicitly overridden final Context",
 			Inputs: []CommandInput{
 				authProviderInput("Reviewed provider whose primary credential is supplied on stdin."),
-				finalAuthContextInput("Opaque final Context parent reference."), formatInput(),
+				finalAuthContextInput("Invocation-local opaque Context override; omission uses the installation current Context without observing CWD."), formatInput(),
 				{Name: "credential", Source: InputSourceStdin, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "One bounded opaque credential read only from non-terminal stdin.", AllowedValues: []string{}},
 			},
 			Output:        finalAuthResultOutput(),
@@ -84,7 +84,7 @@ func authImportSpec() CommandSpec {
 				declaredCommandError(fault.KindInvalidInput, "invalid_credential_input", false, "help auth import", "Provide one bounded credential through stdin."),
 				declaredCommandError(fault.KindUnsupported, "provider_import_unsupported", false, authContextRecoveryCommand, authContextRecoveryReason),
 			),
-			Mutation: &MutationContract{TargetKind: authbroker.ContextCredentialTargetKind, TargetInputs: []string{"--context"}, ParentInput: "--context", Impact: authcmd.FinalContextMutationImpact()},
+			Mutation: &MutationContract{TargetKind: authbroker.ContextCredentialTargetKind, TargetInputs: []string{"--context"}, ParentInput: "--context", CurrentContextFallback: true, Impact: authcmd.FinalContextMutationImpact()},
 		}, handler: runAuthImport,
 	}
 }
@@ -92,14 +92,15 @@ func authImportSpec() CommandSpec {
 func authStatusSpec() CommandSpec {
 	return CommandSpec{
 		Path: "auth status", Summary: "Inspect one final Context credential inventory",
-		Args: "--context <context-ref> [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover,
+		Args: "[--context <context-ref>] [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover,
 		Agent: AgentContract{
 			CapabilityID:  authCapabilityID,
-			Outcome:       "Return one bounded exhaustive secret-free provider inventory for one unchanged final Context reference",
-			Inputs:        []CommandInput{finalAuthContextInput("Opaque final Context reference."), formatInput()},
+			Outcome:       "Return one bounded exhaustive secret-free provider inventory for the current or explicitly overridden final Context",
+			Inputs:        []CommandInput{finalAuthContextInput("Invocation-local opaque Context override; omission uses the installation current Context without observing CWD."), formatInput()},
 			Output:        finalAuthStatusOutput(),
 			Prerequisites: []string{"The exact final Context exists; status performs no mutation and creates no lifecycle state."},
 			Errors: readCommandErrors("auth status", true,
+				declaredCommandError(fault.KindRejected, "current_context_required", false, "context list", "Discover a Context, then select it with context use or pass an explicit override."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_context_ref", false, "context list", "Choose one current Context reference."),
 				declaredCommandError(fault.KindUnavailable, "auth_status_failed", false, "doctor", "Inspect final Context and research Auth Broker authority."),
 				declaredCommandError(fault.KindRejected, "legacy_state_present", false, "doctor", "Reset or recreate this pre-release installation before using final authority."),
@@ -111,15 +112,15 @@ func authStatusSpec() CommandSpec {
 func authLogoutSpec() CommandSpec {
 	return CommandSpec{
 		Path: "auth logout", Summary: "Remove one final Context provider credential",
-		Args: "<provider> --context <context-ref> [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
+		Args: "<provider> [--context <context-ref>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID:  authCapabilityID,
 			Outcome:       "Remove one exact Context-bound provider credential, or confirm it is already absent, without contacting the provider",
-			Inputs:        []CommandInput{authProviderInput("Reviewed provider credential to remove."), finalAuthContextInput("Opaque final Context target reference."), formatInput()},
+			Inputs:        []CommandInput{authProviderInput("Reviewed provider credential to remove."), finalAuthContextInput("Invocation-local opaque Context override; omission uses the installation current Context without observing CWD."), formatInput()},
 			Output:        finalAuthResultOutput(),
 			Prerequisites: []string{"The exact final Context and reviewed provider authority exist.", "The research Auth Broker is ready and unlocked; the credential itself may already be absent."},
 			Errors:        authMutationErrors("auth logout"),
-			Mutation:      &MutationContract{TargetKind: tobari.ContextReferenceKind, TargetInputs: []string{"--context"}, TargetIDInput: "--context", Impact: authcmd.FinalContextMutationImpact()},
+			Mutation:      &MutationContract{TargetKind: tobari.ContextReferenceKind, TargetInputs: []string{"--context"}, TargetIDInput: "--context", CurrentContextFallback: true, Impact: authcmd.FinalContextMutationImpact()},
 		}, handler: runAuthLogout,
 	}
 }
@@ -156,6 +157,7 @@ func finalAuthStatusOutput() CommandOutput {
 
 func authMutationErrors(path string, extras ...CommandError) []CommandError {
 	base := []CommandError{
+		declaredCommandError(fault.KindRejected, "current_context_required", false, "context list", "Discover a Context, then select it with context use or pass an explicit override."),
 		declaredCommandError(fault.KindInvalidInput, "invalid_context_ref", false, authContextRecoveryCommand, authContextRecoveryReason),
 		declaredCommandError(fault.KindInvalidInput, "invalid_provider", false, authContextRecoveryCommand, authContextRecoveryReason),
 		declaredCommandError(fault.KindNotFound, "provider_not_installed", false, authContextRecoveryCommand, authContextRecoveryReason),

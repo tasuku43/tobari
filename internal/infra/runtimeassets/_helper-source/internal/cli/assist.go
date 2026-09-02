@@ -121,11 +121,11 @@ func runPolicyAssist(ctx context.Context, c *CLI, command CommandSpec, intent op
 			fault.NextAction{Command: "help policy assist", Reason: "Run the isolated coding agent from an interactive terminal."},
 		), fault.PhasePrecondition, fault.ChangeNone))
 	}
-	contextRef := inputs.One("--context")
-	view, err := c.finalContexts.Show(ctx, contextRef)
+	view, err := c.finalContexts.ResolveCurrentOrOverride(ctx, inputs.One("--context"))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
+	contextRef := view.ContextRef
 	seed, err := tobari.NewPolicyAssistConfiguratorSeed(view.Snapshot)
 	if err != nil {
 		return c.fail(ctx, err)

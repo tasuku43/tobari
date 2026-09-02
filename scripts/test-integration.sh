@@ -22,8 +22,7 @@ gateway_fixture_image="tobari-gateway-integration-tls-$$"
 gateway_fixture_tag_installed=false
 test_keychain_service=
 test_root=
-work_root=
-other_root=
+work_root='' restricted_root='' other_root=''
 work_id=
 other_id=
 restricted_id=
@@ -553,6 +552,7 @@ run_final_host_loopback_evaluator() {
 	  context_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_ref"])' <<<"$context_create")
 	  context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_id"])' <<<"$context_create")
 	apply_context_ref "$context_ref"
+	run_tobari context use --id "$context_ref" --format json >/dev/null
 	  start_cluster >/dev/null
 
   local host_service_port_file host_service_request_log host_service_port
@@ -600,7 +600,7 @@ PY
 
   # Expansion is intentionally deferred to the attached Workspace shell.
   # shellcheck disable=SC2016
-  run_tobari_at "$work_root" context enter --id "$context_ref" -- /bin/bash -lc \
+  run_tobari_at "$work_root" -- /bin/bash -lc \
     'port=$1; host=$2; retired=$3; { printf "%s\n" "$TOBARI_CAPABILITIES_JSON"; curl -sS -o /dev/null -w "%{http_code}" "http://${host}:${port}/health"; printf "\n"; curl -sS -o /dev/null -w "%{http_code}" "http://${retired}:${port}/health"; printf "\n"; curl -ksS --connect-timeout 5 "https://${host}:${port}/health" >/dev/null 2>&1; printf "%s\n" "$?"; curl -ksS --connect-timeout 5 "https://${retired}:${port}/health" >/dev/null 2>&1; printf "%s\n" "$?"; python3 -c "import socket,sys; print(socket.gethostbyname(sys.argv[1])); print(socket.gethostbyname(sys.argv[2]))" "$host" "$retired"; } > /var/lib/tobari/host-probe.tmp; mv /var/lib/tobari/host-probe.tmp /var/lib/tobari/host-probe; while [[ ! -e /var/lib/tobari/host-probe.done ]]; do sleep 0.1; done' \
     bash "$host_service_port" "$host_loopback_hostname" "$retired_host_loopback_hostname" \
     >"$test_root/host-attachment.out" 2>&1 &
@@ -615,7 +615,7 @@ PY
     fi
     sleep 0.1
   done
-  [[ -n $workspace_id ]] || fail "final Context entry did not materialize its exact Workspace container"
+  [[ -n $workspace_id ]] || fail "bare Workspace entry did not materialize its exact container"
   work_id=$workspace_id
   for _ in $(seq 1 900); do
     if run_project test -s /var/lib/tobari/host-probe >/dev/null 2>&1; then
@@ -1102,8 +1102,9 @@ if [[ $host_loopback_only == true ]]; then
   exit 0
 fi
 work_root=$test_root/user/workspace
+restricted_root=$test_root/user/restricted-workspace
 other_root=$test_root/user/other-workspace
-mkdir -p "$work_root" "$other_root"
+mkdir -p "$work_root" "$restricted_root" "$other_root"
 printf 'host-home-canary\n' >"$test_root/user/host-home-canary"
 if [[ $host_loopback_only != true && $custom_base_image == "$standard_runtime_image" ]] && ! docker image inspect "$custom_base_image" >/dev/null 2>&1; then
   base_image=$(go run ./tools/runtimecheck --print-base-image)
@@ -1174,7 +1175,7 @@ if [[ $host_loopback_only != true ]]; then
 	restricted_template_ref=$(apply_template_ref "$restricted_template_ref")
 	run_tobari template default set --id "$default_template_ref" --format json >/dev/null
 	default_context_create=$(run_tobari_at "$work_root" context create --template "$default_template_ref" --format json)
-  restricted_context_create=$(run_tobari_at "$work_root" context create --template "$restricted_template_ref" --format json)
+  restricted_context_create=$(run_tobari_at "$restricted_root" context create --template "$restricted_template_ref" --format json)
   other_context_create=$(run_tobari_at "$other_root" context create --template "$restricted_template_ref" --format json)
   default_context_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_ref"])' <<<"$default_context_create")
   restricted_context_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["context_ref"])' <<<"$restricted_context_create")
@@ -1292,9 +1293,10 @@ printf '%s' "$synthetic_restricted_secret" | \
 printf '%s' "$synthetic_restricted_secret" | \
   run_tobari auth import "$synthetic_provider" --context "$other_context_ref" --format json >/dev/null
 container_work_root="/var/lib/tobari/${work_root#"$test_root/user/"}"
-enter_tobari_at "$work_root" context enter --id "$default_context_ref"
-enter_tobari_at "$work_root" context enter --id "$restricted_context_ref"
-enter_tobari_at "$other_root" context enter --id "$other_context_ref"
+container_restricted_root="/var/lib/tobari/${restricted_root#"$test_root/user/"}"
+run_tobari context use --id "$default_context_ref" --format json >/dev/null && enter_tobari_at "$work_root"
+run_tobari context use --id "$restricted_context_ref" --format json >/dev/null && enter_tobari_at "$restricted_root"
+run_tobari context use --id "$other_context_ref" --format json >/dev/null && enter_tobari_at "$other_root"
 list_json=$(run_tobari workspace list --format json)
 work_ref=$(workspace_field_for_context workspace_ref "$default_context_id" <<<"$list_json")
 restricted_ref=$(workspace_field_for_context workspace_ref "$restricted_context_id" <<<"$list_json")
@@ -1390,39 +1392,36 @@ restricted_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["works
 other_status=$(run_tobari workspace status --id "$other_ref" --format json)
 other_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["workspace"]["workspace_home"])' <<<"$other_status")
 [[ $work_home != "$restricted_home" && $work_home != "$other_home" && $restricted_home != "$other_home" ]] || fail "Context-bound Workspaces share a home directory"
-printf 'shared-project-files\n' >"$work_root/context-sharing-canary"
-assert_contains "$(run_restricted_project cat "$container_work_root/context-sharing-canary")" "shared-project-files" "same-root cross-Context project file sharing"
+printf 'restricted-project-files\n' >"$restricted_root/source-access-canary"
+assert_contains "$(run_restricted_project cat "$container_restricted_root/source-access-canary")" "restricted-project-files" "restricted Workspace project bind"
 
-# Source access applies only to the selected live source bind. Both Templates
-# observe the same host tree, while Workspace home and tmpfs remain writable.
+# Source access applies only to each selected live source bind, while Workspace
+# home and tmpfs remain writable.
 [[ $(docker inspect --format \
   "{{range .Mounts}}{{if eq .Destination \"$container_work_root\"}}{{.RW}}{{end}}{{end}}" \
   "$work_container") == true ]] || fail "read-write Template source bind is not writable"
 [[ $(docker inspect --format \
-  "{{range .Mounts}}{{if eq .Destination \"$container_work_root\"}}{{.RW}}{{end}}{{end}}" \
+	"{{range .Mounts}}{{if eq .Destination \"$container_restricted_root\"}}{{.RW}}{{end}}{{end}}" \
   "$restricted_container") == false ]] || fail "read-only Template source bind is writable"
 if docker inspect --format '{{range .Mounts}}{{println .Destination .RW}}{{end}}' "$restricted_container" | \
-  awk -v root="$container_work_root" '$1 == root && $2 == "true" {found=1} END {exit found ? 0 : 1}'; then
+  awk -v root="$container_restricted_root" '$1 == root && $2 == "true" {found=1} END {exit found ? 0 : 1}'; then
   fail "read-only Template exposes a writable alias for the selected source"
 fi
-assert_contains "$(run_restricted_project cat "$container_work_root/context-sharing-canary")" \
-  "shared-project-files" "read-only Template source read"
+assert_contains "$(run_restricted_project cat "$container_restricted_root/source-access-canary")" \
+  "restricted-project-files" "read-only Template source read"
 for mutation in \
-  "printf changed > '$container_work_root/context-sharing-canary'" \
-  "printf created > '$container_work_root/read-only-create'" \
-  "rm '$container_work_root/context-sharing-canary'" \
-  "mv '$container_work_root/context-sharing-canary' '$container_work_root/read-only-rename'" \
-  "chmod 0600 '$container_work_root/context-sharing-canary'" \
-  "git -C '$container_work_root' init"; do
+  "printf changed > '$container_restricted_root/source-access-canary'" \
+  "printf created > '$container_restricted_root/read-only-create'" \
+  "rm '$container_restricted_root/source-access-canary'" \
+  "mv '$container_restricted_root/source-access-canary' '$container_restricted_root/read-only-rename'" \
+  "chmod 0600 '$container_restricted_root/source-access-canary'" \
+  "git -C '$container_restricted_root' init"; do
   if run_restricted_project sh -c "$mutation" >/dev/null 2>&1; then
     fail "read-only Template allowed source mutation: $mutation"
   fi
 done
-run_project sh -c "printf observed > '$container_work_root/read-write-observation'"
-assert_contains "$(run_restricted_project cat "$container_work_root/read-write-observation")" \
-  "observed" "read-only Template observation of read-write Template change"
-printf 'host-observed\n' >"$work_root/host-observation"
-assert_contains "$(run_restricted_project cat "$container_work_root/host-observation")" \
+printf 'host-observed\n' >"$restricted_root/host-observation"
+assert_contains "$(run_restricted_project cat "$container_restricted_root/host-observation")" \
   "host-observed" "read-only Template observation of host change"
 run_restricted_project sh -c 'printf home-write > /var/lib/tobari/source-access-home'
 run_restricted_project sh -c 'printf tmp-write > /tmp/source-access-tmp'

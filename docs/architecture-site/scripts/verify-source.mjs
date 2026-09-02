@@ -74,7 +74,7 @@ const v1Sources = {
 for (const required of [
   "template list",
   "template default set --id TEMPLATE_REF",
-  "context enter --id CONTEXT_REF",
+  "context use --id CONTEXT_REF",
   "workspace delete --id WORKSPACE_REF",
   "Policy Memory",
 ]) {

@@ -374,6 +374,21 @@ func (s *Store) ReadContextAuthorityByReference(ctx context.Context, ref string)
 	return tobari.ContextAuthoritySnapshot{}, tobari.ErrContextBindingNotFound
 }
 
+func (s *Store) ReadCurrentContextAuthority(ctx context.Context) (tobari.ContextAuthoritySnapshot, error) {
+	collection, present, err := s.ReadComplete(ctx)
+	if err != nil {
+		return tobari.ContextAuthoritySnapshot{}, err
+	}
+	if !present || collection.CurrentContextID == nil {
+		return tobari.ContextAuthoritySnapshot{}, tobari.ErrCurrentContextRequired
+	}
+	ref, err := tobari.ContextRef(*collection.CurrentContextID)
+	if err != nil {
+		return tobari.ContextAuthoritySnapshot{}, err
+	}
+	return s.ReadContextAuthorityByReference(ctx, ref)
+}
+
 func (s *Store) ListWorkspaceAuthority(ctx context.Context) ([]tobari.ContextAuthoritySnapshot, error) {
 	snapshots, err := s.ListContextAuthority(ctx)
 	if err != nil {

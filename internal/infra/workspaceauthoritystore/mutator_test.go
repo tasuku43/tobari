@@ -379,6 +379,63 @@ func TestContextApplyRechecksSourceAtFinalPublicationFence(t *testing.T) {
 	}
 }
 
+func TestMutatorPersistsCurrentContextSelectionWithoutWorkspaceMutation(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	store, mutator, lifecycle, _, _ := newMutationFixture(t, &existing)
+	contextID := existing.Contexts[0].Context.ID
+	contextRef, err := tobari.ContextRef(contextID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := mutator.SetCurrentContextByReference(context.Background(), contextRef)
+	if err != nil || !selected.Selected || selected.ContextID != contextID {
+		t.Fatalf("selected=%+v err=%v", selected, err)
+	}
+	current, err := store.ReadCurrentContextAuthority(context.Background())
+	if err != nil || current.Context.ID != contextID {
+		t.Fatalf("current=%+v err=%v", current.Context, err)
+	}
+	after, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present || after.CurrentContextID == nil || *after.CurrentContextID != contextID || !reflect.DeepEqual(after.Workspaces, existing.Workspaces) {
+		t.Fatalf("after current=%+v workspaces=%+v err=%v", after.CurrentContextID, after.Workspaces, err)
+	}
+	if lifecycle.attempts.Load() != 1 {
+		t.Fatalf("lifecycle attempts=%d", lifecycle.attempts.Load())
+	}
+	if _, err := mutator.DeleteContextByReference(context.Background(), contextRef); !errors.Is(err, tobari.ErrContextBindingProtected) {
+		t.Fatalf("current Context deletion err=%v", err)
+	}
+}
+
+func TestFirstContextActivationBecomesCurrentWithoutCreatingWorkspace(t *testing.T) {
+	base := storeCollectionFixture(t)
+	templateOnly, _, err := tobari.PublishWorkspaceAuthorityCollection(
+		base.Templates, []tobari.WorkspaceAuthorityContextRecord{}, []tobari.WorkspaceBinding{},
+		[]tobari.PolicyCandidateAuthority{}, base.DefaultTemplateID, nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, mutator, _, _, _ := newMutationFixture(t, &templateOnly)
+	id := tobari.ContextID("01912345-6789-7abc-8def-0123456789f2")
+	source := tobari.ContextSource{SchemaVersion: tobari.ContextSourceSchemaVersion, ContextID: id, TemplateID: templateOnly.Templates[0].ID}
+	fingerprint := strings.Repeat("c", 64)
+	plan, err := tobari.NewContextActivationPlan(templateOnly, source, fingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, changed, err := mutator.ApplyContextSourceByPlan(context.Background(), plan.PlanRef, func(context.Context) (tobari.ContextSource, string, error) {
+		return source, fingerprint, nil
+	})
+	if err != nil || !changed {
+		t.Fatalf("apply first Context: changed=%t err=%v", changed, err)
+	}
+	current, err := store.ReadCurrentContextAuthority(context.Background())
+	if err != nil || current.Context.ID != id || current.Workspace != nil {
+		t.Fatalf("current=%+v err=%v", current, err)
+	}
+}
+
 func TestTemplatePolicyMigrationFenceSerializesDeleteAndRejectsMissingActiveRevision(t *testing.T) {
 	existing := storeCollectionFixture(t)
 	secondID := tobari.WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789e8")

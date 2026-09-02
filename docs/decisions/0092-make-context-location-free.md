@@ -7,6 +7,8 @@
   migration, harness, and public boundary
 - Revises: ADR 0084, ADR 0085, ADR 0088, and ADR 0090
 - Related: ADR 0086 and ADR 0091
+- Revised by: ADR 0093 at current Context selection and CWD-only Workspace
+  routing
 - Superseded by: None
 
 ## Context
@@ -29,10 +31,10 @@ location. Multiple Contexts may bind the same Template; ContextID uniqueness is
 the only Context uniqueness rule.
 
 A Workspace alone binds one canonical ProjectRoot to one Context and owns the
-applied entry receipt. CWD is observed only by commands whose
-task is Workspace selection or entry. `context enter --id` consumes the Context
-reference unchanged and passes the invocation's canonical root explicitly to
-Workspace planning; an existing Workspace must still match its own root.
+applied entry receipt. CWD is observed only by commands whose task is Workspace
+selection, status, or entry. ADR 0093 separates `context use --id`, which
+changes only a location-free installation selector, from bare `tobari`, which
+selects or creates the CWD-owned Workspace.
 
 Task-scoped assistance follows target ownership:
 
@@ -40,9 +42,10 @@ Task-scoped assistance follows target ownership:
   CWD, Workspace, or Context, executes with the installation-owned standard
   Runtime, and mounts only the target Runtime source plus an installation-owned
   per-agent Home.
-- `policy assist --context CONTEXT_REF` consumes one explicit Context reference,
-  uses that Context's exact Template Runtime and Policy Memory evidence, and
-  scopes retained work by Context ID. It performs no ambient Context selection.
+- `policy assist [--context CONTEXT_REF]` uses the installation current Context
+  or one exact invocation-local override, then uses that Context's exact
+  Template Runtime and Policy Memory evidence. It performs no CWD or Workspace
+  selection.
 
 Context source schema is `tobari.dev/context/v2` and contains only Context ID
 and Template ID. Pre-release v1 Context authority is rejected rather than

@@ -152,7 +152,16 @@ func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, 
 		}
 	}
 	var resolution workspaceauthoritycmd.DefaultPairResolution
-	resolution, err = c.finalDefaultPair.ResolveSelected(ctx, intent, freshBody, selected)
+	if !fresh && selected.Choice.Kind == tobari.FinalDefaultPairSelectionCreate {
+		view, contextErr := c.finalContexts.ResolveCurrentOrOverride(ctx, "")
+		if contextErr != nil {
+			_ = progress.Finish(firstEntryFailureState(contextErr))
+			return c.failRootBeforeHandoff(ctx, contextErr)
+		}
+		resolution, err = c.finalDefaultPair.ResolveSelectedContext(ctx, view.Snapshot.Context.ID, selected)
+	} else {
+		resolution, err = c.finalDefaultPair.ResolveSelected(ctx, intent, freshBody, selected)
+	}
 	if err != nil {
 		_ = progress.Finish(firstEntryFailureState(err))
 		return c.failRootBeforeHandoff(ctx, err)
@@ -405,7 +414,7 @@ func renderStatusHomeWithColor(status tobari.StatusHomeSnapshot, color bool) []b
 		if status.Context == nil {
 			output.row("Current", "Context absent", styleWarning)
 		} else {
-			output.row("Current", "Context selected · Workspace "+string(status.Workspace.Presence), humanStatusToken(string(status.Workspace.Presence)))
+			output.row("Current", "Workspace-bound Context · Workspace "+string(status.Workspace.Presence), humanStatusToken(string(status.Workspace.Presence)))
 			output.row("Policy", "Template "+string(status.Context.TemplatePolicyActivation)+" · Memory "+string(status.Context.PolicyMemoryActivation), humanStatusToken(string(status.Context.PolicyMemoryActivation)))
 			output.row("Workspace", string(status.Workspace.Presence)+" · entry "+string(status.Workspace.EntryState)+" · runtime "+string(status.Workspace.ObservedRuntimeState)+" · "+string(status.Workspace.AttachmentState), humanStatusToken(string(status.Workspace.EntryState)))
 			output.row("Runtime", string(status.Runtime.Authority)+" · "+string(status.Runtime.Availability)+" · native "+string(status.Runtime.Compatibility), humanStatusToken(string(status.Runtime.Availability)))

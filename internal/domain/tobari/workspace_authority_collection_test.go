@@ -93,6 +93,30 @@ func TestWorkspaceAuthorityCollectionRequiresPendingCandidatesToBeUnconsumed(t *
 	}
 }
 
+func TestWorkspaceAuthorityCollectionCurrentContextIsLocationFreeAndRevisionBound(t *testing.T) {
+	base := workspaceAuthorityCollectionFixture(t)
+	selectedID := base.Contexts[0].Context.ID
+	selected, changed, err := PublishWorkspaceAuthorityCollectionWithCurrentContext(
+		base.Templates, base.Contexts, base.Workspaces, base.PendingCandidates,
+		base.DefaultTemplateID, &selectedID, &base,
+	)
+	if err != nil || !changed || selected.CurrentContextID == nil || *selected.CurrentContextID != selectedID || selected.Revision == base.Revision {
+		t.Fatalf("selected=%+v changed=%t err=%v", selected.CurrentContextID, changed, err)
+	}
+	clone := selected.Clone()
+	*clone.CurrentContextID = ContextID("01912345-6789-7abc-8def-0123456789ff")
+	if *selected.CurrentContextID != selectedID {
+		t.Fatal("current Context clone aliases collection state")
+	}
+	invalid := selected.Clone()
+	unknown := ContextID("01912345-6789-7abc-8def-0123456789ff")
+	invalid.CurrentContextID = &unknown
+	invalid.Revision, _ = workspaceAuthorityCollectionRevision(invalid)
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("unknown current Context validated")
+	}
+}
+
 func TestPolicyMemoryBoundaryTighteningSupersedesOnlyOutsideAllows(t *testing.T) {
 	context := ContextBinding{
 		SchemaVersion: ContextBindingSchemaVersion,

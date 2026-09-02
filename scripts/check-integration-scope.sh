@@ -132,13 +132,13 @@ if grep -En \
   exit 1
 fi
 
-# The Host Loopback slice must use the final Context identity and a bound
-# Context reference for entry. Frozen private context wire keys are checked
+# The Host Loopback slice must use the final Context identity, select it without
+# CWD, and enter through bare root. Frozen private context wire keys are checked
 # separately and do not authorize a predecessor public alias.
 # shellcheck disable=SC2016
 for claim in \
   'context create --template "$template_ref"' \
-  'context enter --id "$context_ref"'; do
+  'context use --id "$context_ref"'; do
   if ! grep -F "$claim" "$scenario" >/dev/null; then
     echo "integration scope: missing final Context Host Loopback canary: $claim" >&2
     exit 1
@@ -165,7 +165,7 @@ for claim in \
 	  'default_template_ref=$(apply_template_ref "$default_template_ref")' \
 	  'apply_context_ref "$default_context_ref"' \
   'context create --template "$default_template_ref"' \
-  'context enter --id "$default_context_ref"' \
+  'context use --id "$default_context_ref"' \
   'workspace list --format json' \
   'workspace delete --id "$work_ref" --confirm=delete --force' \
   'volume|tobari-auth-runtime|/run/tobari-auth/runtime|false' \

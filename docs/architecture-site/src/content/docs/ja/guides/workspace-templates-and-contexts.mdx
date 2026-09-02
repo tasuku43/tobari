@@ -48,8 +48,8 @@ tobari template list --format json
 tobari template default set --id TEMPLATE_REF
 ```
 
-default selectionが影響するのはbare root entryとbare `status`だけです。
-既存ContextやWorkspaceを付け替えません。
+default selectionはfresh authorityの初期化にだけ使います。既存Contextや
+Workspaceを付け替えません。
 
 ## Contextを作成し、WorkspaceをProjectへ結び付ける
 
@@ -59,20 +59,22 @@ Contextの作成はlocation-freeなので、どのdirectoryからでも実行で
 tobari context create --template TEMPLATE_REF
 ```
 
-そのContextのWorkspaceをbindまたは再利用して入る操作は、Project rootから実行します。
+location-freeなcurrent Contextを、CWDを参照せず選択します。
 
 ```sh
-tobari context enter --id CONTEXT_REF
+tobari context use --id CONTEXT_REF
 ```
 
-通常のdefault作業ではbare `tobari`がdefault Template/Context pairを作成
-または再利用し、Workspaceへ入ります。非defaultでは`context list`または
-`context show`が返したContext referenceを変更せず`context enter`へ渡します。
+WorkspaceがないProject rootでは、bare `tobari`がcurrent ContextからWorkspaceを
+作成します。既存Workspaceがあるrootでは、CWDがそのWorkspaceを選び、current
+Contextにかかわらず永久bindingされたContextを使います。Context optionを省略
+するとcurrentを使い、指定したexact referenceはそのinvocationだけをoverrideします。
 
 ```sh
 tobari context list --format json
 tobari context show --id CONTEXT_REF --format json
-tobari context enter --id CONTEXT_REF -- codex exec ...
+tobari context use --id CONTEXT_REF
+tobari -- codex exec ...
 ```
 
 ## exact Templateを設定する

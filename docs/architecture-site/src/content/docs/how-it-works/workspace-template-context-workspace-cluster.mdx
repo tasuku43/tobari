@@ -22,16 +22,18 @@ authorities.
 - Template mutation publishes desired state only.
 - `cluster up` activates one complete projection for every Context, with
   separate Template-policy and Policy-Memory receipts.
-- bare root or `context enter --id CONTEXT_REF` reconciles one Workspace.
+- bare root reconciles one CWD-owned Workspace; `context use` only changes the
+  location-free current selector.
 - status, list, show, doctor, and completion never reconcile.
 
-The installation default Template is used only by bare root and bare
-`status`. It does not rebind a Context. Nondefault work uses an opaque Context
-reference from discovery:
+The installation current Context supplies Context-aware omissions and creation
+at a root without a Workspace. Existing Workspace selection comes only from
+CWD and follows the Workspace's permanent Context binding. An exact option is
+an invocation-local override:
 
 ```sh
 tobari context list --format json
-tobari context enter --id CONTEXT_REF
+tobari context use --id CONTEXT_REF
 ```
 
 ContextID uniqueness is the only Context uniqueness rule. Multiple Contexts

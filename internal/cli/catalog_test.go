@@ -1412,6 +1412,28 @@ func TestMutationContractFailsClosedAndDeepCopies(t *testing.T) {
 	if err := validateAgentContract(optionalTarget); err == nil || !strings.Contains(err.Error(), "must be required") {
 		t.Fatalf("optional mutation target error = %v", err)
 	}
+	currentContextTarget := cloneCommandSpec(optionalTarget)
+	currentContextTarget.Agent.Inputs[0].ReferenceKind = tobari.ContextReferenceKind
+	currentContextTarget.Agent.Mutation.TargetKind = tobari.ContextReferenceKind
+	currentContextTarget.Agent.Mutation.CurrentContextFallback = true
+	if err := validateAgentContract(currentContextTarget); err != nil {
+		t.Fatalf("typed current-Context fallback rejected: %v", err)
+	}
+	encodedCurrentContext, err := json.Marshal(currentContextTarget.Agent.Mutation)
+	if err != nil || !bytes.Contains(encodedCurrentContext, []byte(`"current_context_fallback":true`)) {
+		t.Fatalf("current-Context fallback is absent from agent help: %s err=%v", encodedCurrentContext, err)
+	}
+	nonContextFallback := cloneCommandSpec(optionalTarget)
+	nonContextFallback.Agent.Mutation.CurrentContextFallback = true
+	if err := validateAgentContract(nonContextFallback); err == nil || !strings.Contains(err.Error(), "Context reference") {
+		t.Fatalf("non-Context fallback error = %v", err)
+	}
+	requiredContextFallback := cloneCommandSpec(currentContextTarget)
+	requiredContextFallback.Args = "--id <item-id>"
+	requiredContextFallback.Agent.Inputs[0].Required = true
+	if err := validateAgentContract(requiredContextFallback); err == nil || !strings.Contains(err.Error(), "must be optional") {
+		t.Fatalf("required current-Context fallback error = %v", err)
+	}
 	configuredTarget := cloneCommandSpec(spec)
 	configuredTarget.Args = ""
 	configuredTarget.Agent.Inputs[0].Name = "id"

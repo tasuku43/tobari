@@ -9,8 +9,33 @@ import (
 
 	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
+
+type currentContextSelectionFixture struct {
+	snapshot tobari.ContextAuthoritySnapshot
+	ref      string
+	calls    int
+}
+
+func (f *currentContextSelectionFixture) ReadCurrentContextAuthority(context.Context) (tobari.ContextAuthoritySnapshot, error) {
+	return f.snapshot.Clone(), nil
+}
+
+func (f *currentContextSelectionFixture) ListContextAuthority(context.Context) ([]tobari.ContextAuthoritySnapshot, error) {
+	return []tobari.ContextAuthoritySnapshot{f.snapshot.Clone()}, nil
+}
+
+func (f *currentContextSelectionFixture) ReadContextAuthorityByReference(context.Context, string) (tobari.ContextAuthoritySnapshot, error) {
+	return f.snapshot.Clone(), nil
+}
+
+func (f *currentContextSelectionFixture) SetCurrentContextByReference(_ context.Context, ref string) (tobari.ContextSelectionResult, error) {
+	f.calls++
+	f.ref = ref
+	return tobari.ContextSelectionResult{ContextID: f.snapshot.Context.ID, Selected: true}, nil
+}
 
 type firstEntryEvaluatorFixture struct {
 	SchemaVersion int `json:"schema_version"`
@@ -108,36 +133,29 @@ func verifyFirstEntryEvaluatorRow(t *testing.T, id string, answer struct {
 	case "E4":
 		spec, found := DefaultCatalog().Lookup(answer.ExpectedNext)
 		if !found {
-			t.Fatalf("explicit entry path %q is absent", answer.ExpectedNext)
+			t.Fatalf("explicit Context selection path %q is absent", answer.ExpectedNext)
 		}
-		var exactReference, positionalOnly bool
+		var exactReference bool
 		for _, input := range spec.Agent.Inputs {
 			exactReference = exactReference || input.Name == "--id" && input.Required && input.ReferenceKind == tobari.ContextReferenceKind
-			positionalOnly = positionalOnly || input.Name == "command" && input.PositionalOnly && input.Cardinality == InputCardinalityRepeatable
 		}
-		if !exactReference || !positionalOnly {
-			t.Fatalf("explicit entry contract exact_ref=%t positional_only=%t", exactReference, positionalOnly)
+		if !exactReference || spec.Effect != operation.EffectWrite || spec.Agent.Mutation == nil || spec.Agent.Mutation.TargetKind != tobari.ContextReferenceKind {
+			t.Fatalf("explicit Context selection contract=%+v", spec)
 		}
 		snapshot := finalCurrentContextEntrySnapshotFixture(t)
 		contextRef, err := tobari.ContextRef(snapshot.Context.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		port := &finalFirstEntryFixture{publication: tobari.ContextEntryPublication{
-			Snapshot: snapshot,
-			Outcome:  tobari.WorkspaceSessionOutcome{ExitCode: 23},
-		}}
+		port := &currentContextSelectionFixture{snapshot: snapshot}
 		var stdout, stderr bytes.Buffer
 		command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
 		command.finalContexts = workspaceauthoritycmd.NewContextService(port)
-		command.finalProjectRoot = firstUseIntegrationProjectRoot{root: "/workspace/example"}
-		argv := []string{"codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "echo unchanged"}
-		invocation := append([]string{"context", "enter", "--id", contextRef, "--"}, argv...)
-		if code := command.RunContext(context.Background(), invocation); code != 23 {
-			t.Fatalf("explicit entry child exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+		if code := command.RunContext(context.Background(), []string{"context", "use", "--id", contextRef}); code != ExitOK {
+			t.Fatalf("explicit Context selection exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 		}
-		if port.calls != 1 || !port.session.Direct() || !reflect.DeepEqual(port.session.Argv(), argv) || stdout.Len() != 0 {
-			t.Fatalf("explicit entry calls=%d direct=%t argv=%q stdout=%q", port.calls, port.session.Direct(), port.session.Argv(), stdout.String())
+		if port.calls != 1 || port.ref != contextRef {
+			t.Fatalf("explicit Context selection calls=%d ref=%q", port.calls, port.ref)
 		}
 	case "E5":
 		assertEvaluatorStages(t, answer.ExpectedStages)

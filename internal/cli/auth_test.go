@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"reflect"
@@ -13,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/app/authcmd"
+	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -22,8 +24,20 @@ type finalAuthCLIReader struct {
 	snapshot tobari.ContextAuthoritySnapshot
 }
 
+func (f *finalAuthCLIReader) ListContextAuthority(context.Context) ([]tobari.ContextAuthoritySnapshot, error) {
+	return []tobari.ContextAuthoritySnapshot{f.snapshot.Clone()}, nil
+}
+
 func (f *finalAuthCLIReader) ReadContextAuthorityByReference(context.Context, string) (tobari.ContextAuthoritySnapshot, error) {
 	return f.snapshot.Clone(), nil
+}
+
+func (f *finalAuthCLIReader) ReadCurrentContextAuthority(context.Context) (tobari.ContextAuthoritySnapshot, error) {
+	return f.snapshot.Clone(), nil
+}
+
+func (f *finalAuthCLIReader) SetCurrentContextByReference(context.Context, string) (tobari.ContextSelectionResult, error) {
+	return tobari.ContextSelectionResult{}, errors.New("unexpected current Context mutation")
 }
 
 type finalAuthCLIRuntime struct {
@@ -95,7 +109,7 @@ func finalAuthCLIProvider(t *testing.T) authbroker.Provider {
 	return provider
 }
 
-func finalAuthCLIService(t *testing.T, task string) (*authcmd.FinalContextService, *finalAuthCLIRuntime, string) {
+func finalAuthCLIService(t *testing.T, task string) (*authcmd.FinalContextService, *workspaceauthoritycmd.ContextService, *finalAuthCLIRuntime, string) {
 	t.Helper()
 	snapshot, authority := finalAuthCLIFixture(t)
 	status, err := authbroker.NewContextStatusObservation(authority, authbroker.StorageBackendXDGFile, authbroker.BrokerStateReady, []authbroker.ProviderStatus{{Provider: authbroker.BuiltinGitHubProviderID, State: authbroker.ProviderCredentialNotConfigured}}, true)
@@ -118,7 +132,8 @@ func finalAuthCLIService(t *testing.T, task string) (*authcmd.FinalContextServic
 		}
 		runtime.mutation = authbroker.ContextMutationObservation{Authority: authority, Decision: decision, Provider: current, StorageBackend: authbroker.StorageBackendXDGFile, BrokerState: authbroker.BrokerStateReady, Changed: changed, DecisionRef: decisionRef}
 	}
-	return authcmd.NewFinalContext(&finalAuthCLIReader{snapshot: snapshot}, runtime), runtime, authority.ContextRef
+	reader := &finalAuthCLIReader{snapshot: snapshot}
+	return authcmd.NewFinalContext(reader, runtime), workspaceauthoritycmd.NewContextService(reader), runtime, authority.ContextRef
 }
 
 func TestFinalAuthCatalogIsContextReferenceBoundSchemaTwo(t *testing.T) {
@@ -162,10 +177,11 @@ func TestFinalAuthCatalogIsContextReferenceBoundSchemaTwo(t *testing.T) {
 }
 
 func TestFinalAuthStatusJSONReemitsOnlyContextReferenceAndSecretFreeInventory(t *testing.T) {
-	service, runtime, contextRef := finalAuthCLIService(t, authbroker.TaskStatus)
+	service, contexts, runtime, contextRef := finalAuthCLIService(t, authbroker.TaskStatus)
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
 	command.finalAuth = service
+	command.finalContexts = contexts
 	code := command.RunContext(context.Background(), []string{"auth", "status", "--context", contextRef, "--format=json"})
 	if code != ExitOK || runtime.calls != 1 {
 		t.Fatalf("code=%d calls=%d stderr=%q", code, runtime.calls, stderr.String())
@@ -198,10 +214,11 @@ func TestFinalAuthStatusJSONReemitsOnlyContextReferenceAndSecretFreeInventory(t 
 }
 
 func TestFinalAuthStatusHumanNamesOnlyFinalContextScope(t *testing.T) {
-	service, runtime, contextRef := finalAuthCLIService(t, authbroker.TaskStatus)
+	service, contexts, runtime, contextRef := finalAuthCLIService(t, authbroker.TaskStatus)
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
 	command.finalAuth = service
+	command.finalContexts = contexts
 	code := command.RunContext(context.Background(), []string{"auth", "status", "--context", contextRef})
 	if code != ExitOK || runtime.calls != 1 {
 		t.Fatalf("code=%d calls=%d stderr=%q", code, runtime.calls, stderr.String())
@@ -219,10 +236,11 @@ func TestFinalAuthStatusHumanNamesOnlyFinalContextScope(t *testing.T) {
 }
 
 func TestFinalAuthLoginConsumesUnchangedContextRefWithoutBecomingAContextProducer(t *testing.T) {
-	service, runtime, contextRef := finalAuthCLIService(t, authbroker.TaskLogin)
+	service, contexts, runtime, contextRef := finalAuthCLIService(t, authbroker.TaskLogin)
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
 	command.finalAuth = service
+	command.finalContexts = contexts
 	code := command.RunContext(context.Background(), []string{"auth", "login", "--context", contextRef, "--provider", authbroker.BuiltinGitHubProviderID, "--format=json"})
 	if code != ExitOK || runtime.calls != 1 {
 		t.Fatalf("code=%d calls=%d stderr=%q", code, runtime.calls, stderr.String())
@@ -238,22 +256,33 @@ func TestFinalAuthLoginConsumesUnchangedContextRefWithoutBecomingAContextProduce
 }
 
 func TestFinalAuthRejectsOldAndCrossKindSelectorsBeforeAdapter(t *testing.T) {
-	service, runtime, contextRef := finalAuthCLIService(t, authbroker.TaskStatus)
+	service, contexts, runtime, contextRef := finalAuthCLIService(t, authbroker.TaskStatus)
 	tests := [][]string{
 		{"auth", "status", "--manifest", "legacy", "--context", contextRef},
 		{"auth", "status", "--context", "workspace:01912345-6789-7abc-8def-0123456789a2"},
-		{"auth", "status"},
 	}
 	for _, argv := range tests {
 		var stdout, stderr bytes.Buffer
 		command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
 		command.finalAuth = service
+		command.finalContexts = contexts
 		if code := command.RunContext(context.Background(), argv); code == ExitOK {
 			t.Fatalf("argv %v passed: %s", argv, stdout.String())
 		}
 	}
 	if runtime.calls != 0 {
 		t.Fatalf("invalid selectors crossed adapter: %d", runtime.calls)
+	}
+}
+
+func TestFinalAuthUsesCurrentContextWhenOverrideIsOmitted(t *testing.T) {
+	service, contexts, runtime, _ := finalAuthCLIService(t, authbroker.TaskStatus)
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.finalAuth = service
+	command.finalContexts = contexts
+	if code := command.RunContext(context.Background(), []string{"auth", "status", "--format=json"}); code != ExitOK || runtime.calls != 1 {
+		t.Fatalf("code=%d calls=%d stdout=%q stderr=%q", code, runtime.calls, stdout.String(), stderr.String())
 	}
 }
 
@@ -278,7 +307,7 @@ func TestFinalAuthScopedHelpPublishesExactContextGrammarAndSchema(t *testing.T) 
 	if code := command.RunContext(context.Background(), []string{"auth", "status", "--help"}); code != ExitOK {
 		t.Fatalf("human help code=%d stderr=%q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "auth status --context <context-ref>") || strings.Contains(stdout.String(), "--manifest") {
+	if !strings.Contains(stdout.String(), "auth status [--context <context-ref>]") || strings.Contains(stdout.String(), "--manifest") {
 		t.Fatalf("human help=%s", stdout.String())
 	}
 }

@@ -127,9 +127,12 @@ tobari context list
 # Reconcile shared services explicitly when automation owns the sequence.
 tobari cluster up
 
-# Enter a non-default Context by its unchanged opaque reference.
-tobari context enter --id <context-ref>
-tobari context enter --id <context-ref> -- claude
+# Select the location-free current Context by its unchanged opaque reference.
+tobari context use --id <context-ref>
+
+# At a root without a Workspace, bare entry creates it from that current Context.
+tobari
+tobari -- claude
 ```
 
 With no command, Tobari enters Bash as before. After `--`, it passes the command
@@ -184,13 +187,17 @@ tobari workspace list
 # Copy one exact immutable Template revision into a fresh independent Template.
 tobari template copy --from <template-revision-ref> --name restricted
 
-# Bind the current Project to one Template, then enter by exact Context reference.
+# Create a Context, select it, then let bare entry bind the CWD-owned Workspace.
 tobari context create --template <template-ref>
-tobari context enter --id <context-ref> -- codex exec "Fix the failing tests"
+tobari context use --id <context-ref>
+tobari -- codex exec "Fix the failing tests"
 ```
 
 `template default set --id <template-ref>` changes only later bare root/status
-selection. It never retargets an existing Context or Workspace. Template copy
+initialization. `context use --id <context-ref>` changes only the installation
+current Context; it reads no CWD and never retargets an existing Workspace.
+Context-aware options such as `policy assist --context` use that selection when
+omitted and override it for one invocation when present. Template copy
 records no lineage and copies no Context, Policy Memory, Workspace, home,
 authentication, applied, failure, observed, or default state. Reads are
 observational: Template mutation does not activate cluster policy, and Context
@@ -407,9 +414,10 @@ surface explicitly:
 ```sh
 task build:dev
 bin/tobari-research context list
-bin/tobari-research auth login --provider github --context <context-ref>
-bin/tobari-research auth status --context <context-ref>
-bin/tobari-research auth logout github --context <context-ref>
+bin/tobari-research context use --id <context-ref>
+bin/tobari-research auth login --provider github
+bin/tobari-research auth status
+bin/tobari-research auth logout github
 ```
 
 This research surface studies Context-owned vaults, project-bound handles, and a closed set of

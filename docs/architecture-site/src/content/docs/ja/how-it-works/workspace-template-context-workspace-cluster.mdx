@@ -21,16 +21,17 @@ Template revisionはdesired setupです。Contextはbound Templateのcurrent rev
 - Template mutationはdesired stateだけを発行します。
 - `cluster up`は各ContextのTemplate-policyとPolicy-Memory receiptを分けた
   完全なprojectionをactivateします。
-- bare rootまたは`context enter --id CONTEXT_REF`だけがWorkspaceをreconcileします。
+- bare rootだけがCWD-owned Workspaceをreconcileし、`context use`はlocation-freeな
+  current selectorだけを変更します。
 - status、list、show、doctor、completionはreconcileしません。
 
-installation default Templateを使うのはbare rootとbare `status`だけです。
-Contextをrebindしません。非defaultの作業はdiscoveryが返したopaque Context
-referenceを使います。
+installation current ContextはContext-aware optionの省略時とWorkspaceがないrootでの
+作成に使います。既存WorkspaceはCWDだけから選択し、その永久Context bindingを
+使います。exact optionはinvocation-localなoverrideです。
 
 ```sh
 tobari context list --format json
-tobari context enter --id CONTEXT_REF
+tobari context use --id CONTEXT_REF
 ```
 
 Contextの一意性はContextIDだけで決まります。同じTemplateに複数のContextを

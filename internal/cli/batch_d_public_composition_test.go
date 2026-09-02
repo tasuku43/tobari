@@ -27,7 +27,7 @@ func TestBatchDRegisteredFinalHandlersAreExact(t *testing.T) {
 		ReleaseProgramName + "\x00context apply":                "runFinalContextApply",
 		ReleaseProgramName + "\x00context create":               "runFinalContextCreate",
 		ReleaseProgramName + "\x00context delete":               "runFinalContextDelete",
-		ReleaseProgramName + "\x00context enter":                "runFinalContextEnter",
+		ReleaseProgramName + "\x00context use":                  "runFinalContextUse",
 		ReleaseProgramName + "\x00context list":                 "runFinalContextList",
 		ReleaseProgramName + "\x00context plan":                 "runFinalContextPlan",
 		ReleaseProgramName + "\x00context show":                 "runFinalContextShow",
@@ -120,7 +120,7 @@ func TestBatchDPublicPathSetAndResearchDeltaAreExact(t *testing.T) {
 	want := []string{
 		"cluster denials", "cluster down", "cluster logs", "cluster status", "cluster up",
 		"completion candidates", "completion zsh",
-		"context apply", "context create", "context delete", "context enter", "context list", "context plan", "context show", "doctor", "help",
+		"context apply", "context create", "context delete", "context list", "context plan", "context show", "context use", "doctor", "help",
 		"installation migration apply", "installation migration plan",
 		"policy allow", "policy assist", "policy candidates", "policy deny", "policy reset", "policy rules", "review permissions", "review runtimes", "review services",
 		"runtime assist", "runtime build", "runtime create", "runtime delete", "runtime history", "runtime list", "runtime prune apply", "runtime prune dry-run", "runtime restore", "runtime show",
@@ -185,7 +185,7 @@ func assertBatchDOutputFields(t *testing.T, path string, fields []OutputField) {
 func TestBatchDChangedPublicSchemasAreExact(t *testing.T) {
 	want := map[string]int{
 		"template list": 1, "template show": 1, "template create": 1, "template copy": 1, "template plan": 1, "template apply": 1, "template migration plan": 1, "template migration apply": 1, "template default set": 1, "template delete": 1,
-		"context list": 1, "context show": 1, "context apply": 1, "context create": 1, "context enter": 1, "context delete": 1,
+		"context list": 1, "context show": 1, "context apply": 1, "context create": 1, "context use": 1, "context delete": 1,
 		"workspace list": 1, "workspace status": 1, "workspace delete": 1,
 		"status": 3, "cluster status": 3, "cluster denials": 5,
 		"policy candidates": 3, "review permissions": 3, "policy rules": 3, "policy apply-reviewed": 3,
@@ -227,7 +227,7 @@ func TestBatchDHelpCompletionAndFaultSurfaceRejectsLegacyVocabulary(t *testing.T
 			t.Errorf("completion %q = %+v, want no retired candidate", request.words, records)
 		}
 	}
-	for _, path := range []string{"status", "cluster status", "policy candidates", "template create", "context enter", "workspace delete"} {
+	for _, path := range []string{"status", "cluster status", "policy candidates", "template create", "context use", "workspace delete"} {
 		for _, format := range []string{"text", "agent"} {
 			var out, errOut bytes.Buffer
 			cli := newCLI(strings.NewReader(""), &out, &errOut, DefaultCatalog(), passingInspector("unused"))

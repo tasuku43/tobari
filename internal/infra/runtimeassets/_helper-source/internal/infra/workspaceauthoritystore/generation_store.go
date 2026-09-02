@@ -54,6 +54,7 @@ type authorityGenerationManifest struct {
 	Workspaces                      []authorityObjectRef              `json:"workspaces"`
 	PendingCandidates               []tobari.PolicyCandidateAuthority `json:"pending_candidates"`
 	DefaultTemplateID               *tobari.WorkspaceTemplateID       `json:"default_workspace_template_id,omitempty"`
+	CurrentContextID                *tobari.ContextID                 `json:"current_context_id,omitempty"`
 }
 
 type contextAuthorityObject struct {
@@ -137,6 +138,10 @@ func prepareAuthorityGenerationWithMigrationProvenance(collection tobari.Workspa
 	if collection.DefaultTemplateID != nil {
 		value := *collection.DefaultTemplateID
 		manifest.DefaultTemplateID = &value
+	}
+	if collection.CurrentContextID != nil {
+		value := *collection.CurrentContextID
+		manifest.CurrentContextID = &value
 	}
 	for _, template := range collection.Templates {
 		ref, data, err := objectRef("templates", string(template.ID), template)
@@ -312,6 +317,10 @@ func (s *Store) collectionFromManifest(ctx context.Context, manifest authorityGe
 	if manifest.DefaultTemplateID != nil {
 		value := *manifest.DefaultTemplateID
 		collection.DefaultTemplateID = &value
+	}
+	if manifest.CurrentContextID != nil {
+		value := *manifest.CurrentContextID
+		collection.CurrentContextID = &value
 	}
 	for _, ref := range manifest.Templates {
 		var value tobari.WorkspaceTemplate

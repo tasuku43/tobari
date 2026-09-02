@@ -31,6 +31,7 @@ const (
 	TaskContextApply           = "context apply"
 	TaskContextPlan            = "context plan"
 	TaskContextEnter           = "context enter"
+	TaskContextUse             = "context use"
 	TaskContextDelete          = "context delete"
 	TaskWorkspaceList          = "workspace list"
 	TaskWorkspaceStatus        = "workspace status"
@@ -155,6 +156,7 @@ type ContextView struct {
 	ContextRef string
 	Snapshot   ContextSnapshot
 	Source     *tobari.ResourceSourceObservation
+	Current    *bool
 }
 
 func NewContextView(snapshot ContextSnapshot) (ContextView, error) {

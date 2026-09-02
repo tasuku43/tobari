@@ -16,12 +16,12 @@ func TestAuthCatalogDeclaresFinalContextMutationAndReadOnlyStatus(t *testing.T) 
 	catalog := DefaultCatalog()
 	for _, path := range []string{"auth login", "auth import"} {
 		spec, found := catalog.Lookup(path)
-		if !found || spec.Effect != operation.EffectCreate || spec.Role != RoleAct || spec.Agent.FixedTarget != nil || spec.Agent.Mutation == nil || spec.Agent.Mutation.ParentInput != "--context" || spec.Agent.Mutation.TargetKind != authbroker.ContextCredentialTargetKind {
+		if !found || spec.Effect != operation.EffectCreate || spec.Role != RoleAct || spec.Agent.FixedTarget != nil || spec.Agent.Mutation == nil || spec.Agent.Mutation.ParentInput != "--context" || spec.Agent.Mutation.TargetKind != authbroker.ContextCredentialTargetKind || !spec.Agent.Mutation.CurrentContextFallback {
 			t.Fatalf("%s contract = %+v", path, spec)
 		}
 	}
 	logout, found := catalog.Lookup("auth logout")
-	if !found || logout.Effect != operation.EffectWrite || logout.Agent.Mutation.TargetIDInput != "--context" || logout.Agent.Mutation.TargetKind != tobari.ContextReferenceKind {
+	if !found || logout.Effect != operation.EffectWrite || logout.Agent.Mutation.TargetIDInput != "--context" || logout.Agent.Mutation.TargetKind != tobari.ContextReferenceKind || !logout.Agent.Mutation.CurrentContextFallback {
 		t.Fatalf("auth logout = %+v", logout)
 	}
 	status, found := catalog.Lookup("auth status")
@@ -55,7 +55,7 @@ func TestAuthLoginCatalogPreservesReviewedProviderAndMethodSemantics(t *testing.
 			methodInput = input
 		}
 	}
-	if !contextInput.Required || contextInput.ReferenceKind != tobari.ContextReferenceKind || providerInput.Required || !reflect.DeepEqual(providerInput.AllowedValues, authbroker.ReviewedLoginProviderIDs()) {
+	if contextInput.Required || contextInput.ReferenceKind != tobari.ContextReferenceKind || providerInput.Required || !reflect.DeepEqual(providerInput.AllowedValues, authbroker.ReviewedLoginProviderIDs()) {
 		t.Fatalf("context/provider inputs=%+v/%+v", contextInput, providerInput)
 	}
 	if authbroker.SupportsReviewedLoginProvider(authbroker.BuiltinAWSProviderID) && (!reflect.DeepEqual(methodInput.AllowedValues, []string{"identity-center", "console"}) || !reflect.DeepEqual(methodInput.Requires, []string{"--provider"})) {
@@ -66,8 +66,8 @@ func TestAuthLoginCatalogPreservesReviewedProviderAndMethodSemantics(t *testing.
 	if err != nil || inputs.Provided("--provider") || inputs.One("--context") != contextRef {
 		t.Fatalf("omitted provider parse=%+v err=%v", inputs, err)
 	}
-	if _, err := parseCommandInputs(spec, []string{"--provider=github"}); err == nil {
-		t.Fatal("missing required Context reference passed")
+	if inputs, err := parseCommandInputs(spec, []string{"--provider=github"}); err != nil || inputs.Provided("--context") {
+		t.Fatalf("current-Context fallback parse=%+v err=%v", inputs, err)
 	}
 	if _, err := parseCommandInputs(spec, []string{"--context", contextRef, "--method=console"}); err == nil {
 		t.Fatal("method without provider passed")

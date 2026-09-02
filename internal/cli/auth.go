@@ -44,7 +44,10 @@ func runAuthLogin(ctx context.Context, c *CLI, command CommandSpec, intent opera
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help auth login", "Correct the command arguments.")
 	}
-	contextRef := inputs.One("--context")
+	contextRef, err := c.resolveInvocationContextRef(ctx, inputs.One("--context"))
+	if err != nil {
+		return c.fail(ctx, err)
+	}
 	provider := inputs.One("--provider")
 	if !inputs.Provided("--provider") {
 		provider, err = c.selectFinalAuthLoginProvider(ctx, contextRef)
@@ -107,7 +110,10 @@ func runAuthImport(ctx context.Context, c *CLI, command CommandSpec, intent oper
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help auth import", "Correct the command arguments.")
 	}
-	contextRef := inputs.One("--context")
+	contextRef, err := c.resolveInvocationContextRef(ctx, inputs.One("--context"))
+	if err != nil {
+		return c.fail(ctx, err)
+	}
 	bindFinalAuthMutationIntent(&intent, command, contextRef)
 	result, err := c.finalAuth.Import(ctx, intent, contextRef, inputs.One("provider"), c.In)
 	if err != nil {
@@ -131,7 +137,11 @@ func runAuthStatus(ctx context.Context, c *CLI, command CommandSpec, _ operation
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help auth status", "Correct the command arguments.")
 	}
-	result, err := c.finalAuth.Status(ctx, inputs.One("--context"))
+	contextRef, err := c.resolveInvocationContextRef(ctx, inputs.One("--context"))
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	result, err := c.finalAuth.Status(ctx, contextRef)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -153,7 +163,10 @@ func runAuthLogout(ctx context.Context, c *CLI, command CommandSpec, intent oper
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help auth logout", "Correct the command arguments.")
 	}
-	contextRef := inputs.One("--context")
+	contextRef, err := c.resolveInvocationContextRef(ctx, inputs.One("--context"))
+	if err != nil {
+		return c.fail(ctx, err)
+	}
 	bindFinalAuthMutationIntent(&intent, command, contextRef)
 	result, err := c.finalAuth.Logout(ctx, intent, contextRef, inputs.One("provider"))
 	if err != nil {
@@ -164,6 +177,17 @@ func runAuthLogout(ctx context.Context, c *CLI, command CommandSpec, intent oper
 		return c.fail(ctx, err)
 	}
 	return c.emitMutationResult(ctx, command, output)
+}
+
+func (c *CLI) resolveInvocationContextRef(ctx context.Context, override string) (string, error) {
+	if c == nil || c.finalContexts == nil {
+		return "", missingRuntimeFault()
+	}
+	view, err := c.finalContexts.ResolveCurrentOrOverride(ctx, override)
+	if err != nil {
+		return "", err
+	}
+	return view.ContextRef, nil
 }
 
 func bindFinalAuthMutationIntent(intent *operation.Intent, command CommandSpec, contextRef string) {

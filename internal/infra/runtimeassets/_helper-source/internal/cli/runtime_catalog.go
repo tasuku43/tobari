@@ -43,7 +43,7 @@ func runtimeCommandSpecs() []CommandSpec {
 		finalContextPlanSpec(),
 		finalContextApplySpec(),
 		finalContextCreateSpec(),
-		finalContextEnterSpec(),
+		finalContextUseSpec(),
 		finalContextDeleteSpec(),
 		installationMigrationPlanSpec(),
 		installationMigrationApplySpec(),
@@ -70,12 +70,12 @@ func runtimeCommandSpecs() []CommandSpec {
 func policyAssistSpec() CommandSpec {
 	return CommandSpec{
 		Path: "policy assist", Summary: "Edit one Context's Template policy with an isolated coding agent",
-		Args: "--context <context-ref> [--agent codex|claude]", Effect: operation.EffectWrite, Role: RoleAct,
+		Args: "[--context <context-ref>] [--agent codex|claude]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "policy.assistance",
-			Outcome:      "Start one isolated Codex or Claude Code session from the explicitly referenced Context Runtime, expose exact static-policy schema guidance and read-only Policy Memory evidence, and activate only the reviewed policy.yaml through canonical Template Plan and Apply",
+			Outcome:      "Start one isolated Codex or Claude Code session from the current or explicitly overridden Context Runtime, expose exact static-policy schema guidance and read-only Policy Memory evidence, and activate only the reviewed policy.yaml through canonical Template Plan and Apply",
 			Inputs: []CommandInput{
-				{Name: "--context", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Opaque Context reference emitted by context create, list, or show; consumed unchanged.", AllowedValues: []string{}, ReferenceKind: tobari.ContextReferenceKind},
+				{Name: "--context", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Invocation-local opaque Context override; omission uses the installation current Context without observing CWD.", AllowedValues: []string{}, ReferenceKind: tobari.ContextReferenceKind},
 				{Name: "--agent", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Coding agent to open; omission uses the inline agent selector.", AllowedValues: []string{"codex", "claude"}},
 			},
 			Output: CommandOutput{
@@ -94,6 +94,7 @@ func policyAssistSpec() CommandSpec {
 				"An interactive terminal and Docker are available. The Configurator has direct Internet access outside Gateway policy.",
 			},
 			Errors: append(mutationCommandErrors("policy assist", "template list",
+				classifiedCommandError(fault.KindRejected, "current_context_required", false, fault.PhasePrecondition, fault.ChangeNone, "context list", "Discover a Context, then select it with context use or pass an explicit override."),
 				classifiedCommandError(fault.KindUnavailable, "configuration_task_settlement_incomplete", false, fault.PhaseVerification, fault.ChangeConfirmed, "help policy assist", "Resume the same exact policy assistance task to settle its confirmed publication."),
 				classifiedCommandError(fault.KindUnavailable, "configuration_task_busy", true, fault.PhasePrecondition, fault.ChangeNone, "help policy assist", "Retry the same exact assistance task after the current attachment finishes."),
 				classifiedCommandError(fault.KindUnavailable, "configuration_task_recovery_required", false, fault.PhasePrecondition, fault.ChangeNone, "help policy assist", "Reconcile the retained exact task before starting another assistance session."),
@@ -128,7 +129,7 @@ func policyAssistSpec() CommandSpec {
 				declaredCommandError(fault.KindInternal, "missing_configurator", false, "doctor", "Inspect Configurator composition."),
 				classifiedCommandError(fault.KindInternal, "missing_runtime", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Configure the Context, Template, Runtime, and Configurator application boundaries."),
 			), workspaceStartReadinessErrors()...),
-			Mutation: &MutationContract{TargetKind: tobari.ContextReferenceKind, TargetInputs: []string{"--context"}, TargetIDInput: "--context", Impact: configuratorcmd.Impact()},
+			Mutation: &MutationContract{TargetKind: tobari.ContextReferenceKind, TargetInputs: []string{"--context"}, TargetIDInput: "--context", CurrentContextFallback: true, Impact: configuratorcmd.Impact()},
 		},
 		handler: runPolicyAssist,
 	}

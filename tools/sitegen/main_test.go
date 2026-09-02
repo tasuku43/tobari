@@ -73,7 +73,7 @@ func TestGenerateCatalogUsesExecutableAgentHelp(t *testing.T) {
 		"cluster up", "cluster status", "cluster down",
 		"policy candidates", "policy allow", "policy deny",
 		"template list", "template show", "template default set",
-		"context list", "context show", "context create", "context enter",
+		"context list", "context show", "context create", "context use",
 		"workspace list", "workspace status", "workspace delete",
 		"runtime list", "runtime show", "runtime create", "runtime history", "runtime build",
 		"tobari", "status",

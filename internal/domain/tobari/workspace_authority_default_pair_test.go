@@ -43,6 +43,48 @@ func TestFinalDefaultPairObservationRejectsCrossProjectWorkspaceRelabel(t *testi
 	}
 }
 
+func TestFinalDefaultPairObservationUsesUniqueCWDWorkspaceRegardlessOfDefaultTemplate(t *testing.T) {
+	collection := workspaceAuthorityCollectionFixture(t)
+	otherID := WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789d3")
+	otherTemplate := collection.Templates[0].Clone()
+	otherTemplate.ID = otherID
+	otherTemplate.Name = "other"
+	for index := range otherTemplate.Retained {
+		otherTemplate.Retained[index].TemplateID = otherID
+	}
+	otherTemplate.Current.TemplateID = otherID
+	otherTemplate.Current.Revision = otherTemplate.Retained[0].Revision
+	contextRecord := collection.Contexts[0].Clone()
+	contextRecord.Context.TemplateID = otherID
+	contextRecord.ActiveTemplatePolicy = nil
+	contextRecord.ActivePolicyMemory = nil
+	contextRecord.ActivePolicyMemoryRef = nil
+	workspace := collection.Workspaces[0]
+	workspace.LastSuccessfulEntry = nil
+	collection, _, err := PublishWorkspaceAuthorityCollection(
+		[]WorkspaceTemplate{collection.Templates[0], otherTemplate}, []WorkspaceAuthorityContextRecord{contextRecord},
+		[]WorkspaceBinding{workspace}, collection.PendingCandidates, nil, nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := NewFinalDefaultPairObservation(collection, true, workspace.ProjectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observation.Context == nil || observation.Context.Context.TemplateID != otherID || observation.DefaultTemplate == nil || observation.DefaultTemplate.ID != otherID {
+		t.Fatalf("CWD Workspace did not own Context selection: %+v", observation)
+	}
+	selection, err := NewFinalDefaultPairSelection(collection, true, workspace.ProjectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	choice, automatic := selection.AutomaticChoice()
+	if !automatic || choice.Kind != FinalDefaultPairSelectionUse || choice.ContextID != contextRecord.Context.ID {
+		t.Fatalf("root selection did not reuse the unique nondefault Workspace: selection=%+v choice=%+v automatic=%t", selection, choice, automatic)
+	}
+}
+
 func TestFinalDefaultPairSelectionRequiresExplicitAncestorChoiceNearestFirst(t *testing.T) {
 	collection := workspaceAuthorityCollectionFixture(t)
 	nestedID := ContextID("01912345-6789-7abc-8def-0123456789d1")

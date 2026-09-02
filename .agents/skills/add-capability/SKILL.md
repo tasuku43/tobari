@@ -107,8 +107,9 @@ configuration path. Agent assistance is accepted only for one concrete target.
 Runtime assistance is installation-owned, consumes one Runtime reference, and
 uses the built-in standard execution Runtime plus one agent-specific
 installation Home without reading CWD, Project, Workspace, or Context
-authority. Static-policy assistance consumes one explicit Context reference
-and uses that Context's exact Runtime and managed Home. A task-scoped
+authority. Static-policy assistance uses the installation current Context or
+one exact invocation-local override and uses that Context's exact Runtime and
+managed Home without consulting CWD or Workspace. A task-scoped
 Configurator may use direct egress only while the executable contract proves
 that Project files, host/unrelated managed Home, Docker socket, and live
 authority are absent. Bind one writable target, copied typed evidence, one target validator,

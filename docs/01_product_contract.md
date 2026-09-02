@@ -417,7 +417,7 @@ The public commands are:
 | `policy allow --id <policy-candidate-ref> [--format text|json]` | act | write | Remember and activate one exact Allow |
 | `policy deny --id <policy-candidate-ref> [--format text|json]` | act | write | Remember and activate one exact Deny |
 | `policy reset --id <policy-rule-ref> [--format text|json]` | act | write | Remove one exact current remembered decision and activate the resulting Policy Memory |
-| `policy assist --context CONTEXT_REF [--agent codex\|claude]` | act, Context-reference bound | write | Edit only the referenced Context's Template `policy.yaml` through an isolated agent, read exact Policy Memory as evidence, and activate only through canonical Template Plan/Apply |
+| `policy assist [--context CONTEXT_REF] [--agent codex\|claude]` | act, current-or-override Context bound | write | Edit only the current or invocation-overridden Context's Template `policy.yaml` through an isolated agent, read exact Policy Memory as evidence, and activate only through canonical Template Plan/Apply |
 | `template list [--format text|json]` | discover | read | Return the exhaustive final Workspace Template collection |
 | `template show [--name <name>] [--format text|json]` | discover | read | Return one final Template and its exact current immutable revision |
 | `template create --name <name> [--source-access read-only\|read-write] [--graphql-endpoint <https-url>] [--format text|json]` | act | create | Write one fresh unpublished Template source draft from the reviewed standard body |
@@ -435,7 +435,7 @@ The public commands are:
 | `context create --template <template-ref> [--format text|json]` | act | create | Write one location-free unpublished Context source draft for one active Template |
 | `installation migration plan [--format text|json]` | discover | read | Bind one exact supported typed `authority.json` to a read-only installed-state migration plan |
 | `installation migration apply --plan <installation-migration-plan-ref> [--format text|json]` | act | write | Revalidate one migration plan, publish concept sources and one verified generation, then retire `authority.json` |
-| `context enter --id <context-ref> [--format text|json] [-- <command>...]` | act | create | Reconcile and enter one exact Context Workspace |
+| `context use --id <context-ref> [--format text|json]` | act | write | Select one exact location-free Context as the installation current Context without reading CWD or changing Workspace/Docker state |
 | `context delete --id <context-ref> --confirm=delete [--format text|json]` | act | write | Delete one exact Context, its Policy Memory, complete managed Home, and unresolved candidates after no Configurator or Workspace attachment remains |
 | `workspace list [--format text|json]` | discover | read | Return every final Workspace and its exact owner binding |
 | `workspace status --id <workspace-ref> [--format text|json]` | discover | read | Return one exact Workspace and its applied authority |
@@ -542,12 +542,14 @@ inspection; it may open the host browser, stages decisions without authority,
 and delegates one confirmed reviewed set to the canonical fixed-target Apply.
 The release-surface development binary and release archives omit this command.
 
-The CWD entry/read commands `tobari` and `status` have no Template or Context
-selector. Bare `status` resolves the nearest canonical ProjectRoot
-from CWD before applying the installation default Template; same-root Contexts
-for other Templates remain siblings and never redirect selection. Nondefault
-work uses an opaque Context or Workspace reference obtained from its owning
-discovery command.
+The CWD entry/read commands `tobari` and `status` resolve Workspace authority,
+not current Context authority, from the canonical Project root. An existing
+Workspace retains its own Context binding regardless of `context use`. At a
+root without a Workspace, bare `tobari` uses the installation current Context
+to create that CWD-owned Workspace; absence fails before Docker with recovery
+through `context list` and `context use`. Context-aware commands may accept an
+optional opaque `--context` override that applies only to that invocation and
+never rewrites the durable selection.
 
 Fresh root configuration and default-shell entry require the existing
 interactive terminal contract. With no persisted final Template/Context
@@ -561,9 +563,10 @@ publication.
 Task-scoped assistance starts from explicit task authority. `runtime assist`
 consumes one stable managed Runtime reference and its exact editable-source
 digest, executes the agent from the installation-owned standard Runtime, and
-does not observe CWD, Workspace, or Context. `policy assist` consumes one
-explicit Context reference and copies its exact Template and Policy Memory
-revisions. The
+does not observe CWD, Workspace, or Context. `policy assist` resolves the
+installation current Context when `--context` is omitted, otherwise consumes
+the explicit opaque override unchanged, and copies its exact Template and
+Policy Memory revisions. Neither path observes CWD. The
 inline selector offers only Codex and Claude Code, never Manual setup, and never
 enters the terminal alternate screen. Its handoff states that the native
 interface runs inside an isolated direct-egress container rather than on the
@@ -625,11 +628,11 @@ remain independent from this root readiness composition.
 After final default-pair publication, root performs the exact canonical
 `cluster up` reconciliation without another confirmation, re-observes the
 returned final collection receipt, and requires the exact reviewed
-Project/default-Template/Context authority before entry. A later failure never
+Project/selected-Workspace/Context authority before entry. A later failure never
 rolls back a confirmed earlier receipt. When protection is ready, root invokes
-the canonical Context-entry boundary, which alone reconciles the Workspace
+the canonical Workspace-entry boundary, which alone reconciles the Workspace
 AppliedEntry and hands off the child. Before its immutable reconciliation plan,
-Context entry materializes only the exact selected canonical built-in standard
+Workspace entry materializes only the exact selected canonical built-in standard
 Runtime from embedded pinned source when that local image is absent. Runtime
 customization is an independent prepare-first flow; root never implicitly
 builds, restores, prunes, deletes, or selects a custom Runtime. If authoritative
@@ -1013,7 +1016,7 @@ review runs through `tobari review permissions` in a separate host terminal.
   resolves its bound Workspace Template's exact revision; its Workspace uses
   that revision when created and again during entry reconciliation. All
   selected images still pass the same compatibility checks before Docker
-  mutation. If the bound Template's Runtime changes, the next Context entry
+  mutation. If the bound Template's Runtime changes, the next Workspace entry
   preserves the Workspace home and authority record, recreates only the work container when the
   runtime spec changed, and records the new image only after reconciliation
   succeeds.
@@ -1021,10 +1024,11 @@ review runs through `tobari review permissions` in a separate host terminal.
   owned by canonical `cluster up`; bare root may invoke that same application
   boundary as one separately reported checkpoint before Workspace entry.
 - Bare root and bare `status` accept no Template, Context, Workspace, or root
-  selector. They combine the installation default Template with canonical CWD
-  and never guess from same-root siblings. Nondefault entry and every deletion
-  consume opaque references from `context list/show` or
-  `workspace list/status`.
+  selector. Canonical CWD selects only Workspace candidates. An existing
+  Workspace supplies its permanent Context binding; at a new root, bare root
+  uses current Context while status remains non-creating. Same-root ambiguity
+  never guesses. Context selection uses `context list` then `context use`, and
+  every deletion consumes its exact Context or Workspace reference.
 
 ## Output and exit contract
 
@@ -1055,7 +1059,6 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Context list | `contexts` | 1 |
 | Context report | `context` | 1 |
 | Context activation plan | `context_activation_plan` | 1 |
-| Context entry result | `entry` | 1 |
 | Workspace list | `workspaces` | 1 |
 | Workspace report | `workspace` | 1 |
 | Default-pair status | `status` | 3 |
@@ -1074,14 +1077,15 @@ Human output is concise text. The canonical public machine-output inventory is:
 <!-- public-cli-json-schemas:end -->
 
 Bare `status` is the CWD-first schema-3 home. It reports the selected
-default Template, exact Context, independent desired/active Policy Memory and
+Workspace's Template and exact Context when present, independent desired/active Policy Memory and
 Workspace AppliedEntry facts, Runtime and cluster observation, bounded
 permission and Service summaries, one structured primary Next, and ordered
 Attention. It performs zero mutation and returns no aggregate overall state.
 
 `template list` returns the exhaustive Template collection and opaque Template
 references. `template show` returns one exact current immutable revision and
-its revision reference. Context and Workspace discovery return their own
+its revision reference. `context list` marks the installation current Context;
+Context and Workspace discovery return their own
 distinct references. Human output leads with ordinary names and Current/Next;
 JSON retains exact IDs, digests, nulls, empty collections, false, and bounded
 unknowns. Presentation never reconstructs an action target from a name,
@@ -1363,8 +1367,9 @@ Detached session + Workspace exists
 Workspace absent
 ```
 
-`status` resolves the nearest canonical Workspace ProjectRoot before applying the
-installation default Template. It distinguishes logical absence from an
+`status` resolves the nearest canonical Workspace ProjectRoot and follows that
+Workspace's permanent Context/Template binding. Only when no Workspace exists
+does it present the prospective installation default Template. It distinguishes logical absence from an
 existing Workspace whose runtime is missing, and reports attachment as a
 separate typed fact rather than inferring it from labels or presentation
 order. When several ancestor Workspaces exist,
@@ -1512,7 +1517,7 @@ create state merely to observe it. Workspace Template, policy, credential, auth,
 and lock initialization belongs to declared create/write outcomes.
 
 `runtime assist` prepares the installation-owned standard Runtime and per-agent
-Home; `policy assist --context` prepares the referenced Context's exact Runtime
+Home; `policy assist` prepares the effective current-or-overridden Context's exact Runtime
 and complete managed Home. Both create or resume one exact task working copy
 and create a disconnected Configurator container from the
 lifecycle/store-fenced immutable image ID. Post-create inspection verifies the

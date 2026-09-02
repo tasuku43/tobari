@@ -14,6 +14,7 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
+	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 const (
@@ -478,11 +479,12 @@ type CommandError struct {
 // MutationContract connects a mutating command's public inputs to the target
 // and generic impact facts consumed by the project-specific policy gate.
 type MutationContract struct {
-	TargetKind    string           `json:"target_kind"`
-	TargetInputs  []string         `json:"target_inputs"`
-	ParentInput   string           `json:"parent_input,omitempty"`
-	TargetIDInput string           `json:"target_id_input,omitempty"`
-	Impact        operation.Impact `json:"impact"`
+	TargetKind             string           `json:"target_kind"`
+	TargetInputs           []string         `json:"target_inputs"`
+	ParentInput            string           `json:"parent_input,omitempty"`
+	TargetIDInput          string           `json:"target_id_input,omitempty"`
+	CurrentContextFallback bool             `json:"current_context_fallback,omitempty"`
+	Impact                 operation.Impact `json:"impact"`
 }
 
 // InteractiveWorkflowContract describes a human-only composition of one
@@ -519,15 +521,17 @@ func (m MutationContract) MarshalJSON() ([]byte, error) {
 		Destructive  string `json:"destructive"`
 	}
 	type mutationDocument struct {
-		TargetKind    string         `json:"target_kind"`
-		TargetInputs  []string       `json:"target_inputs"`
-		ParentInput   string         `json:"parent_input,omitempty"`
-		TargetIDInput string         `json:"target_id_input,omitempty"`
-		Impact        impactDocument `json:"impact"`
+		TargetKind             string         `json:"target_kind"`
+		TargetInputs           []string       `json:"target_inputs"`
+		ParentInput            string         `json:"parent_input,omitempty"`
+		TargetIDInput          string         `json:"target_id_input,omitempty"`
+		CurrentContextFallback bool           `json:"current_context_fallback,omitempty"`
+		Impact                 impactDocument `json:"impact"`
 	}
 	return json.Marshal(mutationDocument{
 		TargetKind: m.TargetKind, TargetInputs: m.TargetInputs,
 		ParentInput: m.ParentInput, TargetIDInput: m.TargetIDInput,
+		CurrentContextFallback: m.CurrentContextFallback,
 		Impact: impactDocument{
 			Cardinality: m.Impact.Cardinality.String(), Notification: m.Impact.Notification.String(),
 			AccessChange: m.Impact.AccessChange.String(), Destructive: m.Impact.Destructive.String(),
@@ -1532,7 +1536,7 @@ func validateAgentContract(command CommandSpec) error {
 		if mutation.ParentInput == "" || mutation.TargetIDInput != "" {
 			return fmt.Errorf("create mutation requires parent_input and must not declare target_id_input")
 		}
-		parent, err := validateMutationBinding(mutation.ParentInput, mutation.TargetInputs, inputsByName)
+		parent, err := validateMutationBinding(mutation.ParentInput, mutation.TargetInputs, inputsByName, mutation.CurrentContextFallback)
 		if err != nil {
 			return fmt.Errorf("create mutation parent: %w", err)
 		}
@@ -1547,7 +1551,7 @@ func validateAgentContract(command CommandSpec) error {
 		if mutation.TargetIDInput == "" {
 			return fmt.Errorf("write mutation requires target_id_input")
 		}
-		target, err := validateMutationBinding(mutation.TargetIDInput, mutation.TargetInputs, inputsByName)
+		target, err := validateMutationBinding(mutation.TargetIDInput, mutation.TargetInputs, inputsByName, mutation.CurrentContextFallback)
 		if err != nil {
 			return fmt.Errorf("write mutation target ID: %w", err)
 		}
@@ -1559,7 +1563,7 @@ func validateAgentContract(command CommandSpec) error {
 			if mutation.ParentInput == mutation.TargetIDInput {
 				return fmt.Errorf("write mutation parent_input and target_id_input must be distinct")
 			}
-			parent, err := validateMutationBinding(mutation.ParentInput, mutation.TargetInputs, inputsByName)
+			parent, err := validateMutationBinding(mutation.ParentInput, mutation.TargetInputs, inputsByName, mutation.CurrentContextFallback)
 			if err != nil {
 				return fmt.Errorf("write mutation parent: %w", err)
 			}
@@ -1742,7 +1746,7 @@ func validateInteractiveWorkflow(command CommandSpec, fields map[string]OutputFi
 	return nil
 }
 
-func validateMutationBinding(name string, targetInputs []string, inputs map[string]CommandInput) (CommandInput, error) {
+func validateMutationBinding(name string, targetInputs []string, inputs map[string]CommandInput, allowCurrentContextFallback bool) (CommandInput, error) {
 	input, exists := inputs[name]
 	if !exists {
 		return CommandInput{}, fmt.Errorf("input %q is not a structured input", name)
@@ -1750,8 +1754,14 @@ func validateMutationBinding(name string, targetInputs []string, inputs map[stri
 	if input.Source != InputSourceArgument && input.Source != InputSourceFlag {
 		return CommandInput{}, fmt.Errorf("input %q must be a command argument or flag", name)
 	}
-	if !input.Required {
+	if !input.Required && !allowCurrentContextFallback {
 		return CommandInput{}, fmt.Errorf("input %q must be required", name)
+	}
+	if allowCurrentContextFallback && input.Required {
+		return CommandInput{}, fmt.Errorf("current-Context fallback input %q must be optional", name)
+	}
+	if allowCurrentContextFallback && input.ReferenceKind != tobari.ContextReferenceKind {
+		return CommandInput{}, fmt.Errorf("current-Context fallback input %q must consume a Context reference", name)
 	}
 	for _, target := range targetInputs {
 		if target == name {
@@ -2386,7 +2396,7 @@ func validateCommandReferenceRole(command CommandSpec) error {
 				break
 			}
 		}
-		if !hasRequiredReference {
+		if !hasRequiredReference && (command.Agent.Mutation == nil || !command.Agent.Mutation.CurrentContextFallback) {
 			return fmt.Errorf("act commands must require at least one opaque reference")
 		}
 	}

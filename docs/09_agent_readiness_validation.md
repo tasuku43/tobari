@@ -14,8 +14,8 @@ transcripts as repository fixtures.
 | Prepare a reusable Runtime source | `runtime list`, then `runtime create --copy-source-from NAME --name NAME` | Scoped help identifies `standard` or one managed current editable source; creation returns a fresh Runtime ID with empty history and no lineage, performs no build or Template/Context/Workspace change, and needs zero revision decoding or source reconstruction |
 | Review, reclaim, and recover Runtime material | `review runtimes`; `runtime prune dry-run`, then `runtime prune apply --plan PLAN_REF --confirm=prune`; `runtime restore --id REVISION_REF`; `runtime delete --id RUNTIME_REF --confirm=delete` | One scoped help read plus one local discovery yields every exact opaque input; dry-run is zero-write and exhaustive, apply consumes the unchanged plan, restore reconstructs exact retained content, and whole deletion preserves Template, Context, Policy Memory, Workspace, home, Project, and credential authority while protected, unknown, shared, or standard targets fail closed |
 | Complete deterministic first use | Fresh bare `tobari` | Tobari-owned Manual review precedes canonical default Template/Context, cluster, Workspace entry, and handoff; no coding agent, Configurator draft, or task source is created during fresh setup |
-| Assist one concrete source | `runtime assist --id RUNTIME_REF [--agent codex\|claude]`; `policy assist --context CONTEXT_REF [--agent codex\|claude]` | Runtime assistance uses the installation standard Runtime and per-agent Home with zero CWD/Workspace/Context observation, may target an unbuilt managed Runtime, and publishes no revision; policy assistance consumes the Context reference unchanged, exposes exact read-only Memory/schema evidence, and edits only `policy.yaml` through canonical Template Plan/Apply; both have direct egress but no Project/host/unrelated Home/Docker socket |
-| Enter bounded work | `tobari` or `tobari -- COMMAND [ARG...]`; nondefault entry is `context enter --id CONTEXT_REF [-- COMMAND...]` | Root composes the canonical default Template/Context, cluster, Workspace entry, and handoff boundaries with five checkpoint-local stderr stages; direct entry preserves exact argv and child status, while every failed or interrupted boundary leaves one causal Catalog action or typed condition and no blind replay |
+| Assist one concrete source | `runtime assist --id RUNTIME_REF [--agent codex\|claude]`; `policy assist [--context CONTEXT_REF] [--agent codex\|claude]` | Runtime assistance uses the installation standard Runtime and per-agent Home with zero CWD/Workspace/Context observation, may target an unbuilt managed Runtime, and publishes no revision; policy assistance uses the current Context or consumes one exact invocation-local override, exposes exact read-only Memory/schema evidence, and edits only `policy.yaml` through canonical Template Plan/Apply; both have direct egress but no Project/host/unrelated Home/Docker socket |
+| Select Context and enter bounded work | `context use --id CONTEXT_REF`; then `tobari` or `tobari -- COMMAND [ARG...]` | `context use` changes only the location-free installation selector; root selects an existing Workspace from CWD and follows its bound Context, or uses current Context only when creating a Workspace at a new root. Direct entry preserves exact argv and child status, while every failed or interrupted boundary leaves one causal Catalog action or typed condition and no blind replay |
 | Understand authority lifetime | `context show --id CONTEXT_REF`, `policy rules`, and Host Loopback capability/review output | Routine guidance distinguishes Workspace Template policy, remembered Context decisions, and this-session Host Loopback access without requiring baseline, overlay, principal, epoch, or grant reconstruction; typed output retains exact destination kind and authority lifetime |
 | Grow exact permission | `review permissions`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Context/scheme/host/port/method/path authority |
 | Resume after reviewed denial | In the attached Workspace run the exact `tobari-permission wait --id pwt_...` printed by one eligible ordinary HTTP/HTTPS denial; in a separate trusted-host terminal review and Apply; after `Allow`, deliberately retry the workload | Wait returns only `Allow`, `Deny`, or lease `Expired`; the helper has no proposal, decision, mutation, discovery, or retry authority; the fresh request receives an independent Gateway authorization |
@@ -124,7 +124,7 @@ non-authority. Apply must produce the five ordered stages
 `check_requirements`, `resolve_context`, `prepare_protection`,
 `prepare_workspace`, and `enter_workspace`; each success marker proves only its
 exact receipt. Repeat with an unavailable Engine, known stopped cluster,
-default-pair partial result, unknown cluster result, explicit Context entry,
+default-pair partial result, unknown cluster result, current Context selection,
 and a second known-safe root invocation. Record the one primary Next or typed
 condition at every stop, and prove no classifier points to itself or authorizes
 mutation after an unknown outcome. Configurator rows are the one accepted
@@ -555,13 +555,14 @@ is:
 ```sh
 bin/tobari-research context list --format json
 # Pass one returned opaque Context reference unchanged as CONTEXT_REF.
-bin/tobari-research auth login --context "$CONTEXT_REF" --provider github
-bin/tobari-research auth status --context "$CONTEXT_REF" --format json
+bin/tobari-research context use --id "$CONTEXT_REF"
+bin/tobari-research auth login --provider github
+bin/tobari-research auth status --format json
 # Re-enter that exact Context's Workspace.
 case "${GH_TOKEN-}" in tobari-h1_*) ;; *) exit 1 ;; esac
 test "$(gh auth token --hostname github.com)" = "$GH_TOKEN"
 gh api user --jq .login >/dev/null
-bin/tobari-research auth logout github --context "$CONTEXT_REF" --format json
+bin/tobari-research auth logout github --format json
 ```
 
 The equality assertion proves `gh auth token` returns the projected handle, not

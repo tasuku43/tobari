@@ -25,7 +25,7 @@
     {
       "id": "E4",
       "expected_stages": [],
-      "expected_next": "context enter",
+      "expected_next": "context use",
       "expected_change_state": "",
       "required_gates": []
     },
