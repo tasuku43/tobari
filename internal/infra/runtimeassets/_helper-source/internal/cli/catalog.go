@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -499,6 +500,7 @@ type InteractiveWorkflowContract struct {
 	SelectionOutputField   string   `json:"selection_output_field"`
 	Confirmation           string   `json:"confirmation"`
 	NonInteractiveBehavior string   `json:"non_interactive_behavior"`
+	ProjectsActionErrors   bool     `json:"projects_action_errors,omitempty"`
 }
 
 func (workflow InteractiveWorkflowContract) actionCommands() []string {
@@ -553,6 +555,9 @@ type AgentContract struct {
 	Errors        []CommandError               `json:"errors"`
 	Mutation      *MutationContract            `json:"mutation,omitempty"`
 	Interactive   *InteractiveWorkflowContract `json:"interactive,omitempty"`
+	// projectedInteractiveMutationErrors is set only by the Catalog when a
+	// public read projection hides its internal composed action path.
+	projectedInteractiveMutationErrors bool
 }
 
 // CommandSpec is the single source of truth for dispatch, human help, and the
@@ -1005,6 +1010,20 @@ func (c Catalog) Validate() error {
 			if (action.Effect != operation.EffectCreate && action.Effect != operation.EffectWrite) || action.Role != RoleAct {
 				return fmt.Errorf("catalog command %q interactive action %q must be a create or write act command", command.Path, actionPath)
 			}
+			if workflow.ProjectsActionErrors {
+				projected := make(map[string]CommandError, len(command.Agent.Errors))
+				for _, declared := range command.Agent.Errors {
+					projected[declared.Code] = declared
+				}
+				for _, actionError := range action.Agent.Errors {
+					declared, found := projected[actionError.Code]
+					if !found || declared.Kind != actionError.Kind || declared.Retryable != actionError.Retryable ||
+						declared.Phase != actionError.Phase || declared.ChangeState != actionError.ChangeState ||
+						!reflect.DeepEqual(declared.NextActions, actionError.NextActions) {
+						return fmt.Errorf("catalog command %q must project interactive action %q error %q exactly", command.Path, actionPath, actionError.Code)
+					}
+				}
+			}
 			if action.Agent.FixedTarget != nil {
 				continue
 			}
@@ -1433,7 +1452,8 @@ func validateAgentContract(command CommandSpec) error {
 	_, hasReadOutputFailure := seenErrors["output_write_failed"]
 	_, hasConsumedReadOutputFailure := seenErrors[consumedReadOutputWriteFailureCode]
 	_, hasMutationOutputFailure := seenErrors["mutation_output_write_failed"]
-	if command.Effect == operation.EffectRead && hasMutationOutputFailure {
+	projectsMutationErrors := contract.projectedInteractiveMutationErrors || contract.Interactive != nil && contract.Interactive.ProjectsActionErrors
+	if command.Effect == operation.EffectRead && hasMutationOutputFailure && !projectsMutationErrors {
 		return fmt.Errorf("read command must not declare mutation_output_write_failed")
 	}
 	if command.Effect != operation.EffectRead && hasReadOutputFailure {
@@ -2561,6 +2581,7 @@ func (c Catalog) publicCommandProjection(command CommandSpec) CommandSpec {
 	for _, action := range projected.Agent.Interactive.actionCommands() {
 		registered, found := c.lookupRegisteredForProgram(command.programName(), action)
 		if found && registered.Visibility == CommandVisibilityInternal {
+			projected.Agent.projectedInteractiveMutationErrors = projected.Agent.Interactive.ProjectsActionErrors
 			projected.Agent.Interactive = nil
 			break
 		}

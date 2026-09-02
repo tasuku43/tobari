@@ -878,6 +878,23 @@ freshly validates every opaque candidate, has a bounded deadline, never retries
 automatically, and returns only the authoritative typed receipt. Opener failure
 does not widen binding or authority; the exact URL remains available for manual
 host-browser navigation.
+For an ordinary non-durable Gateway observation, fresh validation means the
+selected candidate is reread under the final-authority lifecycle fence, the
+complete collection generation and revision still match, and the typed
+candidate authority is byte-identical. Settlement receives that private
+evidence and durable publication removes no candidate that was absent from the
+predecessor collection. After the exact decision is durably recorded, recovery
+uses the recorded evidence so successful activation cannot erase its own
+recovery prerequisite.
+Recovery discovery reads the journal and collection only through the
+installation's zero-create lifecycle observation boundary. It accepts only the
+exact active reviewed operation, fixed target, immutable set, predecessor and
+successor receipts, and requires recorded settlement before a successor
+receipt can be resumed. The private recovery field is neither serialized nor
+mixed with untrusted denial candidates. Only an explicitly confirmed trusted
+TTY may act on it; JSON and redirected review remain read-only. Completed
+terminal evidence and confirmed-output failures route to read-only Policy
+Memory reconciliation, never another mutation attempt.
 Session-close summaries use the same untrusted request projection
 and are best-effort host stderr output.
 
@@ -1126,6 +1143,14 @@ Memory, and dynamic Memory activation cannot rewrite Template source. No user
 XDG root or Workspace contains Rego; only the embedded evaluator can contribute
 executable policy to Docker-managed bundle material.
 
+Configurator coordination children are authority, not incidental temporary
+files. Task-scope, catalog, and Template-stage locks accept only a real
+owner-only 0600 regular file with one link. Creation is exclusive, Unix open
+does not follow links, and post-open validation requires the descriptor and
+published path to retain one identity. Symlinks, hard links, replacement races,
+unsafe ownership or mode, and special files fail before desired-source
+mutation; the CLI never deletes or repairs a suspicious lock automatically.
+
 Active authority objects and generation manifests are owner-only bounded
 regular files under the concept-separated XDG state root. Readers verify the
 active-pointer digest, manifest digest, every object path/digest/type/embedded
@@ -1182,8 +1207,14 @@ collected.
   one exact Workspace, home, native credentials, and owned runtime resources
   while preserving Context Policy Memory. `context delete` requires no
   Workspace/attachment/research credential; deleting the current Context
-  atomically clears the selector after those blockers are absent. `template
-  delete` requires no default selection or Context reference.
+  atomically clears the selector after those blockers are absent. Because the
+  deletion also removes that Context from the shared aggregate projection, a
+  fresh action proves generic Docker readiness before its durable settlement
+  decision; exact recovery of an existing decision does not repeat or relabel
+  that preflight. An unpublished Context draft has no aggregate, Home, or
+  credential authority and is deleted only after exact source validation under
+  the same Catalog/Stage exclusion. `template delete` requires no default
+  selection or Context reference.
 
 Bare root composes canonical Template/default/Context initialization, bounded
 current Context resolution for a new Workspace, distinct default-Template

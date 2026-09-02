@@ -117,7 +117,7 @@ func finalPolicyMutationErrors(path, recovery string) []CommandError {
 		declaredCommandError(fault.KindInvalidInput, "invalid_policy_rule_ref", false, "policy rules", "Use an emitted rule reference unchanged."),
 		declaredCommandError(fault.KindRejected, "policy_review_changed", false, "review permissions", "Review the current complete final decision set again."),
 		declaredCommandError(fault.KindNotFound, "policy_target_not_found", false, recovery, "Rediscover current final Policy Memory authority."),
-		declaredCommandError(fault.KindContract, "invalid_policy_memory_result", false, recovery, "Reconcile the confirmed final Policy Memory result."),
+		classifiedCommandError(fault.KindContract, "invalid_policy_memory_result", false, fault.PhaseVerification, fault.ChangeUnknown, recovery, "Reconcile the confirmed final Policy Memory result."),
 		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the final Policy Memory adapter."),
 	)
 }
@@ -130,8 +130,35 @@ func finalPolicyReviewInteractiveErrors() []CommandError {
 		classifiedCommandError(fault.KindInternal, "invalid_policy_review_result", false, fault.PhaseVerification, fault.ChangeUnknown, "policy candidates", "Rediscover the current candidate set before another review."),
 		classifiedCommandError(fault.KindContract, "invalid_policy_review_set", false, fault.PhaseVerification, fault.ChangeNone, "policy candidates", "Rediscover the current candidate set before staging another review."),
 		classifiedCommandError(fault.KindRejected, "policy_review_scope_mixed", false, fault.PhasePrecondition, fault.ChangeNone, "policy candidates", "Rediscover candidates, then apply attachment-scoped and persistent decisions separately."),
+		classifiedCommandError(fault.KindRejected, "policy_review_changed", false, fault.PhasePrecondition, fault.ChangeNone, "policy candidates", "Rediscover the current exact candidates before opening a fresh review."),
+		classifiedCommandError(fault.KindContract, "invalid_policy_memory_result", false, fault.PhaseVerification, fault.ChangeUnknown, "policy rules", "Reconcile the confirmed Policy Memory result."),
+		classifiedCommandError(fault.KindUnavailable, "final_authority_mutation_recovery_required", false, fault.PhasePrecondition, fault.ChangeNone, "status", "Read and recover the preserved final-authority decision through review permissions."),
 		classifiedCommandError(fault.KindContract, "invalid_catalog", false, fault.PhasePrecondition, fault.ChangeNone, "help review permissions", "Repair the internal reviewed-set Apply contract."),
 	}
+}
+
+func finalPolicyReviewErrors() []CommandError {
+	result := append([]CommandError{}, finalPolicyReadErrors("review permissions")...)
+	result = append(result, finalPolicyReviewInteractiveErrors()...)
+	actionErrors := finalPolicyMutationErrors("review permissions", "policy rules")
+	for index := range actionErrors {
+		if actionErrors[index].Phase == "" && actionErrors[index].ChangeState == "" {
+			actionErrors[index].Phase, actionErrors[index].ChangeState = defaultErrorClassification(operation.EffectCreate, actionErrors[index].Kind, actionErrors[index].Code)
+		}
+	}
+	result = append(result, actionErrors...)
+	result = append(result, declaredCommandError(fault.KindUnavailable, "final_policy_review_unavailable", false, "policy candidates", "Use direct exact decisions until the complete reviewed-set owner is configured."))
+	unique := make([]CommandError, 0, len(result))
+	positions := map[string]int{}
+	for _, declared := range result {
+		if position, found := positions[declared.Code]; found {
+			unique[position] = declared
+			continue
+		}
+		positions[declared.Code] = len(unique)
+		unique = append(unique, declared)
+	}
+	return unique
 }
 
 func finalPolicyCandidatesSpec() CommandSpec {
@@ -144,9 +171,9 @@ func finalPolicyCandidatesSpec() CommandSpec {
 
 func finalPolicyReviewSpec() CommandSpec {
 	return CommandSpec{Path: "review permissions", Summary: "Review final Policy Memory candidates", Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{
-		CapabilityID: "policy.learning", Outcome: "Inspect the coherent final pending set without rediscovering predecessor denial logs", Inputs: []CommandInput{formatInput()},
+		CapabilityID: "policy.learning", Outcome: "Inspect the coherent final pending set; a trusted text TTY can stage and apply one complete reviewed decision set", Inputs: []CommandInput{formatInput()},
 		Output:        CommandOutput{Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens, Fields: finalPolicyCandidateFields(), Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive, JSONEnvelope: "policy_review", JSONEnvelopeType: OutputFieldTypeArray, JSONSchemaVersion: tobari.WorkspaceAuthorityPolicyReadSchemaVersion},
-		Prerequisites: []string{}, Errors: append(append(finalPolicyReadErrors("review permissions"), finalPolicyReviewInteractiveErrors()...), declaredCommandError(fault.KindUnavailable, "final_policy_review_unavailable", false, "policy candidates", "Use direct exact decisions until the complete reviewed-set owner is configured.")),
+		Prerequisites: []string{"Apply and recovery require a trusted interactive text TTY; JSON and redirected operation are read-only."}, Errors: finalPolicyReviewErrors(), Interactive: &InteractiveWorkflowContract{ActionCommand: "policy apply-reviewed", SelectionReferenceKind: tobari.PolicyCandidateKind, SelectionOutputField: "id", Confirmation: "explicit_yes", NonInteractiveBehavior: "read_only", ProjectsActionErrors: true},
 	}, handler: runFinalPolicyReview}
 }
 
@@ -216,6 +243,6 @@ func finalPolicyApplyReviewedSpec() CommandSpec {
 			JSONEnvelope: "result", JSONEnvelopeType: OutputFieldTypeObject,
 			JSONSchemaVersion: tobari.WorkspaceAuthorityPolicyReadSchemaVersion,
 		},
-		Prerequisites: []string{"Permission Inbox owns one non-empty immutable complete final reviewed set."}, FixedTarget: &FixedTarget{Kind: tobari.PolicyDecisionSetKind, ID: tobari.PolicyDecisionSetID, Description: "The one staged complete reviewed decision set.", Scope: FixedTargetScopeToolLocal}, Errors: finalPolicyMutationErrors("review permissions", "review permissions"), Mutation: &MutationContract{TargetKind: tobari.PolicyDecisionSetKind, TargetInputs: []string{}, Impact: workspaceauthoritycmd.PolicyMemoryImpact()},
+		Prerequisites: []string{"Permission Inbox owns one non-empty immutable complete final reviewed set."}, FixedTarget: &FixedTarget{Kind: tobari.PolicyDecisionSetKind, ID: tobari.PolicyDecisionSetID, Description: "The one staged complete reviewed decision set.", Scope: FixedTargetScopeToolLocal}, Errors: finalPolicyMutationErrors("review permissions", "policy rules"), Mutation: &MutationContract{TargetKind: tobari.PolicyDecisionSetKind, TargetInputs: []string{}, Impact: workspaceauthoritycmd.PolicyMemoryImpact()},
 	}, handler: runFinalPolicyApplyReviewed}
 }

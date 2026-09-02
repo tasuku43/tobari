@@ -13,10 +13,13 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
-type statusHomePortFixture struct{ observation tobari.StatusHomeObservation }
+type statusHomePortFixture struct {
+	observation tobari.StatusHomeObservation
+	err         error
+}
 
 func (f statusHomePortFixture) ObserveStatusHome(context.Context) (tobari.StatusHomeObservation, error) {
-	return f.observation, nil
+	return f.observation, f.err
 }
 
 func TestStatusHomeFreshJSONAndHumanAreCWDFirstAndZeroAuthority(t *testing.T) {
@@ -51,6 +54,20 @@ func TestStatusHomeFreshJSONAndHumanAreCWDFirstAndZeroAuthority(t *testing.T) {
 		if strings.Contains(human, rejected) {
 			t.Errorf("human output exposed %q: %q", rejected, human)
 		}
+	}
+}
+
+func TestStatusHomeEmitsDeclaredLegacyRecoveryWithoutSelfLoop(t *testing.T) {
+	var out, errOut bytes.Buffer
+	command := newCLI(strings.NewReader(""), &out, &errOut, DefaultCatalog(), nil)
+	command.statusHome = statuscmd.New(statusHomePortFixture{err: tobari.ErrPreReleaseLegacyAuthority})
+	if code := command.RunContext(context.Background(), []string{"--error-format=json", "status", "--format=json"}); code != ExitRejected {
+		t.Fatalf("status exit=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	if !strings.Contains(errOut.String(), `"code":"legacy_state_present"`) ||
+		!strings.Contains(errOut.String(), `"command":"doctor"`) || strings.Contains(errOut.String(), `"command":"status"`) ||
+		strings.Contains(errOut.String(), "undeclared_fault_contract") {
+		t.Fatalf("status legacy fault=%q", errOut.String())
 	}
 }
 

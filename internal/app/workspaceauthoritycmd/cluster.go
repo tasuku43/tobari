@@ -97,7 +97,14 @@ func (r FinalClusterReconciliation) Validate() error {
 }
 
 type FinalClusterReconciliationPort interface {
-	Reconcile(context.Context) (tobari.WorkspaceAuthorityClusterReconciliationPlan, tobari.PolicyProjectionIdentity, error)
+	// Reconcile executes readiness only when no durable same-action decision is
+	// active. The application owns the check; the adapter owns the only point
+	// that can distinguish a fresh precondition from recovery of partial state.
+	Reconcile(context.Context, func(context.Context) error) (tobari.WorkspaceAuthorityClusterReconciliationPlan, tobari.PolicyProjectionIdentity, error)
+}
+
+type FinalClusterReadinessPort interface {
+	Check(context.Context) error
 }
 
 type finalClusterMutationPolicy struct{}
@@ -112,12 +119,14 @@ func (finalClusterMutationPolicy) Check(_ context.Context, intent operation.Inte
 
 type FinalClusterService struct {
 	reconcile FinalClusterReconciliationPort
+	readiness FinalClusterReadinessPort
 	mutator   *execution.Invoker
 }
 
-func NewFinalClusterService(port any) *FinalClusterService {
+func NewFinalClusterService(port, readiness any) *FinalClusterService {
 	service := &FinalClusterService{mutator: execution.New(finalClusterMutationPolicy{})}
 	service.reconcile, _ = port.(FinalClusterReconciliationPort)
+	service.readiness, _ = readiness.(FinalClusterReadinessPort)
 	return service
 }
 
@@ -129,7 +138,7 @@ func FinalClusterUpImpact() operation.Impact {
 }
 
 func (s *FinalClusterService) Reconcile(ctx context.Context, intent operation.Intent) (FinalClusterReconciliation, error) {
-	if s == nil || portcheck.IsNil(s.reconcile) {
+	if s == nil || portcheck.IsNil(s.reconcile) || portcheck.IsNil(s.readiness) {
 		return FinalClusterReconciliation{}, missingPort("final cluster reconciliation")
 	}
 	target := operation.TargetRef{Kind: tobari.ClusterTargetKind, ParentID: tobari.ClusterTargetID}
@@ -139,7 +148,7 @@ func (s *FinalClusterService) Reconcile(ctx context.Context, intent operation.In
 	}
 	var result FinalClusterReconciliation
 	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		plan, identity, err := s.reconcile.Reconcile(actionContext)
+		plan, identity, err := s.reconcile.Reconcile(actionContext, s.readiness.Check)
 		if err != nil {
 			if _, ok := fault.PublicCopy(err); ok {
 				return err

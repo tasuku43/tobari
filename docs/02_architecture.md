@@ -999,6 +999,10 @@ byte-identical predecessor config/state and authority; pending journals fence
 ordinary reads until settlement. Every other legacy, unsafe, partial,
 Advanced/Rego, or changing presence
 returns reset-and-recreate guidance before Docker/OPA/Gateway/Broker mutation.
+The root and cluster status application boundaries preserve this sentinel as
+an observation/not-applicable fault. They do not collapse it into a transient
+status read error, and their Catalog contracts expose the same terminating
+read-only `doctor` route.
 
 The canonical interactive-attachment and Host Loopback registries retain their
 existing final lock, epoch, lease, nonce, liveness, and cleanup mechanisms.
@@ -1075,6 +1079,13 @@ fingerprint and opaque Plan identity, and settles only after Apply. A surviving
 policy Stage remains authoritative even when active policy already equals the
 reviewed no-op, so task settlement cannot bypass canonical source bookkeeping. Runtime
 source publication uses the same lifecycle/store fence and exact base digest.
+Every Configurator task-scope, catalog, and Template-stage lease opens its
+fixed child through one checked boundary. An existing child must already be an
+owner-only 0600 regular file with one link; an absent child is created
+exclusively and without following links where the platform supports it. The
+opened descriptor and current path are then required to name the same file.
+Alias, replacement, ownership, type, mode, or link-count failure occurs before
+canonical source mutation and is never repaired implicitly.
 When the final-authority Template Apply settlement journal remains, task
 recovery returns that receipt's unchanged opaque Plan reference to the CLI;
 the CLI re-enters canonical Template Apply directly and only then settles the
@@ -1086,7 +1097,14 @@ is confirmed. This keeps the Context authority and complete Home alive through
 the gap between pending-Plan discovery and canonical Apply; deletion becomes
 eligible only after Stage settlement. When the eligible Context is the current
 Context, the same atomic publication clears CurrentContextID rather than
-requiring an unrelated Context selection first.
+requiring an unrelated Context selection first. A fresh eligible deletion runs
+the application-owned generic Docker readiness check inside the infrastructure
+planning fence before recording the durable aggregate-settlement decision. An
+already-recorded same-action decision skips that fresh preflight and resumes
+its exact settlement, so environmental failure cannot relabel partial state as
+a no-change precondition. If the exact reference names only a valid unpublished
+Context source, the same command removes that draft under the Catalog and Stage
+fences without Docker readiness, Home retirement, or aggregate publication.
 An unmaterialized Runtime task whose source authority has drifted is
 first marked `retiring` durably, then cleaned idempotently and marked `retired`;
 discovery completes an interrupted retirement before admitting another task.
@@ -1197,6 +1215,12 @@ Explicit standard `cluster up` validates configuration, locally materializes and
 tests the complete all-Context policy projection, obtains and preflights the
 exact Gateway image, and runs one bounded networkless probe that mounts every
 required host source read-only and verifies its exact file or directory type.
+Inside the fresh-action lifecycle fence, direct `cluster up` invokes the same
+application-owned generic Docker readiness service as root entry. A failed CLI,
+Engine, selected-context, Compose, or Engine-version observation therefore
+returns a classified no-change precondition before any durable decision. An
+already-durable same-action decision skips this fresh check so recovery cannot
+be relabeled as no change.
 Only a fresh task runs this probe, and it finishes before the final-authority
 store publishes the durable cluster decision; exact recovery of an existing
 decision bypasses preflight and resumes its journaled settlement. The mutation
@@ -1276,7 +1300,10 @@ Template policy and Policy Memory remain independent required receipts, but
 entry confirms both through one coherent live aggregate observation rather
 than repeating the same Gateway/OPA proof for each axis.
 The renderer applies bounded anti-flicker, elapsed, wait-reason, and heartbeat
-timers and accepts no Docker/BuildKit/child text as a state transition.
+timers and accepts no Docker/BuildKit/child text as a state transition. JSON
+error mode composes this renderer with no writer; progress callbacks remain
+non-authoritative no-ops and the error finalizer owns the complete stderr
+document.
 
 Outside that fresh final-authority composition, root observes whether the configured
 cluster is running and whether its policy, Gateway, and principal projections
@@ -1690,6 +1717,26 @@ pending effect; references remain stable across repeated denials. This pure
 read projection also converges concurrent identical audit records without a
 second persisted inbox or write race. They remove effects already covered by
 the CLI-owned learned allow or deny data and trusted baseline deny rules.
+The staged reviewed set retains the exact typed candidate evidence selected
+from that projection. Before its durable decision boundary, the final-authority
+mutator rereads non-durable candidates while holding the lifecycle fence and
+requires both an unchanged collection receipt and byte-identical authority.
+That private evidence continues through independent settlement and publication
+validation; only candidates present in the durable predecessor collection are
+removed from the next collection. Once the exact effect decision is durable,
+recovery uses its retained evidence instead of depending on a denial that may
+disappear after successful activation.
+The Permission Inbox adapter takes the installation's read-only lifecycle
+observation lock, then reads the active decision journal and complete collection
+as one coherent observation. An exact active reviewed-Apply decision becomes a
+private typed snapshot recovery field bound to either its predecessor receipt
+or its recorded-settlement successor receipt. It never enters candidate items
+or serialization. A fresh TTY can pass only that unchanged set back to the
+internal fixed-target action. Terminal journal evidence is deliberately not
+projected as resumable; its recovery surface is the read-only learned-rule
+inventory. When the lifecycle state is absent, observation performs a
+zero-write read and rejects state that appears during the read instead of
+creating a lock file.
 Baseline denies remain audit-only. \`review permissions\` is the routine human
 workflow over one validated final-authority snapshot. The CLI owns one
 raw-terminal state machine with list, detail, and final-review states. It stages

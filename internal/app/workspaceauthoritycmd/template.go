@@ -445,7 +445,7 @@ func templateMutationFault(err error) error {
 }
 
 func templatePlanFault(err error) error {
-	if errors.Is(err, tobari.ErrWorkspaceTemplateNotFound) || errors.Is(err, tobari.ErrWorkspaceTemplateRevisionNotFound) {
+	if errors.Is(err, tobari.ErrWorkspaceTemplateNotFound) || errors.Is(err, tobari.ErrWorkspaceTemplateRevisionNotFound) || errors.Is(err, tobari.ErrResourceIdentityDeleted) {
 		return fault.WithClassification(fault.New(
 			fault.KindNotFound,
 			"template_not_found",
@@ -453,6 +453,33 @@ func templatePlanFault(err error) error {
 			false,
 			fault.NextAction{Command: "template list", Reason: "Discover current Template references."},
 		), fault.PhaseObservation, fault.ChangeNotApplicable)
+	}
+	if errors.Is(err, tobari.ErrResourceSourceMissing) {
+		return fault.WithClassification(fault.New(
+			fault.KindNotFound,
+			"resource_source_missing",
+			"The exact resource source file is missing",
+			false,
+			fault.NextAction{Command: "template list", Reason: "Rediscover the retained Template reference and canonical source path before restoring it."},
+		), fault.PhasePrecondition, fault.ChangeNone)
+	}
+	if errors.Is(err, tobari.ErrResourceSourceInvalid) {
+		return fault.WithClassification(fault.New(
+			fault.KindInvalidInput,
+			"resource_source_invalid",
+			"The exact resource source does not satisfy its current strict schema or closed file contract",
+			false,
+			fault.NextAction{Command: "template list", Reason: "Rediscover the retained Template reference and canonical source path before correcting it."},
+		), fault.PhasePrecondition, fault.ChangeNone)
+	}
+	if errors.Is(err, tobari.ErrResourceSourceModified) {
+		return fault.WithClassification(fault.New(
+			fault.KindRejected,
+			"resource_source_modified",
+			"The Template source has unapplied changes",
+			false,
+			fault.NextAction{Command: "template list", Reason: "Rediscover the exact Template and source path before reviewing a fresh plan."},
+		), fault.PhasePrecondition, fault.ChangeNone)
 	}
 	return templateFault(err, func(cause error) error {
 		return readFault(cause, "template_plan_read_failed", "Workspace Template change plan could not be read")
@@ -486,7 +513,7 @@ func templateFault(err error, fallback func(error) error) error {
 		return fault.WithClassification(fault.New(fault.KindRejected, "template_policy_migration_plan_stale", "The reviewed Template policy migration no longer matches source or active authority", false, fault.NextAction{Command: "template list", Reason: "Rediscover the active Template before creating a fresh exact non-activating source migration plan."}), fault.PhasePrecondition, fault.ChangeNone)
 	case errors.Is(err, tobari.ErrWorkspaceTemplateExists):
 		return fault.WithClassification(fault.New(fault.KindRejected, "template_exists", "Workspace Template already exists", false, fault.NextAction{Command: "template list", Reason: "Choose another name or inspect the existing Template."}), fault.PhasePrecondition, fault.ChangeNone)
-	case errors.Is(err, tobari.ErrWorkspaceTemplateNotFound), errors.Is(err, tobari.ErrWorkspaceTemplateRevisionNotFound):
+	case errors.Is(err, tobari.ErrWorkspaceTemplateNotFound), errors.Is(err, tobari.ErrWorkspaceTemplateRevisionNotFound), errors.Is(err, tobari.ErrResourceIdentityDeleted):
 		return fault.WithClassification(fault.New(fault.KindNotFound, "template_not_found", "Workspace Template authority no longer exists", false, fault.NextAction{Command: "template list", Reason: "Discover current Template references."}), fault.PhasePrecondition, fault.ChangeNone)
 	case errors.Is(err, tobari.ErrWorkspaceTemplateProtected):
 		return fault.WithClassification(fault.New(fault.KindRejected, "template_in_use", "Workspace Template is still selected or bound to a Context", false, fault.NextAction{Command: "context list", Reason: "Remove dependent Contexts and the default selection first."}), fault.PhasePrecondition, fault.ChangeNone)

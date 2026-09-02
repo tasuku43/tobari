@@ -45,6 +45,12 @@ func (a *FinalPolicyCandidateAdapter) ListPolicyCandidatesIncludingAttachments(c
 	if err != nil {
 		return tobari.PolicyCandidateAuthorityList{}, err
 	}
+	return a.listPolicyCandidatesForCollection(ctx, collection, present)
+}
+
+func (a *FinalPolicyCandidateAdapter) listPolicyCandidatesForCollection(
+	ctx context.Context, collection tobari.WorkspaceAuthorityCollection, present bool,
+) (tobari.PolicyCandidateAuthorityList, error) {
 	read, err := a.runtime.ReadFinalClusterDenials(ctx, hostLoopbackPolicyDenialWindow)
 	if err != nil {
 		return tobari.PolicyCandidateAuthorityList{}, err
@@ -113,18 +119,51 @@ func (a *FinalPolicyCandidateAdapter) ListPolicyCandidatesIncludingAttachments(c
 // bounded live denial observations only when both reads retain the same exact
 // collection receipt.
 func (a *FinalPolicyCandidateAdapter) ReadPolicyMemoryReviewSnapshot(ctx context.Context) (tobari.PolicyMemoryReviewSnapshot, error) {
-	if a == nil || a.store == nil {
+	if a == nil || a.store == nil || a.mutator == nil || a.mutator.lifecycle == nil {
 		return tobari.PolicyMemoryReviewSnapshot{}, fmt.Errorf("final Policy candidate authority is unavailable")
 	}
-	candidates, err := a.ListPolicyCandidatesIncludingAttachments(ctx)
-	if err != nil {
-		return tobari.PolicyMemoryReviewSnapshot{}, err
+	observer, ok := a.mutator.lifecycle.(lifecycleObservationAuthority)
+	if !ok {
+		return tobari.PolicyMemoryReviewSnapshot{}, fmt.Errorf("final Policy lifecycle observation authority is unavailable")
 	}
-	snapshot, err := a.store.ReadPolicyMemoryReviewSnapshot(ctx)
-	if err != nil {
-		return tobari.PolicyMemoryReviewSnapshot{}, err
-	}
-	return tobari.JoinPolicyMemoryReviewCandidates(snapshot, candidates)
+	var result tobari.PolicyMemoryReviewSnapshot
+	err := observer.WithLifecycleObservation(ctx, func(locked context.Context) error {
+		collection, present, err := a.store.ReadComplete(locked)
+		if err != nil {
+			return err
+		}
+		candidates, err := a.listPolicyCandidatesForCollection(locked, collection, present)
+		if err != nil {
+			return err
+		}
+		snapshot, err := tobari.NewPolicyMemoryReviewSnapshot(collection, present)
+		if err != nil {
+			return err
+		}
+		result, err = tobari.JoinPolicyMemoryReviewCandidates(snapshot, candidates)
+		if err != nil {
+			return err
+		}
+		decision, active, err := a.mutator.readEffectDecision()
+		if err != nil {
+			return err
+		}
+		if !active || decision.Operation != "policy-apply-reviewed" || decision.Target != tobari.PolicyDecisionSetID {
+			return nil
+		}
+		if decision.ReviewedSet == nil {
+			return fmt.Errorf("active reviewed Permission Inbox decision is incomplete")
+		}
+		recovery, err := tobari.NewPolicyMemoryReviewedApplyRecovery(
+			*decision.ReviewedSet, decision.NextGeneration, decision.NextRevision, decision.ReviewedPublication != nil,
+		)
+		if err != nil {
+			return err
+		}
+		result, err = result.WithReviewedApplyRecovery(recovery)
+		return err
+	})
+	return result, err
 }
 
 func (a *FinalPolicyCandidateAdapter) ApplyAttachmentPolicyCandidate(

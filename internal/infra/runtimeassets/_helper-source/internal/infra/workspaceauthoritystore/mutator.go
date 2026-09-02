@@ -26,6 +26,10 @@ type LifecycleAuthority interface {
 	WithLifecycleLock(context.Context, func(context.Context) error) error
 }
 
+type lifecycleObservationAuthority interface {
+	WithLifecycleObservation(context.Context, func(context.Context) error) error
+}
+
 // DeletionAuthority owns the external prerequisites that cannot be inferred
 // from the final envelope. Implementations must make Workspace retirement
 // receipt-idempotent because a confirmed external retirement can precede an
@@ -87,7 +91,7 @@ type FinalAuthoritySettlementAuthority interface {
 	ConfirmFinalAuthoritySettled(context.Context, tobari.WorkspaceAuthorityCollection, tobari.ContextID) error
 	SettleFinalContextDeletion(context.Context, tobari.WorkspaceAuthorityCollection, tobari.WorkspaceAuthorityCollection, tobari.ContextID, string, string) error
 	ConfirmFinalContextDeletionSettled(context.Context, tobari.WorkspaceAuthorityCollection, tobari.ContextID) error
-	SettleFinalReviewedPolicyAuthority(context.Context, tobari.WorkspaceAuthorityCollection, tobari.WorkspaceAuthorityCollection, tobari.PolicyMemoryReviewedDecisionSet, string, string) (tobari.PolicyMemoryReviewedSettlementReceipt, error)
+	SettleFinalReviewedPolicyAuthority(context.Context, tobari.WorkspaceAuthorityCollection, tobari.WorkspaceAuthorityCollection, tobari.PolicyMemoryReviewedDecisionSet, []tobari.PolicyCandidateAuthority, string, string) (tobari.PolicyMemoryReviewedSettlementReceipt, error)
 	ConfirmFinalReviewedPolicyAuthority(context.Context, tobari.WorkspaceAuthorityCollection, tobari.PolicyMemoryReviewedDecisionSet) (tobari.PolicyMemoryReviewedSettlementReceipt, error)
 }
 
@@ -764,17 +768,6 @@ func (m *Mutator) PlanWorkspaceTemplateSourceByReference(
 		if err != nil {
 			return plan, err
 		}
-	} else {
-		found := false
-		for _, template := range current.Templates {
-			if template.ID == id {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return plan, tobari.ErrWorkspaceTemplateNotFound
-		}
 	}
 	source, fingerprint, err := load(ctx)
 	if err != nil {
@@ -788,6 +781,10 @@ func (m *Mutator) PlanWorkspaceTemplateSourceByReference(
 		}
 		return plan, err
 	}
+	// Source identity and its null/non-null base revision distinguish a fresh
+	// unpublished draft from an active Template update. Do not use membership
+	// in the active collection as a draft-existence test: create and copy are
+	// deliberately source-only until this Plan is later applied.
 	plan, err = m.planWorkspaceTemplateChange(ctx, current, id, source, fingerprint)
 	return plan, err
 }
@@ -1347,11 +1344,22 @@ func (m *Mutator) seedContextForLegacyMigration(ctx context.Context, templateRef
 }
 
 func (m *Mutator) DeleteContextByReference(ctx context.Context, ref string) (result tobari.ContextDeleteResult, resultErr error) {
+	return m.DeleteContextByReferenceWithReadiness(ctx, ref, nil)
+}
+
+// DeleteContextByReferenceWithReadiness performs generic Docker readiness only
+// for a fresh Context deletion. Once the durable decision exists, exact
+// same-action recovery must proceed without being relabeled as a precondition.
+func (m *Mutator) DeleteContextByReferenceWithReadiness(
+	ctx context.Context,
+	ref string,
+	readiness func(context.Context) error,
+) (result tobari.ContextDeleteResult, resultErr error) {
 	id, err := tobari.ParseContextRef(ref)
 	if err != nil {
 		return result, err
 	}
-	committedDecision, resultErr := m.effectfulMutate(ctx, "context-delete", ref, nil, func(current tobari.WorkspaceAuthorityCollection, _ bool) (effectPlan, error) {
+	committedDecision, resultErr := m.effectfulMutate(ctx, "context-delete", ref, nil, func(current tobari.WorkspaceAuthorityCollection, recovering bool) (effectPlan, error) {
 		index := contextRecordIndex(current, id)
 		if index < 0 {
 			return effectPlan{}, tobari.ErrContextBindingNotFound
@@ -1366,6 +1374,11 @@ func (m *Mutator) DeleteContextByReference(ctx context.Context, ref string) (res
 		}
 		if err := m.credentialAbsence.ConfirmContextCredentialAbsent(ctx, id); err != nil {
 			return effectPlan{}, err
+		}
+		if !recovering && readiness != nil {
+			if err := readiness(ctx); err != nil {
+				return effectPlan{}, err
+			}
 		}
 		contexts := append(cloneContextRecords(current.Contexts[:index]), cloneContextRecords(current.Contexts[index+1:])...)
 		candidates := make([]tobari.PolicyCandidateAuthority, 0, len(current.PendingCandidates))
@@ -1672,21 +1685,37 @@ func (m *Mutator) ApplyReviewedPolicyMemory(
 	requestMatches := func(decision effectDecision) bool {
 		return decision.ReviewedSet != nil && decision.ReviewedSet.Digest == set.Digest && reflect.DeepEqual(*decision.ReviewedSet, set)
 	}
-	committed, resultErr := m.effectfulMutate(ctx, "policy-apply-reviewed", tobari.PolicyDecisionSetID, requestMatches, func(current tobari.WorkspaceAuthorityCollection, _ bool) (effectPlan, error) {
+	committed, resultErr := m.effectfulMutate(ctx, "policy-apply-reviewed", tobari.PolicyDecisionSetID, requestMatches, func(current tobari.WorkspaceAuthorityCollection, recovering bool) (effectPlan, error) {
 		if current.Generation != set.ObservedGeneration || current.Revision != set.ObservedRevision {
 			return effectPlan{}, tobari.ErrPolicyReviewChanged
 		}
-		revalidated, err := tobari.NewPolicyMemoryReviewedDecisionSet(current, set.Decisions)
+		var live []tobari.PolicyCandidateAuthority
+		var err error
+		if recovering {
+			live, err = retainedReviewedLiveCandidates(current, set)
+		} else {
+			live, err = m.revalidateReviewedLiveCandidates(ctx, current, set)
+		}
+		if err != nil {
+			return effectPlan{}, err
+		}
+		revalidated, err := tobari.NewPolicyMemoryReviewedDecisionSetWithObservations(current, live, set.Decisions)
 		if err != nil || !reflect.DeepEqual(revalidated, set) {
 			return effectPlan{}, tobari.ErrPolicyReviewChanged
 		}
 		contexts := cloneContextRecords(current.Contexts)
 		decisionsByContext := make(map[tobari.ContextID][]tobari.PolicyMemoryReviewedDecision)
 		consumed := make(map[string]struct{})
+		durableCandidates := make(map[string]struct{}, len(current.PendingCandidates))
+		for _, candidate := range current.PendingCandidates {
+			durableCandidates[candidate.ID] = struct{}{}
+		}
 		for _, decision := range set.Decisions {
 			decisionsByContext[decision.ContextID()] = append(decisionsByContext[decision.ContextID()], decision)
 			for _, candidate := range decision.Candidates {
-				consumed[candidate.ID] = struct{}{}
+				if _, durable := durableCandidates[candidate.ID]; durable {
+					consumed[candidate.ID] = struct{}{}
+				}
 			}
 		}
 		for index := range contexts {
@@ -1744,7 +1773,7 @@ func (m *Mutator) ApplyReviewedPolicyMemory(
 		if err != nil || !changed {
 			return effectPlan{}, fmt.Errorf("reviewed Policy Memory did not change final authority: %w", err)
 		}
-		if err := tobari.ValidatePolicyMemoryReviewedTransition(current, next, set); err != nil {
+		if err := tobari.ValidatePolicyMemoryReviewedTransitionWithLiveSources(current, next, set, live); err != nil {
 			return effectPlan{}, fmt.Errorf("reviewed Policy Memory transition: %w", err)
 		}
 		if m.settlement == nil {
@@ -1759,12 +1788,12 @@ func (m *Mutator) ApplyReviewedPolicyMemory(
 			effect: func(effectContext context.Context) error {
 				var effectErr error
 				settlement, effectErr = m.settlement.SettleFinalReviewedPolicyAuthority(
-					effectContext, current.Clone(), next.Clone(), set.Clone(), "policy-apply-reviewed", decisionRef,
+					effectContext, current.Clone(), next.Clone(), set.Clone(), clonePolicyCandidates(live), "policy-apply-reviewed", decisionRef,
 				)
 				return effectErr
 			},
 			finalizeDecision: func(decision effectDecision) (effectDecision, error) {
-				full, err := tobari.NewPolicyMemoryReviewedSetPublication(current, next, set, settlement)
+				full, err := tobari.NewPolicyMemoryReviewedSetPublicationWithLiveSources(current, next, set, live, settlement)
 				if err != nil {
 					return effectDecision{}, err
 				}
@@ -1785,6 +1814,79 @@ func (m *Mutator) ApplyReviewedPolicyMemory(
 		resultErr = m.recoverReviewedPublication(ctx, committed, &publication)
 	}
 	return publication, resultErr
+}
+
+func retainedReviewedLiveCandidates(
+	current tobari.WorkspaceAuthorityCollection,
+	set tobari.PolicyMemoryReviewedDecisionSet,
+) ([]tobari.PolicyCandidateAuthority, error) {
+	durable := make(map[string]struct{}, len(current.PendingCandidates))
+	for _, candidate := range current.PendingCandidates {
+		durable[candidate.ID] = struct{}{}
+	}
+	live := []tobari.PolicyCandidateAuthority{}
+	for _, decision := range set.Decisions {
+		for _, candidate := range decision.Candidates {
+			if _, found := durable[candidate.ID]; !found {
+				live = append(live, candidate.Clone())
+			}
+		}
+	}
+	if err := tobari.ValidatePolicyMemoryReviewedLiveSources(current, set, live); err != nil {
+		return nil, tobari.ErrPolicyReviewChanged
+	}
+	return live, nil
+}
+
+func (m *Mutator) revalidateReviewedLiveCandidates(
+	ctx context.Context,
+	current tobari.WorkspaceAuthorityCollection,
+	set tobari.PolicyMemoryReviewedDecisionSet,
+) ([]tobari.PolicyCandidateAuthority, error) {
+	durable := make(map[string]struct{}, len(current.PendingCandidates))
+	for _, candidate := range current.PendingCandidates {
+		durable[candidate.ID] = struct{}{}
+	}
+	wanted := map[string]tobari.PolicyCandidateAuthority{}
+	for _, decision := range set.Decisions {
+		for _, candidate := range decision.Candidates {
+			if _, found := durable[candidate.ID]; !found {
+				wanted[candidate.ID] = candidate.Clone()
+			}
+		}
+	}
+	if len(wanted) == 0 {
+		return []tobari.PolicyCandidateAuthority{}, nil
+	}
+	if m.candidateRead == nil {
+		return nil, tobari.ErrPolicyReviewChanged
+	}
+	observed, err := m.candidateRead.ListPolicyCandidatesIncludingAttachments(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !observed.CollectionPresent || observed.CollectionGeneration != current.Generation || observed.CollectionRevision != current.Revision {
+		return nil, tobari.ErrPolicyReviewChanged
+	}
+	live := make([]tobari.PolicyCandidateAuthority, 0, len(wanted))
+	for _, item := range observed.Items {
+		candidate, needed := wanted[item.ID]
+		if !needed || item.AttachmentAuthority != nil {
+			continue
+		}
+		if !reflect.DeepEqual(item.Authority, candidate) {
+			return nil, tobari.ErrPolicyReviewChanged
+		}
+		live = append(live, candidate)
+		delete(wanted, item.ID)
+	}
+	if len(wanted) != 0 {
+		return nil, tobari.ErrPolicyReviewChanged
+	}
+	if err := tobari.ValidatePolicyMemoryReviewedLiveSources(current, set, live); err != nil {
+		return nil, tobari.ErrPolicyReviewChanged
+	}
+	return live, nil
 }
 
 func (m *Mutator) preparePolicyMemoryActivation(record *tobari.WorkspaceAuthorityContextRecord) (tobari.PolicyMemoryActivationReceipt, error) {

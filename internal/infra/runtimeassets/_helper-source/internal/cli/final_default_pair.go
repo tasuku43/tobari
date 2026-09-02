@@ -108,8 +108,12 @@ func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, 
 		}
 	}
 
+	var progressOut io.Writer
+	if firstEntryProgressAllowed(ctx) {
+		progressOut = c.Err
+	}
 	progress := newFirstEntryProgress(
-		c.Err, !fresh, terminal.IsTerminal(c.Err), humanStyleAllowed(ctx, c, c.Err),
+		progressOut, !fresh, terminal.IsTerminal(c.Err), humanStyleAllowed(ctx, c, c.Err),
 	)
 	if preparedFirstUse {
 		// Fresh readiness is confirmed before the interactive review so no

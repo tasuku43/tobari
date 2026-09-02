@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"sync"
@@ -30,6 +31,10 @@ func defaultFirstEntryProgressTiming() firstEntryProgressTiming {
 		waitReason:  firstEntryWaitReason,
 		heartbeat:   firstEntryHeartbeat,
 	}
+}
+
+func firstEntryProgressAllowed(ctx context.Context) bool {
+	return invocationErrorFormat(ctx) != errorFormatJSON
 }
 
 type firstEntryProgress struct {

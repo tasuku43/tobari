@@ -290,9 +290,10 @@ func (r *Runtime) SettleFinalReviewedPolicyAuthority(
 	ctx context.Context,
 	previous, next tobari.WorkspaceAuthorityCollection,
 	set tobari.PolicyMemoryReviewedDecisionSet,
+	live []tobari.PolicyCandidateAuthority,
 	operation, decisionRef string,
 ) (tobari.PolicyMemoryReviewedSettlementReceipt, error) {
-	if err := tobari.ValidatePolicyMemoryReviewedTransition(previous, next, set); err != nil {
+	if err := tobari.ValidatePolicyMemoryReviewedTransitionWithLiveSources(previous, next, set, live); err != nil {
 		return tobari.PolicyMemoryReviewedSettlementReceipt{}, fmt.Errorf("reviewed Policy Memory settlement transition: %w", err)
 	}
 	targets, err := set.TargetContextIDs()

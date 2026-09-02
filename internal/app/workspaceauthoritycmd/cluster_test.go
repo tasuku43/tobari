@@ -20,6 +20,16 @@ type fakeFinalClusterPort struct {
 	calls    int
 }
 
+type readyFinalClusterFixture struct {
+	err   error
+	calls int
+}
+
+func (f *readyFinalClusterFixture) Check(context.Context) error {
+	f.calls++
+	return f.err
+}
+
 type fakeFinalClusterDownPort struct {
 	plan  tobari.WorkspaceAuthorityClusterDownPlan
 	purge bool
@@ -33,8 +43,11 @@ func (f *fakeFinalClusterDownPort) Down(_ context.Context, purge bool) (tobari.W
 	return f.plan, f.err
 }
 
-func (f *fakeFinalClusterPort) Reconcile(context.Context) (tobari.WorkspaceAuthorityClusterReconciliationPlan, tobari.PolicyProjectionIdentity, error) {
+func (f *fakeFinalClusterPort) Reconcile(ctx context.Context, readiness func(context.Context) error) (tobari.WorkspaceAuthorityClusterReconciliationPlan, tobari.PolicyProjectionIdentity, error) {
 	f.calls++
+	if err := readiness(ctx); err != nil {
+		return tobari.WorkspaceAuthorityClusterReconciliationPlan{}, tobari.PolicyProjectionIdentity{}, err
+	}
 	return f.plan, f.identity, f.err
 }
 
@@ -108,7 +121,7 @@ func TestFinalClusterDownServiceForwardsAndConfirmsExactPurgeIntent(t *testing.T
 
 func TestFinalClusterLifecycleRejectsAbsentAuthorityBeforeMutation(t *testing.T) {
 	up := &fakeFinalClusterPort{err: tobari.ErrFinalAuthorityNotFound}
-	if _, err := NewFinalClusterService(up).Reconcile(context.Background(), finalClusterIntent()); err == nil {
+	if _, err := NewFinalClusterService(up, &readyFinalClusterFixture{}).Reconcile(context.Background(), finalClusterIntent()); err == nil {
 		t.Fatal("cluster up accepted absent final authority")
 	} else if public, ok := fault.PublicCopy(err); !ok || public.Code != "authority_not_found" || public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone {
 		t.Fatalf("cluster up absent-authority fault = %+v, structured=%t", public, ok)
@@ -129,7 +142,7 @@ func TestFinalClusterLifecycleRejectsAbsentAuthorityBeforeMutation(t *testing.T)
 
 func TestFinalClusterServiceBindsFixedTargetAndReturnsExactReceipts(t *testing.T) {
 	port := &fakeFinalClusterPort{plan: finalClusterPlanFixture(t), identity: finalClusterIdentityFixture()}
-	result, err := NewFinalClusterService(port).Reconcile(context.Background(), finalClusterIntent())
+	result, err := NewFinalClusterService(port, &readyFinalClusterFixture{}).Reconcile(context.Background(), finalClusterIntent())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +186,7 @@ func TestFinalClusterServiceRejectsEveryMutationDimensionBeforeAdapter(t *testin
 			port := &fakeFinalClusterPort{plan: finalClusterPlanFixture(t), identity: finalClusterIdentityFixture()}
 			request := valid
 			mutate(&request)
-			if _, err := NewFinalClusterService(port).Reconcile(context.Background(), request); err == nil || port.calls != 0 {
+			if _, err := NewFinalClusterService(port, &readyFinalClusterFixture{}).Reconcile(context.Background(), request); err == nil || port.calls != 0 {
 				t.Fatalf("invalid %s reached adapter: calls=%d err=%v", name, port.calls, err)
 			}
 		})
@@ -184,7 +197,7 @@ func TestFinalClusterServiceRejectsInvalidAdapterResultAsUnknownConfirmedBoundar
 	plan := finalClusterPlanFixture(t)
 	plan.Projection.Contexts[0].MemoryReceipt.Revision = digest("8")
 	port := &fakeFinalClusterPort{plan: plan, identity: finalClusterIdentityFixture()}
-	_, err := NewFinalClusterService(port).Reconcile(context.Background(), finalClusterIntent())
+	_, err := NewFinalClusterService(port, &readyFinalClusterFixture{}).Reconcile(context.Background(), finalClusterIntent())
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Code != "invalid_cluster_reconciliation_result" ||
 		public.Phase != fault.PhaseVerification || public.ChangeState != fault.ChangeUnknown || port.calls != 1 {
@@ -199,7 +212,7 @@ func TestFinalClusterServicePreservesLegacyAndUnknownMutationClassification(t *t
 	} {
 		t.Run(name, func(t *testing.T) {
 			port := &fakeFinalClusterPort{err: sentinel}
-			_, err := NewFinalClusterService(port).Reconcile(context.Background(), finalClusterIntent())
+			_, err := NewFinalClusterService(port, &readyFinalClusterFixture{}).Reconcile(context.Background(), finalClusterIntent())
 			public, ok := fault.PublicCopy(err)
 			if !ok || public.Code != "legacy_state_present" || public.Phase != fault.PhasePrecondition ||
 				public.ChangeState != fault.ChangeNone || port.calls != 1 {
@@ -209,7 +222,7 @@ func TestFinalClusterServicePreservesLegacyAndUnknownMutationClassification(t *t
 	}
 	t.Run("unclassified adapter failure", func(t *testing.T) {
 		port := &fakeFinalClusterPort{err: errors.New("unknown settlement result")}
-		_, err := NewFinalClusterService(port).Reconcile(context.Background(), finalClusterIntent())
+		_, err := NewFinalClusterService(port, &readyFinalClusterFixture{}).Reconcile(context.Background(), finalClusterIntent())
 		public, ok := fault.PublicCopy(err)
 		if !ok || public.Code != "unclassified_mutation_outcome" || public.Phase != fault.PhaseMutation ||
 			public.ChangeState != fault.ChangeUnknown || port.calls != 1 {
@@ -218,7 +231,7 @@ func TestFinalClusterServicePreservesLegacyAndUnknownMutationClassification(t *t
 	})
 	t.Run("fresh preflight cancellation", func(t *testing.T) {
 		port := &fakeFinalClusterPort{err: context.Canceled}
-		_, err := NewFinalClusterService(port).Reconcile(context.Background(), finalClusterIntent())
+		_, err := NewFinalClusterService(port, &readyFinalClusterFixture{}).Reconcile(context.Background(), finalClusterIntent())
 		public, ok := fault.PublicCopy(err)
 		if !ok || public.Code != "operation_canceled" || public.Kind != fault.KindCanceled || public.Phase != fault.PhasePrecondition ||
 			public.ChangeState != fault.ChangeNone || !public.Retryable || port.calls != 1 {
@@ -231,7 +244,7 @@ func TestFinalClusterServicePreservesLegacyAndUnknownMutationClassification(t *t
 			fault.NextAction{Command: "status", Reason: "Recover the retained decision."},
 		), fault.PhaseMutation, fault.ChangePartial)
 		port := &fakeFinalClusterPort{err: structured}
-		_, err := NewFinalClusterService(port).Reconcile(context.Background(), finalClusterIntent())
+		_, err := NewFinalClusterService(port, &readyFinalClusterFixture{}).Reconcile(context.Background(), finalClusterIntent())
 		public, ok := fault.PublicCopy(err)
 		if !ok || public.Code != "final_authority_mutation_interrupted" || public.Kind != fault.KindUnavailable ||
 			public.Phase != fault.PhaseMutation || public.ChangeState != fault.ChangePartial || port.calls != 1 {
@@ -240,7 +253,7 @@ func TestFinalClusterServicePreservesLegacyAndUnknownMutationClassification(t *t
 	})
 	t.Run("active decision recovery sentinel precedes cancellation", func(t *testing.T) {
 		port := &fakeFinalClusterPort{err: errors.Join(tobari.ErrFinalAuthorityMutationRecoveryRequired, context.Canceled)}
-		_, err := NewFinalClusterService(port).Reconcile(context.Background(), finalClusterIntent())
+		_, err := NewFinalClusterService(port, &readyFinalClusterFixture{}).Reconcile(context.Background(), finalClusterIntent())
 		public, ok := fault.PublicCopy(err)
 		if !ok || public.Code != "final_authority_mutation_recovery_required" || public.Kind != fault.KindUnavailable ||
 			public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone || port.calls != 1 {
@@ -256,7 +269,7 @@ func TestFinalClusterServicePreservesLegacyAndUnknownMutationClassification(t *t
 			fault.NextAction{Command: "doctor", Reason: "Inspect exact Docker and Tobari ownership state before another cluster activation."},
 		), fault.PhasePrecondition, fault.ChangeNone)
 		port := &fakeFinalClusterPort{err: structured}
-		_, err := NewFinalClusterService(port).Reconcile(context.Background(), finalClusterIntent())
+		_, err := NewFinalClusterService(port, &readyFinalClusterFixture{}).Reconcile(context.Background(), finalClusterIntent())
 		public, ok := fault.PublicCopy(err)
 		if !ok || public.Code != "cluster_resource_conflict" || public.Phase != fault.PhasePrecondition ||
 			public.ChangeState != fault.ChangeNone || port.calls != 1 {

@@ -163,7 +163,7 @@ func TestFinalPermissionInboxJoinsLiveHostLoopbackWithoutPersistingIt(t *testing
 		DestinationKind: tobari.PolicyDestinationHostLoopback, AuthorityLifetime: tobari.AuthorityLifetimeAttachment,
 		AttachmentEpochID: "att_" + strings.Repeat("5", 32),
 	}}}}
-	adapter, err := NewFinalPolicyCandidateAdapter(store, runtime, &Mutator{}, &HostLoopbackPolicyAdapter{})
+	adapter, err := NewFinalPolicyCandidateAdapter(store, runtime, &Mutator{store: store, lifecycle: &mutationLifecycle{}}, &HostLoopbackPolicyAdapter{})
 	if err != nil {
 		t.Fatal(err)
 	}

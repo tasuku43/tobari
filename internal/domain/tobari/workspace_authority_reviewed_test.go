@@ -247,6 +247,35 @@ func TestPolicyMemoryReviewedDecisionSetRejectsEmptyAndPreservesReviewItemID(t *
 	}
 }
 
+func TestPolicyMemoryReviewedLiveSourcesRequireExactSelectedEvidence(t *testing.T) {
+	base := workspaceAuthorityCollectionFixture(t)
+	candidate := base.PendingCandidates[0].Clone()
+	withoutPending, changed, err := PublishWorkspaceAuthorityCollection(
+		base.Templates, base.Contexts, base.Workspaces, []PolicyCandidateAuthority{}, base.DefaultTemplateID, &base,
+	)
+	if err != nil || !changed {
+		t.Fatalf("remove pending changed=%t err=%v", changed, err)
+	}
+	decision := reviewedExactDecisionFixture(t, candidate, PolicyMemoryAllow)
+	if _, err := NewPolicyMemoryReviewedDecisionSet(withoutPending, []PolicyMemoryReviewedDecision{decision}); err == nil {
+		t.Fatal("non-durable candidate passed without live evidence")
+	}
+	set, err := NewPolicyMemoryReviewedDecisionSetWithObservations(withoutPending, []PolicyCandidateAuthority{candidate}, []PolicyMemoryReviewedDecision{decision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidatePolicyMemoryReviewedLiveSources(withoutPending, set, []PolicyCandidateAuthority{candidate, candidate}); err == nil {
+		t.Fatal("duplicate live evidence passed")
+	}
+	extra := reviewedCandidateFixture(t, withoutPending, "/extra")
+	if err := ValidatePolicyMemoryReviewedLiveSources(withoutPending, set, []PolicyCandidateAuthority{candidate, extra}); err == nil {
+		t.Fatal("unselected live evidence passed")
+	}
+	if err := ValidatePolicyMemoryReviewedTransition(withoutPending, withoutPending, set); err == nil {
+		t.Fatal("ordinary transition validation accepted missing live evidence")
+	}
+}
+
 func TestPolicyMemoryReviewedPublicationConstructorRejectsMalformedSetWithoutPanic(t *testing.T) {
 	base := workspaceAuthorityCollectionFixture(t)
 	malformed := PolicyMemoryReviewedDecisionSet{
@@ -438,6 +467,51 @@ func TestPolicyMemoryReviewedTransitionRejectsValidNextForDifferentReviewedSet(t
 	nextB := reviewedPublicationFixture(t, previous, setB).Next
 	if err := ValidatePolicyMemoryReviewedTransition(previous, nextB, setA); err == nil {
 		t.Fatal("reviewed set A accepted the valid next authority produced by set B")
+	}
+}
+
+func TestPermissionInboxReviewedApplyRecoveryIsPrivateAndReceiptBound(t *testing.T) {
+	previous := workspaceAuthorityCollectionFixture(t)
+	decision := reviewedExactDecisionFixture(t, previous.PendingCandidates[0], PolicyMemoryAllow)
+	set, err := NewPolicyMemoryReviewedDecisionSet(previous, []PolicyMemoryReviewedDecision{decision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	publication := reviewedPublicationFixture(t, previous, set)
+	recovery, err := NewPolicyMemoryReviewedApplyRecovery(set, publication.NextGeneration, publication.NextRevision, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, collection := range map[string]WorkspaceAuthorityCollection{"previous": previous, "next": publication.Next} {
+		snapshot, err := NewPolicyMemoryReviewSnapshot(collection, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot, err = snapshot.WithReviewedApplyRecovery(recovery)
+		if err != nil || snapshot.ReviewedApplyRecovery == nil || !reflect.DeepEqual(snapshot.ReviewedApplyRecovery.DecisionSet, set) {
+			t.Fatalf("%s recovery snapshot=%#v err=%v", name, snapshot, err)
+		}
+		encoded, err := json.Marshal(snapshot)
+		if err != nil || strings.Contains(string(encoded), "reviewed_apply") || strings.Contains(string(encoded), string(set.Digest)) {
+			t.Fatalf("%s private recovery leaked: %s err=%v", name, encoded, err)
+		}
+	}
+
+	withoutSettlement, err := NewPolicyMemoryReviewedApplyRecovery(set, publication.NextGeneration, publication.NextRevision, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextSnapshot, err := NewPolicyMemoryReviewSnapshot(publication.Next, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := nextSnapshot.WithReviewedApplyRecovery(withoutSettlement); err == nil {
+		t.Fatal("next collection accepted recovery without recorded settlement")
+	}
+	drift := publication.Next.Clone()
+	drift.Generation++
+	if recovery.ValidateFor(drift, true) == nil {
+		t.Fatal("recovery accepted unrelated collection receipt")
 	}
 }
 

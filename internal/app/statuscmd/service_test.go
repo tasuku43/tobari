@@ -49,3 +49,28 @@ func TestSnapshotFailsClosedWithoutReconstructingInvalidEvidence(t *testing.T) {
 		})
 	}
 }
+
+func TestSnapshotPreservesAuthorityRecoveryClassification(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		err       error
+		code      string
+		next      string
+		retryable bool
+	}{
+		{name: "supported migration", err: tobari.ErrFinalAuthorityMigrationRequired, code: "installation_migration_required", next: "installation migration plan"},
+		{name: "unsupported legacy", err: tobari.ErrPreReleaseLegacyAuthority, code: "legacy_state_present", next: "doctor"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			port := &statusSnapshotPortFixture{err: test.err}
+			_, err := New(port).Snapshot(context.Background())
+			public, ok := fault.PublicCopy(err)
+			if !ok || public.Code != test.code || public.Kind != fault.KindRejected ||
+				public.Phase != fault.PhaseObservation || public.ChangeState != fault.ChangeNotApplicable ||
+				public.Retryable != test.retryable || len(public.NextActions) != 1 ||
+				public.NextActions[0].Command != test.next || port.calls != 1 {
+				t.Fatalf("fault=%#v ok=%t calls=%d", public, ok, port.calls)
+			}
+		})
+	}
+}

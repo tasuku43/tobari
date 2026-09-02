@@ -127,6 +127,8 @@ func runFinalPolicyReviewInteractive(ctx context.Context, c *CLI, snapshot tobar
 			return runFinalPolicyReviewInteractive(ctx, c, fresh)
 		case finalPolicyReviewRawApply:
 			return applyFinalPolicyReviewSet(ctx, c, snapshot, result.staged)
+		case finalPolicyReviewRawResume:
+			return resumeFinalPolicyReviewedApply(ctx, c, snapshot)
 		default:
 			return c.fail(ctx, fault.WithClassification(fault.New(fault.KindInternal, "invalid_policy_review_result", "Permission Inbox returned an invalid interaction result", false), fault.PhaseVerification, fault.ChangeUnknown))
 		}
@@ -226,6 +228,20 @@ func runFinalPolicyReviewInteractiveLine(ctx context.Context, c *CLI, snapshot t
 				continue
 			}
 			return applyFinalPolicyReviewSet(ctx, c, snapshot, staged)
+		case "resume":
+			if snapshot.ReviewedApplyRecovery == nil {
+				_, _ = io.WriteString(c.Out, "No interrupted reviewed Apply is ready to resume.\n")
+				continue
+			}
+			_, _ = io.WriteString(c.Out, "Resume this already-confirmed exact Apply? [y/N]\n")
+			confirmation, confirmErr := reader.ReadString('\n')
+			if confirmErr != nil && confirmErr != io.EOF {
+				return c.fail(ctx, fault.WithClassification(fault.Wrap(fault.KindInternal, "terminal_input_failed", "Permission Inbox recovery confirmation could not be read", false, confirmErr), fault.PhasePresentation, fault.ChangeNotApplicable))
+			}
+			if strings.TrimSpace(confirmation) != "y" {
+				continue
+			}
+			return resumeFinalPolicyReviewedApply(ctx, c, snapshot)
 		default:
 			index, numberErr := strconv.Atoi(choice)
 			if numberErr == nil && index > 0 && index <= len(snapshot.Items) {
@@ -249,6 +265,17 @@ func applyFinalPolicyReviewSet(ctx context.Context, c *CLI, snapshot tobari.Poli
 	if setErr != nil {
 		return c.fail(ctx, fault.WithClassification(fault.Wrap(fault.KindContract, "invalid_policy_review_set", "Reviewed Permission Inbox set is invalid", false, setErr), fault.PhaseVerification, fault.ChangeNone))
 	}
+	return applyFinalPolicyReviewedDecisionSet(ctx, c, set)
+}
+
+func resumeFinalPolicyReviewedApply(ctx context.Context, c *CLI, snapshot tobari.PolicyMemoryReviewSnapshot) int {
+	if snapshot.ReviewedApplyRecovery == nil || snapshot.ReviewedApplyRecovery.ValidateFor(snapshot.Collection, snapshot.CollectionPresent) != nil {
+		return c.fail(ctx, fault.WithClassification(fault.New(fault.KindContract, "invalid_policy_review_result", "Permission Inbox recovery authority is invalid", false, fault.NextAction{Command: "policy rules", Reason: "Reconcile current Policy Memory without repeating a mutation."}), fault.PhaseVerification, fault.ChangeUnknown))
+	}
+	return applyFinalPolicyReviewedDecisionSet(ctx, c, snapshot.ReviewedApplyRecovery.DecisionSet)
+}
+
+func applyFinalPolicyReviewedDecisionSet(ctx context.Context, c *CLI, set tobari.PolicyMemoryReviewedDecisionSet) int {
 	apply, found := c.catalog.lookupRegistered("policy apply-reviewed")
 	if !found || apply.Agent.Mutation == nil || apply.Agent.FixedTarget == nil {
 		return c.fail(ctx, fault.WithClassification(fault.New(fault.KindContract, "invalid_catalog", "reviewed Policy Memory Apply contract is missing", false), fault.PhasePrecondition, fault.ChangeNone))
@@ -298,6 +325,9 @@ func runFinalPolicyReviewAttachment(ctx context.Context, c *CLI, candidateRef st
 func writeFinalPolicyReviewFrame(out io.Writer, snapshot tobari.PolicyMemoryReviewSnapshot, selected string, staged map[string]tobari.PolicyMemoryDecision) error {
 	var text strings.Builder
 	text.WriteString("Permission Inbox\n")
+	if snapshot.ReviewedApplyRecovery != nil {
+		text.WriteString("  Interrupted reviewed Apply is ready. Type resume to continue the preserved exact Apply.\n")
+	}
 	if len(snapshot.Items) == 0 {
 		text.WriteString("  No final Policy Memory candidates.\n")
 	}
@@ -312,7 +342,11 @@ func writeFinalPolicyReviewFrame(out io.Writer, snapshot tobari.PolicyMemoryRevi
 		}
 		fmt.Fprintf(&text, "%s %d  %s  %s  %s%s\n", marker, index+1, item.Match, safeExternalText(item.Template), finalPolicyEffectSummary(item.Rule.PolicyProtocolIdentity, item.Rule.Method, item.Rule.Host, item.Rule.Port, item.Rule.Path), decision)
 	}
-	text.WriteString("Commands: number select · a allow · d deny · r refresh · p apply · q cancel\n")
+	text.WriteString("Commands: number select · a allow · d deny · r refresh · p apply")
+	if snapshot.ReviewedApplyRecovery != nil {
+		text.WriteString(" · resume confirmed Apply")
+	}
+	text.WriteString(" · q cancel\n")
 	_, err := io.WriteString(out, text.String())
 	return err
 }

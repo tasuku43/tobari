@@ -2,12 +2,23 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
+
+func TestFirstEntryProgressIsSuppressedForMachineReadableErrors(t *testing.T) {
+	t.Parallel()
+	if firstEntryProgressAllowed(withErrorFormat(context.Background(), errorFormatJSON)) {
+		t.Fatal("first-entry progress remained enabled for JSON error output")
+	}
+	if !firstEntryProgressAllowed(context.Background()) {
+		t.Fatal("first-entry progress was disabled for normal human output")
+	}
+}
 
 func TestFirstEntryProgressUsesFiveCheckpointLabelsWithoutAuthorityClaims(t *testing.T) {
 	var output bytes.Buffer

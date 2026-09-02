@@ -125,6 +125,13 @@ func (r *Runtime) withLifecycleObservation(ctx context.Context, action func(cont
 	return action(ctx)
 }
 
+// WithLifecycleObservation exposes the read-only half of the installation
+// lifecycle boundary to infrastructure adapters that must observe a journal
+// and its authority receipt coherently. It never creates the lock or state.
+func (r *Runtime) WithLifecycleObservation(ctx context.Context, action func(context.Context) error) error {
+	return r.withLifecycleObservation(ctx, action)
+}
+
 func tobariProtectionObservationChanged() error {
 	return tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
 }

@@ -281,6 +281,7 @@ func finalTemplateApplySpec() CommandSpec {
 	errors := finalAuthorityMutationErrors("template apply", "template show")
 	errors = append(errors,
 		declaredCommandError(fault.KindInvalidInput, "invalid_template_change_plan_ref", false, "template list", "Use one exact opaque plan reference emitted by template plan."),
+		classifiedCommandError(fault.KindNotFound, "template_not_found", false, fault.PhasePrecondition, fault.ChangeNone, "template list", "Rediscover current Template authority; a deleted stable identity cannot re-enter through an old plan."),
 		finalMutationVerificationError("invalid_template_apply_result", "template show", "Reconcile the confirmed Template publication and canonical source state."),
 		declaredCommandError(fault.KindRejected, "template_change_plan_stale", false, "template list", "Discover the Template and create a fresh plan after any source, active, Context, Memory, or Workspace drift."),
 		declaredCommandError(fault.KindNotFound, "resource_source_missing", false, "template show", "Inspect the canonical source path; missing source never deletes active authority."),
@@ -328,9 +329,10 @@ func finalTemplatePlanSpec() CommandSpec {
 		declaredCommandError(fault.KindUnavailable, "template_plan_read_failed", false, "template list", "Inspect the current Template source and authority before planning again."),
 		classifiedCommandError(fault.KindInvalidInput, "invalid_template_ref", false, fault.PhasePrecondition, fault.ChangeNone, "template list", "Use one exact opaque Workspace Template reference emitted by Template discovery."),
 		classifiedCommandError(fault.KindNotFound, "template_not_found", false, fault.PhaseObservation, fault.ChangeNotApplicable, "template list", "Discover an active or draft Template reference before planning."),
-		classifiedCommandError(fault.KindNotFound, "resource_source_missing", false, fault.PhasePrecondition, fault.ChangeNone, "template show", "Restore the canonical source pair before planning."),
-		classifiedCommandError(fault.KindInvalidInput, "resource_source_invalid", false, fault.PhasePrecondition, fault.ChangeNone, "template show", "Correct the strict source schema before planning."),
-		classifiedCommandError(fault.KindRejected, "resource_source_modified", false, fault.PhasePrecondition, fault.ChangeNone, "template show", "Rebase the desired source on the exact active revision."),
+		classifiedCommandError(fault.KindRejected, "template_exists", false, fault.PhasePrecondition, fault.ChangeNone, "template list", "Choose a unique Template name or restore the draft's original identity."),
+		classifiedCommandError(fault.KindNotFound, "resource_source_missing", false, fault.PhasePrecondition, fault.ChangeNone, "template list", "Restore the canonical source pair from its retained reference and source path."),
+		classifiedCommandError(fault.KindInvalidInput, "resource_source_invalid", false, fault.PhasePrecondition, fault.ChangeNone, "template list", "Correct the strict source schema at the retained canonical source path."),
+		classifiedCommandError(fault.KindRejected, "resource_source_modified", false, fault.PhasePrecondition, fault.ChangeNone, "template list", "Rediscover the exact Template before reviewing a fresh plan."),
 	)
 	return CommandSpec{Path: "template plan", Summary: "Review one exact desired Template change", Args: "--id <template-ref> [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{
 		CapabilityID: "workspace.authority", Outcome: "Classify one exact Template source change and bind all Apply-relevant authority without mutation",
@@ -354,8 +356,9 @@ func finalTemplateMigrationPlanFields() []OutputField {
 func finalTemplateMigrationPlanSpec() CommandSpec {
 	errors := append(finalAuthorityReadErrors("template migration plan", "template list"),
 		classifiedCommandError(fault.KindInvalidInput, "invalid_template_ref", false, fault.PhasePrecondition, fault.ChangeNone, "template list", "Use an exact active Template reference."),
-		classifiedCommandError(fault.KindInvalidInput, "resource_source_invalid", false, fault.PhasePrecondition, fault.ChangeNone, "template show", "The alpha source must be strict, in sync, and losslessly representable in V1."),
-		classifiedCommandError(fault.KindNotFound, "resource_source_missing", false, fault.PhasePrecondition, fault.ChangeNone, "template show", "Restore the exact source pair before migration planning."),
+		classifiedCommandError(fault.KindNotFound, "template_not_found", false, fault.PhaseObservation, fault.ChangeNotApplicable, "template list", "Discover an active Template reference before migration planning."),
+		classifiedCommandError(fault.KindInvalidInput, "resource_source_invalid", false, fault.PhasePrecondition, fault.ChangeNone, "template list", "The retained alpha source must be strict, in sync, and losslessly representable in V1."),
+		classifiedCommandError(fault.KindNotFound, "resource_source_missing", false, fault.PhasePrecondition, fault.ChangeNone, "template list", "Restore the exact source pair from its retained reference and source path."),
 	)
 	return CommandSpec{Path: "template migration plan", Summary: "Review an alpha policy source migration to V1", Args: "--id <template-ref> [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{
 		CapabilityID: "workspace.authority", Outcome: "Bind one in-sync alpha source and its exact non-activating V1 replacement without mutation",
@@ -431,6 +434,7 @@ func finalContextApplySpec() CommandSpec {
 	errors = append(errors,
 		declaredCommandError(fault.KindInvalidInput, "invalid_context_activation_plan_ref", false, "context list", "Use one exact opaque Context plan emitted by context plan."),
 		declaredCommandError(fault.KindRejected, "context_activation_plan_stale", false, "context list", "Discover the Context and create a fresh activation plan."),
+		classifiedCommandError(fault.KindNotFound, "template_not_found", false, fault.PhasePrecondition, fault.ChangeNone, "template list", "Discover current Template authority before applying a Context plan."),
 		declaredCommandError(fault.KindNotFound, "resource_source_missing", false, "context list", "Rediscover the retained Context, then inspect its canonical source path; missing source never deletes active authority."),
 		declaredCommandError(fault.KindInvalidInput, "resource_source_invalid", false, "context list", "Rediscover the retained Context and correct the strict context.yaml diagnostic."),
 		declaredCommandError(fault.KindRejected, "context_identity_immutable", false, "context list", "Rediscover the current binding; another root or Template requires a fresh Context."),
@@ -490,9 +494,11 @@ func finalContextDeleteSpec() CommandSpec {
 	errors := append(finalAuthorityMutationErrors("context delete", "context list"),
 		declaredCommandError(fault.KindInvalidInput, "invalid_context_ref", false, "context list", "Use one exact Context reference from Context discovery."),
 		declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Discover current Context authority."),
+		declaredCommandError(fault.KindInvalidInput, "resource_source_invalid", false, "context list", "Correct the exact draft Context source before deleting it."),
 		declaredCommandError(fault.KindRejected, "context_in_use", false, "context list", "Remove the exact blocking Workspace or attachment first."),
 		finalMutationVerificationError("invalid_context_delete_result", "context list", "Reconcile the deleted Context authority."))
-	return CommandSpec{Path: "context delete", Summary: "Delete one empty final Context", Args: "--id <context-ref> --confirm=delete [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Delete one exact Context, its Policy Memory, and unresolved candidates", Inputs: []CommandInput{finalReferenceInput("--id", "Opaque Context reference.", tobari.ContextReferenceKind), {Name: "--confirm", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Literal destructive confirmation.", AllowedValues: []string{"delete"}}, formatInput()}, Output: finalJSONOutput("result", []OutputField{{Name: "context_id", Type: OutputFieldTypeString, Description: "Deleted Context identity."}, {Name: "deleted", Type: OutputFieldTypeBoolean, Description: "Always true after confirmed deletion."}}, CollectionCoverageNotApplicable), Prerequisites: []string{"No Workspace, live attachment, or research credential remains."}, Errors: errors, Mutation: &MutationContract{TargetKind: tobari.ContextReferenceKind, TargetInputs: []string{"--id"}, TargetIDInput: "--id", Impact: workspaceauthoritycmd.ContextDeleteImpact()}}, handler: runFinalContextDelete}
+	errors = append(errors, workspaceStartReadinessErrors()...)
+	return CommandSpec{Path: "context delete", Summary: "Delete one draft or empty active Context", Args: "--id <context-ref> --confirm=delete [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Delete one exact Context draft or one empty active Context with its Policy Memory and unresolved candidates", Inputs: []CommandInput{finalReferenceInput("--id", "Opaque draft or active Context reference.", tobari.ContextReferenceKind), {Name: "--confirm", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Literal destructive confirmation.", AllowedValues: []string{"delete"}}, formatInput()}, Output: finalJSONOutput("result", []OutputField{{Name: "context_id", Type: OutputFieldTypeString, Description: "Deleted Context identity."}, {Name: "deleted", Type: OutputFieldTypeBoolean, Description: "Always true after confirmed deletion."}}, CollectionCoverageNotApplicable), Prerequisites: []string{"An active Context has no Workspace, live attachment, or research credential; a draft has a valid exact source."}, Errors: errors, Mutation: &MutationContract{TargetKind: tobari.ContextReferenceKind, TargetInputs: []string{"--id"}, TargetIDInput: "--id", Impact: workspaceauthoritycmd.ContextDeleteImpact()}}, handler: runFinalContextDelete}
 }
 
 func finalWorkspaceListSpec() CommandSpec {

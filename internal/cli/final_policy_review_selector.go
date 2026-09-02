@@ -15,6 +15,7 @@ const (
 	finalPolicyReviewRawCancel finalPolicyReviewRawKind = iota
 	finalPolicyReviewRawRefresh
 	finalPolicyReviewRawApply
+	finalPolicyReviewRawResume
 )
 
 type finalPolicyReviewRawResult struct {
@@ -107,6 +108,18 @@ func selectFinalPolicyReviewRaw(
 			if apply {
 				return finalPolicyReviewRawResult{kind: finalPolicyReviewRawApply, staged: staged, lines: lines}, nil
 			}
+		case selectorKeyResume:
+			if snapshot.ReviewedApplyRecovery == nil {
+				continue
+			}
+			apply, finalLines, finalErr := selectFinalPolicyReviewRecoveryConfirmation(ctx, snapshot, in, out, lines, style)
+			lines = finalLines
+			if finalErr != nil {
+				return finalPolicyReviewRawResult{lines: lines}, finalErr
+			}
+			if apply {
+				return finalPolicyReviewRawResult{kind: finalPolicyReviewRawResume, lines: lines}, nil
+			}
 		case selectorKeyReset:
 			return finalPolicyReviewRawResult{kind: finalPolicyReviewRawRefresh, lines: lines}, nil
 		case selectorKeyCancel:
@@ -154,9 +167,58 @@ func renderFinalPolicyReviewList(
 			)
 		}
 	}
+	if snapshot.ReviewedApplyRecovery != nil {
+		lines = append(lines, "", applyStyleToken(style, styleWarning, "Interrupted reviewed Apply is ready to resume."))
+	}
 	lines = append(lines, "", applyStyleToken(style, styleMuted, "↑↓ move · enter review · a allow · d deny · x clear"))
-	lines = append(lines, applyStyleToken(style, styleMuted, "p review staged · r refresh · q cancel"))
+	footer := "p review staged · r refresh · q cancel"
+	if snapshot.ReviewedApplyRecovery != nil {
+		footer = "u resume confirmed Apply · " + footer
+	}
+	lines = append(lines, applyStyleToken(style, styleMuted, footer))
 	return renderSelectorScreen(out, lines, previousLines)
+}
+
+func selectFinalPolicyReviewRecoveryConfirmation(
+	ctx context.Context,
+	snapshot tobari.PolicyMemoryReviewSnapshot,
+	in io.Reader,
+	out io.Writer,
+	previousLines int,
+	style bool,
+) (bool, int, error) {
+	if snapshot.ReviewedApplyRecovery == nil {
+		return false, previousLines, fmt.Errorf("Permission Inbox recovery authority is missing")
+	}
+	frame := []string{
+		applyStyleToken(style, styleAccent, "Tobari · Resume Reviewed Apply"),
+		"",
+		fmt.Sprintf("%d already-confirmed decisions", len(snapshot.ReviewedApplyRecovery.DecisionSet.Decisions)),
+		"This resumes the preserved exact Apply; it does not stage current candidates.",
+		"",
+		applyStyleToken(style, styleAccent, "> Resume confirmed Apply"),
+		"  Back",
+		"",
+		applyStyleToken(style, styleMuted, "y resume · b back · q cancel"),
+	}
+	lines, err := renderSelectorScreen(out, frame, previousLines)
+	if err != nil {
+		return false, lines, err
+	}
+	for {
+		key, err := readSelectorKey(ctx, in)
+		if err != nil {
+			return false, lines, err
+		}
+		switch key.kind {
+		case selectorKeyConfirm, selectorKeyEnter, selectorKeyResume:
+			return true, lines, nil
+		case selectorKeyBack:
+			return false, lines, nil
+		case selectorKeyCancel:
+			return false, lines, context.Canceled
+		}
+	}
 }
 
 func padFinalPolicyReviewState(value string) string {

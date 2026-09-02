@@ -75,6 +75,8 @@ func testPolicyDigest(value string) tobari.SemanticDigest {
 	return tobari.SemanticDigest("sha256:" + strings.Repeat(value, 64))
 }
 
+func successfulClusterReadiness(context.Context) error { return nil }
+
 func (s *clusterSettlementFixture) ConfirmFinalClusterAuthoritySettled(
 	_ context.Context,
 	current tobari.WorkspaceAuthorityCollection,
@@ -138,7 +140,7 @@ func TestClusterAdapterPersistsCurrentAxisReceiptsAndReplaysTerminalConfirmation
 	previous := inactiveClusterCollection(t)
 	store, _, adapter, settlement := newClusterAdapterFixture(t, previous)
 
-	plan, identity, err := adapter.Reconcile(context.Background())
+	plan, identity, err := adapter.Reconcile(context.Background(), successfulClusterReadiness)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +166,7 @@ func TestClusterAdapterPersistsCurrentAxisReceiptsAndReplaysTerminalConfirmation
 		t.Fatalf("fresh cluster preflights=%d, want 1", settlement.preflights)
 	}
 
-	replayed, replayedIdentity, err := adapter.Reconcile(context.Background())
+	replayed, replayedIdentity, err := adapter.Reconcile(context.Background(), successfulClusterReadiness)
 	if err != nil || !reflect.DeepEqual(replayed, plan) || replayedIdentity != identity || settlement.calls != 1 || settlement.confirms != 1 {
 		t.Fatalf("terminal replay plan=%#v identity=%#v calls=%d confirms=%d err=%v", replayed, replayedIdentity, settlement.calls, settlement.confirms, err)
 	}
@@ -178,7 +180,7 @@ func TestClusterAdapterBindPreflightFailurePrecedesDurableDecision(t *testing.T)
 		fault.NextAction{Command: "doctor", Reason: "Share the exact host path."},
 	), fault.PhasePrecondition, fault.ChangeNone)
 
-	if _, _, err := adapter.Reconcile(context.Background()); err == nil {
+	if _, _, err := adapter.Reconcile(context.Background(), successfulClusterReadiness); err == nil {
 		t.Fatal("bind preflight failure was reported as complete")
 	} else if public, ok := fault.PublicCopy(err); !ok || public.Code != "cluster_resource_conflict" || public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone {
 		t.Fatalf("bind preflight fault = %#v, public=%t", public, ok)
@@ -198,6 +200,40 @@ func TestClusterAdapterBindPreflightFailurePrecedesDurableDecision(t *testing.T)
 	}
 }
 
+func TestClusterAdapterReadinessFailurePrecedesPreflightAndDurableDecision(t *testing.T) {
+	previous := inactiveClusterCollection(t)
+	store, mutator, adapter, settlement := newClusterAdapterFixture(t, previous)
+	readinessCalls := 0
+	readiness := func(context.Context) error {
+		readinessCalls++
+		return fault.WithClassification(fault.New(
+			fault.KindUnavailable, "docker_engine_unavailable", "The selected Docker Engine is unavailable.", false,
+			fault.NextAction{Command: "doctor", Reason: "Inspect generic Docker readiness before starting a Workspace."},
+		), fault.PhasePrecondition, fault.ChangeNone)
+	}
+
+	if _, _, err := adapter.Reconcile(context.Background(), readiness); err == nil {
+		t.Fatal("readiness failure was reported as complete")
+	} else if public, ok := fault.PublicCopy(err); !ok || public.Code != "docker_engine_unavailable" ||
+		public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone ||
+		len(public.NextActions) != 1 || public.NextActions[0].Command != "doctor" {
+		t.Fatalf("readiness fault = %#v, public=%t", public, ok)
+	}
+	current, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present || !reflect.DeepEqual(current, previous) {
+		t.Fatalf("readiness changed final authority: present=%t current=%#v err=%v", present, current, err)
+	}
+	if readinessCalls != 1 || settlement.preflights != 0 || settlement.calls != 0 {
+		t.Fatalf("readiness calls=%d bind preflights=%d settlement calls=%d", readinessCalls, settlement.preflights, settlement.calls)
+	}
+	if _, active, err := mutator.readEffectDecision(); err != nil || active {
+		t.Fatalf("readiness published durable decision: active=%t err=%v", active, err)
+	}
+	if _, err := os.Lstat(mutationStagePath(store.root)); !os.IsNotExist(err) {
+		t.Fatalf("readiness published durable stage: %v", err)
+	}
+}
+
 func TestClusterAdapterRecoversPostEffectPreEnvelopeAndBlocksUnrelatedMutation(t *testing.T) {
 	previous := inactiveClusterCollection(t)
 	store, mutator, adapter, settlement := newClusterAdapterFixture(t, previous)
@@ -211,7 +247,7 @@ func TestClusterAdapterRecoversPostEffectPreEnvelopeAndBlocksUnrelatedMutation(t
 		return realRename(source, target)
 	}
 
-	if _, _, err := adapter.Reconcile(context.Background()); err == nil {
+	if _, _, err := adapter.Reconcile(context.Background(), successfulClusterReadiness); err == nil {
 		t.Fatal("post-effect/pre-envelope interruption was reported as complete")
 	}
 	current, present, err := store.ReadComplete(context.Background())
@@ -230,9 +266,16 @@ func TestClusterAdapterRecoversPostEffectPreEnvelopeAndBlocksUnrelatedMutation(t
 
 	mutator.rename = realRename
 	settlement.preflightErr = fmt.Errorf("active durable decision must not repeat fresh preflight")
-	plan, _, err := adapter.Reconcile(context.Background())
+	recoveryReadinessCalls := 0
+	plan, _, err := adapter.Reconcile(context.Background(), func(context.Context) error {
+		recoveryReadinessCalls++
+		return fmt.Errorf("active durable decision must not repeat generic readiness")
+	})
 	if err != nil || settlement.calls != 2 || settlement.preflights != 1 {
 		t.Fatalf("cluster recovery plan=%#v calls=%d preflights=%d err=%v", plan, settlement.calls, settlement.preflights, err)
+	}
+	if recoveryReadinessCalls != 0 {
+		t.Fatalf("cluster recovery repeated generic readiness %d times", recoveryReadinessCalls)
 	}
 	current, present, err = store.ReadComplete(context.Background())
 	if err != nil || !present || plan.ValidateTransition(previous, current) != nil {
@@ -249,7 +292,7 @@ func TestClusterAdapterPublishesConfirmedEffectAfterCallerCancellation(t *testin
 	ctx, cancel := context.WithCancel(context.Background())
 	settlement.onSettle = cancel
 
-	plan, _, err := adapter.Reconcile(ctx)
+	plan, _, err := adapter.Reconcile(ctx, successfulClusterReadiness)
 	if err != nil {
 		t.Fatalf("confirmed cluster effect became replay permission: %v", err)
 	}

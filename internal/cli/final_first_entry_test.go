@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"reflect"
@@ -555,6 +556,27 @@ func TestFinalRootFreshStartComposesReviewFiveCheckpointsAndExactDirectArgv(t *t
 	wantProgress := "Tobari · Starting Workspace\n\n✓ Check requirements\n✓ Save setup\n✓ Prepare protection\n✓ Prepare Workspace\n✓ Enter Workspace\n"
 	if stderr.String() != wantProgress || stdout.Len() != 0 {
 		t.Fatalf("root streams stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestFinalRootJSONReadinessFailureOwnsCompleteStderr(t *testing.T) {
+	command, _, readiness, cluster, reviewer, stdout, stderr, _ := newFirstEntryCLI(t, true, true, recommendedFirstUseStart)
+	readiness.err = fault.WithClassification(fault.New(
+		fault.KindUnavailable,
+		"docker_engine_unavailable",
+		"The selected Docker engine is unavailable.",
+		false,
+		fault.NextAction{Command: "doctor", Reason: "Start the selected engine externally."},
+	), fault.PhasePrecondition, fault.ChangeNone)
+	if code := command.RunContext(context.Background(), []string{"--error-format=json", "--", "agent", "--monkey-unknown=1"}); code != ExitUnavailable {
+		t.Fatalf("root exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !json.Valid(stderr.Bytes()) || !strings.Contains(stderr.String(), `"code":"docker_engine_unavailable"`) ||
+		strings.Contains(stderr.String(), "Tobari ·") || strings.Contains(stderr.String(), "Check requirements") {
+		t.Fatalf("JSON readiness stderr=%q", stderr.String())
+	}
+	if stdout.Len() != 0 || readiness.calls != 1 || cluster.calls != 0 || reviewer.calls != 0 {
+		t.Fatalf("stdout=%q readiness=%d cluster=%d review=%d", stdout.String(), readiness.calls, cluster.calls, reviewer.calls)
 	}
 }
 

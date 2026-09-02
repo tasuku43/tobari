@@ -55,7 +55,7 @@ func (s *Store) AcquireConfiguratorStageScopeLease(ctx context.Context, scope st
 		return nil, err
 	}
 	digest := sha256.Sum256([]byte(scope))
-	file, err := os.OpenFile(filepath.Join(root, fmt.Sprintf("%x.lock", digest)), os.O_CREATE|os.O_RDWR, 0o600) // #nosec G304 -- the filename is a fixed-size digest below a private root.
+	file, err := openConfiguratorStageLock(filepath.Join(root, fmt.Sprintf("%x.lock", digest)))
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func (s *Store) AcquireConfiguratorCatalogLease(ctx context.Context) (func() err
 	if err := ensurePrivateDirectory(root); err != nil {
 		return nil, err
 	}
-	file, err := os.OpenFile(filepath.Join(root, "catalog.lock"), os.O_CREATE|os.O_RDWR, 0o600) // #nosec G304 -- fixed lock filename below the private Configurator catalog-lock root.
+	file, err := openConfiguratorStageLock(filepath.Join(root, "catalog.lock"))
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +112,7 @@ func (s *Store) AcquireConfiguratorStageLease(ctx context.Context, id tobari.Wor
 	if err := ensurePrivateDirectory(root); err != nil {
 		return nil, err
 	}
-	file, err := os.OpenFile(filepath.Join(root, string(id)+".lock"), os.O_CREATE|os.O_RDWR, 0o600) // #nosec G304 -- validated Template ID below a private root.
+	file, err := openConfiguratorStageLock(filepath.Join(root, string(id)+".lock"))
 	if err != nil {
 		return nil, err
 	}
@@ -125,6 +125,50 @@ func (s *Store) AcquireConfiguratorStageLease(ctx context.Context, id tobari.Wor
 		unlockConfiguratorStageFile(file)
 		return file.Close()
 	}, nil
+}
+
+// openConfiguratorStageLock refuses aliases before the descriptor becomes
+// lock authority. Creation uses O_EXCL, existing Unix paths use O_NOFOLLOW,
+// and both paths are checked against descriptor identity, owner, mode, and a
+// single link after open. A same-user replacement race can therefore at most
+// make acquisition fail; it cannot redirect a create or accepted lock outside
+// the private root.
+func openConfiguratorStageLock(path string) (*os.File, error) {
+	before, err := os.Lstat(path) // #nosec G703 -- callers provide one fixed or digest-derived child below a validated private root.
+	create := errors.Is(err, os.ErrNotExist)
+	if err != nil && !create {
+		return nil, err
+	}
+	if !create {
+		if err := validatePrivateFile(before); err != nil {
+			return nil, fmt.Errorf("Configurator lock is unsafe: %w", err)
+		}
+	}
+	file, err := openConfiguratorStageLockFile(path, create)
+	if err != nil {
+		return nil, err
+	}
+	fail := func(cause error) (*os.File, error) {
+		return nil, errors.Join(cause, file.Close())
+	}
+	opened, err := file.Stat()
+	if err != nil {
+		return fail(err)
+	}
+	if err := validatePrivateFile(opened); err != nil {
+		return fail(fmt.Errorf("opened Configurator lock is unsafe: %w", err))
+	}
+	current, err := os.Lstat(path) // #nosec G703 -- revalidates the same exact lock child after descriptor acquisition.
+	if err != nil {
+		return fail(err)
+	}
+	if err := validatePrivateFile(current); err != nil {
+		return fail(fmt.Errorf("published Configurator lock is unsafe: %w", err))
+	}
+	if !os.SameFile(opened, current) || !create && !os.SameFile(before, opened) {
+		return fail(fmt.Errorf("Configurator lock changed during acquisition"))
+	}
+	return file, nil
 }
 
 type configuratorStageJournal struct {

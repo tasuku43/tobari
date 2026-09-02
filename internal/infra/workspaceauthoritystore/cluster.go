@@ -37,8 +37,8 @@ func NewClusterAdapter(mutator *Mutator) (*ClusterAdapter, error) {
 	return &ClusterAdapter{mutator: mutator, settlement: settlement}, nil
 }
 
-func (a *ClusterAdapter) Reconcile(ctx context.Context) (tobari.WorkspaceAuthorityClusterReconciliationPlan, tobari.PolicyProjectionIdentity, error) {
-	if a == nil || a.mutator == nil {
+func (a *ClusterAdapter) Reconcile(ctx context.Context, readiness func(context.Context) error) (tobari.WorkspaceAuthorityClusterReconciliationPlan, tobari.PolicyProjectionIdentity, error) {
+	if a == nil || a.mutator == nil || readiness == nil {
 		return tobari.WorkspaceAuthorityClusterReconciliationPlan{}, tobari.PolicyProjectionIdentity{}, fmt.Errorf("final cluster reconciliation adapter is unavailable")
 	}
 	var settledIdentity tobari.PolicyProjectionIdentity
@@ -54,6 +54,12 @@ func (a *ClusterAdapter) Reconcile(ctx context.Context) (tobari.WorkspaceAuthori
 			}
 			plan := transition.Plan
 			if !active {
+				// Keep the application-selected Docker profile inside the
+				// fresh-action fence. Running it before this adapter could relabel
+				// an already-durable interrupted decision as a no-change failure.
+				if err := readiness(ctx); err != nil {
+					return effectPlan{}, err
+				}
 				if err := a.settlement.PreflightFinalClusterAuthority(ctx, plan.Projection); err != nil {
 					return effectPlan{}, err
 				}

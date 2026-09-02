@@ -140,6 +140,12 @@ the independently invocable owner of shared Gateway and OPA setup, while an
 interactive first-use `tobari` composes that exact action after a newly
 confirmed default Template/Context pair and materializes the selected canonical
 standard Runtime when absent, so a human need not remember the setup sequence.
+Direct `cluster up` and composed root entry use the same closed generic Docker
+readiness profile. For a fresh cluster action it runs before the durable
+reconciliation decision, so an unavailable selected Engine is a
+`docker_engine_unavailable` precondition with no change, not an unknown mutation
+outcome; Tobari does not start or repair the Engine. Recovery of an existing
+durable decision retains its prior mutation classification.
 
 The primary operating loop is progressive policy learning: a Workspace workload is
 denied by default, Gateway records the rejected HTTP effect, including one
@@ -158,7 +164,11 @@ can be reviewed again. Reset does not authorize or retry the request.
 The evaluator is Tobari-owned and ordinary policy authority is expressed only
 as canonical typed data and exact reviewed decisions; users never edit or
 manage executable policy source. Exact policy actions and final reviewed-set Apply perform the bounded
-activation required for their own mutation.
+activation required for their own mutation. Because ordinary Gateway
+observations remain a pure read projection rather than a second persisted
+inbox, reviewed-set Apply rereads every selected non-durable candidate under
+the lifecycle fence, requires the same complete collection receipt and exact
+typed authority, and removes only candidates that were already durable.
 Denial evidence is a product output, not incidental debug noise.
 
 For a supported ordinary HTTP or HTTPS denial, Gateway schema 2 may additionally
@@ -436,7 +446,7 @@ The public commands are:
 | `installation migration plan [--format text|json]` | discover | read | Bind one exact supported typed `authority.json` to a read-only installed-state migration plan |
 | `installation migration apply --plan <installation-migration-plan-ref> [--format text|json]` | act | write | Revalidate one migration plan, publish concept sources and one verified generation, then retire `authority.json` |
 | `context use --id <context-ref> [--format text|json]` | act | write | Select one exact location-free Context as the installation current Context without reading CWD or changing Workspace/Docker state |
-| `context delete --id <context-ref> --confirm=delete [--format text|json]` | act | write | Delete one exact Context, its Policy Memory, complete managed Home, and unresolved candidates after no Configurator or Workspace attachment remains; atomically clear the selector when deleting the current Context |
+| `context delete --id <context-ref> --confirm=delete [--format text|json]` | act | write | Delete one exact unpublished Context draft, or one active Context with its Policy Memory, complete managed Home, and unresolved candidates after no Configurator or Workspace attachment remains; active deletion checks bound Docker readiness before a fresh aggregate-settlement decision, and deleting the current Context atomically clears the selector |
 | `workspace list [--format text|json]` | discover | read | Return every final Workspace and its exact owner binding |
 | `workspace status --id <workspace-ref> [--format text|json]` | discover | read | Return one exact Workspace and its applied authority |
 | `workspace delete --id <workspace-ref> --confirm=delete [--force] [--format text|json]` | act | write | Retire one exact Workspace and owned runtime resources while preserving Context Policy Memory and the complete Context-owned managed Home |
@@ -499,7 +509,9 @@ The semantic-policy cutover advances the pre-public final generation,
 Workspace Template, Policy Memory, and authority collection schemas to 2.
 Schema-1 generation state is unsupported development state and returns
 `legacy_state_present` with reset/recreate guidance; it is not eligible for the
-typed `authority.json` migration. The guidance names all three closed roots,
+typed `authority.json` migration. Root `status` and `cluster status` preserve
+that deterministic observation as non-retryable read-only evidence and route
+to `doctor` rather than a retryable self-loop. The guidance names all three closed roots,
 `${XDG_CONFIG_HOME:-$HOME/.config}/tobari`,
 `${XDG_STATE_HOME:-$HOME/.local/state}/tobari`, and
 `${XDG_DATA_HOME:-$HOME/.local/share}/tobari`; removing only configuration and
@@ -1113,7 +1125,9 @@ utilities because the shell invokes them directly. Candidate output is a
 bounded two-column TSV protocol with `candidate` or `directive` in column one;
 it is not a parser for human output or another command's JSON.
 Successful data is stdout;
-failures are stderr.
+failures are stderr. With `--error-format=json`, stderr is exactly one structured
+error document: first-entry, cluster, review, and other human progress or
+selector output is suppressed rather than prepended or appended.
 
 Structured error schema 2 retains `kind` and command-specific `code` as the
 causal identity and requires `phase` plus `change_state`. Phase is one of
@@ -1173,6 +1187,17 @@ label. Apply stops owning raw terminal mode before mutation, uses the shared
 active-work spinner only while the mutation is running, and then emits an
 outcome-first receipt containing the authoritative active revision and ordered
 review-item/rule identities. It never retries the denied request.
+If that confirmed Apply is interrupted after its exact reviewed set becomes
+durable, a fresh trusted text TTY shows one separate resume choice even when
+the live denial has disappeared. The choice is reconstructed only from the
+active decision journal observed with the same collection receipt; it is not a
+candidate and is absent from JSON and redirected text. Resume requires another
+explicit confirmation and supplies the unchanged durable set to the same
+fixed-target action. A terminal receipt or failed result write instead directs
+the user to read-only `policy rules` reconciliation and never advertises
+mutation replay. Public `review permissions` help projects the actionable fault
+codes and Next actions of the internal Apply while keeping that action path
+unroutable and absent from public help.
 
 \`policy rules\` is the current learned-decision inventory; its TTY reset
 flow delegates one explicit opaque reference to \`policy reset\`. Redirected and
@@ -1305,6 +1330,9 @@ bounded sanitized wait reason appears after ten seconds; redirected stderr may
 emit a bounded heartbeat no more often than every 30 seconds. Progress exposes
 no percent, ETA, raw external log, public flag, preference, schema, event
 resource, or live details control.
+Machine-readable error mode has no progress channel, so it emits none of these
+headings, markers, timers, or heartbeats and leaves stderr to the final JSON
+error boundary.
 Interactive active work uses the one shared ten-frame Braille sequence
 `⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏` at 100 ms. A task that settles within 250 ms emits
 no transient spinner. Motion denotes only that foreground work is currently

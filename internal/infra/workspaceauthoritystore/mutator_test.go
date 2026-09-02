@@ -44,6 +44,10 @@ func (l *mutationLifecycle) WithLifecycleLock(ctx context.Context, action func(c
 	return action(ctx)
 }
 
+func (l *mutationLifecycle) WithLifecycleObservation(ctx context.Context, action func(context.Context) error) error {
+	return l.WithLifecycleLock(ctx, action)
+}
+
 type deletionAuthorityFixture struct {
 	retired              []tobari.WorkspaceID
 	retirementRefs       []string
@@ -154,12 +158,13 @@ func (s *finalSettlementFixture) SettleFinalReviewedPolicyAuthority(
 	_ context.Context,
 	previous, next tobari.WorkspaceAuthorityCollection,
 	set tobari.PolicyMemoryReviewedDecisionSet,
+	live []tobari.PolicyCandidateAuthority,
 	_, _ string,
 ) (tobari.PolicyMemoryReviewedSettlementReceipt, error) {
 	if s.err != nil {
 		return tobari.PolicyMemoryReviewedSettlementReceipt{}, s.err
 	}
-	if err := tobari.ValidatePolicyMemoryReviewedTransition(previous, next, set); err != nil {
+	if err := tobari.ValidatePolicyMemoryReviewedTransitionWithLiveSources(previous, next, set, live); err != nil {
 		return tobari.PolicyMemoryReviewedSettlementReceipt{}, err
 	}
 	s.reviewedCalls++
@@ -546,7 +551,7 @@ func TestDeletedStableIDsCannotReenterTemplateOrContextApply(t *testing.T) {
 	}
 }
 
-func TestTemplatePlanClassifiesAbsentOrUnknownTemplateBeforeSourceFailure(t *testing.T) {
+func TestTemplatePlanClassifiesAbsentAuthorityAndLoadsLaterDraftSource(t *testing.T) {
 	templateID := tobari.WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789a1")
 	templateRef, err := tobari.WorkspaceTemplateRef(templateID)
 	if err != nil {
@@ -572,8 +577,8 @@ func TestTemplatePlanClassifiesAbsentOrUnknownTemplateBeforeSourceFailure(t *tes
 		loaderCalled = true
 		return tobari.WorkspaceTemplateSource{}, "", tobari.ErrResourceSourceMissing
 	})
-	if !errors.Is(err, tobari.ErrWorkspaceTemplateNotFound) || loaderCalled {
-		t.Fatalf("unknown active Template plan error=%v loader_called=%t", err, loaderCalled)
+	if !errors.Is(err, tobari.ErrResourceSourceMissing) || !loaderCalled {
+		t.Fatalf("missing later draft source error=%v loader_called=%t", err, loaderCalled)
 	}
 }
 
@@ -1080,7 +1085,12 @@ func TestContextDeleteSettlementDecisionResumesAndReplaysExactOutcome(t *testing
 		return realRename(source, target)
 	}
 	contextRef, _ := tobari.ContextRef(storeContextID)
-	if _, err := mutator.DeleteContextByReference(context.Background(), contextRef); err == nil {
+	readinessCalls := 0
+	readiness := func(context.Context) error {
+		readinessCalls++
+		return nil
+	}
+	if _, err := mutator.DeleteContextByReferenceWithReadiness(context.Background(), contextRef, readiness); err == nil {
 		t.Fatal("interrupted Context deletion was reported as complete")
 	}
 	current, _, err := store.ReadComplete(context.Background())
@@ -1092,14 +1102,59 @@ func TestContextDeleteSettlementDecisionResumesAndReplaysExactOutcome(t *testing
 	}
 
 	mutator.rename = realRename
-	result, err := mutator.DeleteContextByReference(context.Background(), contextRef)
+	result, err := mutator.DeleteContextByReferenceWithReadiness(context.Background(), contextRef, readiness)
 	if err != nil || !result.Deleted || result.ContextID != storeContextID || settlement.contextDeleteCalls != 2 {
 		t.Fatalf("resumed Context delete=%#v settlements=%d err=%v", result, settlement.contextDeleteCalls, err)
 	}
 	calls := settlement.contextDeleteCalls
-	replayed, err := mutator.DeleteContextByReference(context.Background(), contextRef)
+	replayed, err := mutator.DeleteContextByReferenceWithReadiness(context.Background(), contextRef, readiness)
 	if err != nil || !replayed.Deleted || replayed.ContextID != storeContextID || settlement.contextDeleteCalls != calls || settlement.contextDeleteConfirms != 1 {
 		t.Fatalf("terminal Context replay=%#v settlements=%d confirms=%d err=%v", replayed, settlement.contextDeleteCalls, settlement.contextDeleteConfirms, err)
+	}
+	if readinessCalls != 1 {
+		t.Fatalf("Context delete readiness calls=%d, want one fresh-action check", readinessCalls)
+	}
+}
+
+func TestContextDeleteReadinessFailurePrecedesDurableDecision(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	store, mutator, _, _, _ := newMutationFixture(t, &existing)
+	workspaceRef, _ := tobari.WorkspaceRef(storeWorkspaceID)
+	if _, err := mutator.DeleteWorkspaceByReference(context.Background(), workspaceRef, true); err != nil {
+		t.Fatal(err)
+	}
+	before, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present {
+		t.Fatalf("read before Context delete: present=%t err=%v", present, err)
+	}
+	readinessCalls := 0
+	readinessErr := fault.WithClassification(
+		fault.New(fault.KindUnavailable, "docker_context_unavailable", "synthetic selected Docker context is unavailable", false,
+			fault.NextAction{Command: "doctor", Reason: "Inspect the selected Docker context."}),
+		fault.PhasePrecondition,
+		fault.ChangeNone,
+	)
+	contextRef, _ := tobari.ContextRef(storeContextID)
+	_, err = mutator.DeleteContextByReferenceWithReadiness(context.Background(), contextRef, func(context.Context) error {
+		readinessCalls++
+		return readinessErr
+	})
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "docker_context_unavailable" || public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone {
+		t.Fatalf("Context delete readiness fault=%#v ok=%t err=%v", public, ok, err)
+	}
+	if readinessCalls != 1 || mutator.settlement.(*finalSettlementFixture).contextDeleteCalls != 0 {
+		t.Fatalf("readiness calls=%d settlement calls=%d", readinessCalls, mutator.settlement.(*finalSettlementFixture).contextDeleteCalls)
+	}
+	after, present, readErr := store.ReadComplete(context.Background())
+	if readErr != nil || !present || after.Generation != before.Generation || after.Revision != before.Revision {
+		t.Fatalf("readiness failure changed authority: before=%#v after=%#v present=%t err=%v", before, after, present, readErr)
+	}
+	if _, active, decisionErr := mutator.readEffectDecision(); decisionErr != nil || active {
+		t.Fatalf("readiness failure retained durable decision: active=%t err=%v", active, decisionErr)
+	}
+	if _, stageErr := os.Lstat(mutationStagePath(store.root)); !errors.Is(stageErr, os.ErrNotExist) {
+		t.Fatalf("readiness failure retained mutation stage: %v", stageErr)
 	}
 }
 

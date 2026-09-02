@@ -240,6 +240,26 @@ func NewPolicyMemoryReviewedDecisionSet(
 	observed WorkspaceAuthorityCollection,
 	decisions []PolicyMemoryReviewedDecision,
 ) (PolicyMemoryReviewedDecisionSet, error) {
+	return newPolicyMemoryReviewedDecisionSet(observed, nil, decisions)
+}
+
+// NewPolicyMemoryReviewedDecisionSetWithObservations binds decisions to one
+// coherent final collection plus the non-durable live candidates joined into
+// its read-only Permission Inbox snapshot. Apply must still freshly reobserve
+// these candidates before any authority change.
+func NewPolicyMemoryReviewedDecisionSetWithObservations(
+	observed WorkspaceAuthorityCollection,
+	live []PolicyCandidateAuthority,
+	decisions []PolicyMemoryReviewedDecision,
+) (PolicyMemoryReviewedDecisionSet, error) {
+	return newPolicyMemoryReviewedDecisionSet(observed, live, decisions)
+}
+
+func newPolicyMemoryReviewedDecisionSet(
+	observed WorkspaceAuthorityCollection,
+	live []PolicyCandidateAuthority,
+	decisions []PolicyMemoryReviewedDecision,
+) (PolicyMemoryReviewedDecisionSet, error) {
 	if err := observed.Validate(); err != nil {
 		return PolicyMemoryReviewedDecisionSet{}, err
 	}
@@ -262,7 +282,7 @@ func NewPolicyMemoryReviewedDecisionSet(
 	if err := result.Validate(); err != nil {
 		return PolicyMemoryReviewedDecisionSet{}, err
 	}
-	if _, err := validatePolicyMemoryReviewedSources(observed, result); err != nil {
+	if _, err := validatePolicyMemoryReviewedSources(observed, result, live); err != nil {
 		return PolicyMemoryReviewedDecisionSet{}, err
 	}
 	return result, nil
@@ -468,6 +488,7 @@ type PolicyMemoryReviewedSetPublication struct {
 	DecisionSet        PolicyMemoryReviewedDecisionSet       `json:"-"`
 	Previous           WorkspaceAuthorityCollection          `json:"-"`
 	Next               WorkspaceAuthorityCollection          `json:"-"`
+	LiveCandidates     []PolicyCandidateAuthority            `json:"-"`
 	Changes            []PolicyMemoryReviewedContextChange   `json:"-"`
 	AppliedDecisions   []PolicyMemoryReviewedAppliedDecision `json:"decisions"`
 	Settlement         PolicyMemoryReviewedSettlementReceipt `json:"-"`
@@ -487,7 +508,19 @@ func NewPolicyMemoryReviewedSetPublication(
 	set PolicyMemoryReviewedDecisionSet,
 	settlement PolicyMemoryReviewedSettlementReceipt,
 ) (PolicyMemoryReviewedSetPublication, error) {
-	changes, applied, err := validatePolicyMemoryReviewedTransition(previous, next, set)
+	return NewPolicyMemoryReviewedSetPublicationWithLiveSources(previous, next, set, nil, settlement)
+}
+
+// NewPolicyMemoryReviewedSetPublicationWithLiveSources retains the private
+// fresh evidence needed to validate a full publication whose reviewed set
+// consumed non-durable Gateway observations.
+func NewPolicyMemoryReviewedSetPublicationWithLiveSources(
+	previous, next WorkspaceAuthorityCollection,
+	set PolicyMemoryReviewedDecisionSet,
+	live []PolicyCandidateAuthority,
+	settlement PolicyMemoryReviewedSettlementReceipt,
+) (PolicyMemoryReviewedSetPublication, error) {
+	changes, applied, err := validatePolicyMemoryReviewedTransition(previous, next, set, live)
 	if err != nil {
 		return PolicyMemoryReviewedSetPublication{}, err
 	}
@@ -504,7 +537,7 @@ func NewPolicyMemoryReviewedSetPublication(
 	}
 	result := PolicyMemoryReviewedSetPublication{
 		SchemaVersion: PolicyMemoryReviewedSetSchemaVersion, Task: TaskPolicyReviewApply, TargetID: PolicyDecisionSetID,
-		DecisionSet: set.Clone(), Previous: previous.Clone(), Next: next.Clone(), Changes: changes,
+		DecisionSet: set.Clone(), Previous: previous.Clone(), Next: next.Clone(), LiveCandidates: clonePolicyCandidateAuthorities(live), Changes: changes,
 		AppliedDecisions: applied, Settlement: settlement, ActiveRevision: settlement.AggregateRevision,
 		PreviousGeneration: previous.Generation, PreviousRevision: previous.Revision,
 		NextGeneration: next.Generation, NextRevision: next.Revision,
@@ -548,6 +581,9 @@ func (p PolicyMemoryReviewedSetPublication) Validate() error {
 	}
 	compact := previousEmpty
 	if compact {
+		if len(p.LiveCandidates) != 0 {
+			return fmt.Errorf("reviewed Policy Memory terminal publication retained live candidate evidence")
+		}
 		if err := validatePolicyMemoryReviewedChanges(p.DecisionSet, p.Changes); err != nil {
 			return err
 		}
@@ -559,7 +595,7 @@ func (p PolicyMemoryReviewedSetPublication) Validate() error {
 		}
 		return nil
 	}
-	wantChanges, wantApplied, err := validatePolicyMemoryReviewedTransition(p.Previous, p.Next, p.DecisionSet)
+	wantChanges, wantApplied, err := validatePolicyMemoryReviewedTransition(p.Previous, p.Next, p.DecisionSet, p.LiveCandidates)
 	if err != nil {
 		return err
 	}
@@ -587,13 +623,26 @@ func ValidatePolicyMemoryReviewedTransition(
 	previous, next WorkspaceAuthorityCollection,
 	set PolicyMemoryReviewedDecisionSet,
 ) error {
-	_, _, err := validatePolicyMemoryReviewedTransition(previous, next, set)
+	_, _, err := validatePolicyMemoryReviewedTransition(previous, next, set, nil)
+	return err
+}
+
+// ValidatePolicyMemoryReviewedTransitionWithLiveSources proves the same exact
+// state transition while also binding every non-durable candidate to freshly
+// observed private authority.
+func ValidatePolicyMemoryReviewedTransitionWithLiveSources(
+	previous, next WorkspaceAuthorityCollection,
+	set PolicyMemoryReviewedDecisionSet,
+	live []PolicyCandidateAuthority,
+) error {
+	_, _, err := validatePolicyMemoryReviewedTransition(previous, next, set, live)
 	return err
 }
 
 func validatePolicyMemoryReviewedTransition(
 	previous, next WorkspaceAuthorityCollection,
 	set PolicyMemoryReviewedDecisionSet,
+	live []PolicyCandidateAuthority,
 ) ([]PolicyMemoryReviewedContextChange, []PolicyMemoryReviewedAppliedDecision, error) {
 	if err := previous.Validate(); err != nil {
 		return nil, nil, fmt.Errorf("reviewed Policy Memory predecessor authority: %w", err)
@@ -614,7 +663,7 @@ func validatePolicyMemoryReviewedTransition(
 		len(previous.Contexts) != len(next.Contexts) {
 		return nil, nil, fmt.Errorf("reviewed Policy Memory transition changed unrelated aggregate authority")
 	}
-	consumed, err := validatePolicyMemoryReviewedSources(previous, set)
+	consumed, err := validatePolicyMemoryReviewedSources(previous, set, live)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -650,6 +699,7 @@ func (p PolicyMemoryReviewedSetPublication) CompactTerminal() (PolicyMemoryRevie
 	result := p.Clone()
 	result.Previous = WorkspaceAuthorityCollection{}
 	result.Next = WorkspaceAuthorityCollection{}
+	result.LiveCandidates = nil
 	return result, result.Validate()
 }
 
@@ -805,13 +855,39 @@ func policyMemoryReviewedAppliedDecisions(
 	return result, nil
 }
 
+// ValidatePolicyMemoryReviewedLiveSources proves that every decision source is
+// either unchanged durable authority or an exact member of one freshly read
+// live observation set. The caller owns collection-receipt coherence.
+func ValidatePolicyMemoryReviewedLiveSources(
+	collection WorkspaceAuthorityCollection,
+	set PolicyMemoryReviewedDecisionSet,
+	live []PolicyCandidateAuthority,
+) error {
+	_, err := validatePolicyMemoryReviewedSources(collection, set, live)
+	return err
+}
+
 func validatePolicyMemoryReviewedSources(
 	collection WorkspaceAuthorityCollection,
 	set PolicyMemoryReviewedDecisionSet,
+	live []PolicyCandidateAuthority,
 ) (map[string]struct{}, error) {
 	pending := make(map[string]PolicyCandidateAuthority, len(collection.PendingCandidates))
 	for _, candidate := range collection.PendingCandidates {
 		pending[candidate.ID] = candidate
+	}
+	observed := make(map[string]PolicyCandidateAuthority, len(live))
+	for _, candidate := range live {
+		if err := candidate.Validate(); err != nil {
+			return nil, fmt.Errorf("live reviewed Policy Memory candidate is invalid: %w", err)
+		}
+		if durable, exists := pending[candidate.ID]; exists && !reflect.DeepEqual(durable, candidate) {
+			return nil, fmt.Errorf("live reviewed Policy Memory candidate conflicts with pending authority")
+		}
+		if _, duplicate := observed[candidate.ID]; duplicate {
+			return nil, fmt.Errorf("live reviewed Policy Memory candidate is duplicated")
+		}
+		observed[candidate.ID] = candidate
 	}
 	workspaces := make(map[WorkspaceID]ContextID, len(collection.Workspaces))
 	for _, workspace := range collection.Workspaces {
@@ -825,16 +901,26 @@ func validatePolicyMemoryReviewedSources(
 		}
 	}
 	consumed := map[string]struct{}{}
+	usedObserved := map[string]struct{}{}
 	for _, decision := range set.Decisions {
 		for _, reviewed := range decision.Candidates {
 			candidate, exists := pending[reviewed.ID]
+			durable := exists
+			if !exists {
+				candidate, exists = observed[reviewed.ID]
+				if exists {
+					usedObserved[reviewed.ID] = struct{}{}
+				}
+			}
 			if !exists || !reflect.DeepEqual(candidate, reviewed) {
-				return nil, fmt.Errorf("reviewed Policy Memory decision no longer matches pending authority")
+				return nil, fmt.Errorf("reviewed Policy Memory decision no longer matches pending or live authority")
 			}
 			if workspaces[candidate.ObservingWorkspaceID] != candidate.ContextID {
 				return nil, fmt.Errorf("reviewed Policy Memory decision crosses its observing Workspace")
 			}
-			consumed[candidate.ID] = struct{}{}
+			if durable {
+				consumed[candidate.ID] = struct{}{}
+			}
 		}
 		for _, reviewed := range decision.SourceRules {
 			rule, exists := memoryByContext[decision.ContextID()][reviewed.ID]
@@ -842,6 +928,9 @@ func validatePolicyMemoryReviewedSources(
 				return nil, fmt.Errorf("reviewed Policy Memory source rule changed after confirmation")
 			}
 		}
+	}
+	if len(usedObserved) != len(observed) {
+		return nil, fmt.Errorf("live reviewed Policy Memory evidence contains an unselected candidate")
 	}
 	return consumed, nil
 }
@@ -914,6 +1003,7 @@ func (p PolicyMemoryReviewedSetPublication) Clone() PolicyMemoryReviewedSetPubli
 	result.DecisionSet = p.DecisionSet.Clone()
 	result.Previous = p.Previous.Clone()
 	result.Next = p.Next.Clone()
+	result.LiveCandidates = clonePolicyCandidateAuthorities(p.LiveCandidates)
 	result.Changes = make([]PolicyMemoryReviewedContextChange, len(p.Changes))
 	for index := range p.Changes {
 		result.Changes[index] = p.Changes[index].Clone()

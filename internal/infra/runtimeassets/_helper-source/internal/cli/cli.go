@@ -296,7 +296,7 @@ func New(lifetime context.Context, in io.Reader, out, errOut io.Writer) *CLI {
 	command.authorityStore = authorityStore
 	command.finalTemplates = workspaceauthoritycmd.NewTemplateService(finalAuthority)
 	command.installationMigration = installationmigrationcmd.New(resources)
-	command.finalContexts = workspaceauthoritycmd.NewContextService(finalAuthority)
+	command.finalContexts = workspaceauthoritycmd.NewContextService(finalAuthority, command.finalEntryReadiness)
 	command.finalWorkspaces = workspaceauthoritycmd.NewWorkspaceService(finalAuthority)
 	command.finalPolicy = workspaceauthoritycmd.NewPolicyMemoryService(finalPolicyPort)
 	defaultPair, err := workspaceauthoritystore.NewDefaultPairAdapter(authorityStore, runtime)

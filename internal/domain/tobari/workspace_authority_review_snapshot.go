@@ -11,14 +11,83 @@ import (
 // It is derived from one complete final collection, so candidate and source
 // rule evidence can never come from different envelope revisions.
 type PolicyMemoryReviewSnapshot struct {
-	SchemaVersion        int                          `json:"schema_version"`
-	Task                 string                       `json:"task"`
-	Items                []PolicyMemoryReviewItem     `json:"items"`
-	Rules                []PolicyMemoryRuleView       `json:"rules"`
-	CollectionPresent    bool                         `json:"-"`
-	CollectionGeneration uint64                       `json:"observed_generation"`
-	CollectionRevision   SemanticDigest               `json:"observed_revision"`
-	Collection           WorkspaceAuthorityCollection `json:"-"`
+	SchemaVersion         int                                `json:"schema_version"`
+	Task                  string                             `json:"task"`
+	Items                 []PolicyMemoryReviewItem           `json:"items"`
+	Rules                 []PolicyMemoryRuleView             `json:"rules"`
+	CollectionPresent     bool                               `json:"-"`
+	CollectionGeneration  uint64                             `json:"observed_generation"`
+	CollectionRevision    SemanticDigest                     `json:"observed_revision"`
+	Collection            WorkspaceAuthorityCollection       `json:"-"`
+	ReviewedApplyRecovery *PolicyMemoryReviewedApplyRecovery `json:"-"`
+}
+
+const PolicyMemoryReviewedApplyRecoverySchemaVersion = 1
+
+// PolicyMemoryReviewedApplyRecovery is private authority for resuming one
+// already-confirmed fixed-target Apply. It is deliberately separate from Items:
+// an interrupted transaction is not a newly observed permission request.
+type PolicyMemoryReviewedApplyRecovery struct {
+	SchemaVersion      int
+	DecisionSet        PolicyMemoryReviewedDecisionSet
+	PreviousGeneration uint64
+	PreviousRevision   SemanticDigest
+	NextGeneration     uint64
+	NextRevision       SemanticDigest
+	SettlementRecorded bool
+}
+
+func NewPolicyMemoryReviewedApplyRecovery(
+	set PolicyMemoryReviewedDecisionSet,
+	nextGeneration uint64,
+	nextRevision SemanticDigest,
+	settlementRecorded bool,
+) (PolicyMemoryReviewedApplyRecovery, error) {
+	result := PolicyMemoryReviewedApplyRecovery{
+		SchemaVersion: PolicyMemoryReviewedApplyRecoverySchemaVersion,
+		DecisionSet:   set.Clone(), PreviousGeneration: set.ObservedGeneration,
+		PreviousRevision: set.ObservedRevision, NextGeneration: nextGeneration,
+		NextRevision: nextRevision, SettlementRecorded: settlementRecorded,
+	}
+	return result, result.Validate()
+}
+
+func (r PolicyMemoryReviewedApplyRecovery) Clone() PolicyMemoryReviewedApplyRecovery {
+	r.DecisionSet = r.DecisionSet.Clone()
+	return r
+}
+
+func (r PolicyMemoryReviewedApplyRecovery) Validate() error {
+	if r.SchemaVersion != PolicyMemoryReviewedApplyRecoverySchemaVersion || r.DecisionSet.Validate() != nil ||
+		r.PreviousGeneration != r.DecisionSet.ObservedGeneration || r.PreviousRevision != r.DecisionSet.ObservedRevision ||
+		r.NextGeneration != r.PreviousGeneration+1 || r.NextRevision.Validate() != nil {
+		return fmt.Errorf("reviewed Permission Inbox Apply recovery is invalid")
+	}
+	return nil
+}
+
+func (r PolicyMemoryReviewedApplyRecovery) ValidateFor(collection WorkspaceAuthorityCollection, present bool) error {
+	if err := r.Validate(); err != nil || !present || collection.Validate() != nil {
+		return fmt.Errorf("reviewed Permission Inbox Apply recovery authority is invalid")
+	}
+	previous := collection.Generation == r.PreviousGeneration && collection.Revision == r.PreviousRevision
+	next := collection.Generation == r.NextGeneration && collection.Revision == r.NextRevision
+	if !previous && !next || next && !r.SettlementRecorded {
+		return fmt.Errorf("reviewed Permission Inbox Apply recovery crosses collection authority")
+	}
+	return nil
+}
+
+// WithReviewedApplyRecovery attaches private recovery authority to the same
+// coherent collection observation without changing its public projection.
+func (s PolicyMemoryReviewSnapshot) WithReviewedApplyRecovery(recovery PolicyMemoryReviewedApplyRecovery) (PolicyMemoryReviewSnapshot, error) {
+	if err := s.Validate(); err != nil || recovery.ValidateFor(s.Collection, s.CollectionPresent) != nil {
+		return PolicyMemoryReviewSnapshot{}, fmt.Errorf("Permission Inbox recovery does not match its collection receipt")
+	}
+	result := s.Clone()
+	value := recovery.Clone()
+	result.ReviewedApplyRecovery = &value
+	return result, result.Validate()
 }
 
 type PolicyMemoryReviewChoice struct {
@@ -156,6 +225,25 @@ func JoinPolicyMemoryReviewCandidates(snapshot PolicyMemoryReviewSnapshot, candi
 		return PolicyMemoryReviewSnapshot{}, fmt.Errorf("Permission Inbox observations cross final authority receipts")
 	}
 	result := snapshot.Clone()
+	ordinary := clonePolicyCandidateAuthorities(result.Collection.PendingCandidates)
+	ordinaryIDs := make(map[string]struct{}, len(ordinary))
+	for _, candidate := range ordinary {
+		ordinaryIDs[candidate.ID] = struct{}{}
+	}
+	for _, candidate := range candidates.Items {
+		if candidate.AttachmentAuthority != nil {
+			continue
+		}
+		if _, duplicate := ordinaryIDs[candidate.ID]; !duplicate {
+			ordinary = append(ordinary, candidate.Authority.Clone())
+			ordinaryIDs[candidate.ID] = struct{}{}
+		}
+	}
+	var err error
+	result.Items, err = policyMemoryReviewItemsWithCandidates(result.Collection, ordinary)
+	if err != nil {
+		return PolicyMemoryReviewSnapshot{}, err
+	}
 	seen := make(map[string]struct{}, len(result.Items))
 	for _, item := range result.Items {
 		seen[item.ID] = struct{}{}
@@ -165,18 +253,17 @@ func JoinPolicyMemoryReviewCandidates(snapshot PolicyMemoryReviewSnapshot, candi
 		if _, duplicate := seen[candidate.ID]; duplicate {
 			continue
 		}
+		if candidate.AttachmentAuthority == nil {
+			continue
+		}
 		item := PolicyMemoryReviewItem{
 			ID: candidate.ID, Match: PolicyMatchExact, Context: candidate.Context, Template: candidate.Template,
 			ProjectRoot: candidate.ProjectRoot, ObservingWorkspace: candidate.ObservingWorkspace,
 			ContextID: candidate.ContextID, TemplateID: candidate.TemplateID, ObservingWorkspaceID: candidate.ObservingWorkspaceID,
 			Rule: candidate.Effect.RuleBody(candidate.ID), Candidates: []PolicyCandidateAuthority{}, SourceRules: []PolicyMemoryRule{},
 		}
-		if candidate.AttachmentAuthority != nil {
-			attachment := candidate.Clone()
-			item.AttachmentCandidate = &attachment
-		} else {
-			item.Candidates = []PolicyCandidateAuthority{candidate.Authority.Clone()}
-		}
+		attachment := candidate.Clone()
+		item.AttachmentCandidate = &attachment
 		result.Items = append(result.Items, item)
 		seen[candidate.ID] = struct{}{}
 	}
@@ -199,6 +286,10 @@ func (s PolicyMemoryReviewSnapshot) Clone() PolicyMemoryReviewSnapshot {
 	} else {
 		result.Collection = WorkspaceAuthorityCollection{}
 	}
+	if s.ReviewedApplyRecovery != nil {
+		value := s.ReviewedApplyRecovery.Clone()
+		result.ReviewedApplyRecovery = &value
+	}
 	return result
 }
 
@@ -207,13 +298,16 @@ func (s PolicyMemoryReviewSnapshot) Validate() error {
 		return fmt.Errorf("Permission Inbox snapshot metadata is invalid")
 	}
 	if !s.CollectionPresent {
-		if s.CollectionGeneration != 0 || s.CollectionRevision != "" || len(s.Items) != 0 || len(s.Rules) != 0 || !reflect.DeepEqual(s.Collection, WorkspaceAuthorityCollection{}) {
+		if s.CollectionGeneration != 0 || s.CollectionRevision != "" || len(s.Items) != 0 || len(s.Rules) != 0 || s.ReviewedApplyRecovery != nil || !reflect.DeepEqual(s.Collection, WorkspaceAuthorityCollection{}) {
 			return fmt.Errorf("fresh Permission Inbox carries initialized authority")
 		}
 		return nil
 	}
 	if err := s.Collection.Validate(); err != nil || s.CollectionGeneration != s.Collection.Generation || s.CollectionRevision != s.Collection.Revision {
 		return fmt.Errorf("Permission Inbox collection receipt is invalid")
+	}
+	if s.ReviewedApplyRecovery != nil && s.ReviewedApplyRecovery.ValidateFor(s.Collection, true) != nil {
+		return fmt.Errorf("Permission Inbox reviewed Apply recovery is invalid")
 	}
 	previous := ""
 	for _, item := range s.Items {
@@ -238,7 +332,9 @@ func (s PolicyMemoryReviewSnapshot) ValidateFor(collection WorkspaceAuthorityCol
 	if err != nil {
 		return err
 	}
-	if !reflect.DeepEqual(s, want) {
+	observed := s.Clone()
+	observed.ReviewedApplyRecovery = nil
+	if !reflect.DeepEqual(observed, want) {
 		return fmt.Errorf("Permission Inbox snapshot does not match its complete final collection")
 	}
 	return nil
@@ -298,7 +394,19 @@ func (s PolicyMemoryReviewSnapshot) ReviewedSet(choices map[string]PolicyMemoryD
 		}
 		decisions = append(decisions, decision)
 	}
-	return NewPolicyMemoryReviewedDecisionSet(s.Collection, decisions)
+	persisted := make(map[string]struct{}, len(s.Collection.PendingCandidates))
+	for _, candidate := range s.Collection.PendingCandidates {
+		persisted[candidate.ID] = struct{}{}
+	}
+	live := make([]PolicyCandidateAuthority, 0, len(decisions))
+	for _, decision := range decisions {
+		for _, candidate := range decision.Candidates {
+			if _, durable := persisted[candidate.ID]; !durable {
+				live = append(live, candidate.Clone())
+			}
+		}
+	}
+	return NewPolicyMemoryReviewedDecisionSetWithObservations(s.Collection, live, decisions)
 }
 
 func (s PolicyMemoryReviewSnapshot) ReviewedChoiceSet(choices PolicyMemoryReviewChoiceSet) (PolicyMemoryReviewedDecisionSet, error) {
@@ -340,6 +448,10 @@ type finalReviewEvidence struct {
 }
 
 func policyMemoryReviewItems(collection WorkspaceAuthorityCollection) ([]PolicyMemoryReviewItem, error) {
+	return policyMemoryReviewItemsWithCandidates(collection, collection.PendingCandidates)
+}
+
+func policyMemoryReviewItemsWithCandidates(collection WorkspaceAuthorityCollection, candidatesInput []PolicyCandidateAuthority) ([]PolicyMemoryReviewItem, error) {
 	templates := map[WorkspaceTemplateID]WorkspaceTemplate{}
 	contexts := map[ContextID]WorkspaceAuthorityContextRecord{}
 	workspaces := map[WorkspaceID]WorkspaceBinding{}
@@ -355,12 +467,12 @@ func policyMemoryReviewItems(collection WorkspaceAuthorityCollection) ([]PolicyM
 
 	consumed := map[string]struct{}{}
 	items := []PolicyMemoryReviewItem{}
-	for _, seed := range collection.PendingCandidates {
+	for _, seed := range candidatesInput {
 		if _, found := consumed[seed.ID]; found || seed.Effect.EffectiveProtocol() != PolicyProtocolHTTP {
 			continue
 		}
 		evidence := []finalReviewEvidence{{path: seed.Effect.Path, candidate: clonePolicyCandidatePointer(seed)}}
-		for _, candidate := range collection.PendingCandidates {
+		for _, candidate := range candidatesInput {
 			if candidate.ID == seed.ID || candidate.ContextID != seed.ContextID || candidate.ObservingWorkspaceID != seed.ObservingWorkspaceID || !reviewedTemplateIdentityMatchesEffect(seed.Effect.RuleBody(seed.ID), candidate.Effect) {
 				continue
 			}
@@ -431,7 +543,7 @@ func policyMemoryReviewItems(collection WorkspaceAuthorityCollection) ([]PolicyM
 			consumed[candidate.ID] = struct{}{}
 		}
 	}
-	for _, candidate := range collection.PendingCandidates {
+	for _, candidate := range candidatesInput {
 		if _, found := consumed[candidate.ID]; found {
 			continue
 		}

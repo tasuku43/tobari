@@ -479,7 +479,7 @@ func TestCurrentDefaultPairEntryBorrowsWithoutRuntimePreparationOrReconciliation
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := cluster.Reconcile(context.Background()); err != nil {
+	if _, _, err := cluster.Reconcile(context.Background(), successfulClusterReadiness); err != nil {
 		t.Fatal(err)
 	}
 	current, present, err := store.ReadComplete(context.Background())
@@ -555,7 +555,7 @@ func TestCurrentDefaultPairEntryMapsRuntimePlanNotReadyToCanonicalRepair(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := cluster.Reconcile(context.Background()); err != nil {
+	if _, _, err := cluster.Reconcile(context.Background(), successfulClusterReadiness); err != nil {
 		t.Fatal(err)
 	}
 	current, present, err := store.ReadComplete(context.Background())
@@ -672,7 +672,7 @@ func TestCurrentContextEntryBorrowsWhileCompletedClusterReceiptAndAnotherWorkspa
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := cluster.Reconcile(context.Background()); err != nil {
+	if _, _, err := cluster.Reconcile(context.Background(), successfulClusterReadiness); err != nil {
 		t.Fatal(err)
 	}
 	terminal, present, err := mutator.readTerminalEffectDecision()
@@ -706,7 +706,7 @@ func TestCurrentContextEntryKeepsTwoLiveBorrowersAndExclusiveHomeOperationsBlock
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := cluster.Reconcile(context.Background()); err != nil {
+	if _, _, err := cluster.Reconcile(context.Background(), successfulClusterReadiness); err != nil {
 		t.Fatal(err)
 	}
 	baseRuntime.reconcileFenceErr = tobari.ErrContextBindingProtected

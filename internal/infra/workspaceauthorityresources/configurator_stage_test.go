@@ -193,6 +193,62 @@ func TestTemplateDeleteDoesNotCollapseActiveRecoveryIntoDraftCleanup(t *testing.
 	}
 }
 
+func TestContextDeleteRetiresUnpublishedDraftSource(t *testing.T) {
+	sources, err := workspaceauthoritysource.New(filepath.Join(t.TempDir(), "sources"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := tobari.ContextID("01912345-6789-7abc-8def-0123456789d4")
+	templateID := tobari.WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789d5")
+	source, err := tobari.NewContextSource(tobari.ContextBinding{
+		SchemaVersion: tobari.ContextBindingSchemaVersion,
+		ID:            id,
+		TemplateID:    templateID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sources.PublishContext(context.Background(), source); err != nil {
+		t.Fatal(err)
+	}
+	adapter := &Adapter{sources: sources}
+	result, handled, err := adapter.deleteUnpublishedContextDraft(context.Background(), id, tobari.ErrContextBindingNotFound)
+	if err != nil || !handled || !result.Deleted || result.ContextID != id {
+		t.Fatalf("draft delete result=%#v handled=%t err=%v", result, handled, err)
+	}
+	if _, present, err := sources.ReadContext(context.Background(), id); err != nil || present {
+		t.Fatalf("draft source remained: present=%t err=%v", present, err)
+	}
+}
+
+func TestContextDeleteDoesNotCollapseActiveRecoveryIntoDraftCleanup(t *testing.T) {
+	sources, err := workspaceauthoritysource.New(filepath.Join(t.TempDir(), "sources"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := tobari.ContextID("01912345-6789-7abc-8def-0123456789d6")
+	templateID := tobari.WorkspaceTemplateID("01912345-6789-7abc-8def-0123456789d7")
+	source, err := tobari.NewContextSource(tobari.ContextBinding{
+		SchemaVersion: tobari.ContextBindingSchemaVersion,
+		ID:            id,
+		TemplateID:    templateID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sources.PublishContext(context.Background(), source); err != nil {
+		t.Fatal(err)
+	}
+	adapter := &Adapter{sources: sources}
+	_, handled, err := adapter.deleteUnpublishedContextDraft(context.Background(), id, tobari.ErrFinalAuthorityMutationRecoveryRequired)
+	if !errors.Is(err, tobari.ErrFinalAuthorityMutationRecoveryRequired) || handled {
+		t.Fatalf("active recovery error=%v handled=%t", err, handled)
+	}
+	if _, present, err := sources.ReadContext(context.Background(), id); err != nil || !present {
+		t.Fatalf("active source was removed: present=%t err=%v", present, err)
+	}
+}
+
 func TestPublicTemplateApplyCannotCrossBootstrapPublicationBarrier(t *testing.T) {
 	if err := validateConfiguratorPublicationApplyAuthorization(false, false); !errors.Is(err, tobari.ErrContextBindingProtected) {
 		t.Fatalf("public Apply crossed bootstrap publication barrier: %v", err)

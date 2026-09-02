@@ -27,7 +27,7 @@ func configureFinalClusterCLI(command *CLI, mutator *workspaceauthoritystore.Mut
 	if err != nil {
 		return err
 	}
-	command.finalCluster = workspaceauthoritycmd.NewFinalClusterService(cluster)
+	command.finalCluster = workspaceauthoritycmd.NewFinalClusterService(cluster, command.finalEntryReadiness)
 	command.finalClusterLifecycle = workspaceauthoritycmd.NewFinalClusterLifecycleService(lifecycle)
 	command.finalClusterRead = workspaceauthoritycmd.NewFinalClusterReadService(reads)
 	return nil

@@ -17,16 +17,19 @@ import (
 )
 
 type finalPolicyPortFixture struct {
-	candidates tobari.PolicyCandidateAuthorityList
-	rules      tobari.PolicyMemoryRuleList
-	review     tobari.PolicyMemoryReviewSnapshot
-	allow      tobari.PolicyCandidatePublication
-	deny       tobari.PolicyCandidatePublication
-	reset      tobari.PolicyRuleResetPublication
-	attachment tobari.AttachmentGrantPublication
-	allowCalls int
-	denyCalls  int
-	resetCalls int
+	candidates    tobari.PolicyCandidateAuthorityList
+	rules         tobari.PolicyMemoryRuleList
+	review        tobari.PolicyMemoryReviewSnapshot
+	allow         tobari.PolicyCandidatePublication
+	deny          tobari.PolicyCandidatePublication
+	reset         tobari.PolicyRuleResetPublication
+	attachment    tobari.AttachmentGrantPublication
+	allowCalls    int
+	denyCalls     int
+	resetCalls    int
+	reviewedCalls int
+	reviewedSet   tobari.PolicyMemoryReviewedDecisionSet
+	reviewedErr   error
 }
 
 type finalPolicyInputFailure struct{}
@@ -75,6 +78,12 @@ func (f *finalPolicyPortFixture) DenyPolicyCandidateByReference(context.Context,
 func (f *finalPolicyPortFixture) ResetPolicyMemoryRuleByReference(context.Context, string) (tobari.PolicyRuleResetPublication, error) {
 	f.resetCalls++
 	return f.reset, nil
+}
+
+func (f *finalPolicyPortFixture) ApplyReviewedPolicyMemory(_ context.Context, set tobari.PolicyMemoryReviewedDecisionSet) (tobari.PolicyMemoryReviewedSetPublication, error) {
+	f.reviewedCalls++
+	f.reviewedSet = set.Clone()
+	return tobari.PolicyMemoryReviewedSetPublication{}, f.reviewedErr
 }
 
 func finalPolicyCLIFixture(t *testing.T) (*finalPolicyPortFixture, string, string) {
@@ -218,6 +227,9 @@ func TestFinalPolicyCatalogHasExactSchemaAndReferenceGraph(t *testing.T) {
 		{code: "invalid_policy_review_result", kind: fault.KindInternal, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
 		{code: "invalid_policy_review_set", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeNone},
 		{code: "policy_review_scope_mixed", kind: fault.KindRejected, phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{code: "policy_review_changed", kind: fault.KindRejected, phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{code: "invalid_policy_memory_result", kind: fault.KindContract, phase: fault.PhaseVerification, change: fault.ChangeUnknown},
+		{code: "final_authority_mutation_recovery_required", kind: fault.KindUnavailable, phase: fault.PhasePrecondition, change: fault.ChangeNone},
 		{code: "invalid_catalog", kind: fault.KindContract, phase: fault.PhasePrecondition, change: fault.ChangeNone},
 	} {
 		declared := commandErrorByCode(t, review.Agent.Errors, test.code)
@@ -260,6 +272,21 @@ func TestFinalPolicyCatalogHasExactSchemaAndReferenceGraph(t *testing.T) {
 	apply, found := catalog.lookupRegistered("policy apply-reviewed")
 	if !found || apply.Visibility != CommandVisibilityInternal || !reflect.DeepEqual(apply.ProducedRefs(), []ProducedRef{{Kind: tobari.PolicyRuleKind, Field: "decisions[].rule_id"}}) || apply.Agent.FixedTarget == nil || apply.Effect != operation.EffectCreate {
 		t.Fatalf("apply reviewed contract=%+v", apply)
+	}
+	if review.Agent.Interactive != nil {
+		t.Fatal("public review projection exposed the internal Apply action")
+	}
+	for _, actionError := range apply.Agent.Errors {
+		projected := commandErrorByCode(t, review.Agent.Errors, actionError.Code)
+		if projected.Kind != actionError.Kind || projected.Retryable != actionError.Retryable || projected.Phase != actionError.Phase || projected.ChangeState != actionError.ChangeState || !reflect.DeepEqual(projected.NextActions, actionError.NextActions) {
+			t.Fatalf("review error %q does not project internal Apply: public=%+v action=%+v", actionError.Code, projected, actionError)
+		}
+	}
+	for _, code := range []string{"unclassified_mutation_outcome", "mutation_output_write_failed", "invalid_policy_memory_result"} {
+		declared := commandErrorByCode(t, review.Agent.Errors, code)
+		if len(declared.NextActions) != 1 || declared.NextActions[0].Command != "policy rules" {
+			t.Fatalf("review %s recovery=%+v", code, declared.NextActions)
+		}
 	}
 	encoded, _ := json.Marshal(apply.Agent.Output.Fields)
 	for _, forbidden := range []string{"context_ref", "template_ref", "observing_workspace_ref"} {
@@ -414,6 +441,106 @@ func TestFinalPermissionInboxRawFlowOwnsListDetailAndReview(t *testing.T) {
 	}
 	if strings.Contains(text, "Commands: number select") {
 		t.Fatalf("raw flow retained predecessor line UI: %q", text)
+	}
+}
+
+func TestFinalPermissionInboxRawFlowExplicitlyConfirmsRecovery(t *testing.T) {
+	port, _, _ := finalPolicyCLIFixture(t)
+	set, err := port.review.ReviewedSet(map[string]tobari.PolicyMemoryDecision{port.review.Items[0].ID: tobari.PolicyMemoryAllow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovery, err := tobari.NewPolicyMemoryReviewedApplyRecovery(set, set.ObservedGeneration+1, tobari.SemanticDigest("sha256:"+strings.Repeat("8", 64)), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := port.review.WithReviewedApplyRecovery(recovery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	result, err := selectFinalPolicyReviewRaw(context.Background(), snapshot, strings.NewReader("uy"), &output, false)
+	if err != nil || result.kind != finalPolicyReviewRawResume {
+		t.Fatalf("result=%+v err=%v output=%q", result, err, output.String())
+	}
+	if !strings.Contains(output.String(), "Interrupted reviewed Apply is ready to resume") || !strings.Contains(output.String(), "does not stage current candidates") {
+		t.Fatalf("raw recovery explanation=%q", output.String())
+	}
+}
+
+func TestFinalPermissionInboxFreshTTYExplicitlyResumesPrivateReviewedApply(t *testing.T) {
+	port, _, _ := finalPolicyCLIFixture(t)
+	set, err := port.review.ReviewedSet(map[string]tobari.PolicyMemoryDecision{port.review.Items[0].ID: tobari.PolicyMemoryAllow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := port.review.Collection.Clone()
+	next, changed, err := tobari.PublishWorkspaceAuthorityCollection(
+		previous.Templates, previous.Contexts, previous.Workspaces, []tobari.PolicyCandidateAuthority{}, previous.DefaultTemplateID, &previous,
+	)
+	if err != nil || !changed {
+		t.Fatalf("publish candidate-empty fixture: changed=%t err=%v", changed, err)
+	}
+	port.review, err = tobari.NewPolicyMemoryReviewSnapshot(next, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovery, err := tobari.NewPolicyMemoryReviewedApplyRecovery(set, next.Generation, next.Revision, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port.review, err = port.review.WithReviewedApplyRecovery(recovery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port.reviewedErr = tobari.ErrPolicyReviewChanged
+
+	var out, errOut bytes.Buffer
+	command := newCLI(strings.NewReader("resume\ny\n"), &out, &errOut, DefaultCatalog(), nil)
+	command.interactive = func(io.Reader, io.Writer, io.Writer) bool { return true }
+	command.finalPolicy = workspaceauthoritycmd.NewPolicyMemoryService(port)
+	if code := command.RunContext(context.Background(), []string{"review", "permissions"}); code == ExitOK || len(port.review.Items) != 0 || port.reviewedCalls != 1 || !reflect.DeepEqual(port.reviewedSet, set) {
+		t.Fatalf("resume code=%d calls=%d set=%#v stdout=%q stderr=%q", code, port.reviewedCalls, port.reviewedSet, out.String(), errOut.String())
+	}
+	if !strings.Contains(out.String(), "Interrupted reviewed Apply is ready") || !strings.Contains(out.String(), "already-confirmed exact Apply") {
+		t.Fatalf("resume affordance missing: %q", out.String())
+	}
+
+	port.reviewedCalls = 0
+	out.Reset()
+	errOut.Reset()
+	command = newCLI(strings.NewReader("resume\ny\n"), &out, &errOut, DefaultCatalog(), nil)
+	command.finalPolicy = workspaceauthoritycmd.NewPolicyMemoryService(port)
+	if code := command.RunContext(context.Background(), []string{"review", "permissions", "--format", "json"}); code != ExitOK || port.reviewedCalls != 0 || strings.Contains(out.String(), string(set.Digest)) || strings.Contains(out.String(), "resume") {
+		t.Fatalf("JSON recovery code=%d calls=%d stdout=%q stderr=%q", code, port.reviewedCalls, out.String(), errOut.String())
+	}
+
+	port.reviewedCalls = 0
+	out.Reset()
+	errOut.Reset()
+	command = newCLI(strings.NewReader("resume\ny\n"), &out, &errOut, DefaultCatalog(), nil)
+	command.interactive = func(io.Reader, io.Writer, io.Writer) bool { return false }
+	command.finalPolicy = workspaceauthoritycmd.NewPolicyMemoryService(port)
+	if code := command.RunContext(context.Background(), []string{"review", "permissions"}); code != ExitOK || port.reviewedCalls != 0 || strings.Contains(out.String(), "resume") {
+		t.Fatalf("redirected recovery code=%d calls=%d stdout=%q stderr=%q", code, port.reviewedCalls, out.String(), errOut.String())
+	}
+}
+
+func TestFinalPermissionInboxConfirmedOutputFailureUsesReadOnlyReconciliation(t *testing.T) {
+	var stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), shortWriter{}, &stderr, DefaultCatalog(), nil)
+	apply, found := command.catalog.lookupRegistered("policy apply-reviewed")
+	if !found {
+		t.Fatal("internal reviewed Apply is missing")
+	}
+	ctx := withCommandPath(context.Background(), apply.Path)
+	if code := command.emitMutationResult(ctx, apply, []byte("confirmed reviewed result\n")); code != ExitInternal {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	if !humanOutputHasRow(stderr.String(), "Code", "mutation_output_write_failed") ||
+		!humanOutputHasRow(stderr.String(), "Next", ProgramName+" policy rules — Reconcile the confirmed mutation without repeating it.") ||
+		strings.Contains(stderr.String(), "review permissions") || strings.Contains(stderr.String(), "policy apply-reviewed") {
+		t.Fatalf("confirmed output recovery=%q", stderr.String())
 	}
 }
 

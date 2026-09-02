@@ -15,6 +15,12 @@ import (
 
 type finalClusterErrorFixture struct{ err error }
 
+type finalClusterStatusErrorFixture struct{ err error }
+
+func (f finalClusterStatusErrorFixture) Observe(context.Context) (tobari.FinalClusterStatus, error) {
+	return tobari.FinalClusterStatus{}, f.err
+}
+
 type finalClusterDownCLIFixture struct {
 	purge bool
 }
@@ -92,6 +98,19 @@ func TestFinalClusterUpEmitsDeclaredMutationRecoveryPrecondition(t *testing.T) {
 		document.Error.Phase != fault.PhasePrecondition || document.Error.ChangeState != fault.ChangeNone ||
 		strings.Contains(stderr.String(), "undeclared_fault_contract") {
 		t.Fatalf("cluster up recovery fault=%+v stderr=%q", document.Error, stderr.String())
+	}
+}
+
+func TestFinalClusterStatusEmitsDeclaredLegacyRecovery(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.finalClusterLifecycle = workspaceauthoritycmd.NewFinalClusterLifecycleService(finalClusterStatusErrorFixture{err: tobari.ErrPreReleaseLegacyAuthority})
+	if code := command.RunContext(context.Background(), []string{"--error-format=json", "cluster", "status", "--format=json"}); code != ExitRejected {
+		t.Fatalf("cluster status exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), `"code":"legacy_state_present"`) ||
+		!strings.Contains(stderr.String(), `"command":"doctor"`) || strings.Contains(stderr.String(), "undeclared_fault_contract") {
+		t.Fatalf("cluster status legacy fault=%q", stderr.String())
 	}
 }
 

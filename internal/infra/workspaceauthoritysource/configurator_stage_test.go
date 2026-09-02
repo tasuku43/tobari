@@ -3,6 +3,7 @@ package workspaceauthoritysource
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -175,6 +176,75 @@ func TestConfiguratorCatalogLeaseExcludesConcurrentDefaultBarrierChange(t *testi
 	defer release()
 	if _, err := store.AcquireConfiguratorCatalogLease(context.Background()); !errors.Is(err, tobari.ErrContextBindingProtected) {
 		t.Fatalf("concurrent catalog lease error=%v", err)
+	}
+}
+
+func TestConfiguratorCatalogLeaseRejectsSymlinkWithoutCreatingTarget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is not portable on Windows")
+	}
+	root := filepath.Join(t.TempDir(), "sources")
+	store, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release, err := store.AcquireConfiguratorCatalogLease(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := release(); err != nil {
+		t.Fatal(err)
+	}
+	lock := filepath.Join(root, ".configurator-catalog-locks", "catalog.lock")
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "outside.lock")
+	if err := os.Symlink(target, lock); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AcquireConfiguratorCatalogLease(context.Background()); err == nil {
+		t.Fatal("symlinked Configurator catalog lock was accepted")
+	}
+	if _, err := os.Lstat(target); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("symlink target was created or changed: %v", err)
+	}
+}
+
+func TestConfiguratorCatalogLeaseRejectsHardlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("hardlink ownership metadata is not portable on Windows")
+	}
+	root := filepath.Join(t.TempDir(), "sources")
+	store, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release, err := store.AcquireConfiguratorCatalogLease(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := release(); err != nil {
+		t.Fatal(err)
+	}
+	lock := filepath.Join(root, ".configurator-catalog-locks", "catalog.lock")
+	outside := filepath.Join(t.TempDir(), "outside.lock")
+	if err := os.Link(lock, outside); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AcquireConfiguratorCatalogLease(context.Background()); err == nil {
+		t.Fatal("hardlinked Configurator catalog lock was accepted")
+	}
+	after, err := os.Stat(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Size() != after.Size() || before.Mode() != after.Mode() || !os.SameFile(before, after) {
+		t.Fatalf("hardlink target changed: before=%v after=%v", before, after)
 	}
 }
 

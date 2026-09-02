@@ -116,7 +116,7 @@ func (s *firstUseIntegrationSettlement) ConfirmFinalContextDeletionSettled(conte
 	return nil
 }
 
-func (s *firstUseIntegrationSettlement) SettleFinalReviewedPolicyAuthority(context.Context, tobari.WorkspaceAuthorityCollection, tobari.WorkspaceAuthorityCollection, tobari.PolicyMemoryReviewedDecisionSet, string, string) (tobari.PolicyMemoryReviewedSettlementReceipt, error) {
+func (s *firstUseIntegrationSettlement) SettleFinalReviewedPolicyAuthority(context.Context, tobari.WorkspaceAuthorityCollection, tobari.WorkspaceAuthorityCollection, tobari.PolicyMemoryReviewedDecisionSet, []tobari.PolicyCandidateAuthority, string, string) (tobari.PolicyMemoryReviewedSettlementReceipt, error) {
 	return tobari.PolicyMemoryReviewedSettlementReceipt{}, errors.New("reviewed policy settlement is not part of first-use bootstrap")
 }
 
@@ -409,7 +409,7 @@ func TestFinalRootFreshStartBootstrapsAuthorityClusterAndWorkspaceFromEmptyXDG(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	cluster := workspaceauthoritycmd.NewFinalClusterService(clusterAdapter)
+	cluster := workspaceauthoritycmd.NewFinalClusterService(clusterAdapter, firstUseIntegrationReadiness{})
 
 	stdout, stderr := &strings.Builder{}, &strings.Builder{}
 	command := newCLI(strings.NewReader(""), stdout, stderr, DefaultCatalog(), nil)

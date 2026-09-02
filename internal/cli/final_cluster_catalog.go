@@ -44,6 +44,7 @@ func finalClusterUpErrors() []CommandError {
 		declaredCommandError(fault.KindUnavailable, "cluster_reconcile_interrupted", false, "cluster status", "Inspect the retained final activation decision."),
 		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the final cluster lifecycle adapter."),
 	}
+	errors = append(errors, workspaceStartReadinessErrors()...)
 	if buildIdentityHasBroker() {
 		errors = append(errors,
 			declaredCommandError(fault.KindUnavailable, "auth_broker_image_unavailable", true, "doctor", "Inspect Docker image availability before reconciling the shared cluster."),
@@ -77,6 +78,7 @@ func finalClusterStatusSpec() CommandSpec {
 			Output:        finalClusterStatusOutput(),
 			Prerequisites: []string{},
 			Errors: readCommandErrors("cluster status", true,
+				declaredCommandError(fault.KindRejected, "legacy_state_present", false, "doctor", "Reset or recreate this pre-release installation before initializing final authority."),
 				declaredCommandError(fault.KindContract, "invalid_cluster_status_result", false, "doctor", "Repair the final cluster observation contract."),
 				declaredCommandError(fault.KindUnavailable, "cluster_observation_changed", true, "cluster status", "Retry one fresh bounded cluster observation."),
 				declaredCommandError(fault.KindContract, "output_encoding_failed", false, "version", "Report the exact build identity without repeating final-cluster JSON encoding."),

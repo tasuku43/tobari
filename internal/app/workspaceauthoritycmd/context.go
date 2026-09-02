@@ -71,6 +71,17 @@ type ContextDeletePort interface {
 	DeleteContextByReference(context.Context, string) (tobari.ContextDeleteResult, error)
 }
 
+// ContextDeleteWithReadinessPort keeps the generic Docker readiness probe
+// inside the adapter's fresh-action fence. An already-durable delete decision
+// must bypass this probe so the exact initiating action remains recoverable.
+type ContextDeleteWithReadinessPort interface {
+	DeleteContextByReferenceWithReadiness(context.Context, string, func(context.Context) error) (tobari.ContextDeleteResult, error)
+}
+
+type ContextDeleteReadinessPort interface {
+	Check(context.Context) error
+}
+
 type ContextEntryResult struct {
 	ContextRef   string
 	WorkspaceRef string
@@ -108,12 +119,14 @@ type ContextService struct {
 	applyPlan   ContextApplyPlanPort
 	enter       ContextEnterPort
 	delete      ContextDeletePort
+	deleteReady ContextDeleteWithReadinessPort
+	readiness   ContextDeleteReadinessPort
 	sources     ContextSourceObservationPort
 	drafts      ContextDraftReadPort
 	mutator     *execution.Invoker
 }
 
-func NewContextService(port any) *ContextService {
+func NewContextService(port any, readiness ...any) *ContextService {
 	service := &ContextService{mutator: execution.New(contextMutationPolicy{})}
 	service.read, _ = port.(ContextReadPort)
 	service.currentRead, _ = port.(CurrentContextReadPort)
@@ -123,6 +136,10 @@ func NewContextService(port any) *ContextService {
 	service.applyPlan, _ = port.(ContextApplyPlanPort)
 	service.enter, _ = port.(ContextEnterPort)
 	service.delete, _ = port.(ContextDeletePort)
+	service.deleteReady, _ = port.(ContextDeleteWithReadinessPort)
+	if len(readiness) == 1 {
+		service.readiness, _ = readiness[0].(ContextDeleteReadinessPort)
+	}
 	service.sources, _ = port.(ContextSourceObservationPort)
 	service.drafts, _ = port.(ContextDraftReadPort)
 	return service
@@ -318,9 +335,6 @@ func (s *ContextService) Use(ctx context.Context, intent operation.Intent, conte
 	var result tobari.ContextSelectionResult
 	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
 		selected, selectErr := s.currentSet.SetCurrentContextByReference(actionContext, contextRef)
-		if errors.Is(selectErr, tobari.ErrContextBindingNotFound) {
-			return notFoundFault("context_not_found", "Context does not exist", "context list")
-		}
 		if selectErr != nil {
 			return contextMutationFault(selectErr)
 		}
@@ -546,7 +560,7 @@ func (s *ContextService) runEntryWithProgress(ctx context.Context, intent operat
 }
 
 func (s *ContextService) Delete(ctx context.Context, intent operation.Intent, contextRef string) (ContextDeleteResult, error) {
-	if s == nil || portcheck.IsNil(s.delete) {
+	if s == nil || portcheck.IsNil(s.delete) && portcheck.IsNil(s.deleteReady) {
 		return ContextDeleteResult{}, missingPort("Context delete")
 	}
 	id, err := tobari.ParseContextRef(contextRef)
@@ -557,7 +571,16 @@ func (s *ContextService) Delete(ctx context.Context, intent operation.Intent, co
 	request := execution.Request{Intent: intent, ExpectedCommand: TaskContextDelete, ExpectedEffect: operation.EffectWrite, ExpectedTarget: target, ExpectedImpact: ContextDeleteImpact()}
 	var result ContextDeleteResult
 	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		deleted, err := s.delete.DeleteContextByReference(actionContext, contextRef)
+		var deleted tobari.ContextDeleteResult
+		var err error
+		if !portcheck.IsNil(s.deleteReady) {
+			if portcheck.IsNil(s.readiness) {
+				return missingPort("Context delete readiness")
+			}
+			deleted, err = s.deleteReady.DeleteContextByReferenceWithReadiness(actionContext, contextRef, s.readiness.Check)
+		} else {
+			deleted, err = s.delete.DeleteContextByReference(actionContext, contextRef)
+		}
 		if err != nil {
 			return contextMutationFault(err)
 		}

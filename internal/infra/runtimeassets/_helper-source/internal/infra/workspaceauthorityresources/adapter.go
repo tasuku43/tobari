@@ -1989,6 +1989,24 @@ func (a *Adapter) contextSourceLoader(id tobari.ContextID) workspaceauthoritysto
 }
 
 func (a *Adapter) DeleteContextByReference(ctx context.Context, ref string) (tobari.ContextDeleteResult, error) {
+	return a.deleteContextByReference(ctx, ref, nil)
+}
+
+// DeleteContextByReferenceWithReadiness lets the final-authority mutator run
+// readiness only when it has proved this is a fresh action rather than exact
+// recovery of a durable Context-deletion decision.
+func (a *Adapter) DeleteContextByReferenceWithReadiness(
+	ctx context.Context,
+	ref string,
+	readiness func(context.Context) error,
+) (tobari.ContextDeleteResult, error) {
+	if readiness == nil {
+		return tobari.ContextDeleteResult{}, fmt.Errorf("Context delete readiness is unavailable")
+	}
+	return a.deleteContextByReference(ctx, ref, readiness)
+}
+
+func (a *Adapter) deleteContextByReference(ctx context.Context, ref string, readiness func(context.Context) error) (tobari.ContextDeleteResult, error) {
 	releaseCatalog, err := a.sources.AcquireConfiguratorCatalogLease(ctx)
 	if err != nil {
 		return tobari.ContextDeleteResult{}, err
@@ -2019,6 +2037,13 @@ func (a *Adapter) DeleteContextByReference(ctx context.Context, ref string) (tob
 		}
 		return tobari.ContextDeleteResult{ContextID: id, Deleted: true}, nil
 	}
+	if _, readErr := a.Store.ReadContextAuthorityByReference(ctx, ref); readErr != nil {
+		result, handled, deleteErr := a.deleteUnpublishedContextDraft(ctx, id, readErr)
+		if deleteErr != nil || !handled {
+			return tobari.ContextDeleteResult{}, deleteErr
+		}
+		return result, nil
+	}
 	releaseStage, barrierErr := a.acquireContextDeleteConfiguratorBarrierLocked(ctx, id)
 	if barrierErr != nil {
 		return tobari.ContextDeleteResult{}, barrierErr
@@ -2026,17 +2051,13 @@ func (a *Adapter) DeleteContextByReference(ctx context.Context, ref string) (tob
 	defer releaseStage()
 	var release func() error
 	if a.contextHomes != nil {
-		_, readErr := a.Store.ReadContextAuthorityByReference(ctx, ref)
-		if readErr != nil {
-			return tobari.ContextDeleteResult{}, readErr
-		}
 		release, err = a.contextHomes.AcquireContextHomeRetirement(ctx, id)
 		if err != nil {
 			return tobari.ContextDeleteResult{}, err
 		}
 		defer release()
 	}
-	result, err := a.mutator.DeleteContextByReference(ctx, ref)
+	result, err := a.mutator.DeleteContextByReferenceWithReadiness(ctx, ref, readiness)
 	if err != nil {
 		return tobari.ContextDeleteResult{}, err
 	}
@@ -2049,6 +2070,30 @@ func (a *Adapter) DeleteContextByReference(ctx context.Context, ref string) (tob
 		}
 	}
 	return result, nil
+}
+
+func (a *Adapter) deleteUnpublishedContextDraft(
+	ctx context.Context, id tobari.ContextID, authorityErr error,
+) (tobari.ContextDeleteResult, bool, error) {
+	if !errors.Is(authorityErr, tobari.ErrContextBindingNotFound) && !errors.Is(authorityErr, tobari.ErrFinalAuthorityNotFound) {
+		return tobari.ContextDeleteResult{}, false, authorityErr
+	}
+	source, present, err := a.sources.ReadContext(ctx, id)
+	if err != nil {
+		return tobari.ContextDeleteResult{}, true, err
+	}
+	if !present || source.ContextID != id {
+		return tobari.ContextDeleteResult{}, true, tobari.ErrContextBindingNotFound
+	}
+	releaseStage, err := a.acquireContextDeleteTemplateStageBarrierLocked(ctx, id, source.TemplateID)
+	if err != nil {
+		return tobari.ContextDeleteResult{}, true, err
+	}
+	defer releaseStage()
+	if err := a.sources.DeleteContext(ctx, id); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return tobari.ContextDeleteResult{}, true, recoveryError("deleted unpublished Context source", err)
+	}
+	return tobari.ContextDeleteResult{ContextID: id, Deleted: true}, true, nil
 }
 
 func (a *Adapter) requireCurrentTemplateSource(ctx context.Context, ref string) error {

@@ -1313,7 +1313,7 @@ func TestFinalReviewedPolicyAuthorityUsesOneGlobalReceiptForHTTPAndGraphQL(t *te
 		}
 	}
 	receipt, err := runtime.SettleFinalReviewedPolicyAuthority(
-		context.Background(), previous, next, set, "policy-apply-reviewed", "reviewed-http-graphql",
+		context.Background(), previous, next, set, nil, "policy-apply-reviewed", "reviewed-http-graphql",
 	)
 	if err != nil || receipt.Validate() != nil || runner.composeCalls != beforeCompose+1 {
 		t.Fatalf("receipt=%#v compose=%d→%d err=%v validate=%v", receipt, beforeCompose, runner.composeCalls, err, receipt.Validate())
@@ -1373,7 +1373,7 @@ func TestFinalReviewedPolicyAuthorityUsesOPAOnlyForByteIdenticalHTTPSet(t *testi
 	}
 	beforeCompose := runner.composeCalls
 	receipt, err := runtime.SettleFinalReviewedPolicyAuthority(
-		context.Background(), previous, next, httpSet, "policy-apply-reviewed", "reviewed-http-only",
+		context.Background(), previous, next, httpSet, nil, "policy-apply-reviewed", "reviewed-http-only",
 	)
 	if err != nil || receipt.Validate() != nil || runner.composeCalls != beforeCompose {
 		t.Fatalf("receipt=%#v compose=%d→%d err=%v", receipt, beforeCompose, runner.composeCalls, err)
@@ -1413,7 +1413,7 @@ func TestFinalReviewedPolicyAuthorityRejectsDifferentValidNextBeforeAnyEffect(t 
 	}
 	beforeCompose, beforePolicy := runner.composeCalls, runner.policyEffects
 	if _, err := runtime.SettleFinalReviewedPolicyAuthority(
-		context.Background(), previous, nextB, setA, "policy-apply-reviewed", "reviewed-set-a-next-b",
+		context.Background(), previous, nextB, setA, nil, "policy-apply-reviewed", "reviewed-set-a-next-b",
 	); err == nil {
 		t.Fatal("reviewed set A settled the valid next authority produced by set B")
 	}
@@ -1435,7 +1435,7 @@ func TestFinalReviewedPolicyAuthorityRejectsDifferentValidNextBeforeAnyEffect(t 
 		}
 	}
 	if _, err := runtime.SettleFinalReviewedPolicyAuthority(
-		context.Background(), previous, nextB, setB, "policy-apply-reviewed", "reviewed-set-b",
+		context.Background(), previous, nextB, setB, nil, "policy-apply-reviewed", "reviewed-set-b",
 	); err != nil {
 		t.Fatalf("settle exact set B: %v", err)
 	}
@@ -1477,7 +1477,7 @@ func TestFinalReviewedPolicyAuthorityCanonicalOrderResumesOneExactSet(t *testing
 		return nil
 	}
 	if _, err := runtime.SettleFinalReviewedPolicyAuthority(
-		context.Background(), previous, next, set, "policy-apply-reviewed", "reviewed-canonical-order",
+		context.Background(), previous, next, set, nil, "policy-apply-reviewed", "reviewed-canonical-order",
 	); !errors.Is(err, injected) {
 		t.Fatalf("first reviewed settlement error=%v", err)
 	}
@@ -1486,7 +1486,7 @@ func TestFinalReviewedPolicyAuthorityCanonicalOrderResumesOneExactSet(t *testing
 	}
 	runtime.finalGatewayAfterEffect = nil
 	receipt, err := runtime.SettleFinalReviewedPolicyAuthority(
-		context.Background(), previous, next, reversed, "policy-apply-reviewed", "reviewed-canonical-order",
+		context.Background(), previous, next, reversed, nil, "policy-apply-reviewed", "reviewed-canonical-order",
 	)
 	if err != nil || receipt.DecisionSetDigest != set.Digest {
 		t.Fatalf("canonical reversed-set recovery receipt=%#v err=%v", receipt, err)
