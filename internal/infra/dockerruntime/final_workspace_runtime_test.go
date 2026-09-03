@@ -1,6 +1,7 @@
 package dockerruntime
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -402,6 +403,66 @@ func TestFinalWorkspaceEntryBindsDistinctStaticNetworkAndReplaysReceipt(t *testi
 	}
 	if _, err := os.Lstat(filepath.Join(runtime.stateDirectory, "instances")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("final entry wrote predecessor instance state: %v", err)
+	}
+}
+
+func TestFinalWorkspaceEntryRebindsSamePlanFromLegacyCollectionDecisionRef(t *testing.T) {
+	runtime, _, plan := finalWorkspaceRuntimeFixture(t)
+	containerID := strings.Repeat("c", 64)
+	reconciles := 0
+	runtime.finalWorkspaceDockerReconcile = func(context.Context, tobari.WorkspaceEntryReconciliationPlan, finalWorkspaceRuntimeSpec) (string, error) {
+		reconciles++
+		return containerID, nil
+	}
+	runtime.finalWorkspaceDockerObserve = func(_ context.Context, got tobari.WorkspaceEntryReconciliationPlan) (finalWorkspaceContainerObservation, error) {
+		return finalWorkspaceContainerObservation{ID: containerID, Owner: ownerValue, Component: "tobari", Workspace: string(got.Workspace.ID), Role: projectWorkRole, Spec: string(got.Applied.ResolvedSpec), Running: true, Health: "healthy"}, nil
+	}
+	legacy := "workspace-entry:" + string(plan.Workspace.ID) + ":sha256:" + strings.Repeat("d", 64)
+	current := "workspace-entry:" + string(plan.Workspace.ID) + ":sha256:" + strings.Repeat("e", 64)
+	releaseAttachment, err := runtime.AcquireWorkspaceEntryAttachment(context.Background(), plan.Workspace.ContextID, plan.Workspace.ProjectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseAttachment()
+	if _, err := runtime.ReconcileWorkspaceEntry(context.Background(), plan, legacy); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.ConfirmWorkspaceEntry(context.Background(), plan, current); !errors.Is(err, tobari.ErrWorkspaceEntryRuntimeNotCurrent) {
+		t.Fatalf("legacy receipt confirmation error=%v", err)
+	}
+	if _, err := runtime.ReconcileWorkspaceEntry(context.Background(), plan, current); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.ConfirmWorkspaceEntry(context.Background(), plan, current); err != nil {
+		t.Fatal(err)
+	}
+	record, present, err := runtime.readFinalWorkspaceEntryRecord(plan.Workspace.ID)
+	if err != nil || !present || record.DecisionRef != current || reconciles != 1 {
+		t.Fatalf("rebound record present=%t ref=%q effects=%d err=%v", present, record.DecisionRef, reconciles, err)
+	}
+}
+
+func TestFinalWorkspaceAgentStatePreservesExistingContextOwnedClaudeSettings(t *testing.T) {
+	runtime, _, plan := finalWorkspaceRuntimeFixture(t)
+	profile, err := runtime.ensureSharedProfile(plan.Authority.AgentProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := plan.Workspace.Home
+	if err := runtime.ensureFinalWorkspaceAgentState(home, profile); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	want := []byte("{\n  \"permissions\": {\"defaultMode\": \"bypassPermissions\"}\n}\n")
+	if err := os.WriteFile(settingsPath, want, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.ensureFinalWorkspaceAgentState(home, profile); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(settingsPath)
+	if err != nil || !bytes.Equal(got, want) {
+		t.Fatalf("Context-owned Claude settings=%q err=%v", got, err)
 	}
 }
 

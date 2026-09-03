@@ -466,6 +466,53 @@ func TestCurrentContextEntryConfirmsAndBorrowsWithoutAnotherReconciliationDecisi
 	}
 }
 
+func TestWorkspaceEntryDecisionRefBindsExactPlanNotCollectionRevision(t *testing.T) {
+	collection := storeCollectionFixture(t)
+	snapshot, err := snapshotForContext(collection, storeContextID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := tobari.DeriveWorkspaceTemplateEntryAuthority(snapshot.Template.Current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &entryRuntimeFixture{}
+	plan, err := runtime.PlanWorkspaceEntry(context.Background(), snapshot, authority, snapshot.Workspace.ProjectRoot, snapshot.Workspace.ID, time.Unix(10, 0).UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, err := entryDecisionRef(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, digest, err := encodeAuthorityObject(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "workspace-entry:" + string(plan.Workspace.ID) + ":" + digest
+	if ref != want || strings.HasSuffix(ref, string(collection.Revision)) {
+		t.Fatalf("entry decision ref=%q want plan-bound %q, collection revision=%q", ref, want, collection.Revision)
+	}
+	drifted, changed, err := tobari.PublishWorkspaceAuthorityCollection(
+		collection.Templates, collection.Contexts, collection.Workspaces, collection.PendingCandidates, nil, &collection,
+	)
+	if err != nil || !changed || drifted.Revision == collection.Revision {
+		t.Fatalf("unrelated default-selection publication changed=%t revision=%q err=%v", changed, drifted.Revision, err)
+	}
+	driftedSnapshot, err := snapshotForContext(drifted, storeContextID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	driftedPlan, err := runtime.PlanWorkspaceEntry(context.Background(), driftedSnapshot, authority, driftedSnapshot.Workspace.ProjectRoot, driftedSnapshot.Workspace.ID, time.Unix(10, 0).UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	driftedRef, err := entryDecisionRef(driftedPlan)
+	if err != nil || driftedRef != ref {
+		t.Fatalf("unrelated collection revision changed entry ref: before=%q after=%q err=%v", ref, driftedRef, err)
+	}
+}
+
 func TestCurrentDefaultPairEntryBorrowsWithoutRuntimePreparationOrReconciliation(t *testing.T) {
 	previous := storeCollectionFixture(t)
 	store, mutator, adapter, _, runtime, _, _, sessions := newEntryFixture(t, previous)

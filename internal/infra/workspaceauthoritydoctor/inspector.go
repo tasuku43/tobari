@@ -145,7 +145,7 @@ func (i *Inspector) observeFinal(ctx context.Context, id doctor.CheckID, collect
 		for _, record := range collection.Contexts {
 			rules += len(record.PolicyMemory.Rules)
 		}
-		return observed(doctor.CheckStatusPass, fmt.Sprintf("final authority contains %d remembered policy rules and %d pending candidates", rules, len(collection.PendingCandidates))), nil
+		return observed(doctor.CheckStatusPass, fmt.Sprintf("final authority contains %d remembered policy rules; live pending candidates are reported by policy candidates", rules)), nil
 	case doctor.CheckIDImageConfig:
 		if !present {
 			return observed(doctor.CheckStatusPass, "no final Template Runtime bindings require material observation"), nil

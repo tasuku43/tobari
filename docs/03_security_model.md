@@ -1204,8 +1204,9 @@ collected.
   CWD, Workspace, credential, process, network, or Docker operation. Attached pending adoption returns typed
   `end_active_session` before Docker; it neither falls back nor polls.
 - `workspace delete --id <workspace-ref> --confirm=delete [--force]` removes
-  one exact Workspace, home, native credentials, and owned runtime resources
-  while preserving Context Policy Memory. `context delete` requires no
+  one exact Workspace record and owned runtime resources while preserving the
+  complete Context-owned managed Home, native tool state, and Context Policy
+  Memory. `context delete` is the managed-Home retirement boundary and requires no
   Workspace/attachment/research credential; deleting the current Context
   atomically clears the selector after those blockers are absent. Because the
   deletion also removes that Context from the shared aggregate projection, a

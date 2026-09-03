@@ -256,10 +256,11 @@ func TestFinalRootCurrentAuthorityWithMissingStandardRuntimeReturnsToCanonicalRe
 	pair.observation = observation
 	pair.selected = &workspaceauthoritycmd.SelectedDefaultPair{Selection: selection, Choice: choice}
 	pair.resolution = workspaceauthoritycmd.DefaultPairResolution{Observation: observation, InvocationRoot: observation.ProjectRoot}
-	pair.currentEntryErr = fault.WithClassification(fault.Wrap(
+	privateFault := fault.WithClassification(fault.Wrap(
 		fault.KindUnavailable, "workspace_entry_repair_required", "Workspace entry requires canonical Runtime or protection recovery", true,
 		tobari.ErrWorkspaceEntryRuntimeNotCurrent, fault.NextAction{Command: "tobari", Reason: "Repeat root entry."},
 	), fault.PhasePrecondition, fault.ChangeNone)
+	pair.currentEntryErr, _ = fault.PublicCopy(privateFault)
 	if code := command.RunContext(context.Background(), nil); code != ExitOK {
 		t.Fatalf("recovery entry exit=%d stderr=%q", code, stderr.String())
 	}

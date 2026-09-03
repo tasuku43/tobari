@@ -112,6 +112,24 @@ func TestInspectorTreatsFreshFinalAuthorityAsExactEmptyAndUsesTypedClusterStatus
 	}
 }
 
+func TestInspectorPolicyDataDoesNotMislabelDurableStateAsLiveCandidateCount(t *testing.T) {
+	collection, _, err := tobari.PublishWorkspaceAuthorityCollection(
+		[]tobari.WorkspaceTemplate{}, []tobari.WorkspaceAuthorityContextRecord{}, []tobari.WorkspaceBinding{}, []tobari.PolicyCandidateAuthority{}, nil, nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := &readerFixture{collection: collection, present: true}
+	inspector, err := New(reader, &clusterFixture{status: emptyClusterStatus(tobari.FinalClusterRuntimeRunning)}, &genericFixture{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := inspector.ObserveDoctorCheck(context.Background(), "/workspace", doctor.CheckIDPolicyData)
+	if err != nil || observation.Status != doctor.CheckStatusPass || !strings.Contains(observation.Detail, "policy candidates") || strings.Contains(observation.Detail, "0 pending candidates") {
+		t.Fatalf("policy_data observation=%#v err=%v", observation, err)
+	}
+}
+
 func TestInspectorClassifiesPreservedMutationRecoveryBeforeFinalContextObservation(t *testing.T) {
 	contextRef, err := tobari.ContextRef(tobari.ContextID("01912345-6789-7abc-8def-0123456789ad"))
 	if err != nil {

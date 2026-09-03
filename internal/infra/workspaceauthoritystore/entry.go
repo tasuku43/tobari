@@ -356,8 +356,12 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 
 	if !active && terminalEntryRequiresSettlement {
 		if snapshot, consequenceErr := entryTerminalConsequence(current, terminal, contextID); consequenceErr == nil {
+			decisionRef, refErr := entryDecisionRef(*terminal.EntryPlan)
+			if refErr != nil {
+				return tobari.ContextAuthoritySnapshot{}, nil, refErr
+			}
 			settlementContext, cancel := a.newSettlementContext(ctx)
-			receipt, confirmErr := a.confirmEntry(settlementContext, current, snapshot, *terminal.EntryPlan, entryDecisionRef(*terminal.EntryPlan, terminal.NextRevision))
+			receipt, confirmErr := a.confirmEntry(settlementContext, current, snapshot, *terminal.EntryPlan, decisionRef)
 			cancel()
 			if confirmErr == nil {
 				publicationConfirmed = true
@@ -389,8 +393,12 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 			if err != nil {
 				return tobari.ContextAuthoritySnapshot{}, nil, err
 			}
+			decisionRef, err := entryDecisionRef(*decision.EntryPlan)
+			if err != nil {
+				return tobari.ContextAuthoritySnapshot{}, nil, err
+			}
 			settlementContext, cancel := a.newSettlementContext(ctx)
-			receipt, confirmErr := a.confirmEntry(settlementContext, current, snapshot, *decision.EntryPlan, entryDecisionRef(*decision.EntryPlan, decision.NextRevision))
+			receipt, confirmErr := a.confirmEntry(settlementContext, current, snapshot, *decision.EntryPlan, decisionRef)
 			cancel()
 			if confirmErr != nil {
 				return tobari.ContextAuthoritySnapshot{}, nil, confirmErr
@@ -486,8 +494,12 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 			// new reconciliation. Only an exact runtime mismatch is allowed to fall
 			// through; ambiguous observations and inactive protection remain
 			// fail-closed.
+			decisionRef, refErr := entryDecisionRef(plan)
+			if refErr != nil {
+				return tobari.ContextAuthoritySnapshot{}, nil, refErr
+			}
 			settlementContext, cancel := a.newSettlementContext(ctx)
-			receipt, confirmErr := a.confirmEntry(settlementContext, current, desired, plan, entryDecisionRef(plan, current.Revision))
+			receipt, confirmErr := a.confirmEntry(settlementContext, current, desired, plan, decisionRef)
 			cancel()
 			if confirmErr == nil {
 				publicationConfirmed = true
@@ -534,7 +546,10 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 		}
 	}
 
-	decisionRef := entryDecisionRef(plan, decision.NextRevision)
+	decisionRef, err := entryDecisionRef(plan)
+	if err != nil {
+		return tobari.ContextAuthoritySnapshot{}, nil, err
+	}
 	receipt, err := a.runtime.ReconcileWorkspaceEntry(ctx, plan.Clone(), decisionRef)
 	if err != nil {
 		return tobari.ContextAuthoritySnapshot{}, nil, err
@@ -719,8 +734,12 @@ func (a *ContextEntryAdapter) confirmAndBeginCurrent(ctx context.Context, collec
 	if changed || next.Generation != collection.Generation || next.Revision != collection.Revision {
 		return tobari.ContextAuthoritySnapshot{}, nil, tobari.ErrWorkspaceEntryRuntimeNotCurrent
 	}
+	decisionRef, err := entryDecisionRef(plan)
+	if err != nil {
+		return tobari.ContextAuthoritySnapshot{}, nil, err
+	}
 	settlementContext, cancel := a.newSettlementContext(ctx)
-	receipt, err := a.confirmEntry(settlementContext, collection, snapshot, plan, entryDecisionRef(plan, collection.Revision))
+	receipt, err := a.confirmEntry(settlementContext, collection, snapshot, plan, decisionRef)
 	cancel()
 	if err != nil {
 		return tobari.ContextAuthoritySnapshot{}, nil, err
@@ -767,8 +786,12 @@ func entryTerminalConsequence(current tobari.WorkspaceAuthorityCollection, decis
 	return snapshot, nil
 }
 
-func entryDecisionRef(plan tobari.WorkspaceEntryReconciliationPlan, revision tobari.SemanticDigest) string {
-	return "workspace-entry:" + string(plan.Workspace.ID) + ":" + string(revision)
+func entryDecisionRef(plan tobari.WorkspaceEntryReconciliationPlan) (string, error) {
+	_, digest, err := encodeAuthorityObject(plan)
+	if err != nil {
+		return "", fmt.Errorf("derive Workspace entry decision reference: %w", err)
+	}
+	return "workspace-entry:" + string(plan.Workspace.ID) + ":" + digest, nil
 }
 
 func pointerEntryPlan(plan tobari.WorkspaceEntryReconciliationPlan) *tobari.WorkspaceEntryReconciliationPlan {

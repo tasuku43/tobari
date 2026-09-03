@@ -1140,6 +1140,16 @@ the same key for its own no-session proof. The surrounding lifecycle fence
 prevents another session from entering between those phases. A surviving
 borrower therefore blocks repair even after the canonical attachment owner has
 exited.
+
+The private Workspace-entry DecisionRef is derived from the complete validated
+entry plan, not from the surrounding final-authority collection revision.
+Unrelated Policy Memory, Context, default-selection, or cluster publications
+therefore cannot make an unchanged runtime receipt stale. When an older
+pre-release receipt carries a collection-bound DecisionRef, the read-only
+current path reports the declared repair disposition and the ordinary fenced
+reconciliation path may rebind only an exactly equal plan after confirming its
+runtime receipt; it does not recreate the Workspace or rewrite the Context Home.
+
 Task assistance first reserves only identity metadata, then re-reads the
 exact selected Context, Project, Template revision, and Policy Memory revision
 under the catalog fence while acquiring that same attachment lease. It creates

@@ -1038,6 +1038,15 @@ func (r *Runtime) ensureFinalWorkspaceAgentState(home, profile string) error {
 			return err
 		}
 	}
+	settingsPath := filepath.Join(claude, "settings.json")
+	if _, found, err := readProjectSettings(settingsPath, "Context-owned Claude settings"); err != nil {
+		return err
+	} else if found {
+		// The complete managed Home belongs to the Context. Shared profile
+		// settings are creation defaults, not authority to rewrite tool-owned
+		// state during Workspace replacement or ordinary reconciliation.
+		return nil
+	}
 	baseSettings, err := os.ReadFile(filepath.Join(profile, "common", "settings.json")) // #nosec G304 -- profile is the exact runtime-owned path selected from a validated name and revalidated digest.
 	if err != nil {
 		return err
@@ -1055,7 +1064,7 @@ func (r *Runtime) ensureFinalWorkspaceAgentState(home, profile string) error {
 			base[key] = value
 		}
 	}
-	return writeAtomicJSON(filepath.Join(claude, "settings.json"), base)
+	return writeAtomicJSON(settingsPath, base)
 }
 
 func writeFinalWorkspaceGitConfig(directory string, data []byte) error {

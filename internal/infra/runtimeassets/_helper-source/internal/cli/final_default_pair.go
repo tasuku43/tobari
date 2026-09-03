@@ -102,7 +102,7 @@ func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, 
 				emitWorkspaceCleanupAttention(c.Err, result.Outcome)
 				return result.Outcome.ExitCode
 			}
-			if !errors.Is(entryErr, tobari.ErrWorkspaceEntryRuntimeNotCurrent) && !errors.Is(entryErr, tobari.ErrWorkspaceEntryProtectionNotCurrent) {
+			if !workspaceEntryRepairRequired(entryErr) {
 				return c.failRootBeforeHandoff(ctx, entryErr)
 			}
 		}
@@ -242,6 +242,14 @@ func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, 
 	}
 	emitWorkspaceCleanupAttention(c.Err, result.Outcome)
 	return result.Outcome.ExitCode
+}
+
+func workspaceEntryRepairRequired(err error) bool {
+	if errors.Is(err, tobari.ErrWorkspaceEntryRuntimeNotCurrent) || errors.Is(err, tobari.ErrWorkspaceEntryProtectionNotCurrent) {
+		return true
+	}
+	public, ok := fault.PublicCopy(err)
+	return ok && public.Code == "workspace_entry_repair_required" && public.Phase == fault.PhasePrecondition && public.ChangeState == fault.ChangeNone
 }
 
 func selectedDefaultPairHasWorkspace(selected workspaceauthoritycmd.SelectedDefaultPair) bool {
