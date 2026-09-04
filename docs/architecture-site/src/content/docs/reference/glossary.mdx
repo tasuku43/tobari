@@ -44,14 +44,14 @@ Project binding nor remembered decisions.
 ### Context
 
 One durable location-free binding to one Workspace Template ID. A Context owns
-Policy Memory and one managed Home, and survives replacement
-or deletion of its Workspace. It has no public name or default selector; exact
+Policy Memory and one managed Home shared by all of its Workspaces, and survives replacement
+or deletion of any individual Workspace. It has no public name or default selector; exact
 nondefault actions consume a `context` reference from discovery.
 
 ### Context Home
 
 The independent persistent writable home owned by one Context and mounted into
-its current Workspace. Agent CLIs store native login state here. It survives
+every Workspace owned by that Context. Agent CLIs store native login state here. It survives
 session exit, container recreation, and Workspace deletion or replacement; an
 exact `context delete` retires it after no Workspace or attachment remains.
 

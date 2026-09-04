@@ -37,7 +37,7 @@ or credential environment into the Workspace.
 
 ## Request boundary
 
-Every process in one Workspace can read that Workspace's native credential.
+Every process in every Workspace owned by one Context can read that Context Home's native credential.
 Gateway does not infer which executable created or uses it. For an HTTP request:
 
 1. Gateway derives the host-owned Context/Workspace principal.

@@ -10,7 +10,8 @@
   pre-release compatibility, typed identity, protection,
   authentication-owner, and policy-owner seams
 - Related: ADR 0066 and WP11
-- Revised by: ADR 0087 at the executable-policy and evaluator-identity seam;
+- Revised by: ADR 0094 at Context-to-Workspace cardinality, shared Context
+  Home, and Context-only Policy Memory identity; ADR 0087 at the executable-policy and evaluator-identity seam;
   ADR 0088 at the persistence, desired-source, Boundary revision, draft, and
   explicit installed-state migration seams; ADR 0092 at Context location and
   Workspace ownership seams; ADR 0093 at current Context selection and CWD

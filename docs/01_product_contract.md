@@ -111,8 +111,9 @@ inventory:
 1. **Workspace Template policy** is the desired destination and method Boundary
    together with the routine client traffic admitted inside it.
 2. **Remembered Context decisions** are trusted-host reviewed Allow and exact
-   Deny choices retained in Context Policy Memory for one Context and Workspace
-   until explicit reset.
+   Deny choices retained in Context Policy Memory for one Context until
+   explicit reset. Workspace ID, Project root, CWD, and directory ancestry are
+   observation provenance, never remembered-policy identity or compatibility.
 3. **This-session Host Loopback access** is an exact decision bound to the
    active attachment and removed when its owning host process exits.
 
@@ -179,9 +180,11 @@ only `Allow`, `Deny`, or `Expired`. The helper exposes no candidate, policy
 decision, scope, revision, discovery, or retry operation. `Allow` is
 retry-readiness evidence; every deliberate fresh request is authorized again
 by Gateway.
-The host-issued Workspace principal and normalized scheme are retained in denial,
-candidate, learned-rule, and audit evidence; an approval made from one current-directory
-Workspace cannot be replayed as another Workspace's permission.
+The host-issued Workspace principal and normalized scheme are retained in
+denial, candidate, and audit evidence. Workspace ID, Project root, CWD, and
+directory ancestry do not enter persistent rule identity or compatibility; an
+approval is reusable by sibling Workspaces of the same Context but never by a
+different Context.
 Ordinary request bodies are not a policy identity dimension. A body-bearing
 POST, PUT, PATCH, or other method is authorized and learned from the same
 project, scheme, host, port, method, and path dimensions as a body-free request.
@@ -278,7 +281,7 @@ is added explicitly.
   is mounted at the same relative path below `/var/lib/tobari`; a root outside
   the host home uses the mirrored `/workspace` path.
 - **Context Home:** a persistent owner-only XDG state directory owned by one
-  Context and mounted as its current Workspace's work-user home. It survives
+  Context and mounted as every owned Workspace's work-user home. It survives
   Workspace replacement or deletion and is retired only with that Context.
   “Workspace home” describes this mount from inside the current Workspace; it
   is not a second Workspace-owned lifecycle resource.
@@ -297,9 +300,9 @@ is added explicitly.
   the Workspace ID and never identifies the project root. Caller headers, Template names,
   SNI, request authority, and profile names are not principals.
 - **tool-owned authentication state:** files written by a tool or agent below
-  one Workspace's persistent home during its own login or configuration flow. It
-  is the standard credential source and is readable by every process in that
-  Workspace.
+  one Context's persistent Home during its own login or configuration flow. It
+  is the standard credential source and is readable by every process in every
+  Workspace owned by that Context.
 - **research credential provider:** the external service or authority whose credential
   is acquired or imported, stored, and later applied to one exact reviewed
   request binding. A provider is not the Workspace client that uses it.
@@ -397,7 +400,7 @@ rejects duplicate or stale endpoints. Template policy and Context Policy
 Memory are selected inside the single OPA from that trusted principal. Learned
 permissions are Context-owned and retain observed Workspace identity. Principal identity never selects
 or injects tool credentials.
-Standard Gateway passes one Workspace-owned credential only after the ordinary
+Standard Gateway passes one Context-Home-owned client credential only after the ordinary
 HTTP decision; research Broker resolution additionally requires its exact
 provider, revision, target, and header binding.
 
@@ -567,9 +570,8 @@ The CWD entry/read commands `tobari` and `status` resolve Workspace authority,
 not current Context authority, from the canonical Project root. An existing
 Workspace retains its own Context binding regardless of `context use`. At a
 root without a Workspace, explicit create-here binds the installation current
-Context when it is unattached. If it already owns a Workspace, create-here
-publishes a distinct Context from the default Template so one Context never
-owns two Workspaces. Missing current selection fails before Docker with
+Context, including when that Context already owns sibling Workspaces. The
+uniqueness key is `(ContextID, canonical ProjectRoot)`. Missing current selection fails before Docker with
 recovery through `context list` and `context use`. Neither creation path changes
 the selector. Context-aware commands may accept an optional opaque `--context`
 override that applies only to that invocation and never rewrites the durable
@@ -656,8 +658,15 @@ Project/selected-Workspace/Context authority before entry. A later failure never
 rolls back a confirmed earlier receipt. When protection is ready, root invokes
 the canonical Workspace-entry boundary, which alone reconciles the Workspace
 AppliedEntry and hands off the child. Before its immutable reconciliation plan,
-Workspace entry materializes only the exact selected canonical built-in standard
-Runtime from embedded pinned source when that local image is absent. Runtime
+Workspace entry validates the exact selected Runtime authority and materializes
+the selected canonical built-in standard Runtime from embedded pinned source
+only when that current binding is absent. Candidate-version Workspace helpers
+are separate Tobari-owned entry material: when they are absent, entry may
+prepare the current source-addressed built-in image solely as their reviewed
+extraction source, even while the selected execution Runtime remains an exact
+historical standard or custom binding. It fully validates and atomically
+activates both helpers before the durable entry decision; the helper-source
+image never replaces or aliases the selected execution Runtime. Runtime
 customization is an independent prepare-first flow; root never implicitly
 builds, restores, prunes, deletes, or selects a custom Runtime. If authoritative
 custom Runtime execution material is absent or mismatched, immediate human
@@ -673,8 +682,10 @@ command presents an English selector ordered nearest-first. Arrow keys and
 Enter choose an existing Workspace; `n` chooses explicit creation at the
 current directory; `q` or Escape cancels. If raw terminal mode is unavailable,
 the same choices use numbered line input without adding a terminal module or
-shell subprocess. Candidate status and path text remain meaningful without
-color. Programs inside a Workspace can mutate the explicitly mounted root; that
+shell subprocess. When candidates from different Contexts share a root, each
+option and the final selection summary show the opaque Context reference;
+directory text never stands in for Policy Memory identity. Candidate status,
+Context reference, and path text remain meaningful without color. Programs inside a Workspace can mutate the explicitly mounted root; that
 delegated capability is a documented security property rather than an
 undeclared Docker mutation by the CLI.
 
@@ -719,7 +730,9 @@ review runs through `tobari review permissions` in a separate host terminal.
 ## Input and path contract
 
 - The current working directory is expanded and canonicalized on the host
-  before state or Docker calls. An exact indexed root is reused directly. When
+  before state or Docker calls. An exact indexed root for the current Context
+  is reused directly. An exact root owned only by another Context remains an
+  explicit use-or-create choice. When
   only containing ancestor roots exist, `tobari` lists every valid root
   nearest-first and offers explicit creation at the current directory; it never
   creates a nested Workspace implicitly.
@@ -736,11 +749,11 @@ review runs through `tobari review permissions` in a separate host terminal.
   initialize policy, start/reconcile or unlock the shared cluster, create or
   replace the root key, or mutate provider, vault, credential, handle, or
   project-auth state.
-- Each `(canonical root, stable Workspace Template ID)` identifies at most one
-  Context, and each Context owns at most one replaceable Workspace. Repeated or
-  concurrent entry converges on that Workspace; the same root may have
-  independent Contexts for different Templates. Explicit Context actions never
-  change the default Workspace Template.
+- Each `(ContextID, canonical ProjectRoot)` identifies at most one Workspace.
+  One Context may own sibling Workspaces at distinct roots, and the same root
+  may host independent Workspaces for different Contexts. Repeated or concurrent
+  entry converges on the exact pair. Explicit Context actions never change the
+  default Workspace Template.
 - Exact Workspace retirement preserves the last verified live policy axes and
   removes only the target principal before retiring its runtime resources. If
   an older binary left desired Template state with incomplete active receipts,
@@ -1061,8 +1074,8 @@ review runs through `tobari review permissions` in a separate host terminal.
 - Bare root and bare `status` accept no Template, Context, Workspace, or root
   selector. Canonical CWD selects only Workspace candidates. An existing
   Workspace supplies its permanent Context binding. At a new root, explicit
-  create-here uses an unattached current Context or creates a distinct Context
-  from the default Template when current is already attached; status remains
+  create-here uses the current Context and creates a sibling Workspace when
+  needed; status remains
   non-creating. Same-root ambiguity never guesses. Context selection uses
   `context list` then `context use`, and every deletion consumes its exact
   Context or Workspace reference.
@@ -1089,12 +1102,15 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Policy mutation result | `result` | 3 |
 | Workspace Template list | `templates` | 1 |
 | Workspace Template report | `template` | 1 |
-| Workspace Template change plan | `template_change_plan` | 1 |
+| Workspace Template change plan | `template_change_plan` | 2 |
 | Workspace Template policy source migration plan | `template_policy_migration_plan` | 1 |
 | Workspace Template policy source migration result | `template_policy_migration` | 1 |
-| Template, Context, or Workspace selection/deletion result | `result` | 1 |
-| Context list | `contexts` | 1 |
-| Context report | `context` | 1 |
+| Template or Workspace selection/deletion result | `result` | 1 |
+| Context selection/deletion result | `result` | 1 |
+| Context creation | `context` | 1 |
+| Context list | `contexts` | 2 |
+| Context show | `context` | 2 |
+| Context apply | `context` | 2 |
 | Context activation plan | `context_activation_plan` | 1 |
 | Workspace list | `workspaces` | 1 |
 | Workspace report | `workspace` | 1 |
@@ -1553,7 +1569,7 @@ completion never publish or repair it.
 Host shell and Git projection is a closed, non-secret set. Shell accepts only
 `PS1`, `TERM`, `COLORTERM`, and `NO_COLOR`; Git accepts only an atomic
 `user.name`/`user.email` fallback. Typed AWS/EKS bootstrap stores only the
-reviewed secret-free creation recipe for future Workspace homes. No host
+reviewed secret-free creation recipe for the first Home of future Contexts. No host
 credential, token cache, executable helper, startup file, arbitrary environment
 name, arbitrary Git key, or generic kubeconfig crosses these boundaries.
 
@@ -1642,12 +1658,13 @@ normal Workspace-global and repository/worktree precedence.
 The Template source may contain a separate typed secret-free AWS bootstrap
 recipe. Interactive initial creation may read only host `~/.aws/config` and
 accept one strict IAM Identity Center profile/session subset; later source
-edits still require complete Apply. Recipe changes affect future Workspace
-creation only; removal stops future projection. No variant
+edits still require complete Apply. Recipe changes affect only future Context
+Home initialization; removal stops future projection. No variant
 reads or outputs AWS credentials or SSO cache values, invokes AWS, performs
-login, changes network policy, or rewrites an existing Workspace home. A new
-Workspace receives one canonical private `.aws/config` and records its applied
-semantic revision before logical publication.
+login, changes network policy, or rewrites an existing Context Home. The first
+Workspace of a Context initializes one canonical private `.aws/config` and
+records its applied semantic revision before logical publication; later sibling
+Workspaces reuse it without rerunning bootstrap.
 
 The argument-free Workspace Template wizard reuses this resolver through a read-only
 candidate boundary. It reads fixed `~/.aws/config` only after explicit
@@ -1666,7 +1683,7 @@ commercial EKS HTTPS origin, and the reviewed `aws eks get-token` contract with
 `AWS_PROFILE` equal to the Workspace Template AWS profile. It rejects credentials, proxy or
 insecure TLS options, file references, arbitrary exec fields, role arguments,
 unknown fields, alternate paths, and unsafe files. Projection emits canonical
-private `.kube/config` JSON in the fresh Workspace home. Removing EKS preserves
+private `.kube/config` JSON in the fresh Context Home. Removing EKS preserves
 AWS; AWS cannot be removed or changed to another profile until its dependent EKS adapter is removed. No
 configure, refresh, or create operation calls AWS or Kubernetes or grants a
 network effect.

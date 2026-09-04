@@ -497,11 +497,20 @@ func (a *Adapter) ConfirmConfiguratorPublication(ctx context.Context, submission
 	if err != nil {
 		return err
 	}
-	if !reflect.DeepEqual(current, snapshot) || current.Template.ID != submission.Draft.TemplateID || current.Template.Current.Revision != submission.SourceRevision || submission.Draft.NeedsHomeAdoption() && current.Context.ID != submission.Draft.AdoptionContextID || !reflect.DeepEqual(current.Template.Current.Body, submission.Body) {
+	want := snapshot.Clone()
+	want.Workspace = nil
+	current.Workspace = nil
+	if !reflect.DeepEqual(current, want) || current.Template.ID != submission.Draft.TemplateID || current.Template.Current.Revision != submission.SourceRevision || submission.Draft.NeedsHomeAdoption() && current.Context.ID != submission.Draft.AdoptionContextID || !reflect.DeepEqual(current.Template.Current.Body, submission.Body) {
 		return tobari.ErrWorkspaceTemplateChangePlanStale
 	}
-	if submission.Draft.ProjectRoot != "" && (current.Workspace == nil || current.Workspace.ProjectRoot != submission.Draft.ProjectRoot) {
-		return tobari.ErrWorkspaceTemplateChangePlanStale
+	if submission.Draft.ProjectRoot != "" {
+		found := false
+		for _, workspace := range current.Workspaces {
+			found = found || workspace.ProjectRoot == submission.Draft.ProjectRoot
+		}
+		if !found {
+			return tobari.ErrWorkspaceTemplateChangePlanStale
+		}
 	}
 	return nil
 }

@@ -69,11 +69,11 @@ If the same client pins the upstream certificate or public key, the certificate 
 
 These are separate questions:
 
-| Question                                                            | Mechanism                                         | Meaning                                            |
-| ------------------------------------------------------------------- | ------------------------------------------------- | -------------------------------------------------- |
-| Can the client establish an intercepted HTTPS session with Gateway? | Runtime trusts the Tobari CA                      | Gateway can receive the decrypted request          |
-| May this ordinary HTTP effect reach upstream?                       | OPA decision, enforced by Gateway                 | Context/Workspace/host/port/method/path is allowed |
-| May a Workspace-owned credential value be forwarded?                | Prior OPA allow and the declared request boundary | One request may receive the original header value  |
+| Question                                                            | Mechanism                                         | Meaning                                                                                        |
+| ------------------------------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Can the client establish an intercepted HTTPS session with Gateway? | Runtime trusts the Tobari CA                      | Gateway can receive the decrypted request                                                      |
+| May this ordinary HTTP effect reach upstream?                       | OPA decision, enforced by Gateway                 | Context/scheme/host/port/method/path is allowed; Workspace/root provide routing and provenance |
+| May a Context-Home-owned credential value be forwarded?             | Prior OPA allow and the declared request boundary | One request may receive the original header value                                              |
 
 A working CA solves only the first row.
 

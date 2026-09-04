@@ -259,16 +259,16 @@ func TestFinalWorkspaceAuthorityCatalogOwnsExactReferenceGraph(t *testing.T) {
 	}
 
 	wantProduced := map[string][]ProducedRef{
-		"context apply":            {{Kind: tobari.ContextReferenceKind, Field: "context_ref"}},
+		"context apply":            {{Kind: tobari.ContextReferenceKind, Field: "context_ref"}, {Kind: tobari.WorkspaceReferenceKind, Field: "workspace_refs[]"}},
 		"template apply":           {{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}, {Kind: tobari.WorkspaceTemplateRevisionReferenceKind, Field: "current_revision_ref"}},
 		"template migration plan":  {{Kind: tobari.WorkspaceTemplatePolicyMigrationPlanReferenceKind, Field: "plan_ref"}, {Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}},
 		"template migration apply": {{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}},
-		"template plan":            {{Kind: tobari.WorkspaceTemplateChangePlanReferenceKind, Field: "plan_ref"}, {Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}, {Kind: tobari.ContextReferenceKind, Field: "contexts[].context_ref"}, {Kind: tobari.WorkspaceReferenceKind, Field: "contexts[].workspace_ref"}},
+		"template plan":            {{Kind: tobari.WorkspaceTemplateChangePlanReferenceKind, Field: "plan_ref"}, {Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}, {Kind: tobari.ContextReferenceKind, Field: "contexts[].context_ref"}, {Kind: tobari.WorkspaceReferenceKind, Field: "contexts[].workspaces[].workspace_ref"}},
 		"template create":          {{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}},
 		"template list":            {{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "items[].template_ref"}},
 		"template show":            {{Kind: tobari.WorkspaceTemplateReferenceKind, Field: "template_ref"}, {Kind: tobari.WorkspaceTemplateRevisionReferenceKind, Field: "current_revision_ref"}},
-		"context list":             {{Kind: tobari.ContextReferenceKind, Field: "items[].context_ref"}},
-		"context show":             {{Kind: tobari.ContextReferenceKind, Field: "context_ref"}},
+		"context list":             {{Kind: tobari.ContextReferenceKind, Field: "items[].context_ref"}, {Kind: tobari.WorkspaceReferenceKind, Field: "items[].workspace_refs[]"}},
+		"context show":             {{Kind: tobari.ContextReferenceKind, Field: "context_ref"}, {Kind: tobari.WorkspaceReferenceKind, Field: "workspace_refs[]"}},
 		"workspace list":           {{Kind: tobari.WorkspaceReferenceKind, Field: "items[].workspace_ref"}},
 		"workspace status":         {{Kind: tobari.WorkspaceReferenceKind, Field: "workspace_ref"}},
 	}
@@ -811,7 +811,7 @@ func TestFinalEmptyAuthorityListsEmitSchemaOneExplicitArrays(t *testing.T) {
 		wire func(*CLI)
 	}{
 		{path: []string{"template", "list", "--format=json"}, want: `{"schema_version":1,"templates":{"items":[]}}` + "\n", wire: func(c *CLI) { c.finalTemplates = workspaceauthoritycmd.NewTemplateService(finalAuthorityReadFixture{}) }},
-		{path: []string{"context", "list", "--format=json"}, want: `{"contexts":{"items":[]},"schema_version":1}` + "\n", wire: func(c *CLI) { c.finalContexts = workspaceauthoritycmd.NewContextService(finalAuthorityReadFixture{}) }},
+		{path: []string{"context", "list", "--format=json"}, want: `{"contexts":{"items":[]},"schema_version":2}` + "\n", wire: func(c *CLI) { c.finalContexts = workspaceauthoritycmd.NewContextService(finalAuthorityReadFixture{}) }},
 		{path: []string{"workspace", "list", "--format=json"}, want: `{"schema_version":1,"workspaces":{"items":[]}}` + "\n", wire: func(c *CLI) {
 			c.finalWorkspaces = workspaceauthoritycmd.NewWorkspaceService(finalAuthorityReadFixture{})
 		}},
@@ -829,7 +829,7 @@ func TestFinalEmptyAuthorityListsEmitSchemaOneExplicitArrays(t *testing.T) {
 }
 
 func TestFinalAuthorityJSONOmitsAbsentLowerLifetimeAuthority(t *testing.T) {
-	contextValue := finalContextProjection{Lifecycle: "active", ContextRef: "ctx1_01912345-6789-7abc-8def-0123456789a2", ContextID: "01912345-6789-7abc-8def-0123456789a2", TemplateID: "01912345-6789-7abc-8def-0123456789a1", TemplateName: "standard", DesiredTemplateGeneration: 1, DesiredTemplateRevision: "sha256:" + strings.Repeat("b", 64), DesiredTemplatePolicySliceDigest: "sha256:" + strings.Repeat("c", 64), CurrentPolicyMemoryRevision: "sha256:" + strings.Repeat("a", 64), SourcePath: "/tmp/tobari/contexts/01912345-6789-7abc-8def-0123456789a2/context.yaml", SourceState: string(tobari.ResourceSourceInSync), SourceRevision: stringPointer("sha256:" + strings.Repeat("d", 64)), ActiveRevision: "sha256:" + strings.Repeat("d", 64)}
+	contextValue := finalContextProjection{Lifecycle: "active", ContextRef: "ctx1_01912345-6789-7abc-8def-0123456789a2", ContextID: "01912345-6789-7abc-8def-0123456789a2", TemplateID: "01912345-6789-7abc-8def-0123456789a1", TemplateName: "standard", DesiredTemplateGeneration: 1, DesiredTemplateRevision: "sha256:" + strings.Repeat("b", 64), DesiredTemplatePolicySliceDigest: "sha256:" + strings.Repeat("c", 64), CurrentPolicyMemoryRevision: "sha256:" + strings.Repeat("a", 64), WorkspaceRefs: []string{}, SourcePath: "/tmp/tobari/contexts/01912345-6789-7abc-8def-0123456789a2/context.yaml", SourceState: string(tobari.ResourceSourceInSync), SourceRevision: stringPointer("sha256:" + strings.Repeat("d", 64)), ActiveRevision: "sha256:" + strings.Repeat("d", 64)}
 	encoded, err := finalAuthorityOutput("context show", "context", contextValue, successFormatJSON, nil)
 	if err != nil {
 		t.Fatalf("context JSON error = %v", err)
@@ -845,7 +845,7 @@ func TestFinalAuthorityJSONOmitsAbsentLowerLifetimeAuthority(t *testing.T) {
 	if _, exists := projected["workspace_id"]; exists {
 		t.Fatalf("absent Workspace was serialized: %s", encoded)
 	}
-	wantContext := `{"context":{"context_ref":"ctx1_01912345-6789-7abc-8def-0123456789a2","context_id":"01912345-6789-7abc-8def-0123456789a2","workspace_template_id":"01912345-6789-7abc-8def-0123456789a1","template_name":"standard","desired_template_generation":1,"desired_template_revision":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","desired_template_policy_slice_digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","active_template_policy_slice_digest":null,"current_policy_memory_revision":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","active_policy_memory_revision":null,"applied_entry":null,"source_path":"/tmp/tobari/contexts/01912345-6789-7abc-8def-0123456789a2/context.yaml","source_state":"in_sync","source_revision":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","active_revision":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},"schema_version":1}` + "\n"
+	wantContext := `{"context":{"context_ref":"ctx1_01912345-6789-7abc-8def-0123456789a2","context_id":"01912345-6789-7abc-8def-0123456789a2","workspace_template_id":"01912345-6789-7abc-8def-0123456789a1","template_name":"standard","desired_template_generation":1,"desired_template_revision":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","desired_template_policy_slice_digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","active_template_policy_slice_digest":null,"current_policy_memory_revision":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","active_policy_memory_revision":null,"workspace_count":0,"workspace_refs":[],"source_path":"/tmp/tobari/contexts/01912345-6789-7abc-8def-0123456789a2/context.yaml","source_state":"in_sync","source_revision":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","active_revision":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},"schema_version":2}` + "\n"
 	wantContext = strings.Replace(wantContext, `{"context":{`, `{"context":{"lifecycle":"active",`, 1)
 	if got := string(encoded); got != wantContext {
 		t.Fatalf("context JSON = %q, want %q", got, wantContext)
@@ -865,7 +865,7 @@ func TestFinalAuthorityJSONOmitsAbsentLowerLifetimeAuthority(t *testing.T) {
 	}
 }
 
-func TestFinalContextProjectionKeepsDesiredActiveAndAppliedAxesIndependent(t *testing.T) {
+func TestFinalContextProjectionKeepsContextAxesAndCompleteWorkspaceMembership(t *testing.T) {
 	snapshot, desired, activeTemplateDigest, activeMemoryRevision, applied := finalDesiredActiveSnapshotFixture(t, true)
 	contextRef, err := tobari.ContextRef(snapshot.Context.ID)
 	if err != nil {
@@ -892,9 +892,9 @@ func TestFinalContextProjectionKeepsDesiredActiveAndAppliedAxesIndependent(t *te
 		t.Fatal(err)
 	}
 	wantKeys := []string{
-		"active_policy_memory_revision", "active_revision", "active_template_policy_slice_digest", "applied_entry", "context_id", "context_ref",
+		"active_policy_memory_revision", "active_revision", "active_template_policy_slice_digest", "context_id", "context_ref",
 		"current_policy_memory_revision", "desired_template_generation", "desired_template_policy_slice_digest", "desired_template_revision",
-		"lifecycle", "source_path", "source_revision", "source_state", "template_name", "workspace_id", "workspace_template_id",
+		"lifecycle", "source_path", "source_revision", "source_state", "template_name", "workspace_count", "workspace_refs", "workspace_template_id",
 	}
 	if got := sortedJSONKeys(document.Context); !reflect.DeepEqual(got, wantKeys) {
 		t.Fatalf("context keys = %v, want %v; output=%s", got, wantKeys, encoded)
@@ -905,7 +905,10 @@ func TestFinalContextProjectionKeepsDesiredActiveAndAppliedAxesIndependent(t *te
 	assertJSONFieldEqual(t, document.Context, "active_template_policy_slice_digest", activeTemplateDigest)
 	assertJSONFieldEqual(t, document.Context, "current_policy_memory_revision", desired.PolicyMemory.Revision)
 	assertJSONFieldEqual(t, document.Context, "active_policy_memory_revision", activeMemoryRevision)
-	assertJSONFieldEqual(t, document.Context, "applied_entry", applied)
+	assertJSONFieldEqual(t, document.Context, "workspace_count", 1)
+	workspaceRef, _ := tobari.WorkspaceRef(snapshot.Workspace.ID)
+	assertJSONFieldEqual(t, document.Context, "workspace_refs", []string{workspaceRef})
+	_ = applied
 }
 
 func TestFinalContextProjectionEmitsNullForInactiveAxes(t *testing.T) {
@@ -933,7 +936,7 @@ func TestFinalContextProjectionEmitsNullForInactiveAxes(t *testing.T) {
 	if err := json.Unmarshal(encoded, &document); err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"active_template_policy_slice_digest", "active_policy_memory_revision", "applied_entry"} {
+	for _, field := range []string{"active_template_policy_slice_digest", "active_policy_memory_revision"} {
 		value, exists := document.Context[field]
 		if !exists || string(value) != "null" {
 			t.Errorf("inactive context field %s = %s exists=%t, want explicit null", field, value, exists)
@@ -961,7 +964,7 @@ func TestFinalContextApplyHumanResultNamesExactUse(t *testing.T) {
 	}
 }
 
-func TestFinalContextHumanOutputNamesDesiredActiveAndAppliedAxes(t *testing.T) {
+func TestFinalContextHumanOutputNamesContextAxesAndWorkspaceCount(t *testing.T) {
 	snapshot, _, activeTemplateDigest, activeMemoryRevision, applied := finalDesiredActiveSnapshotFixture(t, true)
 	contextRef, err := tobari.ContextRef(snapshot.Context.ID)
 	if err != nil {
@@ -980,12 +983,13 @@ func TestFinalContextHumanOutputNamesDesiredActiveAndAppliedAxes(t *testing.T) {
 		"Active Template policy", string(activeTemplateDigest),
 		"Current Policy Memory", string(snapshot.PolicyMemory.Revision),
 		"Active Policy Memory", string(activeMemoryRevision),
-		"Applied entry", string(applied.TemplateRevision), string(applied.EntrySliceDigest),
+		"Workspaces", "1",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("context show output missing %q: %q", want, out.String())
 		}
 	}
+	_ = applied
 }
 
 func TestBareStatusSchemaThreeOwnsFinalDefaultPairContract(t *testing.T) {
@@ -1072,6 +1076,7 @@ func finalCurrentContextEntrySnapshotFixture(t *testing.T) tobari.ContextAuthori
 	snapshot.Workspace.LastSuccessfulEntry.TemplateRevision = current.Revision
 	snapshot.Workspace.LastSuccessfulEntry.EntrySliceDigest = current.Slices.EntrySliceDigest
 	snapshot.Workspace.LastSuccessfulEntry.RuntimeRevision = current.Slices.RuntimeRevision
+	snapshot.Workspaces = []tobari.WorkspaceBinding{*snapshot.Workspace}
 	if err := snapshot.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -1182,6 +1187,8 @@ func finalDesiredActiveSnapshotFixture(t *testing.T, active bool) (tobari.Contex
 		snapshot.ActiveTemplatePolicy = &templateReceipt
 		snapshot.ActivePolicyMemory = &activeMemory
 		snapshot.ActivePolicyMemoryRef = &memoryReceipt
+		snapshot.ContextHome = workspace.Home
+		snapshot.ContextCreationDefaults = workspace.CreationDefaults
 		snapshot.Workspace = &workspace
 	}
 	if err := snapshot.Validate(); err != nil {

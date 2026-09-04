@@ -231,10 +231,11 @@ func (r *firstUseIntegrationEntryRuntime) PlanWorkspaceEntry(_ context.Context, 
 	}
 	workspace.LastSuccessfulEntry = &applied
 	return tobari.WorkspaceEntryReconciliationPlan{
-		Workspace:        workspace,
-		Applied:          applied,
-		Authority:        authority,
-		CreationDefaults: authority.CreationDefaults.Clone(),
+		Workspace:             workspace,
+		Applied:               applied,
+		Authority:             authority,
+		CreationDefaults:      authority.CreationDefaults.Clone(),
+		InitializeContextHome: snapshot.ContextHome == "" && len(snapshot.Workspaces) == 0 && snapshot.Workspace == nil,
 		Network: tobari.WorkspaceRuntimeNetworkAuthority{
 			Network:       network,
 			Subnet:        "10.64.0.0/24",

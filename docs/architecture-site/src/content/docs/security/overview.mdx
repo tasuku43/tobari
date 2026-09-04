@@ -47,7 +47,7 @@ itself is malicious, the enforcement point is gone.
     <h3>Project filesystem</h3>
     <div class="prose-block">
       Immutable Workspace Template source access selects a read-only or
-      read-write live bind. Unselected host paths and another Workspace home are
+      read-write live bind. Unselected host paths and another Context Home are
       outside the normal mount set; this is not snapshot or other-writer
       isolation.
     </div>
@@ -69,9 +69,9 @@ itself is malicious, the enforcement point is gone.
   <section>
     <h3>native credentials</h3>
     <div class="prose-block">
-      Agent CLIs keep login state in the persistent Workspace home. Tobari
-      removes credential values from OPA and audit and forwards them only after
-      the ordinary effect is allowed.
+      Agent CLIs keep login state in the persistent Context Home shared by
+      sibling Workspaces. Tobari removes credential values from OPA and audit
+      and forwards them only after the ordinary effect is allowed.
     </div>
   </section>
 </div>

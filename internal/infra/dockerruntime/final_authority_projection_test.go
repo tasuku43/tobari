@@ -151,6 +151,29 @@ func TestFinalPolicyMemoryRowsRetainMeaningfulEmptyProtocolCoordinates(t *testin
 	}
 }
 
+func TestFinalKubernetesEndpointsAreUniqueAcrossSiblingWorkspaces(t *testing.T) {
+	eks := &tobari.ManifestEKSBootstrap{
+		WorkspaceManifestName: "engineering", ClusterName: "platform", Region: "ap-northeast-1",
+		Server: "https://abc.gr7.ap-northeast-1.eks.amazonaws.com", CertificateAuthorityData: syntheticEKSCA(t),
+	}
+	creationDefaults := tobari.WorkspaceTemplateCreationDefaults{
+		Bootstrap: &tobari.ManifestBootstrapSnapshot{EKS: eks},
+	}
+	principals := []tobari.WorkspacePolicyPrincipalAuthority{
+		{WorkspaceID: finalProjectionWorkspaceA, CreationDefaults: creationDefaults},
+		{WorkspaceID: finalProjectionWorkspaceB, CreationDefaults: creationDefaults.Clone()},
+	}
+
+	endpoints, err := finalKubernetesEndpoints(principals)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := tobari.GraphQLEndpoint{Scheme: "https", Host: "abc.gr7.ap-northeast-1.eks.amazonaws.com", Port: 443, Path: "/"}
+	if len(endpoints) != 1 || endpoints[0] != want {
+		t.Fatalf("sibling Kubernetes endpoints = %#v, want one %#v", endpoints, want)
+	}
+}
+
 func TestFinalPolicyMemoryRowsPreserveVariantExactCoordinates(t *testing.T) {
 	collection := finalProjectionCollectionFixture(t, finalProjectionWorkspaceA)
 	projection, err := tobari.BuildClusterWorkspacePolicyProjection(collection)

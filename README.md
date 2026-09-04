@@ -19,8 +19,9 @@ pinned Gateway and agent-ready base locally from embedded source recipes.
   host-managed credentials are not exposed to a Workspace.
 - The selected source bind is exactly `read-only` or `read-write`; Workspace
   home and tmpfs remain writable.
-- Learned permission is exact Context, Workspace, scheme, host, port, method, and
-  raw path. Closed semantic modules add only their bounded request coordinates:
+- Learned permission is exact Context, scheme, host, port, method, and raw path.
+  Workspace ID, Project root, CWD, and directory ancestry remain observation
+  provenance and routing only. Closed semantic modules add only their bounded request coordinates:
   GraphQL/MCP, AWS, Kubernetes, Git Smart HTTP, or OCI Distribution. Signed AWS
   Query/JSON RPC adds wire protocol, SigV4 service, exact version/namespace, and
   operation; Tobari does not need an AWS service catalog or infer IAM/read-write
@@ -30,8 +31,9 @@ pinned Gateway and agent-ready base locally from embedded source recipes.
   Terminal destination and method Deny decisions precede baseline data,
   learned policy, and the fixed Tobari evaluator over canonical typed data.
 - On the release surface, each tool creates and owns its authentication state
-  inside one persistent Workspace home. Every process in that Workspace can
-  read that state; host CLI homes and host credentials are never inherited.
+  inside one persistent Context Home shared by that Context's Workspaces. Every
+  process in those Workspaces can read that state; host CLI homes and host
+  credentials are never inherited.
 - Gateway removes client authentication and cookies from OPA input and Tobari
   audit evidence, then forwards the original values only after policy allows
   the ordinary HTTP effect.
@@ -131,7 +133,7 @@ tobari cluster up
 tobari context use --id <context-ref>
 
 # At a root without a Workspace, bare entry binds current when unattached.
-# If current already owns a Workspace, create-here makes a distinct Context.
+# If current already owns a Workspace elsewhere, create-here makes a sibling Workspace.
 tobari
 tobari -- claude
 ```
@@ -144,7 +146,7 @@ On a fresh Project, a direct command still goes through the one interactive
 review. After authority exists, `tobari -- claude`, `tobari -- codex exec ...`,
 and `tobari -- gh auth login` are routine direct-entry forms.
 
-Native clients sign in inside the persistent Workspace home after policy is
+Native clients sign in inside the persistent Context Home after policy is
 applied. Tobari never inspects or copies a host credential. A fresh interactive
 shell shows this once; a direct command relies on the client's own prompt.
 
@@ -167,13 +169,14 @@ deleted first.
 A Workspace Template is one reusable static setup with a stable ID and complete
 immutable revisions. It owns the source/network Boundary, baseline policy,
 exact Runtime revision, and typed entry/session/creation defaults. It owns no
-Project, learned decision, Workspace home, authentication, attachment, applied
+Project, learned decision, Context Home, authentication, attachment, applied
 receipt, or observation.
 
-A Context is the durable binding between one canonical Project root and one
-Template ID. Its Policy Memory retains that Project's reviewed decisions across
-Workspace replacement. A Workspace is the replaceable applied instance and
-persistent home for one Context. These identities and lifetimes are distinct;
+A Context is one location-free durable Template binding that owns Policy Memory
+and one persistent Home. Any number of Workspaces may bind distinct canonical
+Project roots to that Context and share its Home and reviewed decisions. A
+Workspace is one replaceable applied routing/runtime/principal instance. These
+identities and lifetimes are distinct;
 names, roots, generations, images, containers, and timestamps never authorize a
 mutation.
 
@@ -363,7 +366,8 @@ manage executable policy source.
 
 ### Standard native Workspace authentication
 
-Authentication belongs to each tool inside one Workspace. Run an installed
+Authentication belongs to each tool inside one Context Home shared by that
+Context's Workspaces. Run an installed
 client through the ordinary entry path and use that client's normal login:
 
 ```sh
@@ -373,12 +377,14 @@ tobari -- gh auth login
 ```
 
 Claude Code, Codex, GitHub CLI, AWS CLI, and other installed tools create and
-persist their own login state below that Workspace's `HOME=/var/lib/tobari`.
-The state is available to every process in the same Workspace, is not shared
-with another Workspace, and is deleted with the Workspace. Tobari never mounts
+persist their own login state below the Context-owned `HOME=/var/lib/tobari`.
+The state is available to every process in every Workspace owned by that
+Context, is not shared with another Context, and survives individual Workspace
+deletion. Tobari never mounts
 or copies host CLI homes, host token caches, credential helpers, keychains, or
-credential environment variables. A reviewed secret-free Workspace Template bootstrap is
-configuration only; it imports no authentication state.
+credential environment variables. A reviewed secret-free Workspace Template
+bootstrap initializes only the first Context Home; it imports no authentication
+state and is not rerun for later sibling Workspaces.
 
 For pinned native clients, the attachment-scoped bridge may open one strictly
 validated login target in the host browser and may relay one opaque loopback
@@ -400,7 +406,7 @@ re-enter the Workspace normally when needed.
 | Workspace client login | one normal client-owned flow |
 | Browser transfer | host opens only a reviewed native target |
 | Fixed-value manual re-entry | only when the provider's native flow requires it |
-| Login-state owner | the client in one Workspace home |
+| Login-state owner | the client in one Context Home, shared by its Workspaces |
 | Steady-state Tobari command | none; re-enter the Workspace normally |
 
 ### Research Broker (repository-only)

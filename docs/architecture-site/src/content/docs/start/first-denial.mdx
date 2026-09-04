@@ -55,8 +55,7 @@ Display order, a host label, or a hand-built identifier is not authority. The ac
 
 A learned rule binds:
 
-- stable Workspace Template ID;
-- host-issued Context ID and Workspace ID;
+- host-issued Context ID;
 - scheme;
 - destination host and port;
 - HTTP method; and
@@ -96,7 +95,12 @@ observations into broader authority.
 
 ## Guarantees and limits
 
-Tobari guarantees that observed traffic does not automatically become permission and that routine learned decisions remain exact and project-bound. It does not judge whether a destination is trustworthy, inspect bodies for sensitive information, or stop an already allowed effect from carrying any data the Workspace can read.
+Tobari guarantees that observed traffic does not automatically become
+permission and that routine learned decisions remain exact and Context-bound.
+Workspace ID and Project root remain provenance and routing only. Tobari does
+not judge whether a destination is trustworthy, inspect bodies for sensitive
+information, or stop an already allowed effect from carrying any data the
+Workspace can read.
 
 ## Source evidence
 

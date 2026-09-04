@@ -162,14 +162,10 @@ func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, 
 			_ = progress.Finish(firstEntryFailureState(contextErr))
 			return c.failRootBeforeHandoff(ctx, contextErr)
 		}
-		if view.Snapshot.Workspace == nil {
-			resolution, err = c.finalDefaultPair.ResolveSelectedContext(ctx, view.Snapshot.Context.ID, selected)
-		} else {
-			// Explicit create-here must not attach a second Workspace to the
-			// current Context. The ordinary create path publishes a distinct
-			// Context from the default Template without changing the selector.
-			resolution, err = c.finalDefaultPair.ResolveSelected(ctx, intent, nil, selected)
-		}
+		// Create-here always binds the installation-owned current Context.
+		// Existing Workspaces at other roots are siblings, not a reason to
+		// invent another Context or change the selector.
+		resolution, err = c.finalDefaultPair.ResolveSelectedContext(ctx, view.Snapshot.Context.ID, selected)
 	} else {
 		resolution, err = c.finalDefaultPair.ResolveSelected(ctx, intent, freshBody, selected)
 	}
@@ -294,7 +290,13 @@ func finalDefaultPairCanResumeEntry(ctx context.Context, pair finalDefaultPairEn
 	if err != nil {
 		return false, err
 	}
-	return recovery.Target == contextRef, nil
+	if recovery.Target != contextRef || recovery.ProjectRoot != resolution.Observation.ProjectRoot {
+		return false, nil
+	}
+	if resolution.Observation.Context.Workspace != nil && recovery.WorkspaceID != resolution.Observation.Context.Workspace.ID {
+		return false, nil
+	}
+	return true, nil
 }
 
 func emitWorkspaceCleanupAttention(out io.Writer, outcome tobari.WorkspaceSessionOutcome) {

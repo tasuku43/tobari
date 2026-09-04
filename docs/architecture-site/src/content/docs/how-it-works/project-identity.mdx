@@ -11,9 +11,9 @@ Workspace source endpoint and an owner-controlled registry populated by the
 trusted host.
 
 Caller-supplied Context, Workspace, or Template IDs are never authorization inputs. Changing
-a header therefore cannot claim another Workspace's learned rules, and the same
-host, method, and path from a different Workspace still needs authority scoped
-to its own principal. This mechanism builds on the dedicated networks in the
+a header therefore cannot claim another Context's learned rules. A sibling
+Workspace in the same Context uses the same Context-owned Policy Memory, while
+its distinct principal remains the source and routing identity. This mechanism builds on the dedicated networks in the
 [system overview](/how-it-works/system-overview/) and applies equally to the
 intercepted flows described in [HTTPS and two TLS connections](/how-it-works/https-and-tls/).
 
@@ -73,8 +73,9 @@ Authorization: Bearer example
 
 The connection still has Workspace B's kernel-observed source endpoint.
 Gateway selects B's Context/Workspace binding and strips or redacts
-control/credential values as required. A rule learned for A does not match B
-even if host, port, method, and path are identical.
+control/credential values as required. A rule learned for A matches B when both
+are siblings in the same Context and the exact effect matches; it never crosses
+to B when B belongs to another Context.
 
 If the request contains a copied Workspace identity from A, the result is
 stricter still: Gateway checks the derived B principal against the host-owned
@@ -104,8 +105,8 @@ The Gateway binding parser validates the exact per-binding shape and required va
 
 **Guaranteed under supported lifecycle/topology:** caller-supplied identity is
 not authority; Context and Workspace are established together before OPA;
-learned rules cannot cross Context/Workspace principals; stale network bindings
-fail closed.
+learned rules cannot cross Contexts, while sibling Workspace principals receive
+their Context's policy; stale network bindings fail closed.
 
 **Not guaranteed:** resistance after host, Docker, Gateway, or registry compromise; tenant isolation for overlapping selected roots; a general cryptographic remote-workload identity; identity derived from arbitrary manually created containers outside Tobari lifecycle.
 
@@ -128,7 +129,9 @@ cannot grant another principal's authority.
 
 ## Check your understanding
 
-You should now be able to explain why shared Gateway/OPA services do not mean shared learned permission.
+You should now be able to explain why shared Gateway/OPA services do not merge
+Context Policy Memory, while sibling Workspaces intentionally share their
+Context's learned permission.
 
 <details>
   <summary>

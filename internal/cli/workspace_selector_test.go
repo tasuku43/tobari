@@ -92,6 +92,55 @@ func TestWorkspaceSelectorFallsBackToEnglishLineInput(t *testing.T) {
 	}
 }
 
+func TestFinalWorkspaceSelectorAllowsCreateForCurrentContextAtRootOwnedByOtherContexts(t *testing.T) {
+	templates := newFinalTemplateBatchPort(t)
+	root := "/workspace/shared-root"
+	currentContext := tobari.ContextID("01912345-6789-7abc-8def-0123456789b0")
+	contextIDs := []tobari.ContextID{
+		"01912345-6789-7abc-8def-0123456789b1",
+		"01912345-6789-7abc-8def-0123456789b2",
+	}
+	selection := tobari.FinalDefaultPairSelection{
+		SchemaVersion: tobari.FinalDefaultPairSelectionSchemaVersion, CollectionPresent: true, CollectionGeneration: 1,
+		CollectionRevision: tobari.SemanticDigest("sha256:" + strings.Repeat("a", 64)), CurrentContextID: &currentContext,
+		CanonicalCWD: root, DefaultTemplate: func() *tobari.WorkspaceTemplate { value := templates.template.Clone(); return &value }(),
+		Candidates: []tobari.FinalDefaultPairCandidate{},
+	}
+	for index, contextID := range contextIDs {
+		memory, _, err := tobari.PublishPolicyMemory(contextID, []tobari.PolicyMemoryRule{}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		workspace := tobari.WorkspaceBinding{
+			SchemaVersion: tobari.WorkspaceBindingSchemaVersion,
+			ID:            tobari.WorkspaceID(fmt.Sprintf("01912345-6789-7abc-8def-%012x", 0xb1+index)),
+			ContextID:     contextID, ProjectRoot: root, Home: "/managed/context/" + string(contextID),
+			CreationDefaults: templates.template.Current.Slices.CreationDefaultsDigest,
+		}
+		snapshot := tobari.ContextAuthoritySnapshot{
+			Context:  tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: templates.template.ID},
+			Template: templates.template.Clone(), PolicyMemory: memory, ContextHome: workspace.Home,
+			ContextCreationDefaults: workspace.CreationDefaults, Workspaces: []tobari.WorkspaceBinding{workspace}, Workspace: &workspace,
+		}
+		selection.Candidates = append(selection.Candidates, tobari.FinalDefaultPairCandidate{Snapshot: snapshot})
+	}
+	selector := &workspaceSelector{mode: &selectorModeFake{enterErr: errors.New("raw mode unavailable")}, style: true}
+	var output bytes.Buffer
+	choice, err := selector.SelectFinalDefaultPair(context.Background(), selection, strings.NewReader("n\n"), &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if choice.Kind != tobari.FinalDefaultPairSelectionCreate {
+		t.Fatalf("same-root other-Context selection=%+v", choice)
+	}
+	for _, contextID := range contextIDs {
+		contextRef, _ := tobari.ContextRef(contextID)
+		if !strings.Contains(output.String(), contextRef) {
+			t.Fatalf("selector did not distinguish Context %s: %q", contextRef, output.String())
+		}
+	}
+}
+
 func TestWorkspaceSelectorCancelReturnsWithoutSummary(t *testing.T) {
 	t.Parallel()
 	mode := &selectorModeFake{}

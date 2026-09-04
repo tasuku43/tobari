@@ -241,38 +241,40 @@ func finalPolicyMemoryInputs(
 	for _, template := range collection.Templates {
 		templates[template.ID] = template.Name
 	}
-	workspaces := make(map[tobari.ContextID]tobari.WorkspaceBinding, len(collection.Workspaces))
+	workspaces := make(map[tobari.ContextID][]tobari.WorkspaceBinding, len(collection.Contexts))
 	for _, workspace := range collection.Workspaces {
-		workspaces[workspace.ContextID] = workspace
+		workspaces[workspace.ContextID] = append(workspaces[workspace.ContextID], workspace)
 	}
 	allows := make([]tobari.LearnedPolicyRule, 0)
 	denies := make([]tobari.PolicyDenyRule, 0)
 	for _, record := range collection.Contexts {
-		workspace, present := workspaces[record.Context.ID]
-		if !present {
+		owned := workspaces[record.Context.ID]
+		if len(owned) == 0 {
 			continue
 		}
 		name := templates[record.Context.TemplateID]
-		for _, rule := range record.PolicyMemory.Rules {
-			switch rule.Decision {
-			case tobari.PolicyMemoryAllow:
-				converted, err := tobari.NewLearnedPolicyRuleFromPolicyMemory(
-					record.Context.ID, name, workspace.ID, workspace.ProjectRoot, rule,
-				)
-				if err != nil {
-					return nil, tobari.PolicyDenyRuleSet{}, err
+		for _, workspace := range owned {
+			for _, rule := range record.PolicyMemory.Rules {
+				switch rule.Decision {
+				case tobari.PolicyMemoryAllow:
+					converted, err := tobari.NewLearnedPolicyRuleFromPolicyMemory(
+						record.Context.ID, name, workspace.ID, workspace.ProjectRoot, rule,
+					)
+					if err != nil {
+						return nil, tobari.PolicyDenyRuleSet{}, err
+					}
+					allows = append(allows, converted)
+				case tobari.PolicyMemoryDeny:
+					converted, err := tobari.NewPolicyDenyRuleFromPolicyMemory(
+						record.Context.ID, name, workspace.ID, workspace.ProjectRoot, rule,
+					)
+					if err != nil {
+						return nil, tobari.PolicyDenyRuleSet{}, err
+					}
+					denies = append(denies, converted)
+				default:
+					return nil, tobari.PolicyDenyRuleSet{}, fmt.Errorf("Policy Memory decision is invalid")
 				}
-				allows = append(allows, converted)
-			case tobari.PolicyMemoryDeny:
-				converted, err := tobari.NewPolicyDenyRuleFromPolicyMemory(
-					record.Context.ID, name, workspace.ID, workspace.ProjectRoot, rule,
-				)
-				if err != nil {
-					return nil, tobari.PolicyDenyRuleSet{}, err
-				}
-				denies = append(denies, converted)
-			default:
-				return nil, tobari.PolicyDenyRuleSet{}, fmt.Errorf("Policy Memory decision is invalid")
 			}
 		}
 	}

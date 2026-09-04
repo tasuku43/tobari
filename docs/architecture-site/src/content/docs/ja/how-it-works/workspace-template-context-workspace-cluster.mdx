@@ -25,9 +25,9 @@ Template revisionはdesired setupです。Contextはbound Templateのcurrent rev
   current selectorだけを変更します。
 - status、list、show、doctor、completionはreconcileしません。
 
-installation current ContextはContext-aware optionの省略時と、未使用ならWorkspaceが
-ないrootでの作成に使います。currentがすでにWorkspaceを所有する場合、明示的な
-create-hereはdefault Templateから別Contextを作り、currentは変更しません。既存
+installation current ContextはContext-aware optionの省略時と、Workspaceが
+ないrootでの作成に使います。currentが別rootのWorkspaceをすでに所有する場合、明示的な
+create-hereは同じContextのsibling Workspaceを作り、currentは変更しません。既存
 WorkspaceはCWDだけから選択し、その永久Context bindingを使います。exact optionは
 invocation-localなoverrideです。
 

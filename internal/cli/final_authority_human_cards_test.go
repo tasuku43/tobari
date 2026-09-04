@@ -55,13 +55,13 @@ func TestFinalAuthorityDetailCardsUseStructuredHumanVocabulary(t *testing.T) {
 				"Desired Template generation": "3",
 				"Active Template policy":      "absent",
 				"Active Policy Memory":        "absent",
-				"Applied entry":               "absent",
+				"Workspaces":                  "0",
 			},
 			reference: "ctx1_01912345-6789-7abc-8def-0123456789ad",
 			oldFlatStarts: []string{
 				"Context ", "Template ", "Project ", "Desired Template generation ",
 				"Desired Template revision ", "Desired Template policy ", "Active Template policy ",
-				"Current Policy Memory ", "Active Policy Memory ", "Applied entry ",
+				"Current Policy Memory ", "Active Policy Memory ", "Workspaces ",
 			},
 		},
 		{

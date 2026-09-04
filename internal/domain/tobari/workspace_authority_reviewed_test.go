@@ -90,17 +90,17 @@ func reviewedPublicationFixture(
 	t.Helper()
 	contexts := cloneWorkspaceAuthorityContextRecords(previous.Contexts)
 	pending := clonePolicyCandidateAuthorities(previous.PendingCandidates)
-	consumed := map[string]struct{}{}
+	consumedEffects := map[string]struct{}{}
 	decisionsByContext := map[ContextID][]PolicyMemoryReviewedDecision{}
 	for _, decision := range set.Decisions {
 		decisionsByContext[decision.ContextID()] = append(decisionsByContext[decision.ContextID()], decision)
 		for _, candidate := range decision.Candidates {
-			consumed[candidate.ID] = struct{}{}
+			consumedEffects[policyCandidateAuthorityEffectKey(candidate)] = struct{}{}
 		}
 	}
 	keptPending := pending[:0]
 	for _, candidate := range pending {
-		if _, remove := consumed[candidate.ID]; !remove {
+		if _, remove := consumedEffects[policyCandidateAuthorityEffectKey(candidate)]; !remove {
 			keptPending = append(keptPending, candidate)
 		}
 	}
@@ -247,6 +247,32 @@ func TestPolicyMemoryReviewedDecisionSetRejectsEmptyAndPreservesReviewItemID(t *
 	}
 }
 
+func TestReviewedApplyConsumesAllLegacyAndCurrentCandidateAliases(t *testing.T) {
+	base := workspaceAuthorityCollectionFixture(t)
+	current := base.PendingCandidates[0].Clone()
+	legacy := current.Clone()
+	legacy.ID = legacyPolicyCandidateAuthorityID(legacy.ContextID, legacy.ObservingWorkspaceID, legacy.PayloadDigest)
+	previous, changed, err := PublishWorkspaceAuthorityCollection(
+		base.Templates, base.Contexts, base.Workspaces,
+		[]PolicyCandidateAuthority{legacy, current}, base.DefaultTemplateID, &base,
+	)
+	if err != nil || !changed {
+		t.Fatalf("publish legacy/current aliases: changed=%t err=%v", changed, err)
+	}
+	snapshot, err := NewPolicyMemoryReviewSnapshot(previous, true)
+	if err != nil || len(snapshot.Items) != 1 {
+		t.Fatalf("review aliases: items=%#v err=%v", snapshot.Items, err)
+	}
+	set, err := snapshot.ReviewedSet(map[string]PolicyMemoryDecision{snapshot.Items[0].ID: PolicyMemoryAllow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	publication := reviewedPublicationFixture(t, previous, set)
+	if len(publication.Next.PendingCandidates) != 0 {
+		t.Fatalf("reviewed apply retained a semantic candidate alias: %#v", publication.Next.PendingCandidates)
+	}
+}
+
 func TestPolicyMemoryReviewedLiveSourcesRequireExactSelectedEvidence(t *testing.T) {
 	base := workspaceAuthorityCollectionFixture(t)
 	candidate := base.PendingCandidates[0].Clone()
@@ -326,6 +352,55 @@ func TestPolicyMemoryReviewedTemplateCompactsExactRuleAndPendingCandidate(t *tes
 	}
 }
 
+func TestNormalizeLegacyReviewedPathTemplateDecisionAndTerminalPublication(t *testing.T) {
+	previous, currentDecision := reviewedTemplateAuthorityFixture(t)
+	currentSet, err := NewPolicyMemoryReviewedDecisionSet(previous, []PolicyMemoryReviewedDecision{currentDecision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	full := reviewedPublicationFixture(t, previous, currentSet)
+	legacySet := currentSet.Clone()
+	legacy := legacySet.Decisions[0].Clone()
+	legacy.ReviewItemID, err = legacyPolicyMemoryReviewedPathTemplateItemID(legacy.ContextID(), legacy.Candidates[0].ObservingWorkspaceID, legacy.Rule)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy.ProposalDigest, err = policyMemoryReviewedProposalDigest(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy.Digest, err = policyMemoryReviewedDecisionDigest(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacySet.Decisions[0] = legacy
+	legacySet.Digest, err = policyMemoryReviewedDecisionSetDigest(legacySet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compact, err := full.CompactTerminal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	compact.DecisionSet = legacySet
+	compact.Settlement.DecisionSetDigest = legacySet.Digest
+	compact.AppliedDecisions[0].ReviewItemID = legacy.ReviewItemID
+	compact.AppliedDecisions[0].ObservingWorkspaceID = legacy.Candidates[0].ObservingWorkspaceID
+	compact.AppliedDecisions[0].ObservingWorkspaceRef, err = WorkspaceRef(legacy.Candidates[0].ObservingWorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalized, changed, err := NormalizePolicyMemoryReviewedSetPublicationAliases(compact)
+	if err != nil || !changed || normalized.Validate() != nil || !reflect.DeepEqual(normalized.DecisionSet, currentSet) ||
+		normalized.AppliedDecisions[0].ReviewItemID != currentDecision.ReviewItemID || normalized.Settlement.DecisionSetDigest != currentSet.Digest {
+		t.Fatalf("normalized=%#v changed=%t err=%v validate=%v", normalized, changed, err, normalized.Validate())
+	}
+	compact.DecisionSet.Decisions[0].Digest = authorityDigest("9")
+	if _, _, err := NormalizePolicyMemoryReviewedSetPublicationAliases(compact); err == nil {
+		t.Fatal("inconsistent legacy decision digest was normalized")
+	}
+}
+
 func TestPolicyMemoryReviewedTemplateKeepsStableSelectedItemAcrossCompatibleEvidence(t *testing.T) {
 	previous, selected := reviewedTemplateAuthorityFixture(t)
 	additional := reviewedCandidateFixture(t, previous, "/teams/c")
@@ -367,9 +442,10 @@ func TestPolicyMemoryReviewedTemplateRejectsSelectedItemScopeOrTemplateDrift(t *
 		context   ContextID
 		workspace WorkspaceID
 		prefix    string
+		wantValid bool
 	}{
 		{name: "Context scope", context: ContextID("01912345-6789-7abc-8def-0123456789a4"), workspace: selected.Candidates[0].ObservingWorkspaceID, prefix: "/teams/"},
-		{name: "Workspace scope", context: selected.ContextID(), workspace: otherWorkspace, prefix: "/teams/"},
+		{name: "Workspace provenance", context: selected.ContextID(), workspace: otherWorkspace, prefix: "/teams/", wantValid: true},
 		{name: "template path", context: selected.ContextID(), workspace: selected.Candidates[0].ObservingWorkspaceID, prefix: "/groups/"},
 	}
 	for _, test := range tests {
@@ -393,9 +469,13 @@ func TestPolicyMemoryReviewedTemplateRejectsSelectedItemScopeOrTemplateDrift(t *
 				Segments: []string{strings.Trim(test.prefix, "/"), PolicyPathTemplatePlaceholder},
 				Examples: []string{test.prefix + "a", test.prefix + "b"}, SourceCandidates: sources,
 			}
-			if _, err := NewPolicyMemoryReviewedDecision(
+			_, err := NewPolicyMemoryReviewedDecision(
 				selected.ReviewItemID, candidates, nil, PolicyMemoryAllow, rule,
-			); err == nil {
+			)
+			if test.wantValid && err != nil {
+				t.Fatalf("Workspace provenance incorrectly changed compatibility: %v", err)
+			}
+			if !test.wantValid && err == nil {
 				t.Fatal("selected path-template item survived scope/template drift")
 			}
 		})

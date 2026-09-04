@@ -10,8 +10,8 @@ repository research capability. Managed profiles remain retired.
 The release surface has no provider binding, normalized provider
 projection, credential handle, vault, root key, companion, Auth Broker service,
 or `auth` command. Claude Code, Codex, and other tools run their own supported
-login inside the persistent Context Home mounted into that Workspace. Host credentials and host CLI homes
-are never inherited or copied.
+login inside the persistent Context Home mounted into every Workspace owned by
+that Context. Host credentials and host CLI homes are never inherited or copied.
 
 A typed Workspace Template bootstrap snapshot is not authentication state. The AWS
 adapter may project only reviewed non-secret IAM Identity Center configuration
@@ -22,12 +22,13 @@ credential helper, or arbitrary exec selection. It never reads or projects the
 host credentials file or SSO cache, and AWS CLI still creates and persists its
 own login state inside that Context Home.
 
-A native credential is readable by every process in that Workspace. Gateway
+A native credential is readable by every process in every Workspace owned by
+that Context. Gateway
 removes authentication and control headers from OPA input and audit evidence,
 asks OPA about the ordinary exact HTTP effect, and forwards the original
 credential only after allow. Tobari does not identify the process that created
-the credential and does not claim per-tool secret isolation inside one
-Workspace.
+the credential and does not claim per-tool or sibling-Workspace secret
+isolation inside one Context.
 
 The pre-public final-authority cutover does not migrate predecessor homes or
 credentials. Standard native authentication begins only in a final Workspace
@@ -210,8 +211,9 @@ post-policy passthrough proof.
 
 `template show` reports `authentication.mode` as `native_workspace`. The agent
 CLI itself owns credential status, refresh, logout, account metadata, and error
-presentation. Deleting the Workspace removes its native credential state;
-switching or recreating a Workspace requires native login there.
+presentation. Deleting one Workspace preserves its Context Home and native
+credential state for every sibling; only exact Context deletion retires the Home
+after all owned Workspaces and attachments are absent.
 
 ## Pre-release predecessor guard
 

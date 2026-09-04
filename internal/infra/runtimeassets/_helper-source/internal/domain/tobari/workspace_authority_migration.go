@@ -540,7 +540,7 @@ func BuildWorkspaceAuthorityMigrationPlan(input WorkspaceAuthorityMigrationInput
 		context := contextByWorkspace[oldCandidate.WorkspaceID]
 		workspaceID := WorkspaceID(oldCandidate.WorkspaceID)
 		candidate := MigratedPendingCandidate{
-			ID: policyCandidateAuthorityID(context.ID, workspaceID, oldCandidate.PayloadDigest), PredecessorID: oldCandidate.ID,
+			ID: policyCandidateAuthorityID(context.ID, oldCandidate.PayloadDigest), PredecessorID: oldCandidate.ID,
 			ContextID: context.ID, ObservingWorkspaceID: workspaceID, PayloadDigest: oldCandidate.PayloadDigest, Effect: oldCandidate.Effect.Clone(),
 		}
 		if err := candidate.Validate(); err != nil {

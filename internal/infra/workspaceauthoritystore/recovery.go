@@ -50,6 +50,10 @@ func (s *Store) ObserveMutationRecovery(ctx context.Context) (tobari.FinalAuthor
 		result.ActiveDecision = true
 		result.Operation = decision.Operation
 		result.Target = decision.Target
+		if decision.Operation == "context-entry" && decision.EntryPlan != nil {
+			result.ProjectRoot = decision.EntryPlan.Workspace.ProjectRoot
+			result.WorkspaceID = decision.EntryPlan.Workspace.ID
+		}
 	}
 
 	if err := ctx.Err(); err != nil {

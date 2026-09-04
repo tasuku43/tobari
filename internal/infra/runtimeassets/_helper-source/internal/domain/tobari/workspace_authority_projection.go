@@ -6,7 +6,7 @@ import (
 	"sort"
 )
 
-const WorkspacePolicyProjectionSchemaVersion = 1
+const WorkspacePolicyProjectionSchemaVersion = 2
 
 type WorkspacePolicyProjectionMode string
 
@@ -128,14 +128,14 @@ func (a WorkspacePolicyPrincipalAuthority) Validate() error {
 }
 
 type WorkspacePolicyProjectionContext struct {
-	ContextID       ContextID                          `json:"context_id"`
-	TemplateID      WorkspaceTemplateID                `json:"workspace_template_id"`
-	Presentation    string                             `json:"presentation"`
-	TemplatePolicy  WorkspaceTemplatePolicyAuthority   `json:"template_policy"`
-	PolicyMemory    PolicyMemoryRevision               `json:"policy_memory"`
-	TemplateReceipt TemplatePolicyActivationReceipt    `json:"template_policy_receipt"`
-	MemoryReceipt   PolicyMemoryActivationReceipt      `json:"policy_memory_receipt"`
-	Principal       *WorkspacePolicyPrincipalAuthority `json:"principal,omitempty"`
+	ContextID       ContextID                           `json:"context_id"`
+	TemplateID      WorkspaceTemplateID                 `json:"workspace_template_id"`
+	Presentation    string                              `json:"presentation"`
+	TemplatePolicy  WorkspaceTemplatePolicyAuthority    `json:"template_policy"`
+	PolicyMemory    PolicyMemoryRevision                `json:"policy_memory"`
+	TemplateReceipt TemplatePolicyActivationReceipt     `json:"template_policy_receipt"`
+	MemoryReceipt   PolicyMemoryActivationReceipt       `json:"policy_memory_receipt"`
+	Principals      []WorkspacePolicyPrincipalAuthority `json:"principals"`
 }
 
 func (c WorkspacePolicyProjectionContext) Validate() error {
@@ -167,13 +167,22 @@ func (c WorkspacePolicyProjectionContext) Validate() error {
 	if err := c.MemoryReceipt.ValidateFor(binding, c.PolicyMemory); err != nil {
 		return err
 	}
-	if c.Principal != nil {
-		if err := c.Principal.Validate(); err != nil {
+	if c.Principals == nil {
+		return fmt.Errorf("Context Workspace principal set is unknown")
+	}
+	previousWorkspace := WorkspaceID("")
+	for index := range c.Principals {
+		principal := c.Principals[index]
+		if previousWorkspace != "" && principal.WorkspaceID <= previousWorkspace {
+			return fmt.Errorf("Context Workspace principals must be unique and sorted")
+		}
+		if err := principal.Validate(); err != nil {
 			return err
 		}
-		if c.Principal.ContextID != c.ContextID || c.Principal.TemplateID != c.TemplateID || c.Principal.Presentation != c.Presentation {
+		if principal.ContextID != c.ContextID || principal.TemplateID != c.TemplateID || principal.Presentation != c.Presentation {
 			return fmt.Errorf("Workspace principal crosses Context authority")
 		}
+		previousWorkspace = principal.WorkspaceID
 	}
 	return nil
 }
@@ -182,10 +191,10 @@ func (c WorkspacePolicyProjectionContext) Clone() WorkspacePolicyProjectionConte
 	result := c
 	result.TemplatePolicy = c.TemplatePolicy.Clone()
 	result.PolicyMemory = c.PolicyMemory.Clone()
-	if c.Principal != nil {
-		principal := *c.Principal
-		principal.CreationDefaults = c.Principal.CreationDefaults.Clone()
-		result.Principal = &principal
+	result.Principals = make([]WorkspacePolicyPrincipalAuthority, len(c.Principals))
+	for index := range c.Principals {
+		result.Principals[index] = c.Principals[index]
+		result.Principals[index].CreationDefaults = c.Principals[index].CreationDefaults.Clone()
 	}
 	return result
 }
@@ -251,11 +260,11 @@ func (p WorkspacePolicyProjection) Validate() error {
 		if previous != "" && context.ContextID <= previous {
 			return fmt.Errorf("Workspace policy projection Contexts must be unique and sorted")
 		}
-		if context.Principal != nil {
-			if _, exists := workspaces[context.Principal.WorkspaceID]; exists {
+		for _, principal := range context.Principals {
+			if _, exists := workspaces[principal.WorkspaceID]; exists {
 				return fmt.Errorf("Workspace policy projection principal is duplicated")
 			}
-			workspaces[context.Principal.WorkspaceID] = struct{}{}
+			workspaces[principal.WorkspaceID] = struct{}{}
 		}
 		if _, selected := targetsFound[context.ContextID]; selected {
 			targetsFound[context.ContextID] = true
@@ -359,7 +368,7 @@ func BuildWorkspaceRetirementPolicyProjection(active WorkspacePolicyProjection, 
 		return WorkspacePolicyProjection{}, fmt.Errorf("Workspace retirement projection crosses Context authority")
 	}
 	for _, retained := range next.Workspaces {
-		if retained.ID == workspace.ID || retained.ContextID == workspace.ContextID {
+		if retained.ID == workspace.ID {
 			return WorkspacePolicyProjection{}, fmt.Errorf("Workspace retirement projection retains its target")
 		}
 	}
@@ -379,15 +388,24 @@ func BuildWorkspaceRetirementPolicyProjection(active WorkspacePolicyProjection, 
 		contexts[index] = item.Clone()
 		if item.ContextID == workspace.ContextID {
 			targetFound = true
-			if item.Principal != nil {
-				if !workspacePrincipalMatchesBinding(*item.Principal, workspace) {
+			retained := make([]WorkspacePolicyPrincipalAuthority, 0, len(item.Principals))
+			for _, principal := range item.Principals {
+				if principal.WorkspaceID != workspace.ID {
+					retained = append(retained, principal)
+					continue
+				}
+				if !workspacePrincipalMatchesBinding(principal, workspace) {
 					return WorkspacePolicyProjection{}, fmt.Errorf("Workspace retirement projection principal differs from its target")
 				}
-				contexts[index].Principal = nil
 				principalFound = true
 			}
-		} else if item.Principal != nil && item.Principal.WorkspaceID == workspace.ID {
-			return WorkspacePolicyProjection{}, fmt.Errorf("Workspace retirement projection rebinds its target principal")
+			contexts[index].Principals = retained
+		} else {
+			for _, principal := range item.Principals {
+				if principal.WorkspaceID == workspace.ID {
+					return WorkspacePolicyProjection{}, fmt.Errorf("Workspace retirement projection rebinds its target principal")
+				}
+			}
 		}
 	}
 	if !targetFound {
@@ -458,9 +476,9 @@ func buildWorkspacePolicyProjection(collection WorkspaceAuthorityCollection, mod
 	for _, template := range collection.Templates {
 		templates[template.ID] = template
 	}
-	workspaces := make(map[ContextID]WorkspaceBinding, len(collection.Workspaces))
+	workspaces := make(map[ContextID][]WorkspaceBinding, len(collection.Contexts))
 	for _, workspace := range collection.Workspaces {
-		workspaces[workspace.ContextID] = workspace
+		workspaces[workspace.ContextID] = append(workspaces[workspace.ContextID], workspace)
 	}
 	contexts := make([]WorkspacePolicyProjectionContext, 0, len(collection.Contexts))
 	targetSet := make(map[ContextID]struct{}, len(reviewedTargets))
@@ -532,8 +550,12 @@ func buildWorkspacePolicyProjection(collection WorkspaceAuthorityCollection, mod
 			TemplatePolicy: policy, PolicyMemory: memory,
 			TemplateReceipt: TemplatePolicyActivationReceipt{ContextID: record.Context.ID, TemplateID: template.ID, PolicySliceDigest: policy.PolicySliceDigest},
 			MemoryReceipt:   PolicyMemoryActivationReceipt{ContextID: record.Context.ID, Revision: memory.Revision},
+			Principals:      []WorkspacePolicyPrincipalAuthority{},
 		}
-		if workspace, exists := workspaces[record.Context.ID]; exists && workspace.LastSuccessfulEntry != nil {
+		for _, workspace := range workspaces[record.Context.ID] {
+			if workspace.LastSuccessfulEntry == nil {
+				continue
+			}
 			var creation WorkspaceTemplateCreationDefaults
 			creationFound := false
 			for _, retained := range template.Retained {
@@ -551,12 +573,13 @@ func buildWorkspacePolicyProjection(collection WorkspaceAuthorityCollection, mod
 			if !creationFound {
 				return WorkspacePolicyProjection{}, fmt.Errorf("Workspace creation defaults authority is unavailable")
 			}
-			item.Principal = &WorkspacePolicyPrincipalAuthority{
+			item.Principals = append(item.Principals, WorkspacePolicyPrincipalAuthority{
 				ContextID: record.Context.ID, WorkspaceID: workspace.ID, TemplateID: template.ID,
 				Presentation: template.Name, ProjectRoot: workspace.ProjectRoot, AppliedEntry: *workspace.LastSuccessfulEntry,
 				CreationDefaultsDigest: workspace.CreationDefaults, CreationDefaults: creation,
-			}
+			})
 		}
+		sort.Slice(item.Principals, func(i, j int) bool { return item.Principals[i].WorkspaceID < item.Principals[j].WorkspaceID })
 		contexts = append(contexts, item)
 	}
 	if !targetFound {

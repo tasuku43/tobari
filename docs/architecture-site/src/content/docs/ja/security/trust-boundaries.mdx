@@ -39,7 +39,7 @@ Workspace は `X-Project-ID: something-else` のようなヘッダーを送れ�
 
 ## 境界 3：ポリシーを変更する権限
 
-OPA は、Workspace Template、プロジェクト、スキーム、宛先、ポート、メソッド、パスなど、本文を除いた正規化済みの情報で HTTP 通信を判断します。Gateway が接続を所有し、その結果を通信経路へ強制します。
+OPA は、Context、スキーム、宛先、ポート、メソッド、パスなど、本文を除いた正規化済みの情報で HTTP 通信を判断します。Workspace、root、CWD、directory は routing と provenance にだけ使われます。Gateway が接続を所有し、その結果を通信経路へ強制します。
 
 Workspace へ返す拒否レスポンスは、ホスト側で実行するレビューコマンドを示すだけです。権限変更に使う不透明な参照値や、ポリシーを書き換える機能は Workspace へ渡しません。
 

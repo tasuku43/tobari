@@ -184,8 +184,8 @@ func assertBatchDOutputFields(t *testing.T, path string, fields []OutputField) {
 
 func TestBatchDChangedPublicSchemasAreExact(t *testing.T) {
 	want := map[string]int{
-		"template list": 1, "template show": 1, "template create": 1, "template copy": 1, "template plan": 1, "template apply": 1, "template migration plan": 1, "template migration apply": 1, "template default set": 1, "template delete": 1,
-		"context list": 1, "context show": 1, "context apply": 1, "context create": 1, "context use": 1, "context delete": 1,
+		"template list": 1, "template show": 1, "template create": 1, "template copy": 1, "template plan": 2, "template apply": 1, "template migration plan": 1, "template migration apply": 1, "template default set": 1, "template delete": 1,
+		"context list": 2, "context show": 2, "context apply": 2, "context create": 1, "context use": 1, "context delete": 1,
 		"workspace list": 1, "workspace status": 1, "workspace delete": 1,
 		"status": 3, "cluster status": 3, "cluster denials": 5,
 		"policy candidates": 3, "review permissions": 3, "policy rules": 3, "policy apply-reviewed": 3,

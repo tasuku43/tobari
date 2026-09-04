@@ -5,7 +5,7 @@ description: The major Tobari security claims, each paired with preconditions, e
 
 Tobari narrows a supported Workspace to one selected project, one host-issued
 principal, Gateway-mediated HTTP/HTTPS, explicit policy, and login state owned
-by the agent CLI in that Workspace home; host credentials are never inherited,
+by the agent CLI in the Context Home shared by sibling Workspaces; host credentials are never inherited,
 and the release surface has no Tobari credential service. It does not police files inside the selected root, payloads sent to an
 allowed destination, processes inside the same Workspace, other protocols,
 overlapping roots, or a compromised trusted base.
@@ -56,10 +56,10 @@ authority.
 
 **Failure behavior.** Deny returns `policy_denied`; timeout, connection failure, non-200, oversize, malformed, or incomplete decision returns `policy_unavailable`. Neither opens upstream.
 
-**Limitation.** Current exact learned rules distinguish Context, observed
-Workspace, host, port, method, and raw path. They do not distinguish body,
-query, safe headers, reason, or provider. Different bodies can use the same
-exact effect rule.
+**Limitation.** Current exact learned rules distinguish Context, scheme, host,
+port, method, and raw path. Workspace ID and Project root remain observation
+provenance and routing only. Rules do not distinguish body, query, safe headers,
+reason, or provider. Different bodies can use the same exact effect rule.
 
 ## Claim 4: unsafe policy changes do not partially activate
 
@@ -76,7 +76,7 @@ exact effect rule.
 ## Explicitly outside the guarantee
 
 - Integrity or confidentiality of files inside the selected project root.
-- Isolation among processes in one Workspace.
+- Isolation among processes or sibling Workspaces sharing one Context Home.
 - Isolation of overlapping mounted project roots.
 - Prevention of data transfer through an allowed request.
 - Non-HTTP/HTTPS network mediation.

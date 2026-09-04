@@ -3,7 +3,7 @@ title: 保証と制限
 description: Tobari の主要なセキュリティ保証について、成立する前提、制御の仕組み、障害時の動作、対象外を対応付けます。
 ---
 
-Tobari は、Workspace の権限を一つのプロジェクト、ホスト発行の principal、Gateway を経由する HTTP/HTTPS、明示されたポリシーに限定します。agent CLI のログイン情報は Workspace home にあり、host credential は継承しません。Tobari はログインを共有サービスとして管理しません。作業対象のファイル、許可済みの接続先へ送るデータ、同じ Workspace のプロセス、HTTP/HTTPS 以外の通信、重複するプロジェクトルート、侵害された信頼基盤は制御しません。
+Tobari は、Workspace の権限を一つの Context、ホスト発行の principal、Gateway を経由する HTTP/HTTPS、明示されたポリシーに限定します。agent CLI のログイン情報は同じ Context の sibling Workspace が共有する Context Home にあり、host credential は継承しません。作業対象のファイル、許可済みの接続先へ送るデータ、同じ Context Home を共有するプロセスや sibling Workspace、HTTP/HTTPS 以外の通信、重複するプロジェクトルート、侵害された信頼基盤は制御しません。
 
 以下の各保証では、成立する前提、強制する場所、障害時の動作、最も近い制限を対応付けます。信頼するコンポーネントと、これらの保証が共有する境界は、先に[セキュリティ概要](../overview/)を確認してください。
 
@@ -41,15 +41,15 @@ Tobari は、Workspace の権限を一つのプロジェクト、ホスト発行
 
 **障害時。** deny は `policy_denied`、timeout、接続失敗、non-200、oversize、不正または不完全な decision は `policy_unavailable` です。どちらも upstream connection を作りません。
 
-**対象外。** 現在の exact learned rule は Workspace Template、Workspace、host、port、method、raw path を区別します。body、query、safe header、reason、provider は区別しないため、異なる body が同じ exact effect rule を利用できます。
+**対象外。** 現在の exact learned rule は Context、host、port、method、raw path を区別します。Workspace、root、CWD、directory は routing と provenance だけで、rule identity や compatibility を分けません。body、query、safe header、reason、provider も区別しないため、異なる body が同じ exact effect rule を利用できます。
 
-**ログイン情報の境界。** agent CLI が Workspace home に保管するログイン情報の値は、OPA の判断入力と監査記録に入りません。
+**ログイン情報の境界。** agent CLI が Context Home に保管するログイン情報の値は、OPA の判断入力と監査記録に入りません。
 
 **仕組み。** Gateway は認識可能な認証ヘッダーと cookie の値を除外し、通常の HTTP effect が許可された後だけ元の値を転送します。Tobari は host credential を継承せず、provider 固有の形式を解釈しません。
 
 **障害時。** OPA deny、Gateway 障害、ポリシー不在では値を転送せず、接続先への接続も作りません。
 
-**対象外。** 同じ Workspace 内のプロセスは、その Workspace home にある agent CLI の状態を読めます。agent CLI の logout は外部サービス側の失効を保証しません。
+**対象外。** 同じ Context Home を共有するプロセスと sibling Workspace は、その agent CLI state を読めます。agent CLI の logout は外部サービス側の失効を保証しません。
 
 ## 保証 4：検証できないポリシー変更は部分的に有効化されない
 

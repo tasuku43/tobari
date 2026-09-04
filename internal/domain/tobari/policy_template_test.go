@@ -147,12 +147,13 @@ func TestPolicyReviewItemsKeepsScopesMethodsAndGraphQLSeparate(t *testing.T) {
 	}
 }
 
-func TestPolicyReviewItemsRejectsInconsistentDisplayFactsForOneStableScope(t *testing.T) {
+func TestPolicyReviewItemsTreatsWorkspaceDisplayFactsAsProvenance(t *testing.T) {
 	t.Parallel()
 	first := templateCandidateFixture(t, "/items/123", "2026-08-15T01:00:00Z")
 	second := templateCandidateFixture(t, "/items/456", "2026-08-15T01:01:00Z")
 	second.WorkspaceManifestName = "renamed"
-	if _, err := PolicyReviewItems([]PolicyCandidate{first, second}, []LearnedPolicyRule{}); err == nil {
-		t.Fatal("inconsistent display facts for one stable authority produced a template")
+	items, err := PolicyReviewItems([]PolicyCandidate{first, second}, []LearnedPolicyRule{})
+	if err != nil || len(items) != 1 || items[0].Match != PolicyMatchPathTemplate {
+		t.Fatalf("Workspace provenance split compatible Context policy: items=%+v err=%v", items, err)
 	}
 }

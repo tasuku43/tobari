@@ -33,13 +33,13 @@ func TestFinalTemplatePlanJSONOmitsPrivatePlanningFields(t *testing.T) {
 		t.Fatalf("Template plan exposed its private validation version: %s", stdout)
 	}
 	projection := finalTemplateChangePlanFrom(tobari.WorkspaceTemplateChangePlan{Contexts: []tobari.WorkspaceTemplateChangeContext{{
-		ContextRef: "ctx1_01912345-6789-7abc-8def-0123456789a2", WorkspaceRunning: true,
+		ContextRef: "ctx1_01912345-6789-7abc-8def-0123456789a2", Workspaces: []tobari.WorkspaceTemplateChangeWorkspace{{WorkspaceRef: "wrk_01912345-6789-7abc-8def-0123456789a3", Running: true}},
 	}}})
 	encoded, err := json.Marshal(projection)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Contains(encoded, []byte("schema_version")) || bytes.Contains(encoded, []byte("workspace_running")) {
+	if bytes.Contains(encoded, []byte("schema_version")) {
 		t.Fatalf("Template plan exposed private planning fields: %s", encoded)
 	}
 }

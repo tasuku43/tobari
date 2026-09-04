@@ -616,6 +616,7 @@ type WorkspaceSelectionCandidate struct {
 	Root                  string
 	WorkspaceManifestID   string
 	WorkspaceManifestName string
+	ContextRef            string
 	Runtime               RuntimeDiagnostic
 }
 
@@ -635,6 +636,11 @@ func (c WorkspaceSelectionCandidate) Validate(cwd string) error {
 	if err := ValidateName(c.WorkspaceManifestName); err != nil {
 		return err
 	}
+	if c.ContextRef != "" {
+		if _, err := ParseContextRef(c.ContextRef); err != nil {
+			return fmt.Errorf("selection candidate Context reference is invalid")
+		}
+	}
 	if !containsRoot(c.Root, cwd) {
 		return fmt.Errorf("selection candidate root does not contain the current directory")
 	}
@@ -648,6 +654,10 @@ type WorkspaceSelection struct {
 	CWD        string                        `json:"-"`
 	Candidates []WorkspaceSelectionCandidate `json:"-"`
 	CanCreate  bool                          `json:"-"`
+	// ForceChoice keeps the final Context-aware adapter interactive when an
+	// exact root belongs only to another Context. Generic project selection
+	// leaves it false and retains exact-root automatic reuse.
+	ForceChoice bool `json:"-"`
 }
 
 func (s WorkspaceSelection) Validate() error {
@@ -658,8 +668,9 @@ func (s WorkspaceSelection) Validate() error {
 		return fmt.Errorf("project selection candidates must be an explicit collection")
 	}
 	seenIDs := make(map[string]bool, len(s.Candidates))
-	seenRoots := make(map[string]bool, len(s.Candidates))
+	seenRoots := make(map[string]string, len(s.Candidates))
 	hasCurrentRoot := false
+	blockingCurrentRoot := false
 	for index, candidate := range s.Candidates {
 		if err := candidate.Validate(s.CWD); err != nil {
 			return fmt.Errorf("selection candidate %d is invalid: %w", index, err)
@@ -667,13 +678,14 @@ func (s WorkspaceSelection) Validate() error {
 		if seenIDs[candidate.ID] {
 			return fmt.Errorf("selection candidate IDs must be unique")
 		}
-		if seenRoots[candidate.Root] {
-			return fmt.Errorf("selection candidate roots must be unique")
+		if priorContext, exists := seenRoots[candidate.Root]; exists && (candidate.ContextRef == "" || priorContext == "" || priorContext == candidate.ContextRef) {
+			return fmt.Errorf("selection candidate roots require distinct Context references")
 		}
 		seenIDs[candidate.ID] = true
-		seenRoots[candidate.Root] = true
+		seenRoots[candidate.Root] = candidate.ContextRef
 		if candidate.Root == s.CWD {
 			hasCurrentRoot = true
+			blockingCurrentRoot = blockingCurrentRoot || candidate.ContextRef == ""
 		}
 		if index > 0 {
 			previous := s.Candidates[index-1]
@@ -683,7 +695,7 @@ func (s WorkspaceSelection) Validate() error {
 			}
 		}
 	}
-	if s.CanCreate == hasCurrentRoot {
+	if !s.CanCreate && !hasCurrentRoot || s.CanCreate && blockingCurrentRoot || s.ForceChoice && len(s.Candidates) == 0 {
 		return fmt.Errorf("selection create option does not match current-root presence")
 	}
 	return nil
@@ -692,7 +704,7 @@ func (s WorkspaceSelection) Validate() error {
 // RequiresChoice is true only when one or more ancestor candidates exist and
 // no exact current-root Workspace can be entered directly.
 func (s WorkspaceSelection) RequiresChoice() bool {
-	return len(s.Candidates) > 0 && s.Candidates[0].Root != s.CWD
+	return s.ForceChoice || len(s.Candidates) > 0 && s.Candidates[0].Root != s.CWD
 }
 
 func (s WorkspaceSelection) Candidate(id string) (WorkspaceSelectionCandidate, bool) {

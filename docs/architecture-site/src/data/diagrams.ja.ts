@@ -30,8 +30,8 @@ const titles: Record<string, [string, string]> = {
     "拒否を上限付き evidence として保持し、ホストの明示的レビューで完全なポリシーを有効化し、再試行は意図的に行います。",
   ],
   "credential-boundary": [
-    "Workspace 所有の認証境界",
-    "agent CLI が一つの Workspace home 内のログイン状態を所有し、Tobari はホストの認証情報を継承せず、release credential service も公開しません。",
+    "Context Home 所有の認証境界",
+    "agent CLI が sibling Workspace 間で共有する一つの Context Home 内のログイン状態を所有し、Tobari はホストの認証情報を継承せず、release credential service も公開しません。",
   ],
   "trust-boundaries": [
     "信頼境界",
@@ -66,6 +66,7 @@ const labels: Record<string, string> = {
   "Context binding": "Context の結び付き",
   "Workspace state": "Workspace 状態",
   "Workspace home": "Workspace home",
+  "Context Home": "Context Home",
   "Work container": "作業コンテナ",
   "Attached session": "接続中セッション",
   "Request headers": "リクエストヘッダー",

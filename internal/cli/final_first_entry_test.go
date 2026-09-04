@@ -120,13 +120,13 @@ func TestFinalRootIgnoresRetiredAggregateConfiguratorDrafts(t *testing.T) {
 	}
 }
 
-func TestFinalRootExplicitCreateDoesNotReuseAttachedCurrentContext(t *testing.T) {
+func TestFinalRootExplicitCreateReusesCurrentContextWithExistingSibling(t *testing.T) {
 	command, pair, _, _, _, _, stderr, _ := newFirstEntryCLI(t, false, true, recommendedFirstUseStart)
 	if code := command.RunContext(context.Background(), nil); code != ExitOK {
 		t.Fatalf("create-here exit=%d stderr=%q", code, stderr.String())
 	}
-	if pair.contextResolveCalls != 0 || pair.resolveCalls != 1 {
-		t.Fatalf("attached current Context was reused: context resolves=%d ordinary resolves=%d", pair.contextResolveCalls, pair.resolveCalls)
+	if pair.contextResolveCalls != 1 || pair.resolveCalls != 1 {
+		t.Fatalf("current Context was not reused for sibling creation: context resolves=%d ordinary resolves=%d", pair.contextResolveCalls, pair.resolveCalls)
 	}
 }
 
@@ -161,6 +161,7 @@ func TestFinalRootCurrentWorkspaceEntersDirectlyWithoutSetupProgressOrClusterMut
 		RuntimeRevision: snapshot.Template.Current.Slices.RuntimeRevision, ResolvedSpec: tobari.SemanticDigest("sha256:" + strings.Repeat("8", 64)), ReconciledAt: time.Unix(2, 0).UTC(),
 	}
 	snapshot.Workspace.LastSuccessfulEntry = &applied
+	snapshot.Workspaces = []tobari.WorkspaceBinding{*snapshot.Workspace}
 	if err := snapshot.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -683,12 +684,29 @@ func TestFinalRootResumesExactPendingContextEntryBeforeClusterMutation(t *testin
 		t.Fatal(err)
 	}
 	pair.resolution.Observation.Context = &tobari.ContextAuthoritySnapshot{Context: tobari.ContextBinding{ID: contextID}}
-	pair.recovery = tobari.FinalAuthorityMutationObservation{ActiveDecision: true, Operation: "context-entry", Target: contextRef}
+	pair.recovery = tobari.FinalAuthorityMutationObservation{ActiveDecision: true, Operation: "context-entry", Target: contextRef, ProjectRoot: pair.resolution.Observation.ProjectRoot, WorkspaceID: tobari.WorkspaceID("01912345-6789-7abc-8def-0123456789ae")}
 	if code := command.RunContext(context.Background(), nil); code != ExitOK {
 		t.Fatalf("resume exit=%d stderr=%q", code, stderr.String())
 	}
 	if !reflect.DeepEqual(*order, []string{"observe", "readiness", "resolve", "entry"}) || pair.entryCalls != 1 || cluster.calls != 0 {
 		t.Fatalf("resume order=%v entry=%d cluster=%d", *order, pair.entryCalls, cluster.calls)
+	}
+}
+
+func TestFinalRootDoesNotResumeSiblingWorkspaceEntryAtAnotherRoot(t *testing.T) {
+	command, pair, _, cluster, _, _, stderr, order := newFirstEntryCLI(t, false, false, recommendedFirstUseStart)
+	contextID := tobari.ContextID("01912345-6789-7abc-8def-0123456789ad")
+	contextRef, err := tobari.ContextRef(contextID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pair.resolution.Observation.Context = &tobari.ContextAuthoritySnapshot{Context: tobari.ContextBinding{ID: contextID}}
+	pair.recovery = tobari.FinalAuthorityMutationObservation{ActiveDecision: true, Operation: "context-entry", Target: contextRef, ProjectRoot: "/workspace/other", WorkspaceID: tobari.WorkspaceID("01912345-6789-7abc-8def-0123456789ae")}
+	if code := command.RunContext(context.Background(), nil); code != ExitOK {
+		t.Fatalf("entry exit=%d stderr=%q", code, stderr.String())
+	}
+	if !reflect.DeepEqual(*order, []string{"observe", "readiness", "resolve", "cluster", "refresh", "entry"}) || cluster.calls != 1 {
+		t.Fatalf("sibling recovery was incorrectly resumed: order=%v cluster=%d", *order, cluster.calls)
 	}
 }
 

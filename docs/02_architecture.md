@@ -119,7 +119,12 @@ rather than selecting authority from `argv[0]`. Before attachment, the host
 extracts both helpers and identity records from the verified source-derived
 base through a bounded temporary container; validates their source/API
 identity, SHA-256, regular file type, safe mode, Linux ELF, and engine
-architecture; and atomically stores owner-only executables. Every selected
+architecture; and atomically stores owner-only executables. Entry completes
+that preparation before publishing its durable Workspace reconciliation
+decision. If candidate-version helpers are absent during an upgrade that keeps
+an exact historical or custom execution Runtime, the current source-addressed
+built-in image may be prepared only as the helper extraction source; it never
+replaces or aliases the selected execution Runtime. Every selected
 Workspace, including one using a managed custom Runtime, receives the same
 read-only `/usr/local/bin/tobari-expose` and `/usr/local/bin/tobari-permission`
 mounts. For service exposure, an unpredictable Workspace Unix socket connects
@@ -398,17 +403,20 @@ Workspace Template (installation reusable desired revision)
 Context (location-free ContextID + TemplateID)
         |
         +-- Policy Memory (Context lifetime)
+		+-- Context Home + native authentication (Context lifetime)
         |
-        v
-Workspace (replaceable ProjectRoot-bound applied instance)
+        +-- Workspace A (replaceable ProjectRoot-bound applied instance)
+		+-- Workspace B ... (distinct ProjectRoot, principal, and runtime)
 ```
 
 A Template has one stable WorkspaceTemplateID and complete immutable revisions.
 TemplateID plus semantic digest authorizes content. One Context has one stable
 ContextID and permanently binds to one TemplateID without a location. Multiple
 Contexts may bind the same Template. A Workspace has one stable WorkspaceID,
-binds one canonical ProjectRoot, and belongs to one Context. Policy Memory belongs to the Context, not the
-Template or Workspace.
+binds one canonical ProjectRoot, and belongs to one Context. A Context may own
+arbitrarily many Workspaces, unique by `(ContextID, canonical ProjectRoot)`.
+Policy Memory and Home belong to the Context, not the Template or Workspace.
+One Context policy body is projected to every Workspace-specific principal.
 
 Concept-separated owner-only YAML below XDG configuration is the ordinary
 editable desired source. Immutable typed concept objects plus one complete
@@ -464,9 +472,8 @@ Runtime, shell, Git, and bootstrap setters are not a parallel authority path.
 Context creation consumes one Template reference and no CWD. `context use`
 consumes one Context reference and changes only the installation selector.
 Bare `tobari` selects an existing Workspace from CWD; when none exists there,
-explicit create-here binds an unattached current Context, or publishes a
-distinct Context from the default Template when current already owns a
-Workspace. Workspace and Context deletion consume their own exact references.
+explicit create-here binds the current Context and publishes a sibling
+Workspace when that Context already owns another root. Workspace and Context deletion consume their own exact references.
 Deleting an otherwise-unreferenced current Context publishes the same authority
 generation with that Context removed and CurrentContextID absent; selection
 alone is not a deletion blocker.
@@ -475,9 +482,8 @@ mutation.
 
 The installation owns one optional DefaultTemplateSelection and one optional
 CurrentContextID. The former seeds fresh authority; the latter supplies the
-default for Context-aware commands and an unattached exact Context for
-new-Workspace entry. When it is already attached, explicit create-here uses the
-default Template to create a distinct Context instead. Existing Workspace
+default for Context-aware commands and the exact Context for new-Workspace
+entry. Existing Workspace
 selection and status derive from canonical CWD and then follow that Workspace's
 permanent Context binding. No entry path rewrites CurrentContextID. An explicit
 Context option overrides only one invocation.
@@ -495,7 +501,8 @@ Workspace AppliedEntry, and live observation are independent:
 - root entry alone reconciles one Workspace entry slice; `context use` performs
   no Workspace or Docker reconciliation.
 - session defaults affect only a newly handed-off child session.
-- creation defaults affect only a newly created Workspace home.
+- creation defaults initialize only the first Context Home; later sibling
+  Workspaces reuse that Home without rerunning bootstrap.
 - status, list, show, doctor, and completion are zero-mutation observations.
 
 A Workspace entry plan derives from one validated Context snapshot and exact
@@ -1345,10 +1352,12 @@ they never reconnect a network. A ready observation proceeds unchanged; an
 absent, stopped, or invalid observation composes the same exact typed
 `cluster up` action before Workspace mutation.
 An older active aggregate fails closed with exact `cluster up` recovery. It then reads the
-canonical CWD's indexed Workspace candidates. An exact current-root record is
-selected directly; when only ancestor records exist, the CLI presents every
-containing root nearest-first and the application accepts either one validated
-candidate or an explicit create-at-CWD choice. The choice is revalidated under
+canonical CWD's indexed Workspace candidates. An exact current-root record for
+the persisted current Context is selected directly. Exact-root records owned
+only by other Contexts and ancestor records remain an explicit choice; the CLI
+presents every candidate nearest-first with its opaque Context reference and
+the application accepts either one validated candidate or an explicit
+create-at-CWD choice. The choice is revalidated under
 the lifecycle lock before the selected logical record is created or reused.
 Selection retains the canonical invocation CWD independently from the selected
 Project root: runtime binding and source ownership use the selected root, while
@@ -1396,6 +1405,14 @@ changes and reserves repair for actual plan or runtime drift. The release
 upgrade harness exercises this through a historically packaged predecessor and
 the candidate release-surface binary over one persisted store and real Docker resources, rather than
 reconstructing either side with an in-memory adapter.
+Schema-v2 authority written before Context Home became an explicit Context
+field is normalized from a retained Workspace mirror. If the predecessor
+already retired its final Workspace, the candidate may recover the same
+create-once authority only from the strict terminal retirement receipt, exact
+absence of that Workspace's runtime resources, the deterministic owner-only
+Home path, and a matching retained Template revision. Home contents alone are
+never authority; absent, active, mismatched, or incomplete evidence fails
+closed.
 Whole-projection Gateway settlement observes running Workspace principals from
 their live endpoints. For an exact stopped Workspace it instead admits only the
 already-published principal row from the prior active aggregate, after matching
@@ -1446,11 +1463,11 @@ after runtime and volume absence are reconfirmed. Active journals remain bound
 to the exact requested mode, and retained-volume completion can move to purge
 only through the explicit upgrade settlement.
 
-The authority collection enforces one Context per `(canonical root, Workspace
-Template ID)` and at most one replaceable Workspace per Context. The lifecycle
+The authority collection enforces at most one Workspace per `(ContextID,
+canonical ProjectRoot)` and permits multiple sibling Workspaces per Context. The lifecycle
 lock checks the exact typed identities again immediately before creation. A
-repeated or concurrent creation for one Context converges to one Workspace; a
-different Workspace Template may own a separate Context and Workspace at the
+repeated or concurrent creation for one Context and root converges to one Workspace; a
+different Context may own a separate Workspace at the
 same root.
 Already-mounted parent/child roots may also overlap and run concurrently. Their
 host-file effects are intentionally shared; the architecture does not add
@@ -1608,7 +1625,7 @@ active-work label and typed completion result.
 Standard Gateway establishes the source-bound Context principal,
 normalizes the transparent authority, redacts authentication and cookies from
 OPA/audit, asks OPA about the ordinary exact HTTP effect, and only after allow
-forwards the original Workspace-owned credential in one upstream attempt. It
+forwards the original Context-Home-owned client credential in one upstream attempt. It
 has no provider projection or Broker adapter. The Claude/Codex native-login
 regression exercises this sequence, including Claude's authenticated profile
 metadata request after token exchange.

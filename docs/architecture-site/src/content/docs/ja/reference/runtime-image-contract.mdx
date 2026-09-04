@@ -39,7 +39,7 @@ Infrastructure は、セキュリティとライフサイクルの仕様を定�
 
 - 選択した live project root 一つを immutable Workspace Template `source_access` に従って mount
   （CLI omission default は `read-write`）
-- 独立して永続する Workspace ホーム一つ
+- 同じ Context の sibling Workspace が共有する永続 Context Home 一つ
 - プロジェクト専用の保護済み内部ネットワークと Tobari CA の信頼環境
 - Gateway の公開 CA ボリューム
 - 読み取り専用のルートファイルシステムと、上限付きの一時ファイルシステム

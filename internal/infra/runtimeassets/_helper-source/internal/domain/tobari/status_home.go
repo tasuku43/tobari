@@ -222,14 +222,23 @@ type FinalAuthorityMutationObservation struct {
 	StagePresent   bool
 	Operation      string
 	Target         string
+	ProjectRoot    string
+	WorkspaceID    WorkspaceID
 }
 
 func (o FinalAuthorityMutationObservation) Validate() error {
-	if !o.ActiveDecision && (o.Operation != "" || o.Target != "") {
+	if !o.ActiveDecision && (o.Operation != "" || o.Target != "" || o.ProjectRoot != "" || o.WorkspaceID != "") {
 		return fmt.Errorf("final-authority mutation observation has identity without an active decision")
 	}
 	if o.ActiveDecision && (o.Operation == "" || o.Target == "") {
 		return fmt.Errorf("final-authority mutation observation is missing active decision identity")
+	}
+	if o.Operation == "context-entry" {
+		if ValidateCanonicalRoot(o.ProjectRoot) != nil || o.WorkspaceID.Validate() != nil {
+			return fmt.Errorf("final-authority entry recovery observation is missing exact Workspace identity")
+		}
+	} else if o.ProjectRoot != "" || o.WorkspaceID != "" {
+		return fmt.Errorf("non-entry mutation observation carries Workspace entry identity")
 	}
 	return nil
 }
@@ -331,15 +340,24 @@ func NewStatusHomeSnapshot(collection WorkspaceAuthorityCollection, present bool
 		return StatusHomeSnapshot{}, err
 	}
 	for _, snapshot := range snapshots {
-		if snapshot.Workspace == nil || snapshot.Workspace.ProjectRoot != root {
-			continue
+		for _, workspace := range snapshot.Workspaces {
+			if workspace.ProjectRoot != root {
+				continue
+			}
+			focused, focusErr := snapshot.SelectWorkspace(workspace.ID)
+			if focusErr != nil {
+				return StatusHomeSnapshot{}, focusErr
+			}
+			if snapshot.Context.TemplateID == selected.ID {
+				if selectedSnapshot != nil {
+					return StatusHomeSnapshot{}, fmt.Errorf("status Project root has multiple default-Template Contexts")
+				}
+				copy := focused.Clone()
+				selectedSnapshot = &copy
+				continue
+			}
+			result.Siblings = append(result.Siblings, StatusHomeSibling{ContextID: snapshot.Context.ID, TemplateID: snapshot.Template.ID, TemplateName: snapshot.Template.Name, WorkspacePresent: true})
 		}
-		if snapshot.Context.TemplateID == selected.ID {
-			copy := snapshot.Clone()
-			selectedSnapshot = &copy
-			continue
-		}
-		result.Siblings = append(result.Siblings, StatusHomeSibling{ContextID: snapshot.Context.ID, TemplateID: snapshot.Template.ID, TemplateName: snapshot.Template.Name, WorkspacePresent: snapshot.Workspace != nil})
 	}
 	if selectedSnapshot == nil {
 		if result.mutationRecovery == nil {

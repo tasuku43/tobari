@@ -73,7 +73,7 @@ After transparent interception, TLS connection A runs between the Workspace clie
 
 ## 6. Same effect, different body
 
-Two requests have the same Context, Workspace, scheme, host, port, method, and path, but different JSON bodies. Do they require different learned rules?
+Two requests have the same Context, scheme, host, port, method, and path, but different JSON bodies. Do they require different learned rules?
 
 <details>
 <summary>Answer</summary>
@@ -111,9 +111,10 @@ Workspace B sends the same host, method, and path that Workspace A was allowed t
 <details>
 <summary>Answer</summary>
 
-No. Learned rules are owned by the stable Context and retain the observed
-Workspace identity. B needs its own matching rule unless it is literally the
-same Context/Workspace authority. See [Project identity](../../how-it-works/project-identity/).
+Learned rules are owned by the stable Context. If A and B are siblings in the
+same Context, the same exact rule applies; if B belongs to another Context, it
+needs its own matching rule. Workspace identity is observation provenance and
+routing only. See [Project identity](../../how-it-works/project-identity/).
 
 </details>
 
@@ -133,12 +134,12 @@ still required. Authentication does not enlarge authorization. See
 
 ## 11. What the Workspace receives
 
-The agent CLI has login state in its Workspace home. Is that a Tobari policy grant?
+The agent CLI has login state in its Context Home. Is that a Tobari policy grant?
 
 <details>
 <summary>Answer</summary>
 
-No. The Workspace home is where the agent CLI keeps its own login state. Tobari
+No. The Context Home is where the agent CLI keeps its own login state and shares it with sibling Workspaces. Tobari
 still evaluates each ordinary HTTP effect independently. See
 [Credentials](../../how-it-works/credentials/).
 
@@ -164,7 +165,8 @@ A request contains a credential value in its headers. Does that value create a p
 <summary>Answer</summary>
 
 No. Credential values are removed from OPA input and audit. The exact
-Workspace/project/host/method/path effect remains the policy identity. See
+Context/scheme/host/port/method/path effect remains the policy identity;
+Workspace and Project remain provenance. See
 [Credential security](../../security/credential-security/).
 
 </details>
@@ -261,8 +263,9 @@ A process copies a credential file from Workspace A into Workspace B. What check
 <summary>Answer</summary>
 
 Gateway derives B's principal from the registered Workspace source endpoint.
-Workspace homes are separate, so copying a file does not change B's host-owned
-principal or policy. B still needs an OPA allow for its own exact effect.
+Different Contexts have separate Homes; siblings in one Context already share
+the same Home. Copying a file never changes B's host-owned principal. Policy is
+shared only when A and B belong to the same Context and the exact effect matches.
 
 </details>
 

@@ -87,8 +87,16 @@ func finalWorkspaceStatusErrors(path, recovery string) []CommandError {
 }
 
 func finalJSONOutput(envelope string, fields []OutputField, coverage CollectionCoverage) CommandOutput {
+	return finalJSONOutputVersion(envelope, fields, coverage, 1)
+}
+
+func finalJSONOutputV2(envelope string, fields []OutputField, coverage CollectionCoverage) CommandOutput {
+	return finalJSONOutputVersion(envelope, fields, coverage, 2)
+}
+
+func finalJSONOutputVersion(envelope string, fields []OutputField, coverage CollectionCoverage, version int) CommandOutput {
 	return CommandOutput{Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
-		Fields: fields, Delivery: OutputDeliveryComplete, CollectionCoverage: coverage, JSONEnvelope: envelope, JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1}
+		Fields: fields, Delivery: OutputDeliveryComplete, CollectionCoverage: coverage, JSONEnvelope: envelope, JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: version}
 }
 
 func finalTemplateGraphQLEndpointFields() []OutputField {
@@ -199,17 +207,8 @@ func finalContextFields(includeContextRef bool) []OutputField {
 		{Name: "active_template_policy_slice_digest", Type: OutputFieldTypeString, Description: "Independently active Template-policy slice digest, or null when inactive.", Nullable: true},
 		{Name: "current_policy_memory_revision", Type: OutputFieldTypeString, Description: "Current Context-owned Policy Memory revision.", Optional: true},
 		{Name: "active_policy_memory_revision", Type: OutputFieldTypeString, Description: "Independently active Policy Memory revision, or null when inactive.", Nullable: true},
-		{Name: "workspace_id", Type: OutputFieldTypeString, Description: "Current Workspace identity when present.", Optional: true},
-		{Name: "applied_entry", Type: OutputFieldTypeObject, Description: "Independent last-successful Workspace AppliedEntry, or null before entry.", Nullable: true, Fields: []OutputField{
-			{Name: "context_id", Type: OutputFieldTypeString, Description: "Applied Context identity."},
-			{Name: "workspace_template_id", Type: OutputFieldTypeString, Description: "Applied Template identity."},
-			{Name: "workspace_template_revision", Type: OutputFieldTypeString, Description: "Applied immutable Template revision."},
-			{Name: "entry_slice_digest", Type: OutputFieldTypeString, Description: "Applied entry-slice digest."},
-			{Name: "runtime_id", Type: OutputFieldTypeString, Description: "Applied Runtime identity."},
-			{Name: "runtime_revision", Type: OutputFieldTypeString, Description: "Applied Runtime revision."},
-			{Name: "resolved_spec_revision", Type: OutputFieldTypeString, Description: "Applied resolved runtime specification digest."},
-			{Name: "reconciled_at", Type: OutputFieldTypeString, Description: "Confirmed UTC reconciliation time."},
-		}},
+		{Name: "workspace_count", Type: OutputFieldTypeInteger, Description: "Exact number of Workspaces owned by this Context."},
+		{Name: "workspace_refs", Type: OutputFieldTypeArray, Description: "Every owned Workspace reference in canonical order.", SemanticScope: "Complete Workspace membership for this Context.", Items: &OutputField{Type: OutputFieldTypeString, Description: "Opaque owned Workspace reference.", ReferenceKind: tobari.WorkspaceReferenceKind}},
 	}
 	if includeContextRef {
 		fields = append([]OutputField{{Name: "context_ref", Type: OutputFieldTypeString, Description: "Opaque Context reference.", ReferenceKind: tobari.ContextReferenceKind}}, fields...)
@@ -228,7 +227,7 @@ func finalWorkspaceFields(includeRef bool) []OutputField {
 		{Name: "workspace_template_id", Type: OutputFieldTypeString, Description: "Bound Template identity."},
 		{Name: "template_name", Type: OutputFieldTypeString, Description: "Bound Template display name."},
 		{Name: "project_root", Type: OutputFieldTypeString, Description: "Canonical mounted Project root."},
-		{Name: "workspace_home", Type: OutputFieldTypeString, Description: "Exact owner-only Workspace home."},
+		{Name: "workspace_home", Type: OutputFieldTypeString, Description: "Exact owner-only Context Home mounted by this Workspace."},
 		{Name: "applied", Type: OutputFieldTypeBoolean, Description: "Whether exact last-successful entry authority exists."},
 		{Name: "applied_entry_revision", Type: OutputFieldTypeString, Description: "Exact last-successful entry revision when present.", Optional: true},
 	}
@@ -320,10 +319,13 @@ func finalTemplatePlanSpec() CommandSpec {
 		{Name: "contexts", Type: OutputFieldTypeArray, Description: "All bound Context and relevant Memory revision evidence.", SemanticScope: "Every Context bound to the planned Template at one coherent observation.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One bound Context.", Fields: []OutputField{
 			{Name: "context_ref", Type: OutputFieldTypeString, Description: "Opaque affected Context reference.", ReferenceKind: tobari.ContextReferenceKind},
 			{Name: "policy_memory_revision", Type: OutputFieldTypeString, Description: "Exact relevant Context Policy Memory revision."},
-			{Name: "workspace_ref", Type: OutputFieldTypeString, Description: "Opaque running Workspace reference when present.", ReferenceKind: tobari.WorkspaceReferenceKind, Optional: true},
+			{Name: "workspaces", Type: OutputFieldTypeArray, Description: "Every Workspace owned by this Context.", SemanticScope: "Complete Workspace set for this Context at the coherent observation.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One affected Workspace.", Fields: []OutputField{
+				{Name: "workspace_ref", Type: OutputFieldTypeString, Description: "Opaque affected Workspace reference.", ReferenceKind: tobari.WorkspaceReferenceKind},
+				{Name: "running", Type: OutputFieldTypeBoolean, Description: "Whether this Workspace has running authority."},
+			}}},
 		}}},
 		{Name: "affected_context_count", Type: OutputFieldTypeInteger, Description: "Exact bound Context count."},
-		{Name: "running_workspace_count", Type: OutputFieldTypeInteger, Description: "Exact bound Contexts with running Workspace authority."},
+		{Name: "running_workspace_count", Type: OutputFieldTypeInteger, Description: "Exact running Workspace count."},
 	}
 	errors := append(finalAuthorityReadErrors("template plan", "template list"),
 		declaredCommandError(fault.KindUnavailable, "template_plan_read_failed", false, "template list", "Inspect the current Template source and authority before planning again."),
@@ -337,7 +339,7 @@ func finalTemplatePlanSpec() CommandSpec {
 	return CommandSpec{Path: "template plan", Summary: "Review one exact desired Template change", Args: "--id <template-ref> [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{
 		CapabilityID: "workspace.authority", Outcome: "Classify one exact Template source change and bind all Apply-relevant authority without mutation",
 		Inputs: []CommandInput{finalReferenceInput("--id", "Opaque Workspace Template reference whose desired source is reviewed.", tobari.WorkspaceTemplateReferenceKind), formatInput()},
-		Output: finalJSONOutput("template_change_plan", fields, CollectionCoverageNotApplicable), Prerequisites: []string{"The strict canonical source pair and exact immutable Runtime revision are readable."}, Errors: errors,
+		Output: finalJSONOutputV2("template_change_plan", fields, CollectionCoverageNotApplicable), Prerequisites: []string{"The strict canonical source pair and exact immutable Runtime revision are readable."}, Errors: errors,
 	}, handler: runFinalTemplatePlan}
 }
 
@@ -422,10 +424,10 @@ func finalTemplateWriteSpec(path, summary string, handler commandHandler, impact
 }
 
 func finalContextListSpec() CommandSpec {
-	return CommandSpec{Path: "context list", Summary: "List final Context bindings", Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Return every final Context with exact Template and Policy Memory authority", Inputs: []CommandInput{formatInput()}, Output: finalJSONOutput("contexts", finalContextListFields(), CollectionCoverageExhaustive), Prerequisites: []string{}, Errors: finalContextListErrors("context list", "doctor")}, handler: runFinalContextList}
+	return CommandSpec{Path: "context list", Summary: "List final Context bindings", Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Return every final Context with exact Template and Policy Memory authority", Inputs: []CommandInput{formatInput()}, Output: finalJSONOutputV2("contexts", finalContextListFields(), CollectionCoverageExhaustive), Prerequisites: []string{}, Errors: finalContextListErrors("context list", "doctor")}, handler: runFinalContextList}
 }
 func finalContextShowSpec() CommandSpec {
-	return CommandSpec{Path: "context show", Summary: "Inspect one final Context", Args: "--id <context-ref> [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Return one exact Context with desired and independently active authority", Inputs: []CommandInput{finalReferenceInput("--id", "Opaque Context reference.", tobari.ContextReferenceKind), formatInput()}, Output: finalJSONOutput("context", finalContextFields(true), CollectionCoverageNotApplicable), Prerequisites: []string{}, Errors: finalContextShowErrors("context show", "context list")}, handler: runFinalContextShow}
+	return CommandSpec{Path: "context show", Summary: "Inspect one final Context", Args: "--id <context-ref> [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Return one exact Context with desired and independently active authority", Inputs: []CommandInput{finalReferenceInput("--id", "Opaque Context reference.", tobari.ContextReferenceKind), formatInput()}, Output: finalJSONOutputV2("context", finalContextFields(true), CollectionCoverageNotApplicable), Prerequisites: []string{}, Errors: finalContextShowErrors("context show", "context list")}, handler: runFinalContextShow}
 }
 func finalContextApplySpec() CommandSpec {
 	fields := append([]OutputField{}, finalContextFields(true)...)
@@ -439,7 +441,7 @@ func finalContextApplySpec() CommandSpec {
 		declaredCommandError(fault.KindInvalidInput, "resource_source_invalid", false, "context list", "Rediscover the retained Context and correct the strict context.yaml diagnostic."),
 		declaredCommandError(fault.KindRejected, "context_identity_immutable", false, "context list", "Rediscover the current binding; another root or Template requires a fresh Context."),
 	)
-	return CommandSpec{Path: "context apply", Summary: "Apply one reviewed Context activation plan", Args: "--plan <context-activation-plan-ref> [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Revalidate and activate one immutable Context identity with new empty Policy Memory", Inputs: []CommandInput{finalReferenceInput("--plan", "Opaque Context activation plan emitted by context plan and consumed unchanged.", tobari.ContextActivationPlanReferenceKind), formatInput()}, Output: finalJSONOutput("context", fields, CollectionCoverageNotApplicable), Prerequisites: []string{"The reviewed context.yaml and exact Template revision remain unchanged."}, Errors: errors, Mutation: &MutationContract{TargetKind: tobari.ContextActivationPlanReferenceKind, TargetInputs: []string{"--plan"}, TargetIDInput: "--plan", Impact: workspaceauthoritycmd.ContextApplyImpact()}}, handler: runFinalContextApply}
+	return CommandSpec{Path: "context apply", Summary: "Apply one reviewed Context activation plan", Args: "--plan <context-activation-plan-ref> [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct, Agent: AgentContract{CapabilityID: "workspace.authority", Outcome: "Revalidate and activate one immutable Context identity with new empty Policy Memory", Inputs: []CommandInput{finalReferenceInput("--plan", "Opaque Context activation plan emitted by context plan and consumed unchanged.", tobari.ContextActivationPlanReferenceKind), formatInput()}, Output: finalJSONOutputV2("context", fields, CollectionCoverageNotApplicable), Prerequisites: []string{"The reviewed context.yaml and exact Template revision remain unchanged."}, Errors: errors, Mutation: &MutationContract{TargetKind: tobari.ContextActivationPlanReferenceKind, TargetInputs: []string{"--plan"}, TargetIDInput: "--plan", Impact: workspaceauthoritycmd.ContextApplyImpact()}}, handler: runFinalContextApply}
 }
 func finalContextPlanSpec() CommandSpec {
 	fields := []OutputField{

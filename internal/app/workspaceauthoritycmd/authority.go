@@ -4,6 +4,7 @@ package workspaceauthoritycmd
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -273,8 +274,9 @@ func NewWorkspaceList(snapshots []ContextSnapshot) (WorkspaceList, error) {
 	}
 	items := make([]WorkspaceView, len(snapshots))
 	workspaceIDs := make(map[tobari.WorkspaceID]struct{}, len(snapshots))
-	contextIDs := make(map[tobari.ContextID]struct{}, len(snapshots))
-	bindings := make([]tobari.ContextBinding, len(snapshots))
+	contextBindings := make(map[tobari.ContextID]tobari.ContextBinding, len(snapshots))
+	contextSnapshots := make(map[tobari.ContextID]ContextSnapshot, len(snapshots))
+	bindings := make([]tobari.ContextBinding, 0, len(snapshots))
 	templates := make([]tobari.WorkspaceTemplate, len(snapshots))
 	for index, snapshot := range snapshots {
 		view, err := NewWorkspaceView(snapshot)
@@ -284,14 +286,25 @@ func NewWorkspaceList(snapshots []ContextSnapshot) (WorkspaceList, error) {
 		if _, exists := workspaceIDs[view.Snapshot.Workspace.ID]; exists {
 			return WorkspaceList{}, fmt.Errorf("Workspace collection contains a duplicate ID")
 		}
-		if _, exists := contextIDs[view.Snapshot.Context.ID]; exists {
-			return WorkspaceList{}, fmt.Errorf("Workspace collection contains more than one Workspace for a Context")
+		if previous, exists := contextBindings[view.Snapshot.Context.ID]; exists {
+			if previous != view.Snapshot.Context {
+				return WorkspaceList{}, fmt.Errorf("Workspace collection contains contradictory Context authority")
+			}
+			normalized := view.Snapshot.Clone()
+			normalized.Workspace = nil
+			if !reflect.DeepEqual(contextSnapshots[view.Snapshot.Context.ID], normalized) {
+				return WorkspaceList{}, fmt.Errorf("Workspace collection contains contradictory Context snapshot authority")
+			}
+		} else {
+			contextBindings[view.Snapshot.Context.ID] = view.Snapshot.Context
+			bindings = append(bindings, view.Snapshot.Context)
+			normalized := view.Snapshot.Clone()
+			normalized.Workspace = nil
+			contextSnapshots[view.Snapshot.Context.ID] = normalized
 		}
 		items[index] = view
-		bindings[index] = view.Snapshot.Context
 		templates[index] = view.Snapshot.Template
 		workspaceIDs[view.Snapshot.Workspace.ID] = struct{}{}
-		contextIDs[view.Snapshot.Context.ID] = struct{}{}
 	}
 	if err := tobari.ValidateContextBindings(bindings); err != nil {
 		return WorkspaceList{}, fmt.Errorf("Workspace collection Context bindings are inconsistent: %w", err)

@@ -8,6 +8,8 @@
   research authentication, harness, and public boundary
 - Revises: ADR 0084, ADR 0085, and ADR 0092
 - Related: ADR 0090 and ADR 0091
+- Revised by: ADR 0094 at create-here reuse of the current Context and plural
+  Workspace ownership
 - Superseded by: None
 
 ## Context

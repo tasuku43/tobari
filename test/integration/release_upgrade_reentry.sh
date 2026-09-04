@@ -4,26 +4,13 @@
 # the predecessor-to-candidate transition while the parent owns isolated XDG
 # roots, Docker resources, PTY entry, and exact cleanup.
 # shellcheck disable=SC2034,SC2154 # Sourced functions intentionally read and update parent-owned journey state.
-
 prepare_release_upgrade_reentry() {
 	[[ -n ${predecessor_binary:-} ]] || return 0
-
 	local context_list=$1
 	local workspace_list=$2
 	local denial_status candidates candidate_identity
-
-	upgrade_expected_context_id=$(python3 -c '
-import json,sys
-items=json.load(sys.stdin)["contexts"]["items"]
-assert len(items) == 1
-print(items[0]["context_id"])
-' <<<"$context_list")
-	upgrade_expected_workspace_id=$(python3 -c '
-import json,sys
-items=json.load(sys.stdin)["workspaces"]["items"]
-assert len(items) == 1
-print(items[0]["workspace_id"])
-' <<<"$workspace_list")
+	upgrade_expected_context_id=$(python3 -c 'import json,sys; items=json.load(sys.stdin)["contexts"]["items"]; assert len(items) == 1; print(items[0]["context_id"])' <<<"$context_list")
+	upgrade_expected_workspace_id=$(python3 -c 'import json,sys; items=json.load(sys.stdin)["workspaces"]["items"]; assert len(items) == 1; print(items[0]["workspace_id"])' <<<"$workspace_list")
 	local managed_home_name=home
 	upgrade_settings_path="$test_root/state/tobari/workspace-authority-runtime/contexts/$upgrade_expected_context_id/$managed_home_name/.claude/settings.json"
 	[[ -f $upgrade_settings_path ]] || {
@@ -39,14 +26,12 @@ print(items[0]["workspace_id"])
 JSON
 	chmod 0600 "$upgrade_settings_path"
 	cp "$upgrade_settings_path" "$test_root/expected-claude-settings.json"
-
 	denial_status=$(run_tobari_at "$test_root/user/project" -- /bin/bash -lc \
 		'curl -sS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 15 https://upgrade-harness.example/reentry')
 	[[ $denial_status == 403 ]] || {
 		echo "release upgrade integration: predecessor request returned $denial_status instead of deterministic policy denial" >&2
 		return 1
 	}
-
 	candidate_identity=$($candidate_binary version --format json)
 	python3 -c '
 import json,sys
@@ -55,8 +40,25 @@ assert identity["capability_surface"] == "release"
 assert identity["resolver_channel"] == "embedded"
 assert identity["compatible"] is True
 ' <<<"$candidate_identity"
+	run_tobari workspace delete --id "$workspace_ref" --confirm=delete --force --format json >/dev/null
+	cmp "$test_root/expected-claude-settings.json" "$upgrade_settings_path"
 	binary=$candidate_binary
-
+	run_bare_tobari_pty_at upgrade-zero-workspace-reentry "$test_root/user/project" >"$test_root/upgrade-zero-workspace-reentry.log" 2>&1 || {
+		cat "$test_root/upgrade-zero-workspace-reentry.log" >&2
+		echo "release upgrade integration: candidate could not recover predecessor zero-Workspace Context Home" >&2
+		return 1
+	}
+	workspace_list=$(run_tobari workspace list --format json)
+	read -r upgrade_expected_workspace_id workspace_ref < <(python3 -c '
+import json,sys
+items=json.load(sys.stdin)["workspaces"]["items"]
+assert len(items) == 1
+print(items[0]["workspace_id"], items[0]["workspace_ref"])
+' <<<"$workspace_list")
+	cmp "$test_root/expected-claude-settings.json" "$upgrade_settings_path"
+	denial_status=$(run_tobari_at "$test_root/user/project" -- /bin/bash -lc \
+		'curl -sS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 15 https://upgrade-harness.example/reentry')
+	[[ $denial_status == 403 ]] || return 1
 	candidates=$(run_tobari policy candidates --format json)
 	upgrade_candidate_ref=$(python3 -c '
 import json,sys
@@ -65,7 +67,14 @@ matching=[item for item in items if item["effect"]["host"] == "upgrade-harness.e
 assert len(matching) == 1
 print(matching[0]["id"])
 ' <<<"$candidates")
-	run_tobari_at "$test_root/user/project" doctor --format json >"$test_root/pre-allow-doctor.json"
+	set +e
+	run_tobari_at "$test_root/user/project" doctor --format json >"$test_root/pre-allow-doctor.json" 2>"$test_root/pre-allow-doctor.stderr"
+	upgrade_doctor_status=$?
+	set -e
+	if [[ $upgrade_doctor_status != 0 && $upgrade_doctor_status != 10 ]]; then
+		cat "$test_root/pre-allow-doctor.stderr" >&2
+		echo "release upgrade integration: candidate doctor returned unexpected status $upgrade_doctor_status" >&2; return 1
+	fi
 
 	run_tobari policy allow --id "$upgrade_candidate_ref" --format json >/dev/null
 	python3 -c '
@@ -75,17 +84,11 @@ assert any(item["body"]["host"] == "upgrade-harness.example" for item in items)
 ' <<<"$(run_tobari policy rules --format json)"
 	upgrade_prepared=true
 }
-
 verify_release_upgrade_after_reentry() {
 	[[ ${upgrade_prepared:-false} == true ]] || return 0
-
 	local contexts workspaces status template_ref context_create delete_help
 	local old_workspace_ref=$workspace_ref
 	local old_workspace_id=$upgrade_expected_workspace_id
-
-	# Keep this assertion after the first post-Allow bare entry. A predecessor
-	# with both historical defects must fail on the broken entry receipt rather
-	# than letting the stale doctor wording hide that deeper continuity failure.
 	python3 -c '
 import json,sys
 checks={item["check"]:item for item in json.load(sys.stdin)["report"]}
@@ -93,7 +96,10 @@ detail=checks["policy_data"]["detail"]
 assert checks["policy_data"]["status"] == "pass"
 assert "policy candidates" in detail
 assert "0 pending candidates" not in detail
-' <"$test_root/pre-allow-doctor.json"
+status=int(sys.argv[1])
+if status == 10:
+    assert checks["state"]["status"] == "fail" and checks["state"]["detail"] == "the final shared cluster is interrupted, unhealthy, drifted, or unknown"
+' "$upgrade_doctor_status" <"$test_root/pre-allow-doctor.json"
 
 	contexts=$(run_tobari context list --format json)
 	workspaces=$(run_tobari workspace list --format json)

@@ -65,9 +65,9 @@ location-freeなcurrent Contextを、CWDを参照せず選択します。
 tobari context use --id CONTEXT_REF
 ```
 
-WorkspaceがないProject rootでは、current Contextが未使用ならbare `tobari`が
-そのContextをWorkspaceにbindingします。currentがすでにWorkspaceを所有する場合、
-明示的なcreate-hereはdefault Templateから別Contextを作ります。既存Workspaceが
+WorkspaceがないProject rootでは、bare `tobari`がcurrent Contextを
+Workspaceにbindingします。currentが別rootのWorkspaceをすでに所有する場合、
+明示的なcreate-hereは同じContextのsibling Workspaceを作ります。既存Workspaceが
 あるrootでは、CWDがそのWorkspaceを選び、currentにかかわらず永久bindingされた
 Contextを使います。どちらの作成経路もcurrent selectorを変更しません。Context
 optionを省略するとcurrentを使い、指定したexact referenceはそのinvocationだけを
@@ -88,8 +88,8 @@ tobari template apply --plan TEMPLATE_CHANGE_PLAN_REF
 ```
 
 Apply は完全なimmutable Template revisionを発行します。Runtimeとsession
-defaultは後続のentry/session境界、bootstrapは新しいWorkspace homeにだけ
-適用されます。
+defaultは後続のentry/session境界に適用されます。bootstrapは新しい Context で
+最初の Context Home を初期化するときだけ適用され、later sibling Workspace では再実行されません。
 
 `templates/<template-id>/policy.yaml` は final
 `tobari.dev/template-policy/v1` schema で編集します。static policy は closed

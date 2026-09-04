@@ -394,13 +394,13 @@ export const diagrams: Record<string, DiagramDefinition> = {
     ],
   },
   "credential-boundary": {
-    title: "Native Workspace authentication boundary",
+    title: "Native Context Home authentication boundary",
     description:
-      "The agent CLI owns login state inside one Workspace home; Tobari neither inherits host credentials nor exposes a release credential service.",
+      "The agent CLI owns login state inside one Context Home shared by sibling Workspaces; Tobari neither inherits host credentials nor exposes a release credential service.",
     nodes: [
       node(
         "home",
-        "Workspace home",
+        "Context Home",
         "Persistent tool-owned login files and configuration.",
         "persistent",
         "store",

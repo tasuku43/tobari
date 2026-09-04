@@ -40,7 +40,7 @@ OPA joins the shared `control` network, not project networks or egress. Workspac
 
 Gateway also joins control so it can call one fixed OPA endpoint. Gateway and
 OPA are the only shared enforcement services; agent CLI login remains in the
-Workspace home rather than a Tobari credential service or socket.
+Context Home shared by sibling Workspaces rather than a Tobari credential service or socket.
 
 ### One egress network
 
@@ -92,7 +92,11 @@ OPA is not attached to the Workspace network, so the name/service is not reachab
 
 Each Workspace has a distinct internal network. There is no peer route. Gateway joins both, but it does not act as a general router between them.
 
-Host file roots are a different boundary: two Workspaces may intentionally mount the same or overlapping project roots. Their networks, homes, principals, and learned rules remain separate, while writes to overlapping host files are visible to both.
+Host file roots are a different boundary: two Workspaces may intentionally
+mount the same or overlapping project roots. Their networks and principals
+remain separate. Homes and learned rules are shared when they belong to the
+same Context and remain separate across different Contexts, while writes to
+overlapping host files are visible to both.
 
 ## Failure behavior
 

@@ -44,24 +44,24 @@ type finalTemplateDraftProjection struct {
 }
 
 type finalContextProjection struct {
-	Lifecycle                        string                        `json:"lifecycle"`
-	Current                          *bool                         `json:"current,omitempty"`
-	ContextRef                       string                        `json:"context_ref,omitempty"`
-	ContextID                        string                        `json:"context_id"`
-	TemplateID                       string                        `json:"workspace_template_id"`
-	TemplateName                     string                        `json:"template_name"`
-	DesiredTemplateGeneration        uint64                        `json:"desired_template_generation"`
-	DesiredTemplateRevision          string                        `json:"desired_template_revision"`
-	DesiredTemplatePolicySliceDigest string                        `json:"desired_template_policy_slice_digest"`
-	ActiveTemplatePolicySliceDigest  *string                       `json:"active_template_policy_slice_digest"`
-	CurrentPolicyMemoryRevision      string                        `json:"current_policy_memory_revision"`
-	ActivePolicyMemoryRevision       *string                       `json:"active_policy_memory_revision"`
-	WorkspaceID                      string                        `json:"workspace_id,omitempty"`
-	AppliedEntry                     *tobari.WorkspaceAppliedEntry `json:"applied_entry"`
-	SourcePath                       string                        `json:"source_path,omitempty"`
-	SourceState                      string                        `json:"source_state,omitempty"`
-	SourceRevision                   *string                       `json:"source_revision,omitempty"`
-	ActiveRevision                   string                        `json:"active_revision,omitempty"`
+	Lifecycle                        string   `json:"lifecycle"`
+	Current                          *bool    `json:"current,omitempty"`
+	ContextRef                       string   `json:"context_ref,omitempty"`
+	ContextID                        string   `json:"context_id"`
+	TemplateID                       string   `json:"workspace_template_id"`
+	TemplateName                     string   `json:"template_name"`
+	DesiredTemplateGeneration        uint64   `json:"desired_template_generation"`
+	DesiredTemplateRevision          string   `json:"desired_template_revision"`
+	DesiredTemplatePolicySliceDigest string   `json:"desired_template_policy_slice_digest"`
+	ActiveTemplatePolicySliceDigest  *string  `json:"active_template_policy_slice_digest"`
+	CurrentPolicyMemoryRevision      string   `json:"current_policy_memory_revision"`
+	ActivePolicyMemoryRevision       *string  `json:"active_policy_memory_revision"`
+	WorkspaceCount                   int      `json:"workspace_count"`
+	WorkspaceRefs                    []string `json:"workspace_refs"`
+	SourcePath                       string   `json:"source_path,omitempty"`
+	SourceState                      string   `json:"source_state,omitempty"`
+	SourceRevision                   *string  `json:"source_revision,omitempty"`
+	ActiveRevision                   string   `json:"active_revision,omitempty"`
 }
 
 type finalContextDraftProjection struct {
@@ -91,9 +91,9 @@ type finalContextPlanProjection struct {
 }
 
 type finalTemplateChangeContextProjection struct {
-	ContextRef           string                `json:"context_ref"`
-	PolicyMemoryRevision tobari.SemanticDigest `json:"policy_memory_revision"`
-	WorkspaceRef         string                `json:"workspace_ref,omitempty"`
+	ContextRef           string                                    `json:"context_ref"`
+	PolicyMemoryRevision tobari.SemanticDigest                     `json:"policy_memory_revision"`
+	Workspaces           []tobari.WorkspaceTemplateChangeWorkspace `json:"workspaces"`
 }
 
 type finalTemplateChangePlanProjection struct {
@@ -115,7 +115,7 @@ func finalTemplateChangePlanFrom(plan tobari.WorkspaceTemplateChangePlan) finalT
 	contexts := make([]finalTemplateChangeContextProjection, len(plan.Contexts))
 	for index, item := range plan.Contexts {
 		contexts[index] = finalTemplateChangeContextProjection{
-			ContextRef: item.ContextRef, PolicyMemoryRevision: item.PolicyMemoryRevision, WorkspaceRef: item.WorkspaceRef,
+			ContextRef: item.ContextRef, PolicyMemoryRevision: item.PolicyMemoryRevision, Workspaces: append([]tobari.WorkspaceTemplateChangeWorkspace{}, item.Workspaces...),
 		}
 	}
 	return finalTemplateChangePlanProjection{
@@ -287,7 +287,7 @@ func finalContextFromView(view workspaceauthoritycmd.ContextView) (finalContextP
 	result := finalContextProjection{
 		Lifecycle: "active", Current: view.Current, ContextRef: contextRef, ContextID: string(snapshot.Context.ID), TemplateID: string(snapshot.Context.TemplateID), TemplateName: snapshot.Template.Name,
 		DesiredTemplateGeneration: axes.DesiredTemplateGeneration, DesiredTemplateRevision: string(axes.DesiredTemplateRevision), DesiredTemplatePolicySliceDigest: string(axes.DesiredTemplatePolicySliceDigest),
-		CurrentPolicyMemoryRevision: string(axes.CurrentPolicyMemoryRevision), AppliedEntry: axes.AppliedEntry,
+		CurrentPolicyMemoryRevision: string(axes.CurrentPolicyMemoryRevision), WorkspaceCount: len(snapshot.Workspaces), WorkspaceRefs: []string{},
 	}
 	if axes.ActiveTemplatePolicySliceDigest != nil {
 		value := string(*axes.ActiveTemplatePolicySliceDigest)
@@ -297,8 +297,12 @@ func finalContextFromView(view workspaceauthoritycmd.ContextView) (finalContextP
 		value := string(*axes.ActivePolicyMemoryRevision)
 		result.ActivePolicyMemoryRevision = &value
 	}
-	if snapshot.Workspace != nil {
-		result.WorkspaceID = string(snapshot.Workspace.ID)
+	for _, workspace := range snapshot.Workspaces {
+		workspaceRef, err := tobari.WorkspaceRef(workspace.ID)
+		if err != nil {
+			return finalContextProjection{}, err
+		}
+		result.WorkspaceRefs = append(result.WorkspaceRefs, workspaceRef)
 	}
 	if view.Source != nil {
 		result.SourcePath = view.Source.Path
@@ -316,7 +320,7 @@ func finalContextFromView(view workspaceauthoritycmd.ContextView) (finalContextP
 
 func finalContextFromDraft(view workspaceauthoritycmd.ContextDraftView) finalContextProjection {
 	draft := view.Draft
-	result := finalContextProjection{Lifecycle: "draft", ContextRef: view.ContextRef, ContextID: string(draft.Source.ContextID), TemplateID: string(draft.Source.TemplateID), SourcePath: draft.Observation.Path, SourceState: string(draft.Observation.State)}
+	result := finalContextProjection{Lifecycle: "draft", ContextRef: view.ContextRef, ContextID: string(draft.Source.ContextID), TemplateID: string(draft.Source.TemplateID), WorkspaceRefs: []string{}, SourcePath: draft.Observation.Path, SourceState: string(draft.Observation.State)}
 	if draft.Observation.SourceRevision != nil {
 		value := string(*draft.Observation.SourceRevision)
 		result.SourceRevision = &value
@@ -344,10 +348,6 @@ func finalContextText(value finalContextProjection, color bool) []byte {
 	if value.ActivePolicyMemoryRevision != nil {
 		activeMemory = *value.ActivePolicyMemoryRevision
 	}
-	applied := "absent"
-	if value.AppliedEntry != nil {
-		applied = string(value.AppliedEntry.TemplateRevision) + " / " + string(value.AppliedEntry.EntrySliceDigest)
-	}
 	section := safeExternalText(value.TemplateName)
 	if section == "" {
 		section = "Context"
@@ -360,7 +360,7 @@ func finalContextText(value finalContextProjection, color bool) []byte {
 		{label: "Active Template policy", value: activeTemplate, token: styleText},
 		{label: "Current Policy Memory", value: value.CurrentPolicyMemoryRevision, token: styleText},
 		{label: "Active Policy Memory", value: activeMemory, token: styleText},
-		{label: "Applied entry", value: applied, token: humanStatusToken(map[bool]string{true: "ready", false: "missing"}[value.AppliedEntry != nil])},
+		{label: "Workspaces", value: fmt.Sprintf("%d", value.WorkspaceCount), token: styleText},
 	}, "", "", []finalAuthorityHumanRow{{label: "Reference", value: value.ContextRef, token: styleText}})
 }
 
@@ -375,7 +375,11 @@ func finalWorkspaceFrom(snapshot tobari.ContextAuthoritySnapshot, workspaceRef s
 
 func finalAuthorityOutput(path, envelope string, value any, format successFormat, text []byte) ([]byte, error) {
 	if format == successFormatJSON {
-		document := map[string]any{"schema_version": 1, envelope: value}
+		spec, found := DefaultCatalog().lookupRegistered(path)
+		if !found || spec.Agent.Output.JSONSchemaVersion <= 0 {
+			return nil, fmt.Errorf("%s output schema is unavailable", path)
+		}
+		document := map[string]any{"schema_version": spec.Agent.Output.JSONSchemaVersion, envelope: value}
 		encoded, err := marshalCommandJSON(path, document)
 		if err != nil {
 			return nil, err

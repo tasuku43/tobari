@@ -510,8 +510,8 @@ func TestComposeSpecKeepsOPAHeapBelowItsContainerLimit(t *testing.T) {
 		t.Fatal("compose spec is missing the ordered OPA and Gateway services")
 	}
 	opa := spec[opaIndex:gatewayIndex]
-	if !strings.Contains(opa, "    environment:\n      GOMEMLIMIT: 384MiB\n") {
-		t.Fatal("OPA is missing the fixed Go heap limit below its 512 MiB container ceiling")
+	if !strings.Contains(opa, "    environment:\n      GOMEMLIMIT: 256MiB\n") {
+		t.Fatal("OPA is missing the fixed Go heap limit with headroom below its 512 MiB container ceiling")
 	}
 }
 

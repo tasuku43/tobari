@@ -19,7 +19,7 @@ Tobari は、Docker コンテナの起動を簡略化するだけのツールで
 
 1. **Workspace** 内のプロセスが通常の HTTP/HTTPS リクエストを送ります。クライアント側のプロキシ設定を使わず、上限付きの合成 DNS 応答と閉じた出力経路が TCP をそのプロジェクトの Gateway へ届けます。
 2. **Gateway** がリクエストを受け、カーネルが観測した Workspace の送信元エンドポイントと、ホスト管理の登録簿から通信主体（プリンシパル）を特定します。
-3. **OPA** は、Workspace Template、プロジェクト、スキーム、宛先、ポート、メソッド、パスを使って通信を判断します。リクエスト本文は、ポリシーの判断項目には含まれません。
+3. **OPA** は、Context、スキーム、宛先、ポート、メソッド、パスを使って通信を判断します。Workspace、root、CWD、directory は routing と provenance にだけ使われ、リクエスト本文と同様に Policy Memory の identity には含まれません。
 4. 許可後、**Workspace** ではなく **Gateway** が外部の**接続先**へ別の接続を開きます。native authentication は元の request に保持されますが、OPA と audit には入りません。
 
 判断を返すのは OPA です。Gateway はその判断に従って、リクエストを拒否するか、接続先への通信を開始します。
@@ -34,7 +34,7 @@ curl -X PUT https://example.com/quickstart
 
 この通信条件に一致するルールがなければ、Gateway は学習可能な `403` を返します。件数と内容を制限した、秘密情報を含まないレビュー情報を保持し、信頼するホストで実行するコマンドをエージェントへ示します。自動承認はありません。利用者は Workspace から出て `tobari review permissions` を実行し、通信条件を確認して許可または拒否を確定します。再試行は、確定後に新しいリクエストとして行います。
 
-このルールは「エージェントが example.com を自由に使ってよい」という意味ではありません。レビューした Workspace Template、プロジェクトのプリンシパル、HTTPS の接続先とポート、HTTP メソッド、パスに結び付きます。
+このルールは「エージェントが example.com を自由に使ってよい」という意味ではありません。レビューした Context、HTTPS の接続先とポート、HTTP メソッド、パスに結び付きます。同じ Context の sibling Workspace は同じ完全一致 rule を共有します。
 
 <span id="boundary-protects"></span>
 
@@ -44,9 +44,9 @@ curl -X PUT https://example.com/quickstart
 
 - 作業対象のディレクトリ外にあるホストファイル
 - Docker ソケットと Docker の制御機能
-- ほかの Workspace と、その永続ホーム
+- ほかの Workspace の runtime と専用 network、および別 Context の永続 Home
 - Gateway を迂回して公開インターネットへ出る直接経路
-- 別 Workspace の native credential state
+- 別 Context の native credential state
 - ホストが所有するポリシーのレビューと有効化の経路
 
 Gateway、OPA、プリンシパル登録簿から有効な判断を確立できない場合、関連するリクエストは拒否します。OPA の障害が許可に変わることはありません。
@@ -59,7 +59,7 @@ Tobari は次を保証しません。
 
 - 作業対象のディレクトリ内にあるファイルを、その Workspace のプロセスから守ること
 - 利用者が許可した接続先へ、Workspace のプロセスが送るデータ
-- 同じ Workspace 内にあるプロセス同士の分離
+- 同じ Context Home を共有するプロセスや sibling Workspace 同士の分離
 - 重複するプロジェクトルート間で、互いのホストファイル変更が見えないこと
 - ホスト、カーネル、Docker、Gateway、OPA が侵害された後の保護
 - 生の TCP、UDP、HTTP/3、Git over SSH など、通常の HTTP/HTTPS 以外の通信
@@ -88,7 +88,7 @@ release surface の CLI release が公開・lock する service image は Gatewa
 
 ## まとめ
 
-Tobari は、作業対象のディレクトリへの読み書きを認める一方、ホスト環境と外部通信への権限を別に制御します。Workspace が自分自身へ権限を追加することはできません。ホストが Workspace Template とプロジェクトを特定し、OPA が通信を判断し、Gateway がその判断を強制します。native credential は Workspace に残り、許可された request でだけ転送されます。
+Tobari は、作業対象のディレクトリへの読み書きを認める一方、ホスト環境と外部通信への権限を別に制御します。Workspace が自分自身へ権限を追加することはできません。ホストが Context と Workspace principal を特定し、OPA が Context-owned Policy Memory で通信を判断し、Gateway がその判断を強制します。native credential は Context Home に残り、許可された request でだけ転送されます。
 
 ## 理解を確認する
 

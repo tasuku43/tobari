@@ -141,7 +141,8 @@ func finalSessionBindingFixtureWithTemplateID(t *testing.T, templateID tobari.Wo
 		LastSuccessfulEntry: &applied,
 	}
 	snapshot := tobari.ContextAuthoritySnapshot{
-		Context: contextBinding, Template: template, PolicyMemory: memory, Workspace: &workspace,
+		Context: contextBinding, Template: template, ContextHome: workspace.Home,
+		ContextCreationDefaults: workspace.CreationDefaults, PolicyMemory: memory, Workspace: &workspace,
 		ActiveTemplatePolicy: &templateReceipt, ActivePolicyMemory: &memory, ActivePolicyMemoryRef: &memoryReceipt,
 	}
 	receipt := tobari.WorkspaceEntryReconciliationReceipt{WorkspaceID: workspaceID, ContextID: contextID, Applied: applied, ContainerID: strings.Repeat("a", 64)}

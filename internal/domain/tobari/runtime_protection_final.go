@@ -94,7 +94,6 @@ func (a FinalRuntimeProtectionAuthority) Validate() error {
 			contexts[context.ID] = context
 			previousContext = context.ID
 		}
-		workspaceContexts := make(map[ContextID]struct{}, len(a.Workspaces))
 		previousWorkspace := WorkspaceID("")
 		for _, workspace := range a.Workspaces {
 			if previousWorkspace != "" && workspace.ID <= previousWorkspace {
@@ -103,9 +102,6 @@ func (a FinalRuntimeProtectionAuthority) Validate() error {
 			context, exists := contexts[workspace.ContextID]
 			if !exists {
 				return fmt.Errorf("final Runtime protection Workspace has no Context authority")
-			}
-			if _, exists := workspaceContexts[workspace.ContextID]; exists {
-				return fmt.Errorf("final Runtime protection Context has multiple Workspaces")
 			}
 			if err := workspace.ValidateFor(context); err != nil {
 				return err
@@ -126,7 +122,6 @@ func (a FinalRuntimeProtectionAuthority) Validate() error {
 					return fmt.Errorf("final Runtime protection AppliedEntry has no retained Template revision")
 				}
 			}
-			workspaceContexts[workspace.ContextID] = struct{}{}
 			previousWorkspace = workspace.ID
 		}
 	}

@@ -1,6 +1,7 @@
 package dockerruntime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -229,6 +230,176 @@ func TestFinalPolicyActivationPersistsExactReceiptAndSurvivesUnrelatedCollection
 	}
 	if err := runtime.ConfirmPolicyMemoryActive(context.Background(), contentDrift, finalProjectionContextID, receipt); err == nil {
 		t.Fatal("confirmation accepted actual selected Policy Memory drift")
+	}
+}
+
+func TestFinalPolicyActivationReplacesLegacySingularActiveReceipt(t *testing.T) {
+	runtime, runner, collection := finalPolicyActivationFixture(t)
+	want, err := runtime.ActivatePolicyMemory(context.Background(), collection, finalProjectionContextID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	activePath := runtime.finalPolicyActiveReceiptPath()
+	writeLegacySingularFinalPolicyActivation(t, activePath)
+	if _, err := runtime.readFinalPolicyActivation(activePath); !errors.Is(err, errLegacyFinalPolicyActivation) {
+		t.Fatalf("legacy active receipt classification=%v", err)
+	}
+
+	effects := runner.policyStageRuns
+	got, err := runtime.ActivatePolicyMemory(context.Background(), collection, finalProjectionContextID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want || runner.policyStageRuns <= effects {
+		t.Fatalf("legacy replacement receipt=%+v want=%+v effects=%d/%d", got, want, effects, runner.policyStageRuns)
+	}
+	active, err := runtime.readFinalPolicyActivation(activePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active.Material.Plan.SchemaVersion != tobari.WorkspacePolicyProjectionSchemaVersion || len(active.Material.Plan.Contexts) == 0 || active.Material.Plan.Contexts[0].Principals == nil {
+		t.Fatalf("replacement did not publish schema-v2 plural authority: %+v", active.Material.Plan)
+	}
+	if _, err := os.Lstat(runtime.finalPolicyActivationJournalPath()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("legacy replacement retained activation journal: %v", err)
+	}
+	data, err := os.ReadFile(activePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte(`"principal":`)) || !bytes.Contains(data, []byte(`"principals":`)) {
+		t.Fatalf("legacy singular shape survived replacement: %s", data)
+	}
+}
+
+func TestFinalPolicyActivationReplacesInterruptedLegacySingularJournal(t *testing.T) {
+	runtime, runner, collection := finalPolicyActivationFixture(t)
+	plan, err := tobari.BuildHotWorkspacePolicyProjection(collection, finalProjectionContextID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := runtime.prepareFinalPolicyActivation(context.Background(), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journalPath := runtime.finalPolicyActivationJournalPath()
+	writeLegacySingularFinalPolicyActivation(t, journalPath)
+	if _, err := runtime.readFinalPolicyActivation(journalPath); !errors.Is(err, errLegacyFinalPolicyActivation) {
+		t.Fatalf("legacy interrupted journal classification=%v", err)
+	}
+	if _, err := os.Lstat(runtime.finalPolicyActiveReceiptPath()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("interrupted predecessor unexpectedly published an active receipt: %v", err)
+	}
+
+	receipt, err := runtime.ActivatePolicyMemory(context.Background(), collection, finalProjectionContextID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt != prepared.Material.Plan.Contexts[0].MemoryReceipt || runner.policyStageRuns == 0 {
+		t.Fatalf("candidate recovery receipt=%+v prepared=%+v effects=%d", receipt, prepared.Material.Plan.Contexts[0].MemoryReceipt, runner.policyStageRuns)
+	}
+	active, err := runtime.readFinalPolicyActivation(runtime.finalPolicyActiveReceiptPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active.Material.Plan.SchemaVersion != tobari.WorkspacePolicyProjectionSchemaVersion || active.Material.Plan.Contexts[0].Principals == nil {
+		t.Fatalf("candidate did not replace interrupted legacy journal with plural authority: %+v", active.Material.Plan)
+	}
+	if _, err := os.Lstat(journalPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("candidate recovery retained activation journal: %v", err)
+	}
+}
+
+func writeLegacySingularFinalPolicyActivation(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var current finalPolicyActivationRecord
+	if err := json.Unmarshal(data, &current); err != nil {
+		t.Fatal(err)
+	}
+	legacyPlan := legacyWorkspacePolicyProjection{
+		SchemaVersion: 1, Mode: current.Material.Plan.Mode, CollectionRevision: current.Material.Plan.CollectionRevision,
+		TargetContextID: current.Material.Plan.TargetContextID, TargetContextIDs: current.Material.Plan.TargetContextIDs,
+		Contexts: []legacyWorkspacePolicyProjectionContext{},
+	}
+	for _, item := range current.Material.Plan.Contexts {
+		if len(item.Principals) > 1 {
+			t.Fatalf("fixture cannot be represented by the legacy singular schema: %#v", item.Principals)
+		}
+		legacyItem := legacyWorkspacePolicyProjectionContext{
+			ContextID: item.ContextID, TemplateID: item.TemplateID, Presentation: item.Presentation,
+			TemplatePolicy: item.TemplatePolicy, PolicyMemory: item.PolicyMemory,
+			TemplateReceipt: item.TemplateReceipt, MemoryReceipt: item.MemoryReceipt,
+		}
+		if len(item.Principals) == 1 {
+			principal := item.Principals[0]
+			legacyItem.Principal = &principal
+		}
+		legacyPlan.Contexts = append(legacyPlan.Contexts, legacyItem)
+	}
+	legacyPlan.ContentDigest, err = digestFinalValue(legacyPlan.Contexts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPlan.PlanDigest, err = digestFinalValue(struct {
+		Mode               tobari.WorkspacePolicyProjectionMode
+		CollectionRevision tobari.SemanticDigest
+		TargetContextID    *tobari.ContextID
+		TargetContextIDs   []tobari.ContextID
+		ContentDigest      tobari.SemanticDigest
+	}{legacyPlan.Mode, legacyPlan.CollectionRevision, legacyPlan.TargetContextID, legacyPlan.TargetContextIDs, legacyPlan.ContentDigest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	material := legacyFinalWorkspacePolicyProjection{Plan: legacyPlan, Principals: current.Material.Principals, Gateway: current.Material.Gateway}
+	material.MaterializedDigest, err = digestFinalValue(struct {
+		Contexts   []legacyWorkspacePolicyProjectionContext
+		Principals []FinalWorkspacePrincipalRow
+		Gateway    FinalGatewayComponentAuthority
+	}{legacyPlan.Contexts, material.Principals, material.Gateway})
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregate := current.Aggregate
+	aggregate.MaterializedDigest = material.MaterializedDigest
+	receipt := current.Receipt
+	receipt.MaterializedDigest = material.MaterializedDigest
+	receipt.ReceiptDigest, err = digestFinalValue(receipt.content())
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := legacyFinalPolicyActivationRecord{
+		SchemaVersion: current.SchemaVersion, ReviewedSetDigest: current.ReviewedSetDigest,
+		Material: material, Aggregate: aggregate, Receipt: receipt,
+	}
+	if err := writeAtomicJSON(path, legacy); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFinalPolicyActivationRejectsCurrentRecordWithOnlyDowngradedPlanVersion(t *testing.T) {
+	runtime, _, collection := finalPolicyActivationFixture(t)
+	if _, err := runtime.ActivatePolicyMemory(context.Background(), collection, finalProjectionContextID); err != nil {
+		t.Fatal(err)
+	}
+	path := runtime.finalPolicyActiveReceiptPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var damaged map[string]any
+	if err := json.Unmarshal(data, &damaged); err != nil {
+		t.Fatal(err)
+	}
+	damaged["material"].(map[string]any)["Plan"].(map[string]any)["schema_version"] = float64(1)
+	if err := writeAtomicJSON(path, damaged); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.readFinalPolicyActivation(path); err == nil || errors.Is(err, errLegacyFinalPolicyActivation) {
+		t.Fatalf("damaged current activation was classified as legacy: %v", err)
 	}
 }
 

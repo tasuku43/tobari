@@ -81,7 +81,7 @@ func TestConfiguratorSeedRejectsExecutionRuntimeOutsideDeterministicModeRule(t *
 	template := WorkspaceTemplate{SchemaVersion: WorkspaceTemplateSchemaVersion, ID: templateID, Name: DefaultManifestName, Current: revision, Retained: []WorkspaceTemplateRevision{revision.Clone()}}
 	memory, _, _ := PublishPolicyMemory(contextID, []PolicyMemoryRule{}, nil)
 	workspace := WorkspaceBinding{SchemaVersion: WorkspaceBindingSchemaVersion, ID: WorkspaceID("01912345-6789-7abc-8def-0123456789ad"), ContextID: contextID, ProjectRoot: "/workspace/example", Home: "/workspace/home", CreationDefaults: revision.Slices.CreationDefaultsDigest}
-	snapshot := ContextAuthoritySnapshot{Context: ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: contextID, TemplateID: templateID}, Template: template, PolicyMemory: memory, Workspace: &workspace}
+	snapshot := ContextAuthoritySnapshot{Context: ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: contextID, TemplateID: templateID}, Template: template, ContextHome: workspace.Home, ContextCreationDefaults: workspace.CreationDefaults, PolicyMemory: memory, Workspaces: []WorkspaceBinding{workspace}, Workspace: &workspace}
 	evolve, err := NewEvolveConfiguratorSeed(workspace.ProjectRoot, snapshot)
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +102,7 @@ func TestConfiguratorSubmissionBindsFrozenRuntimeSourceAndAppliedRevision(t *tes
 	template := WorkspaceTemplate{SchemaVersion: WorkspaceTemplateSchemaVersion, ID: templateID, Name: DefaultManifestName, Current: revision, Retained: []WorkspaceTemplateRevision{revision.Clone()}}
 	memory, _, _ := PublishPolicyMemory(contextID, []PolicyMemoryRule{}, nil)
 	workspace := WorkspaceBinding{SchemaVersion: WorkspaceBindingSchemaVersion, ID: WorkspaceID("01912345-6789-7abc-8def-0123456789ad"), ContextID: contextID, ProjectRoot: "/workspace/example", Home: "/workspace/home", CreationDefaults: revision.Slices.CreationDefaultsDigest}
-	snapshot := ContextAuthoritySnapshot{Context: ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: contextID, TemplateID: templateID}, Template: template, PolicyMemory: memory, Workspace: &workspace}
+	snapshot := ContextAuthoritySnapshot{Context: ContextBinding{SchemaVersion: ContextBindingSchemaVersion, ID: contextID, TemplateID: templateID}, Template: template, ContextHome: workspace.Home, ContextCreationDefaults: workspace.CreationDefaults, PolicyMemory: memory, Workspaces: []WorkspaceBinding{workspace}, Workspace: &workspace}
 	seed, err := NewEvolveConfiguratorSeed(workspace.ProjectRoot, snapshot)
 	if err != nil {
 		t.Fatal(err)

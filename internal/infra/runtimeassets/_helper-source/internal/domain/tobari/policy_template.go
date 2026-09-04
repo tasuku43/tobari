@@ -135,8 +135,7 @@ func validateSortedUniqueRuleIDs(values []string) error {
 }
 
 func (p PolicyPathTemplateProposal) matchesCandidate(candidate PolicyCandidate) bool {
-	return p.WorkspaceManifestID == candidate.WorkspaceManifestID && p.WorkspaceManifestName == candidate.WorkspaceManifestName &&
-		p.ProjectID == candidate.ProjectID && p.ProjectRoot == candidate.ProjectRoot && p.Host == candidate.Host &&
+	return p.WorkspaceManifestID == candidate.WorkspaceManifestID && p.Host == candidate.Host &&
 		p.Port == candidate.Port && p.Method == candidate.Method && p.PolicyProtocolIdentity.matches(candidate.PolicyProtocolIdentity)
 }
 
@@ -221,7 +220,7 @@ func pathTemplateMatches(templateSegments []string, path string) bool {
 
 func pathTemplateProposalID(proposal PolicyPathTemplateProposal) string {
 	material := appendPolicyProtocolIdentity([]string{
-		"tobari-policy-path-template-v1", proposal.WorkspaceManifestID, proposal.ProjectID, proposal.Host,
+		"tobari-policy-path-template-v2", proposal.WorkspaceManifestID, proposal.Host,
 		strconv.Itoa(proposal.Port), proposal.Method, proposal.Path,
 	}, proposal.PolicyProtocolIdentity)
 	sum := sha256.Sum256([]byte(strings.Join(material, "\x00")))
@@ -285,10 +284,6 @@ func PolicyReviewItems(candidates []PolicyCandidate, rules []LearnedPolicyRule) 
 	for base, evidence := range evidenceByBase {
 		for left := 0; left < len(evidence); left++ {
 			for right := left + 1; right < len(evidence); right++ {
-				if evidence[left].identity.WorkspaceManifestName != evidence[right].identity.WorkspaceManifestName ||
-					evidence[left].identity.ProjectRoot != evidence[right].identity.ProjectRoot {
-					return nil, fmt.Errorf("policy template evidence has inconsistent stable scope facts")
-				}
 				template, segments, ok := inferPathTemplate(evidence[left].path, evidence[right].path)
 				if !ok {
 					continue
@@ -396,7 +391,7 @@ func proposalIdentityFromRule(rule LearnedPolicyRule) PolicyPathTemplateProposal
 }
 
 func templateBaseKey(p PolicyPathTemplateProposal) string {
-	parts := appendPolicyProtocolIdentity([]string{p.WorkspaceManifestID, p.ProjectID, p.Host, strconv.Itoa(p.Port), p.Method}, p.PolicyProtocolIdentity)
+	parts := appendPolicyProtocolIdentity([]string{p.WorkspaceManifestID, p.Host, strconv.Itoa(p.Port), p.Method}, p.PolicyProtocolIdentity)
 	return strings.Join(parts, "\x00")
 }
 

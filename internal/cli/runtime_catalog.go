@@ -395,7 +395,7 @@ func runtimeListSpec() CommandSpec {
 func contextRuntimeSetSpec() CommandSpec {
 	minimum := int64(1)
 	return CommandSpec{Path: "manifest runtime set", Summary: "Replace one Workspace Manifest Runtime binding with a ready revision", Args: "[--runtime <standard|name@ordinal>] [--manifest <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
-		Agent: AgentContract{CapabilityID: "manifest.composition", Outcome: "Explicitly replace one Workspace Manifest Runtime binding; bound Workspaces adopt it on next entry without changing Workspace Manifest identity or existing Workspace homes",
+		Agent: AgentContract{CapabilityID: "manifest.composition", Outcome: "Explicitly replace one Workspace Manifest Runtime binding; bound Workspaces adopt it on next entry without changing Workspace Manifest identity or existing Context Homes",
 			Inputs: []CommandInput{{Name: "--runtime", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Exact ready Runtime selection as standard or name@ordinal; omission opens terminal Review in text mode.", AllowedValues: []string{}, Completion: InputCompletionReadyRuntimeReference}, executionContextInput(), formatInput()},
 			Output: contextReportOutput(), Prerequisites: []string{"The selected Runtime revision already exists and is ready."}, FixedTarget: fixedContextRuntimeBindingTarget(),
 			Errors: mutationCommandErrors("manifest runtime set", "manifest show",
@@ -751,7 +751,7 @@ func statusSpec() CommandSpec {
 					{Name: "workspace_home", Type: OutputFieldTypeString, Description: "Diagnostic Workspace XDG home path when one exists."},
 					{Name: "runtime", Type: OutputFieldTypeString, Description: "Recoverable runtime diagnostic; incomplete means the logical state record is missing and must be deleted before recreation."},
 					{Name: "attachment", Type: OutputFieldTypeString, Description: "Transient session observation: attached or detached when the Workspace exists, and not_applicable when it does not."},
-					{Name: "bootstrap", Type: OutputFieldTypeObject, Description: "One-time future-Workspace configuration snapshot relationship; never credential state.", Fields: []OutputField{
+					{Name: "bootstrap", Type: OutputFieldTypeObject, Description: "One-time first-Context-Home configuration snapshot relationship; never credential state and never rerun for sibling Workspaces.", Fields: []OutputField{
 						{Name: "state", Type: OutputFieldTypeString, Description: "Whether no recipe exists, this Workspace never received it, its applied revision is current, or it retains an older create-time revision.", Enum: []string{"not_configured", "not_applied", "current", "older"}},
 						{Name: "applied_revision", Type: OutputFieldTypeString, Description: "Semantic revision projected when this Workspace was created, or an empty string when none was applied."},
 						{Name: "current_revision", Type: OutputFieldTypeString, Description: "Current Workspace Manifest recipe revision, or an empty string when the recipe was removed."},
@@ -1276,7 +1276,7 @@ func listSpec() CommandSpec {
 					{Name: "project_root", Type: OutputFieldTypeString, Description: "Canonical project root mounted by the Workspace."},
 					{Name: "runtime", Type: OutputFieldTypeString, Description: "Recoverable runtime diagnostic; incomplete means the logical state record is missing and must be deleted before recreation."},
 					{Name: "workspace_id", Type: OutputFieldTypeString, Description: "Diagnostic stable Workspace ID; not a routine action input."},
-					{Name: "workspace_home", Type: OutputFieldTypeString, Description: "Workspace-owned persistent home path."},
+					{Name: "workspace_home", Type: OutputFieldTypeString, Description: "Context-owned persistent Home mounted by this Workspace."},
 					{Name: "workspace_manifest", Type: OutputFieldTypeString, Description: "Workspace Manifest display name permanently bound to the Workspace."},
 					{Name: "workspace_manifest_id", Type: OutputFieldTypeString, Description: "Stable Workspace Manifest authority identity permanently bound to the Workspace."},
 					{Name: "adoption", Type: OutputFieldTypeString, Description: "Relationship between Current and Next entry identities.", Enum: []string{"never_applied", "current", "pending"}},
@@ -1358,7 +1358,7 @@ func fixedContextGitIdentityTarget() *FixedTarget {
 }
 
 func fixedContextBootstrapTarget() *FixedTarget {
-	return &FixedTarget{Kind: tobari.ManifestBootstrapTargetKind, ID: tobari.ManifestBootstrapTargetID, Description: "This installation's Workspace Manifest-owned secret-free creation default applied only to future Workspace homes.", Scope: FixedTargetScopeToolLocal}
+	return &FixedTarget{Kind: tobari.ManifestBootstrapTargetKind, ID: tobari.ManifestBootstrapTargetID, Description: "This installation's Workspace Manifest-owned secret-free creation default applied only when the first Context Home is initialized.", Scope: FixedTargetScopeToolLocal}
 }
 
 func fixedActiveContextRuntimeTarget() *FixedTarget {
@@ -1546,7 +1546,7 @@ func workspaceReconciliationFailureOutputField() OutputField {
 }
 
 func contextBootstrapOutputField() OutputField {
-	return OutputField{Name: "bootstrap", Type: OutputFieldTypeObject, Description: "Secret-free create-only recipe for future Workspace homes.", Fields: []OutputField{
+	return OutputField{Name: "bootstrap", Type: OutputFieldTypeObject, Description: "Secret-free create-only recipe applied only to the first Context Home; sibling Workspaces never rerun it.", Fields: []OutputField{
 		{Name: "state", Type: OutputFieldTypeString, Description: "Whether a future-Workspace recipe is configured.", Enum: []string{"not_configured", "configured"}},
 		{Name: "generation", Type: OutputFieldTypeInteger, Description: "Monotonic semantic-change generation; zero when unconfigured."},
 		{Name: "revision", Type: OutputFieldTypeString, Description: "Semantic SHA-256 revision; empty when unconfigured."},

@@ -18,7 +18,7 @@ trusted components, untrusted data, and credential state.
 - Host files outside the selected root.
 - Docker control and other Workspace runtime resources.
 - Stable Template, Context, Workspace, and Policy Memory authority.
-- Host-owned lifecycle state and the persistent Workspace home containing agent-owned login files.
+- Host-owned lifecycle state and each persistent Context Home containing agent-owned login files.
 - Integrity of active aggregate policy and principal/authentication projections.
 - Secret-free diagnostics and structured CLI output.
 
@@ -28,11 +28,13 @@ The selected root is a working resource, not a protected asset against its own W
 
 Assume code inside a Workspace can:
 
-- Read and modify the selected project and Workspace home.
-- Start processes and coordinate with other processes in that Workspace.
+- Read and modify the selected project and its Context Home.
+- Start processes and coordinate with other processes or sibling Workspaces
+  sharing that Context Home.
 - Open direct sockets and attempt to bypass Gateway.
 - Forge headers, URLs, Context/Workspace-looking IDs, credential-like values, and prompt-like text.
-- Copy a credential file and replay it from another Workspace.
+- Use a credential file from any sibling Workspace sharing the same Context Home,
+  or copy it into a Workspace owned by another Context.
 - Trigger policy denials, race user review, and send different bodies for the same HTTP dimensions.
 - Present invalid certificates or consume upstream-controlled responses.
 
@@ -80,9 +82,9 @@ file cannot change that authority, and a mismatched source is rejected.
 ### Read host state through a Workspace
 
 The Workspace has no Docker control mount and no path to host configuration or
-state outside its selected root and persistent home. Ownership and mode checks
+state outside its selected root and persistent Context Home. Ownership and mode checks
 fail closed before the host uses a state file. Agent login files remain inside
-the Workspace home and are not a Tobari authority source.
+the Context Home and are not a Tobari authority source.
 
 ## Residual risks
 
@@ -151,8 +153,8 @@ retrying.
     <summary>Why is a different body not a different learned rule?</summary>
     <div class="prose-block">
       The body is streamed only after authorization and is absent from rule
-      identity. Workspace Template, project, host, port, method, and raw path
-      are the exact learned dimensions.
+      identity. Context, host, port, method, and raw path are the exact learned
+      dimensions; Workspace, root, CWD, and directory remain provenance only.
     </div>
   </details>
   <details>

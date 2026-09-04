@@ -130,7 +130,7 @@ func finalPolicyCLIFixture(t *testing.T) (*finalPolicyPortFixture, string, strin
 	templateReceipt := tobari.TemplatePolicyActivationReceipt{ContextID: contextID, TemplateID: templateID, PolicySliceDigest: revision.Slices.PolicySliceDigest}
 	activeMemory := memory.Clone()
 	memoryReceipt := tobari.PolicyMemoryActivationReceipt{ContextID: contextID, Revision: memory.Revision}
-	record := tobari.WorkspaceAuthorityContextRecord{Context: binding, PolicyMemory: memory, ActiveTemplatePolicy: &templateReceipt, ActivePolicyMemory: &activeMemory, ActivePolicyMemoryRef: &memoryReceipt}
+	record := tobari.WorkspaceAuthorityContextRecord{Context: binding, ContextHome: workspace.Home, CreationDefaults: workspace.CreationDefaults, PolicyMemory: memory, ActiveTemplatePolicy: &templateReceipt, ActivePolicyMemory: &activeMemory, ActivePolicyMemoryRef: &memoryReceipt}
 	effect := tobari.PolicyCandidateEffect{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Match: tobari.PolicyMatchExact, Host: "api.example.dev", Port: 443, Method: "GET", Path: "/pending", Segments: []string{}, Examples: []string{"/pending"}}
 	candidate, err := tobari.NewPolicyCandidateAuthority(contextID, workspaceID, effect)
 	if err != nil {
@@ -164,7 +164,7 @@ func finalPolicyCLIFixture(t *testing.T) (*finalPolicyPortFixture, string, strin
 		}
 		active := next.Clone()
 		receipt := tobari.PolicyMemoryActivationReceipt{ContextID: contextID, Revision: next.Revision}
-		snapshot := tobari.ContextAuthoritySnapshot{Context: binding, Template: template, PolicyMemory: next, ActiveTemplatePolicy: &templateReceipt, ActivePolicyMemory: &active, ActivePolicyMemoryRef: &receipt, Workspace: &workspace}
+		snapshot := tobari.ContextAuthoritySnapshot{Context: binding, Template: template, ContextHome: workspace.Home, ContextCreationDefaults: workspace.CreationDefaults, PolicyMemory: next, ActiveTemplatePolicy: &templateReceipt, ActivePolicyMemory: &active, ActivePolicyMemoryRef: &receipt, Workspace: &workspace}
 		result := tobari.PolicyCandidatePublication{Candidate: candidate, RuleID: rule.ID, Previous: memory, Memory: tobari.PolicyMemoryPublication{Snapshot: snapshot, PreviousRevision: memory.Revision, Changed: true}}
 		if err := result.ValidateFor(candidate.ID, decision); err != nil {
 			t.Fatal(err)
@@ -178,7 +178,7 @@ func finalPolicyCLIFixture(t *testing.T) (*finalPolicyPortFixture, string, strin
 	}
 	resetActive := resetMemory.Clone()
 	resetReceipt := tobari.PolicyMemoryActivationReceipt{ContextID: contextID, Revision: resetMemory.Revision}
-	resetSnapshot := tobari.ContextAuthoritySnapshot{Context: binding, Template: template, PolicyMemory: resetMemory, ActiveTemplatePolicy: &templateReceipt, ActivePolicyMemory: &resetActive, ActivePolicyMemoryRef: &resetReceipt, Workspace: &workspace}
+	resetSnapshot := tobari.ContextAuthoritySnapshot{Context: binding, Template: template, ContextHome: workspace.Home, ContextCreationDefaults: workspace.CreationDefaults, PolicyMemory: resetMemory, ActiveTemplatePolicy: &templateReceipt, ActivePolicyMemory: &resetActive, ActivePolicyMemoryRef: &resetReceipt, Workspace: &workspace}
 	reset := tobari.PolicyRuleResetPublication{RuleID: remembered.ID, RemovedFrom: memory, Memory: tobari.PolicyMemoryPublication{Snapshot: resetSnapshot, PreviousRevision: memory.Revision, Changed: true}}
 	if err := reset.ValidateFor(remembered.ID); err != nil {
 		t.Fatal(err)
@@ -431,9 +431,10 @@ func TestFinalPermissionInboxRawFlowOwnsListDetailAndReview(t *testing.T) {
 		t.Fatalf("result=%+v", result)
 	}
 	text := output.String()
+	contextRef, _ := tobari.ContextRef(port.review.Items[0].ContextID)
 	for _, want := range []string{
 		"Tobari · Permission Inbox", "Tobari · Review Permission", "Allow this exact request",
-		"Tobari · Review Decisions", "Staging has not changed the active policy.",
+		"Tobari · Review Decisions", "Staging has not changed the active policy.", contextRef,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("raw flow lacks %q: %q", want, text)

@@ -37,9 +37,8 @@ Tobari は、ホストの利用者、ホストのファイルシステム制御�
     <div class="prose-block">
       selected source は immutable Workspace Template <code>source_access</code>{" "}
       に従って read-only または read-write で mount します。CLI omission default
-      は read-write です。作業対象外のホストパスと、ほかの Workspace
-      のホームは通常のマウント対象に含めません。Workspace home と tmpfs は
-      writable です。
+      は read-write です。作業対象外のホストパスと、別 Context の Home
+      は通常のマウント対象に含めません。Context Home と tmpfs は writable です。
     </div>
   </section>
   <section>
@@ -57,10 +56,11 @@ Tobari は、ホストの利用者、ホストのファイルシステム制御�
     </div>
   </section>
   <section>
-    <h3>Workspace 所有のログイン状態</h3>
+    <h3>Context Home 所有のログイン状態</h3>
     <div class="prose-block">
-      agent CLI は永続 Workspace home にログイン状態を保存します。Tobari は
-      その値を OPA と監査から除外し、通常の HTTP effect
+      agent CLI は永続 Context Home にログイン状態を保存し、同じ Context の
+      sibling Workspace と共有します。Tobari は その値を OPA
+      と監査から除外し、通常の HTTP effect
       が許可された後だけ元の値を転送します。
     </div>
   </section>

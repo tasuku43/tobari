@@ -10,7 +10,7 @@ services:
     memswap_limit: 512m
     pids_limit: 128
     environment:
-      GOMEMLIMIT: 384MiB
+      GOMEMLIMIT: 256MiB
     command:
       - run
       - --server

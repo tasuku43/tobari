@@ -83,6 +83,9 @@ func finalAncestorSelectionFixture(t *testing.T) (*finalSelectionAuthorityFixtur
 		ProjectRoot: base.root, Home: "/workspace/home",
 		CreationDefaults: observation.Context.Template.Current.Slices.CreationDefaultsDigest,
 	}
+	observation.Context.ContextHome = observation.Context.Workspace.Home
+	observation.Context.ContextCreationDefaults = observation.Context.Workspace.CreationDefaults
+	observation.Context.Workspaces = []tobari.WorkspaceBinding{*observation.Context.Workspace}
 	selection := tobari.FinalDefaultPairSelection{
 		SchemaVersion: tobari.FinalDefaultPairSelectionSchemaVersion, CollectionPresent: true,
 		CollectionGeneration: observation.CollectionGeneration, CollectionRevision: observation.CollectionRevision,
@@ -284,6 +287,9 @@ func (f *defaultPairFixture) EnterContextByReference(context.Context, string, to
 	value.ActivePolicyMemoryRef = &memoryReceipt
 	applied := tobari.WorkspaceAppliedEntry{ContextID: contextID, TemplateID: templateID, TemplateRevision: value.Template.Current.Revision, EntrySliceDigest: value.Template.Current.Slices.EntrySliceDigest, RuntimeID: tobari.StandardRuntimeID, RuntimeRevision: value.Template.Current.Slices.RuntimeRevision, ResolvedSpec: digest("9"), ReconciledAt: time.Unix(10, 0).UTC()}
 	workspace := tobari.WorkspaceBinding{SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: workspaceID, ContextID: contextID, ProjectRoot: f.root, Home: "/workspace/home", CreationDefaults: value.Template.Current.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied}
+	value.ContextHome = workspace.Home
+	value.ContextCreationDefaults = workspace.CreationDefaults
+	value.Workspaces = []tobari.WorkspaceBinding{workspace}
 	value.Workspace = &workspace
 	f.snapshot = &value
 	f.advance()
@@ -550,7 +556,7 @@ func TestDefaultPairStatusOwnsIndependentDesiredActiveAndAppliedAuthority(t *tes
 	activeMemoryRef := tobari.PolicyMemoryActivationReceipt{ContextID: contextID, Revision: memoryA.Revision}
 	applied := tobari.WorkspaceAppliedEntry{ContextID: contextID, TemplateID: templateID, TemplateRevision: revisionA.Revision, EntrySliceDigest: revisionA.Slices.EntrySliceDigest, RuntimeID: tobari.StandardRuntimeID, RuntimeRevision: revisionA.Slices.RuntimeRevision, ResolvedSpec: digest("7"), ReconciledAt: time.Unix(1, 0).UTC()}
 	workspace := tobari.WorkspaceBinding{SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: workspaceID, ContextID: contextID, ProjectRoot: "/workspace/example", Home: "/workspace/home", CreationDefaults: revisionA.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied}
-	snapshot := tobari.ContextAuthoritySnapshot{Context: binding, Template: template, PolicyMemory: memoryB, ActiveTemplatePolicy: &activeTemplate, ActivePolicyMemory: &activeMemory, ActivePolicyMemoryRef: &activeMemoryRef, Workspace: &workspace}
+	snapshot := tobari.ContextAuthoritySnapshot{Context: binding, Template: template, ContextHome: workspace.Home, ContextCreationDefaults: workspace.CreationDefaults, PolicyMemory: memoryB, ActiveTemplatePolicy: &activeTemplate, ActivePolicyMemory: &activeMemory, ActivePolicyMemoryRef: &activeMemoryRef, Workspaces: []tobari.WorkspaceBinding{workspace}, Workspace: &workspace}
 	if err := snapshot.Validate(); err != nil {
 		t.Fatal(err)
 	}

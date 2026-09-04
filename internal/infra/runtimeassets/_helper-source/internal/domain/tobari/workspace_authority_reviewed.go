@@ -57,7 +57,6 @@ func (d PolicyMemoryReviewedDecision) Validate() error {
 		return fmt.Errorf("reviewed Policy Memory decision metadata is invalid")
 	}
 	contextID := d.Candidates[0].ContextID
-	workspaceID := d.Candidates[0].ObservingWorkspaceID
 	previousCandidate := ""
 	for _, candidate := range d.Candidates {
 		if err := candidate.Validate(); err != nil {
@@ -66,7 +65,7 @@ func (d PolicyMemoryReviewedDecision) Validate() error {
 		if candidate.Effect.Host == HostLoopbackHostname {
 			return fmt.Errorf("attachment-local policy candidate cannot enter persistent Policy Memory")
 		}
-		if candidate.ContextID != contextID || candidate.ObservingWorkspaceID != workspaceID ||
+		if candidate.ContextID != contextID ||
 			previousCandidate != "" && candidate.ID <= previousCandidate {
 			return fmt.Errorf("reviewed Policy Memory candidates must share one owner and be unique and sorted")
 		}
@@ -192,7 +191,7 @@ func policyMemoryReviewedItemID(d PolicyMemoryReviewedDecision) (string, error) 
 	if len(d.Candidates) == 1 && len(d.SourceRules) == 0 && d.Rule.Match == PolicyMatchExact {
 		return d.Candidates[0].ID, nil
 	}
-	return PolicyMemoryReviewedPathTemplateItemID(d.Candidates[0].ContextID, d.Candidates[0].ObservingWorkspaceID, d.Rule)
+	return PolicyMemoryReviewedPathTemplateItemID(d.Candidates[0].ContextID, d.Rule)
 }
 
 // PolicyMemoryReviewedPathTemplateItemID derives the stable opaque identity
@@ -200,13 +199,26 @@ func policyMemoryReviewedItemID(d PolicyMemoryReviewedDecision) (string, error) 
 // deliberately excluded and is bound separately by ProposalDigest.
 func PolicyMemoryReviewedPathTemplateItemID(
 	contextID ContextID,
-	workspaceID WorkspaceID,
 	rule PolicyMemoryRuleBody,
 ) (string, error) {
-	if contextID.Validate() != nil || workspaceID.Validate() != nil || rule.Match != PolicyMatchPathTemplate ||
+	if contextID.Validate() != nil || rule.Match != PolicyMatchPathTemplate ||
 		rule.PolicyProtocolIdentity.Validate() != nil || !validNormalizedPolicyHost(rule.Host) || rule.Port < 1 || rule.Port > 65535 ||
 		!httpMethodPattern.MatchString(rule.Method) || validatePathTemplate(rule.Path, rule.Segments) != nil {
 		return "", fmt.Errorf("reviewed Policy Memory path-template item scope is invalid")
+	}
+	material := appendPolicyProtocolIdentity([]string{
+		"tobari-policy-path-template-v2", string(contextID),
+		rule.Host, strconv.Itoa(rule.Port), rule.Method, rule.Path,
+	}, rule.PolicyProtocolIdentity)
+	sum := sha256.Sum256([]byte(strings.Join(material, "\x00")))
+	return "ptp_" + hex.EncodeToString(sum[:16]), nil
+}
+
+func legacyPolicyMemoryReviewedPathTemplateItemID(contextID ContextID, workspaceID WorkspaceID, rule PolicyMemoryRuleBody) (string, error) {
+	if contextID.Validate() != nil || workspaceID.Validate() != nil || rule.Match != PolicyMatchPathTemplate ||
+		rule.PolicyProtocolIdentity.Validate() != nil || !validNormalizedPolicyHost(rule.Host) || rule.Port < 1 || rule.Port > 65535 ||
+		!httpMethodPattern.MatchString(rule.Method) || validatePathTemplate(rule.Path, rule.Segments) != nil {
+		return "", fmt.Errorf("legacy reviewed Policy Memory path-template item scope is invalid")
 	}
 	material := appendPolicyProtocolIdentity([]string{
 		"tobari-policy-path-template-v1", string(contextID), string(workspaceID),
@@ -365,6 +377,69 @@ func policyMemoryReviewedDecisionSetDigest(s PolicyMemoryReviewedDecisionSet) (S
 		ObservedRevision   SemanticDigest
 		Decisions          []PolicyMemoryReviewedDecision
 	}{s.TargetID, s.ObservedGeneration, s.ObservedRevision, s.Decisions})
+}
+
+// NormalizePolicyMemoryReviewedDecisionSetAliases upgrades the retained v1
+// path-template review identity to its Context-owned v2 semantic alias. It is
+// intentionally strict: every predecessor digest must first bind the exact
+// predecessor value, so arbitrary invalid review evidence cannot be repaired.
+func NormalizePolicyMemoryReviewedDecisionSetAliases(s PolicyMemoryReviewedDecisionSet) (PolicyMemoryReviewedDecisionSet, bool, error) {
+	if err := s.Validate(); err == nil {
+		return s.Clone(), false, nil
+	}
+	if s.SchemaVersion != PolicyMemoryReviewedSetSchemaVersion || s.TargetID != PolicyDecisionSetID ||
+		s.ObservedGeneration == 0 || s.ObservedRevision.Validate() != nil || len(s.Decisions) == 0 || len(s.Decisions) > MaxPolicyReviewDecisions {
+		return PolicyMemoryReviewedDecisionSet{}, false, fmt.Errorf("legacy reviewed Policy Memory decision-set metadata is invalid")
+	}
+	wantLegacySetDigest, err := policyMemoryReviewedDecisionSetDigest(s)
+	if err != nil || s.Digest != wantLegacySetDigest {
+		return PolicyMemoryReviewedDecisionSet{}, false, fmt.Errorf("legacy reviewed Policy Memory decision-set digest is inconsistent")
+	}
+	result := s.Clone()
+	changed := false
+	for index, legacy := range s.Decisions {
+		if err := legacy.Validate(); err == nil {
+			continue
+		}
+		if legacy.Rule.Match != PolicyMatchPathTemplate || len(legacy.Candidates) == 0 {
+			return PolicyMemoryReviewedDecisionSet{}, false, fmt.Errorf("reviewed Policy Memory decision is not a recognized legacy alias")
+		}
+		workspaceID := legacy.Candidates[0].ObservingWorkspaceID
+		for _, candidate := range legacy.Candidates {
+			if candidate.ObservingWorkspaceID != workspaceID {
+				return PolicyMemoryReviewedDecisionSet{}, false, fmt.Errorf("legacy reviewed Policy Memory candidates cross Workspace scope")
+			}
+		}
+		legacyID, legacyIDErr := legacyPolicyMemoryReviewedPathTemplateItemID(legacy.ContextID(), workspaceID, legacy.Rule)
+		wantProposal, proposalErr := policyMemoryReviewedProposalDigest(legacy)
+		wantDecision, decisionErr := policyMemoryReviewedDecisionDigest(legacy)
+		if legacyIDErr != nil || proposalErr != nil || decisionErr != nil || legacy.ReviewItemID != legacyID ||
+			legacy.ProposalDigest != wantProposal || legacy.Digest != wantDecision {
+			return PolicyMemoryReviewedDecisionSet{}, false, fmt.Errorf("legacy reviewed Policy Memory decision authority is inconsistent")
+		}
+		currentID, currentIDErr := PolicyMemoryReviewedPathTemplateItemID(legacy.ContextID(), legacy.Rule)
+		if currentIDErr != nil {
+			return PolicyMemoryReviewedDecisionSet{}, false, currentIDErr
+		}
+		current, currentErr := NewPolicyMemoryReviewedDecision(currentID, legacy.Candidates, legacy.SourceRules, legacy.Decision, legacy.Rule)
+		if currentErr != nil {
+			return PolicyMemoryReviewedDecisionSet{}, false, currentErr
+		}
+		result.Decisions[index] = current
+		changed = true
+	}
+	if !changed {
+		return PolicyMemoryReviewedDecisionSet{}, false, fmt.Errorf("reviewed Policy Memory decision set is invalid and has no legacy alias")
+	}
+	sort.Slice(result.Decisions, func(i, j int) bool { return result.Decisions[i].ReviewItemID < result.Decisions[j].ReviewItemID })
+	result.Digest, err = policyMemoryReviewedDecisionSetDigest(result)
+	if err != nil {
+		return PolicyMemoryReviewedDecisionSet{}, false, err
+	}
+	if err := result.Validate(); err != nil {
+		return PolicyMemoryReviewedDecisionSet{}, false, err
+	}
+	return result, true, nil
 }
 
 // PolicyMemoryReviewedSettlementReceipt is the route-independent confirmed
@@ -616,6 +691,96 @@ func (p PolicyMemoryReviewedSetPublication) Validate() error {
 	return nil
 }
 
+// NormalizePolicyMemoryReviewedSetPublicationAliases upgrades a compact
+// terminal publication whose complete predecessor review authority was v1.
+func NormalizePolicyMemoryReviewedSetPublicationAliases(p PolicyMemoryReviewedSetPublication) (PolicyMemoryReviewedSetPublication, bool, error) {
+	if err := p.Validate(); err == nil {
+		return p.Clone(), false, nil
+	}
+	set, changed, err := NormalizePolicyMemoryReviewedDecisionSetAliases(p.DecisionSet)
+	if err != nil || !changed {
+		return PolicyMemoryReviewedSetPublication{}, false, fmt.Errorf("normalize legacy reviewed publication decision set: %w", err)
+	}
+	if p.SchemaVersion != PolicyMemoryReviewedSetSchemaVersion || p.Task != TaskPolicyReviewApply || p.TargetID != PolicyDecisionSetID ||
+		!p.Applied || !p.Changed || p.ActiveRevision != p.Settlement.AggregateRevision || p.PreviousGeneration != p.DecisionSet.ObservedGeneration ||
+		p.PreviousRevision != p.DecisionSet.ObservedRevision || p.NextGeneration != p.PreviousGeneration+1 || p.NextRevision.Validate() != nil ||
+		!reflect.DeepEqual(p.Previous, WorkspaceAuthorityCollection{}) || !reflect.DeepEqual(p.Next, WorkspaceAuthorityCollection{}) || len(p.LiveCandidates) != 0 ||
+		p.Settlement.Validate() != nil || p.Settlement.DecisionSetDigest != p.DecisionSet.Digest || p.AllowCount+p.DenyCount != len(p.DecisionSet.Decisions) {
+		return PolicyMemoryReviewedSetPublication{}, false, fmt.Errorf("legacy reviewed Policy Memory terminal publication metadata is invalid")
+	}
+	allow, deny := 0, 0
+	for _, decision := range p.DecisionSet.Decisions {
+		if decision.Decision == PolicyMemoryAllow {
+			allow++
+		} else {
+			deny++
+		}
+	}
+	if allow != p.AllowCount || deny != p.DenyCount || len(p.AppliedDecisions) != len(p.DecisionSet.Decisions) {
+		return PolicyMemoryReviewedSetPublication{}, false, fmt.Errorf("legacy reviewed Policy Memory publication counts are inconsistent")
+	}
+	if err := validatePolicyMemoryReviewedChanges(set, p.Changes); err != nil {
+		return PolicyMemoryReviewedSetPublication{}, false, err
+	}
+	result := p.Clone()
+	result.Previous = WorkspaceAuthorityCollection{}
+	result.Next = WorkspaceAuthorityCollection{}
+	result.LiveCandidates = nil
+	result.DecisionSet = set
+	result.Settlement.DecisionSetDigest = set.Digest
+	result.AppliedDecisions = make([]PolicyMemoryReviewedAppliedDecision, len(p.AppliedDecisions))
+	for index, legacyDecision := range p.DecisionSet.Decisions {
+		item := p.AppliedDecisions[index]
+		legacyAlias := legacyDecision.Validate() != nil
+		rule, ruleErr := NewPolicyMemoryRule(legacyDecision.ContextID(), legacyDecision.Decision, legacyDecision.Rule)
+		contextRef, contextErr := ContextRef(item.ContextID)
+		templateRef, templateErr := WorkspaceTemplateRef(item.TemplateID)
+		workspaceID, workspaceRef := WorkspaceID(""), ""
+		var workspaceErr error
+		if legacyAlias || legacyDecision.Rule.Match == PolicyMatchExact {
+			workspaceID = legacyDecision.Candidates[0].ObservingWorkspaceID
+			workspaceRef, workspaceErr = WorkspaceRef(workspaceID)
+		}
+		candidateIDs := make([]string, len(legacyDecision.Candidates))
+		for sourceIndex := range legacyDecision.Candidates {
+			candidateIDs[sourceIndex] = legacyDecision.Candidates[sourceIndex].ID
+		}
+		ruleIDs := make([]string, len(legacyDecision.SourceRules))
+		for sourceIndex := range legacyDecision.SourceRules {
+			ruleIDs[sourceIndex] = legacyDecision.SourceRules[sourceIndex].ID
+		}
+		if ruleErr != nil || contextErr != nil || templateErr != nil || workspaceErr != nil || item.ContextID != legacyDecision.ContextID() ||
+			item.ObservingWorkspaceID != workspaceID || item.ReviewItemID != legacyDecision.ReviewItemID ||
+			item.RuleID != rule.ID || item.Decision != legacyDecision.Decision || item.Match != legacyDecision.Rule.Match ||
+			item.ContextRef != contextRef || item.TemplateRef != templateRef || item.ObservingWorkspaceRef != workspaceRef ||
+			!reflect.DeepEqual(item.ConsumedCandidates, candidateIDs) || !reflect.DeepEqual(item.ReplacedSourceRules, ruleIDs) {
+			return PolicyMemoryReviewedSetPublication{}, false, fmt.Errorf("legacy reviewed Policy Memory applied decision is inconsistent")
+		}
+		currentID := legacyDecision.ReviewItemID
+		if legacyAlias {
+			currentID, err = PolicyMemoryReviewedPathTemplateItemID(legacyDecision.ContextID(), legacyDecision.Rule)
+			if err != nil {
+				return PolicyMemoryReviewedSetPublication{}, false, err
+			}
+		}
+		currentIndex := sort.Search(len(set.Decisions), func(candidate int) bool { return set.Decisions[candidate].ReviewItemID >= currentID })
+		if currentIndex == len(set.Decisions) || set.Decisions[currentIndex].ReviewItemID != currentID || result.AppliedDecisions[currentIndex].ReviewItemID != "" {
+			return PolicyMemoryReviewedSetPublication{}, false, fmt.Errorf("legacy reviewed Policy Memory applied decision alias is ambiguous")
+		}
+		currentItem := item.Clone()
+		currentItem.ReviewItemID = currentID
+		if legacyDecision.Rule.Match == PolicyMatchPathTemplate {
+			currentItem.ObservingWorkspaceID = ""
+			currentItem.ObservingWorkspaceRef = ""
+		}
+		result.AppliedDecisions[currentIndex] = currentItem
+	}
+	if err := result.Validate(); err != nil {
+		return PolicyMemoryReviewedSetPublication{}, false, err
+	}
+	return result, true, nil
+}
+
 // ValidatePolicyMemoryReviewedTransition proves that next is exactly the
 // result of applying one confirmed reviewed set to previous. It is the shared
 // pre-effect authority boundary for storage and concrete global settlement.
@@ -793,7 +958,12 @@ func validatePolicyMemoryReviewedApplied(
 		}
 		contextRef, contextErr := ContextRef(item.ContextID)
 		templateRef, templateErr := WorkspaceTemplateRef(item.TemplateID)
-		workspaceRef, workspaceErr := WorkspaceRef(item.ObservingWorkspaceID)
+		workspaceRef, workspaceID := "", WorkspaceID("")
+		var workspaceErr error
+		if decision.Rule.Match == PolicyMatchExact {
+			workspaceID = decision.Candidates[0].ObservingWorkspaceID
+			workspaceRef, workspaceErr = WorkspaceRef(workspaceID)
+		}
 		candidateIDs := make([]string, len(decision.Candidates))
 		for sourceIndex := range decision.Candidates {
 			candidateIDs[sourceIndex] = decision.Candidates[sourceIndex].ID
@@ -803,7 +973,7 @@ func validatePolicyMemoryReviewedApplied(
 			ruleIDs[sourceIndex] = decision.SourceRules[sourceIndex].ID
 		}
 		if contextErr != nil || templateErr != nil || workspaceErr != nil || item.ContextID != decision.ContextID() ||
-			item.ObservingWorkspaceID != decision.Candidates[0].ObservingWorkspaceID || item.ReviewItemID != decision.ReviewItemID ||
+			item.ObservingWorkspaceID != workspaceID || item.ReviewItemID != decision.ReviewItemID ||
 			item.RuleID != rule.ID || item.Decision != decision.Decision || item.Match != decision.Rule.Match ||
 			item.ContextRef != contextRef || item.TemplateRef != templateRef || item.ObservingWorkspaceRef != workspaceRef ||
 			!reflect.DeepEqual(item.ConsumedCandidates, candidateIDs) || !reflect.DeepEqual(item.ReplacedSourceRules, ruleIDs) {
@@ -840,7 +1010,12 @@ func policyMemoryReviewedAppliedDecisions(
 		}
 		contextRef, contextErr := ContextRef(decision.ContextID())
 		templateRef, templateErr := WorkspaceTemplateRef(templateID)
-		workspaceRef, workspaceErr := WorkspaceRef(decision.Candidates[0].ObservingWorkspaceID)
+		workspaceRef, workspaceID := "", WorkspaceID("")
+		var workspaceErr error
+		if decision.Rule.Match == PolicyMatchExact {
+			workspaceID = decision.Candidates[0].ObservingWorkspaceID
+			workspaceRef, workspaceErr = WorkspaceRef(workspaceID)
+		}
 		if contextErr != nil || templateErr != nil || workspaceErr != nil {
 			return nil, fmt.Errorf("reviewed Policy Memory applied references are invalid")
 		}
@@ -849,7 +1024,7 @@ func policyMemoryReviewedAppliedDecisions(
 			Match: decision.Rule.Match, ContextRef: contextRef, TemplateRef: templateRef,
 			ObservingWorkspaceRef: workspaceRef, ConsumedCandidates: candidateIDs, ReplacedSourceRules: ruleIDs,
 			ContextID: decision.ContextID(), TemplateID: templateID,
-			ObservingWorkspaceID: decision.Candidates[0].ObservingWorkspaceID,
+			ObservingWorkspaceID: workspaceID,
 		}
 	}
 	return result, nil
@@ -905,7 +1080,6 @@ func validatePolicyMemoryReviewedSources(
 	for _, decision := range set.Decisions {
 		for _, reviewed := range decision.Candidates {
 			candidate, exists := pending[reviewed.ID]
-			durable := exists
 			if !exists {
 				candidate, exists = observed[reviewed.ID]
 				if exists {
@@ -918,8 +1092,10 @@ func validatePolicyMemoryReviewedSources(
 			if workspaces[candidate.ObservingWorkspaceID] != candidate.ContextID {
 				return nil, fmt.Errorf("reviewed Policy Memory decision crosses its observing Workspace")
 			}
-			if durable {
-				consumed[candidate.ID] = struct{}{}
+			for pendingID, pendingCandidate := range pending {
+				if policyCandidateAuthoritiesShareEffect(candidate, pendingCandidate) {
+					consumed[pendingID] = struct{}{}
+				}
 			}
 		}
 		for _, reviewed := range decision.SourceRules {

@@ -117,7 +117,7 @@ tobari cluster logs --component opa --tail 100
 - `cluster_not_empty`: `tobari workspace list` ですべての Workspace を確認し、対応するルート/Workspace Template へ戻って一つずつ削除してから `cluster down` を実行します。
 - 中断された状態: `status` と `doctor` を確認します。ラベルやファイルを手動で削除せず、宣言された所定の後始末または調整コマンドを使います。
 
-`workspace delete` がプロジェクトファイルを削除することはありません。`cluster down --purge` は共有ランタイム/CA ボリュームを削除しますが、Workspace home、Template policy and Context Policy Memory、host-owned lifecycle state は保持します。agent CLI の logout は provider の操作です。
+`workspace delete` がプロジェクトファイルを削除することはありません。`cluster down --purge` は共有ランタイム/CA ボリュームを削除しますが、Context Home、Template policy and Context Policy Memory、host-owned lifecycle state は保持します。agent CLI の logout は provider の操作です。
 
 ## Colima または Lima からマウントが見えない
 

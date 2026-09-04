@@ -40,7 +40,7 @@ infrastructure supplies the security and lifecycle specification:
 
 - exactly one selected live project root mounted according to immutable
   Workspace Template `source_access` (`read-write` by CLI omission default);
-- one independent persistent Workspace home;
+- one persistent Context Home, shared with sibling Workspaces of that Context;
 - the dedicated guarded internal project network and Tobari CA trust environment;
 - the Gateway public CA volume;
 - a read-only root filesystem plus bounded temporary filesystems;

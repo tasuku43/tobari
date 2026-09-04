@@ -39,7 +39,7 @@ active authority は state root の `authority/` 以下に、Template、Context�
 | `runtime/`                      | host-owned Gateway runtime directory。socket は service とともに再作成され、durable credential ではない                                    |
 | `runtime/<asset-revision>/`     | materialized Compose、Gateway、OPA、runtime asset                                                                                          |
 
-agent CLI の login 形式は Workspace home に残り、Tobari の共有サービスや公開 JSON の権限にはなりません。Tobari はホストのログイン情報を継承しません。
+agent CLI の login 形式は Context Home に残り、同じ Context の sibling Workspace と共有されます。Tobari の共有サービスや公開 JSON の権限にはなりません。Tobari はホストのログイン情報を継承しません。
 
 Workspace Template policy の正本は `policy.yaml` の canonical typed data だけです。現行 schema は `tobari.dev/template-policy/v1` で、`boundary.methods.deny` が terminal Method Boundary、closed な `semantic.protocols` と `semantic.providers` が static module rule を保持します。Context Policy Memory は別の immutable state object です。内部 `data.json` は、検証済みの完全な `cluster-projections/<revision>/` 内でのみ生成されます。固定 evaluator は Tobari に組み込まれ、Docker 管理の policy bundle 内だけに現れます。未知または重複する field、不完全な source set、余分な file、symlink、hardlink、owner drift、安全でない mode は拒否されます。
 
@@ -63,14 +63,14 @@ Docker は作業コンテナ、専用ネットワーク、共有サービス、G
 | `workspace delete`                                                      | 対象 Workspace の authority、container、network、Workspace-private runtime record | プロジェクトファイル、Context Home と native state、Policy Memory、Workspace Template、クラスター、他の Workspace |
 | `workspace delete --id WORKSPACE_REF --confirm=delete --force`          | attached-session guard を一つだけ上書きした同じ削除                               | 対象外のリソースとプロジェクトファイル                                                                            |
 | container/network loss                                                  | 次の entry で失われた管理対象 runtime を再調整                                    | 論理 identity、Context binding、home、プロジェクトファイル                                                        |
-| `cluster down`                                                          | 共有 container と一時 network                                                     | Workspace Template、policy、Workspace home、host-owned lifecycle state、CA                                        |
-| `cluster down --purge`                                                  | 共有 runtime、CA、active policy bundle                                            | Workspace Template、policy、Workspace home、host-owned lifecycle state                                            |
+| `cluster down`                                                          | 共有 container と一時 network                                                     | Workspace Template、policy、Context Home、host-owned lifecycle state、CA                                          |
+| `cluster down --purge`                                                  | 共有 runtime、CA、active policy bundle                                            | Workspace Template、policy、Context Home、host-owned lifecycle state                                              |
 | `runtime build --id REF`                                                | source snapshot、検証済み immutable revision                                      | Workspace Template と Workspace の identity                                                                       |
 | `template.yaml` 編集、`template plan`、`template apply --plan PLAN_REF` | exact Runtime ID+revision を含む Template 全体のレビュー済み revision             | 既存Workspaceのhomeとcontainer（次回entryまで）                                                                   |
 
 標準 Runtime は、CLI に埋め込まれた固定 recipe から、必要な場合にローカルで構築します。release 由来の tag は recipe revision を示す表示・選択 evidence であり、不変 digest authority ではありません。管理対象 Runtime の成功した build は、検査した local image digest を installation-wide history に記録しますが、Workspace Template が保持するのは exact semantic revision binding だけです。
 
-`exit` は接続中の子プロセスだけを終えます。Workspace、作業コンテナ、専用ネットワーク、home、Context、Policy Memory、project files、agent CLI credentials は残ります。`workspace delete --id WORKSPACE_REF --confirm=delete --force` は attached-session guard だけを明示的に上書きし、削除対象の範囲を広げません。`cluster down --purge` も project root、Workspace home、Template policy and Context Policy Memory、host-owned lifecycle state を削除しません。
+`exit` は接続中の子プロセスだけを終えます。Workspace、作業コンテナ、専用ネットワーク、Context Home、Context、Policy Memory、project files、agent CLI credentials は残ります。`workspace delete --id WORKSPACE_REF --confirm=delete --force` は attached-session guard だけを明示的に上書きし、削除対象の範囲を広げません。`cluster down --purge` も project root、Context Home、Template policy and Context Policy Memory、host-owned lifecycle state を削除しません。
 
 ## 障害と復旧
 
@@ -84,9 +84,9 @@ aggregate revision が一致しない場合や policy activation が失敗した
 
 ## 保証と制限
 
-Tobari は、サポート対象のホストと Docker 構成内で、所有関係の検査と論理選択の永続化を保証します。選択したプロジェクトルートのスナップショットや完全性保護は提供しません。Workspace home は agent CLI の状態を保持しますが、Tobari の共有サービスではありません。
+Tobari は、サポート対象のホストと Docker 構成内で、所有関係の検査と論理選択の永続化を保証します。選択したプロジェクトルートのスナップショットや完全性保護は提供しません。Context Home は agent CLI の状態を sibling Workspace 間で保持しますが、Tobari の共有サービスではありません。
 
-重なり合う project root は互いの file change を観測でき、明示的に許可した宛先へ送ったデータを Tobari が後から取り消すこともできません。Workspace home は設計上、tool-native authentication state や credential を含み得ます。Tobari は host credential をそこへ copy または broker せず、release surface では agent CLI 自身が owner です。
+重なり合う project root は互いの file change を観測でき、明示的に許可した宛先へ送ったデータを Tobari が後から取り消すこともできません。Context Home は設計上、tool-native authentication state や credential を含み得ます。Tobari は host credential をそこへ copy または broker せず、release surface では agent CLI 自身が owner です。
 
 ## 根拠
 
@@ -153,11 +153,11 @@ Tobari は、サポート対象のホストと Docker 構成内で、所有関�
 
 <details>
   <summary>
-    <code>cluster down --purge</code> は Workspace home や host-owned lifecycle
+    <code>cluster down --purge</code> は Context Home や host-owned lifecycle
     state を削除しますか？
   </summary>
-  いいえ。共有 runtime、CA、active policy bundle を削除しますが、Workspace home
-  と host-owned lifecycle state は残ります。
+  いいえ。共有 runtime、CA、active policy bundle を削除しますが、Context Home と
+  host-owned lifecycle state は残ります。
 </details>
 
 <details>
@@ -170,8 +170,8 @@ Tobari は、サポート対象のホストと Docker 構成内で、所有関�
 
 <details>
   <summary>Runtime の再ビルド後に何が残りますか？</summary>
-  論理 Workspace identity、Context binding、プロジェクトファイル、Workspace home
+  論理 Workspace identity、Context binding、プロジェクトファイル、Context Home
   が残ります。必要なら次の entry で container を再作成します。
 </details>
 
-次へ：[認証と Workspace home](../../start/authentication-setup/)。
+次へ：[認証と Context Home](../../start/authentication-setup/)。

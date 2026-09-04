@@ -15,9 +15,9 @@ transcripts as repository fixtures.
 | Review, reclaim, and recover Runtime material | `review runtimes`; `runtime prune dry-run`, then `runtime prune apply --plan PLAN_REF --confirm=prune`; `runtime restore --id REVISION_REF`; `runtime delete --id RUNTIME_REF --confirm=delete` | One scoped help read plus one local discovery yields every exact opaque input; dry-run is zero-write and exhaustive, apply consumes the unchanged plan, restore reconstructs exact retained content, and whole deletion preserves Template, Context, Policy Memory, Workspace, home, Project, and credential authority while protected, unknown, shared, or standard targets fail closed |
 | Complete deterministic first use | Fresh bare `tobari` | Tobari-owned Manual review precedes canonical default Template/Context, cluster, Workspace entry, and handoff; no coding agent, Configurator draft, or task source is created during fresh setup |
 | Assist one concrete source | `runtime assist --id RUNTIME_REF [--agent codex\|claude]`; `policy assist [--context CONTEXT_REF] [--agent codex\|claude]` | Runtime assistance uses the installation standard Runtime and per-agent Home with zero CWD/Workspace/Context observation, may target an unbuilt managed Runtime, and publishes no revision; policy assistance uses the current Context or consumes one exact invocation-local override, exposes exact read-only Memory/schema evidence, and edits only `policy.yaml` through canonical Template Plan/Apply; both have direct egress but no Project/host/unrelated Home/Docker socket |
-| Select Context and enter bounded work | `context use --id CONTEXT_REF`; then `tobari` or `tobari -- COMMAND [ARG...]` | `context use` changes only the location-free installation selector; root selects an existing Workspace from CWD and follows its bound Context. Explicit create-here at a new root binds current only when unattached and otherwise creates a distinct default-Template Context, without rewriting the selector. Direct entry preserves exact argv and child status, while every failed or interrupted boundary leaves one causal Catalog action or typed condition and no blind replay |
+| Select Context and enter bounded work | `context use --id CONTEXT_REF`; then `tobari` or `tobari -- COMMAND [ARG...]` | `context use` changes only the location-free installation selector; root selects an existing Workspace from CWD and follows its bound Context. Explicit create-here at a new root creates a sibling Workspace for current even when current already owns other roots, without rewriting the selector. Direct entry preserves exact argv and child status, while every failed or interrupted boundary leaves one causal Catalog action or typed condition and no blind replay |
 | Understand authority lifetime | `context show --id CONTEXT_REF`, `policy rules`, and Host Loopback capability/review output | Routine guidance distinguishes Workspace Template policy, remembered Context decisions, and this-session Host Loopback access without requiring baseline, overlay, principal, epoch, or grant reconstruction; typed output retains exact destination kind and authority lifetime |
-| Grow exact permission | `review permissions`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Context/scheme/host/port/method/path authority |
+| Grow exact permission | `review permissions`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Context/scheme/host/port/method/path authority, shared by sibling Workspace principals without Workspace/root identity coupling |
 | Resume after reviewed denial | In the attached Workspace run the exact `tobari-permission wait --id pwt_...` printed by one eligible ordinary HTTP/HTTPS denial; in a separate trusted-host terminal review and Apply; after `Allow`, deliberately retry the workload | Wait returns only `Allow`, `Deny`, or lease `Expired`; the helper has no proposal, decision, mutation, discovery, or retry authority; the fresh request receives an independent Gateway authorization |
 | Open one Workspace service | In the attached Workspace run `tobari-expose PORT`; in a separate host terminal run `tobari review services --watch`; later use helper/host status, open, and stop | One action key/token confirms the complete effect card; Allow returns a generated per-exposure `.localhost` root URL plus an independent opaque lifecycle reference; Open is separate, Stop consumes the reference unchanged, and Permission review remains unrelated staged Apply |
 | Inspect/reset decisions | `policy rules`, then `policy reset --id` | One current exact decision is removed through its unchanged opaque reference and returns to default deny |
@@ -97,7 +97,7 @@ Exercise one protected current or retained Template revision edge, Workspace app
 pending, and observed edges, external/shared image use, an unavailable retained
 revision, and an unused zero-revision Runtime. Restore must publish only the
 recorded digest and leave history unchanged. Whole deletion must preserve every
-Template, Context, Policy Memory, Workspace ID, Workspace home, applied receipt,
+Template, Context, Policy Memory, Workspace ID, Context Home, applied receipt,
 project root, credential, and
 shared resource. Interrupt each mutation once and resume through the same
 reference or the single confirmed `review runtimes` path. Record zero external
@@ -333,14 +333,16 @@ keys, helpers, duplicates,
 symlinks, unsafe modes, oversized input, credentials, and cache material. A new
 Workspace must receive exact owner-only canonical `.aws/config` bytes and an
 applied revision before publication. After a semantic Workspace Template refresh, prove
-the existing file is byte-identical and reports `older`, while a newly created
-Workspace receives the new revision. For the dependent EKS adapter, prove one
+the existing file is byte-identical and reports `older`, while the first
+Workspace of a newly created Context initializes the new revision. A later
+sibling must reuse the Context Home without rerunning bootstrap. For the dependent EKS adapter, prove one
 explicit context in fixed `~/.kube/config` resolves only an inline CA,
 commercial EKS origin, optional namespace, and exact `aws eks get-token` contract
 with matching `AWS_PROFILE`. Reject tokens, keys, client certificates, auth
 providers, proxy/insecure TLS, file references, aliases, arbitrary exec/env/role
-arguments, unsafe paths, duplicates, and source drift. A composed new Workspace
-must receive canonical private `.kube/config`; removing EKS preserves AWS and
+arguments, unsafe paths, duplicates, and source drift. The first Workspace of a
+Context with composed bootstrap must initialize canonical private `.kube/config`;
+later siblings leave it byte-identical. Removing EKS preserves AWS and
 removing AWS first is rejected. No test may perform external AWS or Kubernetes
 I/O.
 Whole-file malformed or unsafe input must return no partial candidates;
@@ -353,7 +355,7 @@ whose source changes before Apply must make zero Workspace Template and Workspac
 
 The canonical contributor base must run `claude --version` as 2.1.220,
 `codex --version` as 0.147.0, and `gh --version` as 2.96.0 after replacing
-`/var/lib/tobari` with a fresh Workspace home. The client pins and agent-ready core matrix are reviewed as one
+`/var/lib/tobari` with a fresh Context Home. The client pins and agent-ready core matrix are reviewed as one
 contract. Verify the base workflow is validation-only and the protected
 Release workflow has no runtime registry login or publication path. Pending
 redistribution review remains explicit artifact metadata; it never becomes a
@@ -387,17 +389,18 @@ Tobari reserves no `Ctrl+]` or other child-input shortcut. In that terminal:
    to default deny and becomes reviewable again.
 
 Machine replay uses `policy candidates`, `policy allow --id`, `policy deny
---id`, and `policy reset --id`. The ordinary identity is exact Workspace Template,
-project, scheme, host, port, method, and raw path; GraphQL adds operation type
-and root field. Query, headers, body, and repeated identical observation count do
-not widen authority. Prefix rules, compaction commands/references/state, and
+--id`, and `policy reset --id`. The ordinary identity is exact Context, scheme,
+host, port, method, and raw path; GraphQL adds operation type and root field.
+Workspace ID, Project root, CWD, and directory ancestry remain observation
+provenance only. Query, headers, body, and repeated identical observation count
+do not widen authority. Prefix rules, compaction commands/references/state, and
 dormant prefix fallbacks must all be absent.
 
 ## Standard native-login regression
 
 Run Claude Code, Codex, GitHub CLI, and AWS CLI native login in a fresh standard
-Workspace home, and TWG CLI 1.2.5 plus pup 1.10.7 native login in compatible
-custom-runtime Workspaces. The test boundary does not retain credentials or authenticated
+Context Home, and TWG CLI 1.2.5 plus pup 1.10.7 native login in compatible
+custom-runtime Context Homes. The test boundary does not retain credentials or authenticated
 transcripts.
 
 For Claude, prove token exchange is followed by an allowed authenticated

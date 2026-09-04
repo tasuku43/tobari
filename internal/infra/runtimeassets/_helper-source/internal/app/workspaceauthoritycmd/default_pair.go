@@ -344,14 +344,14 @@ func (s *DefaultPairService) ResolveSelectedContext(ctx context.Context, context
 	if !current.SameReceipt(selected.Selection) || !reflect.DeepEqual(current, selected.Selection) {
 		return DefaultPairResolution{}, defaultPairMutationFault(fmt.Errorf("final authority changed after selection"))
 	}
-	observation, err := s.observeSelectedContext(ctx, current, contextID)
+	observation, err := s.observeSelectedContext(ctx, current, contextID, current.CanonicalCWD)
 	if err != nil {
 		return DefaultPairResolution{}, defaultPairMutationFault(err)
 	}
 	if observation.Context == nil || observation.Context.Workspace != nil || observation.ProjectRoot != current.CanonicalCWD {
 		return DefaultPairResolution{}, fault.WithClassification(fault.New(
-			fault.KindRejected, "context_in_use", "The selected Context already owns a Workspace at another Project root.", false,
-			fault.NextAction{Command: "workspace list", Reason: "Use the Context's existing Workspace or select an unattached Context."},
+			fault.KindRejected, "workspace_exists", "The selected Context already owns a Workspace at this Project root.", false,
+			fault.NextAction{Command: "workspace list", Reason: "Use the existing Workspace at this Project root."},
 		), fault.PhasePrecondition, fault.ChangeNone)
 	}
 	resolution := DefaultPairResolution{Observation: observation.Clone(), InvocationRoot: current.CanonicalCWD}
@@ -470,7 +470,7 @@ func (s *DefaultPairService) resolveSelected(ctx context.Context, intent operati
 		if publication.Current.Context == nil || confirmedSelection.CanonicalCWD != currentSelection.CanonicalCWD {
 			return defaultPairPostInitializationFault(fmt.Errorf("default-pair authority changed after initialization"), publication.Changed)
 		}
-		confirmed, err := s.observeSelectedContext(actionContext, confirmedSelection, publication.Current.Context.Context.ID)
+		confirmed, err := s.observeSelectedContext(actionContext, confirmedSelection, publication.Current.Context.Context.ID, publication.Current.ProjectRoot)
 		if err != nil {
 			return defaultPairPostInitializationFault(err, publication.Changed)
 		}
@@ -660,18 +660,11 @@ func (s *DefaultPairService) observeResolved(ctx context.Context, resolution Def
 	if selection.CanonicalCWD != resolution.InvocationRoot || resolution.Observation.Context == nil {
 		return tobari.FinalDefaultPairObservation{}, fmt.Errorf("canonical invocation root changed after selection")
 	}
-	return s.observeSelectedContext(ctx, selection, resolution.Observation.Context.Context.ID)
+	return s.observeSelectedContext(ctx, selection, resolution.Observation.Context.Context.ID, resolution.Observation.ProjectRoot)
 }
 
-func (s *DefaultPairService) observeSelectedContext(ctx context.Context, selection tobari.FinalDefaultPairSelection, contextID tobari.ContextID) (tobari.FinalDefaultPairObservation, error) {
+func (s *DefaultPairService) observeSelectedContext(ctx context.Context, selection tobari.FinalDefaultPairSelection, contextID tobari.ContextID, projectRoot string) (tobari.FinalDefaultPairObservation, error) {
 	if authority, ok := s.authority.(defaultPairContextAuthorityPort); ok && !portcheck.IsNil(authority) {
-		projectRoot := selection.CanonicalCWD
-		for _, candidate := range selection.Candidates {
-			if candidate.Snapshot.Context.ID == contextID {
-				projectRoot = candidate.Snapshot.Workspace.ProjectRoot
-				break
-			}
-		}
 		observed, err := authority.ObserveFinalDefaultPairContext(ctx, projectRoot, contextID)
 		if err != nil {
 			return tobari.FinalDefaultPairObservation{}, err
@@ -682,6 +675,12 @@ func (s *DefaultPairService) observeSelectedContext(ctx context.Context, selecti
 		return observed, nil
 	}
 	choice := tobari.FinalDefaultPairSelectionChoice{Kind: tobari.FinalDefaultPairSelectionUse, ContextID: contextID}
+	for _, candidate := range selection.Candidates {
+		if candidate.Snapshot.Context.ID == contextID && candidate.Snapshot.Workspace.ProjectRoot == projectRoot {
+			choice.WorkspaceID = candidate.Snapshot.Workspace.ID
+			break
+		}
+	}
 	return selection.Observation(choice)
 }
 

@@ -161,7 +161,7 @@ func renderFinalPolicyReviewList(
 				}
 			}
 			lines = append(lines,
-				marker+applyStyleToken(style, token, padFinalPolicyReviewState(state))+"  "+safeExternalText(item.Template),
+				marker+applyStyleToken(style, token, padFinalPolicyReviewState(state))+"  "+safeExternalText(item.Template)+" · "+safeExternalText(finalPolicyReviewContextRef(item)),
 				"    "+safeExternalText(item.ProjectRoot),
 				"    "+finalPolicyEffectSummary(item.Rule.PolicyProtocolIdentity, item.Rule.Method, item.Rule.Host, item.Rule.Port, item.Rule.Path),
 			)
@@ -244,12 +244,17 @@ func selectFinalPolicyReviewDetail(
 		frame := []string{
 			applyStyleToken(style, styleAccent, "Tobari · Review Permission"),
 			"",
-			"Project   " + safeExternalText(item.ProjectRoot),
-			"Template  " + safeExternalText(item.Template),
-			"Match     " + safeExternalText(string(item.Match)),
-			"Request   " + finalPolicyEffectSummary(item.Rule.PolicyProtocolIdentity, item.Rule.Method, item.Rule.Host, item.Rule.Port, item.Rule.Path),
-			"",
+			"Context   " + safeExternalText(finalPolicyReviewContextRef(item)),
 		}
+		if item.Match == tobari.PolicyMatchExact {
+			frame = append(frame, "Project   "+safeExternalText(item.ProjectRoot))
+		}
+		frame = append(frame,
+			"Template  "+safeExternalText(item.Template),
+			"Match     "+safeExternalText(string(item.Match)),
+			"Request   "+finalPolicyEffectSummary(item.Rule.PolicyProtocolIdentity, item.Rule.Method, item.Rule.Host, item.Rule.Port, item.Rule.Path),
+			"",
+		)
 		for index, choice := range choices {
 			marker := "  "
 			if index == selected {
@@ -293,6 +298,14 @@ func selectFinalPolicyReviewDetail(
 			return choice.decision, choice.back, lines, nil
 		}
 	}
+}
+
+func finalPolicyReviewContextRef(item tobari.PolicyMemoryReviewItem) string {
+	reference, err := tobari.ContextRef(item.ContextID)
+	if err != nil {
+		return string(item.ContextID)
+	}
+	return reference
 }
 
 func finalPolicyReviewChoices(item tobari.PolicyMemoryReviewItem) []finalPolicyReviewChoice {

@@ -20,8 +20,9 @@ const (
 // candidate snapshot or explicit creation at CanonicalCWD. ContextID remains
 // internal selection authority and is never reconstructed from a path.
 type FinalDefaultPairSelectionChoice struct {
-	Kind      FinalDefaultPairSelectionChoiceKind
-	ContextID ContextID
+	Kind        FinalDefaultPairSelectionChoiceKind
+	ContextID   ContextID
+	WorkspaceID WorkspaceID
 }
 
 // FinalDefaultPairCandidate is one Workspace whose Project root contains the
@@ -54,6 +55,7 @@ type FinalDefaultPairSelection struct {
 	CollectionPresent    bool
 	CollectionGeneration uint64
 	CollectionRevision   SemanticDigest
+	CurrentContextID     *ContextID
 	CanonicalCWD         string
 	DefaultTemplate      *WorkspaceTemplate
 	Candidates           []FinalDefaultPairCandidate
@@ -75,6 +77,10 @@ func NewFinalDefaultPairSelection(collection WorkspaceAuthorityCollection, prese
 	}
 	result.CollectionGeneration = collection.Generation
 	result.CollectionRevision = collection.Revision
+	if collection.CurrentContextID != nil {
+		value := *collection.CurrentContextID
+		result.CurrentContextID = &value
+	}
 	if collection.DefaultTemplateID != nil {
 		for index := range collection.Templates {
 			if collection.Templates[index].ID == *collection.DefaultTemplateID {
@@ -88,11 +94,23 @@ func NewFinalDefaultPairSelection(collection WorkspaceAuthorityCollection, prese
 	if err != nil {
 		return FinalDefaultPairSelection{}, err
 	}
+	byContext := make(map[ContextID]ContextAuthoritySnapshot, len(snapshots))
 	for _, snapshot := range snapshots {
-		if snapshot.Workspace == nil || !containsRoot(snapshot.Workspace.ProjectRoot, cwd) {
+		byContext[snapshot.Context.ID] = snapshot
+	}
+	for _, workspace := range collection.Workspaces {
+		if !containsRoot(workspace.ProjectRoot, cwd) {
 			continue
 		}
-		result.Candidates = append(result.Candidates, FinalDefaultPairCandidate{Snapshot: snapshot.Clone()})
+		snapshot, exists := byContext[workspace.ContextID]
+		if !exists {
+			return FinalDefaultPairSelection{}, fmt.Errorf("Workspace Context snapshot is unavailable")
+		}
+		focused, err := snapshot.SelectWorkspace(workspace.ID)
+		if err != nil {
+			return FinalDefaultPairSelection{}, err
+		}
+		result.Candidates = append(result.Candidates, FinalDefaultPairCandidate{Snapshot: focused})
 	}
 	sort.Slice(result.Candidates, func(left, right int) bool {
 		leftRoot := result.Candidates[left].Snapshot.Workspace.ProjectRoot
@@ -110,7 +128,7 @@ func (s FinalDefaultPairSelection) Validate() error {
 		return fmt.Errorf("final default-pair selection metadata is invalid")
 	}
 	if !s.CollectionPresent {
-		if s.CollectionGeneration != 0 || s.CollectionRevision != "" || s.DefaultTemplate != nil || len(s.Candidates) != 0 {
+		if s.CollectionGeneration != 0 || s.CollectionRevision != "" || s.CurrentContextID != nil || s.DefaultTemplate != nil || len(s.Candidates) != 0 {
 			return fmt.Errorf("absent final authority carries selection state")
 		}
 		return nil
@@ -118,21 +136,24 @@ func (s FinalDefaultPairSelection) Validate() error {
 	if s.CollectionGeneration == 0 || s.CollectionRevision.Validate() != nil {
 		return fmt.Errorf("final default-pair selection receipt is invalid")
 	}
+	if s.CurrentContextID != nil && s.CurrentContextID.Validate() != nil {
+		return fmt.Errorf("final default-pair current Context is invalid")
+	}
 	if s.DefaultTemplate != nil {
 		if err := s.DefaultTemplate.Validate(); err != nil {
 			return err
 		}
 	}
-	seen := make(map[ContextID]bool, len(s.Candidates))
+	seen := make(map[WorkspaceID]bool, len(s.Candidates))
 	previousRoot := ""
 	for index, candidate := range s.Candidates {
 		if err := candidate.Validate(s.CanonicalCWD); err != nil {
 			return fmt.Errorf("default-pair candidate %d is invalid: %w", index, err)
 		}
-		if seen[candidate.Snapshot.Context.ID] {
-			return fmt.Errorf("default-pair candidate Context IDs must be unique")
+		if seen[candidate.Snapshot.Workspace.ID] {
+			return fmt.Errorf("default-pair candidate Workspace IDs must be unique")
 		}
-		seen[candidate.Snapshot.Context.ID] = true
+		seen[candidate.Snapshot.Workspace.ID] = true
 		root := candidate.Snapshot.Workspace.ProjectRoot
 		if index > 0 && (len(previousRoot) < len(root) || (len(previousRoot) == len(root) && previousRoot > root)) {
 			return fmt.Errorf("default-pair candidates must be ordered nearest-first")
@@ -144,6 +165,10 @@ func (s FinalDefaultPairSelection) Validate() error {
 
 func (s FinalDefaultPairSelection) Clone() FinalDefaultPairSelection {
 	result := s
+	if s.CurrentContextID != nil {
+		value := *s.CurrentContextID
+		result.CurrentContextID = &value
+	}
 	if s.DefaultTemplate != nil {
 		value := s.DefaultTemplate.Clone()
 		result.DefaultTemplate = &value
@@ -167,6 +192,14 @@ func (s FinalDefaultPairSelection) RequiresChoice() bool {
 	if nearest != s.CanonicalCWD {
 		return true
 	}
+	if s.CurrentContextID != nil {
+		for _, candidate := range s.Candidates {
+			if candidate.Snapshot.Workspace.ProjectRoot == nearest && candidate.Snapshot.Context.ID == *s.CurrentContextID {
+				return false
+			}
+		}
+		return true
+	}
 	return len(s.Candidates) > 1 && s.Candidates[1].Snapshot.Workspace.ProjectRoot == nearest
 }
 
@@ -177,17 +210,25 @@ func (s FinalDefaultPairSelection) AutomaticChoice() (FinalDefaultPairSelectionC
 	if len(s.Candidates) == 0 {
 		return FinalDefaultPairSelectionChoice{Kind: FinalDefaultPairSelectionCreate}, true
 	}
-	return FinalDefaultPairSelectionChoice{Kind: FinalDefaultPairSelectionUse, ContextID: s.Candidates[0].Snapshot.Context.ID}, true
+	if s.CurrentContextID != nil {
+		for _, candidate := range s.Candidates {
+			if candidate.Snapshot.Workspace.ProjectRoot == s.CanonicalCWD && candidate.Snapshot.Context.ID == *s.CurrentContextID {
+				return FinalDefaultPairSelectionChoice{Kind: FinalDefaultPairSelectionUse, ContextID: candidate.Snapshot.Context.ID, WorkspaceID: candidate.Snapshot.Workspace.ID}, true
+			}
+		}
+	}
+	return FinalDefaultPairSelectionChoice{Kind: FinalDefaultPairSelectionUse, ContextID: s.Candidates[0].Snapshot.Context.ID, WorkspaceID: s.Candidates[0].Snapshot.Workspace.ID}, true
 }
 
 func (s FinalDefaultPairSelection) ValidateChoice(choice FinalDefaultPairSelectionChoice) error {
 	switch choice.Kind {
 	case FinalDefaultPairSelectionCreate:
-		if choice.ContextID != "" {
-			return fmt.Errorf("create choice must not contain a Context ID")
+		if choice.ContextID != "" || choice.WorkspaceID != "" {
+			return fmt.Errorf("create choice must not contain Context or Workspace identity")
 		}
 		for _, candidate := range s.Candidates {
-			if candidate.Snapshot.Workspace.ProjectRoot == s.CanonicalCWD {
+			if candidate.Snapshot.Workspace.ProjectRoot == s.CanonicalCWD &&
+				(s.CurrentContextID == nil || candidate.Snapshot.Context.ID == *s.CurrentContextID) {
 				return fmt.Errorf("current directory already has a default Context")
 			}
 		}
@@ -196,12 +237,19 @@ func (s FinalDefaultPairSelection) ValidateChoice(choice FinalDefaultPairSelecti
 		if choice.ContextID.Validate() != nil {
 			return fmt.Errorf("use choice requires a valid Context ID")
 		}
+		matches := 0
 		for _, candidate := range s.Candidates {
-			if candidate.Snapshot.Context.ID == choice.ContextID {
-				return nil
+			if candidate.Snapshot.Context.ID == choice.ContextID && (choice.WorkspaceID == "" || candidate.Snapshot.Workspace.ID == choice.WorkspaceID) {
+				matches++
 			}
 		}
-		return fmt.Errorf("selected Context is not present in the snapshot")
+		if choice.WorkspaceID != "" && choice.WorkspaceID.Validate() != nil {
+			return fmt.Errorf("use choice has an invalid Workspace ID")
+		}
+		if matches != 1 {
+			return fmt.Errorf("selected Context and Workspace are not unique in the snapshot")
+		}
+		return nil
 	default:
 		return fmt.Errorf("default-pair selection choice kind is invalid")
 	}
@@ -218,7 +266,7 @@ func (s FinalDefaultPairSelection) Observation(choice FinalDefaultPairSelectionC
 	var selected *ContextAuthoritySnapshot
 	if choice.Kind == FinalDefaultPairSelectionUse {
 		for _, candidate := range s.Candidates {
-			if candidate.Snapshot.Context.ID == choice.ContextID {
+			if candidate.Snapshot.Context.ID == choice.ContextID && (choice.WorkspaceID == "" || candidate.Snapshot.Workspace.ID == choice.WorkspaceID) {
 				value := candidate.Snapshot.Clone()
 				selected = &value
 				root = value.Workspace.ProjectRoot
@@ -284,8 +332,12 @@ func NewFinalDefaultPairObservation(collection WorkspaceAuthorityCollection, pre
 	}
 	exact := make([]ContextAuthoritySnapshot, 0, 1)
 	for _, snapshot := range snapshots {
-		if snapshot.Workspace != nil && snapshot.Workspace.ProjectRoot == projectRoot {
-			exact = append(exact, snapshot.Clone())
+		focused, focusErr := snapshot.SelectWorkspaceAtRoot(projectRoot)
+		if focusErr != nil {
+			return FinalDefaultPairObservation{}, focusErr
+		}
+		if focused.Workspace != nil {
+			exact = append(exact, focused)
 		}
 	}
 	selected := -1
@@ -342,12 +394,13 @@ func NewFinalDefaultPairContextObservation(collection WorkspaceAuthorityCollecti
 		if snapshot.Context.ID != contextID {
 			continue
 		}
-		if snapshot.Workspace != nil && snapshot.Workspace.ProjectRoot != projectRoot {
-			return FinalDefaultPairObservation{}, fmt.Errorf("selected Context Workspace belongs to another Project")
+		focused, focusErr := snapshot.SelectWorkspaceAtRoot(projectRoot)
+		if focusErr != nil {
+			return FinalDefaultPairObservation{}, focusErr
 		}
 		template := snapshot.Template.Clone()
 		result.DefaultTemplate = &template
-		value := snapshot.Clone()
+		value := focused.Clone()
 		result.Context = &value
 		return result, result.Validate()
 	}

@@ -231,7 +231,7 @@ func runConfigBootstrapAWS(ctx context.Context, c *CLI, command CommandSpec, int
 		if current.Bootstrap.Resolved().State == tobari.ManifestBootstrapConfigured {
 			options = append(options, configurationWizardOption{label: "Refresh snapshot", description: "Re-read the currently selected host profile.", value: "refresh"}, configurationWizardOption{label: "Remove recipe", description: "Keep existing Workspaces unchanged.", value: "remove"})
 		}
-		index, chooseErr := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{title: "Tobari · AWS bootstrap", contextName: current.Name, current: current.Bootstrap.Resolved().State, information: []string{"Only future Workspaces receive the snapshot once.", "Credentials and SSO caches are never read."}, prompt: "Action", options: options})
+		index, chooseErr := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{title: "Tobari · AWS bootstrap", contextName: current.Name, current: current.Bootstrap.Resolved().State, information: []string{"Only the first Context Home initialization receives the snapshot.", "Credentials and SSO caches are never read."}, prompt: "Action", options: options})
 		if chooseErr != nil {
 			return c.fail(ctx, normalizeConfigurationWizardError(command.Path, chooseErr))
 		}
@@ -316,7 +316,7 @@ func runConfigBootstrapEKS(ctx context.Context, c *CLI, command CommandSpec, int
 		if current.Bootstrap.EKSContext != "" {
 			options = append(options, configurationWizardOption{label: "Refresh EKS target", description: "Re-read the selected host kube context.", value: "refresh"}, configurationWizardOption{label: "Remove EKS target", description: "Preserve AWS and existing Workspaces.", value: "remove"})
 		}
-		index, chooseErr := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{title: "Tobari · EKS bootstrap", contextName: current.Name, current: current.Bootstrap.Resolved().State, information: []string{"Only future Workspaces receive the target once.", "Tokens, keys, arbitrary exec plugins, and network authority are never imported."}, prompt: "Action", options: options})
+		index, chooseErr := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{title: "Tobari · EKS bootstrap", contextName: current.Name, current: current.Bootstrap.Resolved().State, information: []string{"Only the first Context Home initialization receives the target.", "Tokens, keys, arbitrary exec plugins, and network authority are never imported."}, prompt: "Action", options: options})
 		if chooseErr != nil {
 			return c.fail(ctx, normalizeConfigurationWizardError(command.Path, chooseErr))
 		}

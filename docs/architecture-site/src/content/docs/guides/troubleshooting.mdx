@@ -131,7 +131,7 @@ recovery. Tobari does not translate or execute that state.
 - `cluster_not_empty`: `tobari workspace list` every Workspace, return to the appropriate root/Workspace Template, and delete each before `cluster down`.
 - Interrupted state: inspect `status` and `doctor`; use the declared exact cleanup or reconcile command rather than manually deleting labels/files.
 
-`workspace delete` never removes project files. `cluster down --purge` removes shared runtime and CA volumes but preserves Workspace home, Template policy and Context Policy Memory, and host-owned lifecycle state; agent CLI logout remains a provider operation.
+`workspace delete` never removes project files. `cluster down --purge` removes shared runtime and CA volumes but preserves Context Home, Template policy and Context Policy Memory, and host-owned lifecycle state; agent CLI logout remains a provider operation.
 
 ## Colima or Lima cannot see a mount
 

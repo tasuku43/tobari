@@ -109,8 +109,8 @@ generation does.
 | `workspace delete`                                                      | Removes the exact detached Workspace authority, container, network, and Workspace-private runtime records. | Project-root files, Context Home and native state, Policy Memory, Workspace Template, cluster, host-owned state, and other Workspaces. |
 | `workspace delete --id WORKSPACE_REF --confirm=delete --force`          | Performs the same deletion while overriding only the “attached exec exists” guard.                         | It does not broaden the target or delete project-root files.                                                                           |
 | Container or project-network loss                                       | The next root entry reconciles the missing owned runtime resource.                                         | Workspace identity, Context binding, active authority generation, home, and project files.                                             |
-| `cluster down`                                                          | Requires no logical Workspace; removes shared containers and transient shared resources.                   | Workspace Templates, policies, Workspace homes, host-owned state, and Gateway CA volumes.                                              |
-| `cluster down --purge`                                                  | Also removes only the shared Gateway/public CA volumes.                                                    | Workspace Templates, policies, Workspace homes, and host-owned state.                                                                  |
+| `cluster down`                                                          | Requires no logical Workspace; removes shared containers and transient shared resources.                   | Workspace Templates, policies, Context Homes, host-owned state, and Gateway CA volumes.                                                |
+| `cluster down --purge`                                                  | Also removes only the shared Gateway/public CA volumes.                                                    | Workspace Templates, policies, Context Homes, and host-owned state.                                                                    |
 | `runtime build --id RUNTIME_REF`                                        | Snapshots, builds, validates, and appends one immutable Runtime revision.                                  | Every Workspace Template binding and Workspace remains unchanged; failed and unchanged builds append no revision.                      |
 | edit `template.yaml`; `template plan`; `template apply --plan PLAN_REF` | Reviews and atomically publishes one complete Template revision, including an exact Runtime ID+revision.   | Existing Workspace identity, home, and current container until the next entry reconciles it.                                           |
 
@@ -146,7 +146,7 @@ repair, migrate, rotate, delete, or unlock state on its own.
 Tobari guarantees exact ownership checks and durable logical selection within
 the supported host/Docker topology. It intentionally does not provide a
 snapshot or integrity layer for the selected project root. Overlapping project
-roots can observe each other's file changes. The Workspace home may contain
+roots can observe each other's file changes. The Context Home may contain
 tool-native authentication state and credentials by design. Tobari does not copy
 host credentials into that home or broker them in the release surface; the agent
 CLI remains their owner.

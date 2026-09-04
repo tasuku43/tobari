@@ -410,7 +410,15 @@ func (r *Runtime) ConfirmFinalWorkspaceRetirementSettled(
 		}
 	}
 	return r.confirmFinalPolicyActivation(ctx, plan, func(item tobari.WorkspacePolicyProjectionContext) bool {
-		return item.ContextID == workspace.ContextID && item.Principal == nil
+		if item.ContextID != workspace.ContextID {
+			return false
+		}
+		for _, principal := range item.Principals {
+			if principal.WorkspaceID == workspace.ID {
+				return false
+			}
+		}
+		return true
 	})
 }
 
@@ -836,6 +844,9 @@ func verifySelectedFinalComponentClosure(
 ) error {
 	if gateway.ImageID != candidate.GatewayImageID || opa.ImageID != candidate.OPAImageID {
 		return fmt.Errorf("selected final component image identity is not applied")
+	}
+	if filepath.Clean(opa.ComposeProjectDir) != filepath.Clean(candidate.Compose.RuntimeDirectory) {
+		return fmt.Errorf("selected final OPA compose authority is not applied")
 	}
 	if err := verifyAppliedPermissionProfile(gateway, candidate.Profile); err != nil {
 		return err
@@ -1404,10 +1415,25 @@ func (r *Runtime) replaceFinalGateway(ctx context.Context, candidate *finalGatew
 		return err
 	}
 	args = append(args, profileArgs...)
-	// OPA already belongs to the selected candidate closure. Recreating it
-	// while Gateway is replaced removes the stable Docker DNS endpoint that
-	// the new Gateway must use for its first health and policy checks.
-	args = append(args, "up", "-d", "--no-build", "--no-deps", "--force-recreate", "gateway")
+	services := []string{"gateway"}
+	opa, missing, err := r.observeFinalClusterComponentRaw(ctx, "opa", opaContainer)
+	if err != nil {
+		return fmt.Errorf("observe final OPA Compose replacement target: %w", err)
+	}
+	if missing {
+		return fmt.Errorf("final OPA Compose replacement target is absent")
+	}
+	if filepath.Clean(opa.ComposeProjectDir) != filepath.Clean(candidate.Compose.RuntimeDirectory) {
+		// An upgrade can retain an image-identical OPA from an older Compose
+		// closure. Replace it together with Gateway so resource and environment
+		// contracts (including the heap limit) become current atomically. This
+		// exact mechanism choice is derived after the durable decision from the
+		// fixed candidate closure, so predecessor schema-v1 journals need no new
+		// field and remain recoverable.
+		services = []string{"opa", "gateway"}
+	}
+	args = append(args, "up", "-d", "--no-build", "--no-deps", "--force-recreate")
+	args = append(args, services...)
 	if brokerRuntimeEnabled {
 		args = append(args, "auth-broker")
 	}
@@ -1662,7 +1688,7 @@ func (r *Runtime) observeFinalGatewaySettlementCandidatePass(
 		}
 		if stoppedPresent {
 			for _, item := range plan.Contexts {
-				if item.Principal != nil {
+				if len(item.Principals) != 0 {
 					return nil, nil, gateway, appliedClusterComponentObservation{}, fmt.Errorf("stopped final cluster cannot recover a live Workspace principal")
 				}
 			}
@@ -1689,60 +1715,58 @@ func (r *Runtime) observeFinalGatewaySettlementCandidatePass(
 		networks[shared] = address
 	}
 	for _, item := range plan.Contexts {
-		if item.Principal == nil {
-			continue
-		}
-		authority := *item.Principal
-		container, network, err := tobari.ProjectResourceNames(string(authority.WorkspaceID))
-		if err != nil {
-			return nil, nil, gateway, opa, err
-		}
-		if err := r.verifyOwnedProjectResource(ctx, "network", network, string(authority.WorkspaceID), projectNetRole); err != nil {
-			return nil, nil, gateway, opa, err
-		}
-		observation, err := r.observeFinalWorkspaceContainer(ctx, container, network, authority)
-		if err != nil {
-			return nil, nil, gateway, opa, err
-		}
-		gatewayAddress := gateway.NetworkAddresses[network]
-		workspaceAddress := ""
-		var principal FinalWorkspacePrincipalRow
-		if observation.Running {
-			if err := observation.validateFor(authority.WorkspaceID, authority.AppliedEntry.ResolvedSpec, ""); err != nil {
-				return nil, nil, gateway, opa, err
-			}
-			workspaceAddress, err = r.workspaceNetworkAddress(ctx, container, network)
+		for _, authority := range item.Principals {
+			container, network, err := tobari.ProjectResourceNames(string(authority.WorkspaceID))
 			if err != nil {
 				return nil, nil, gateway, opa, err
 			}
-		} else {
-			principal, err = r.preserveStoppedFinalWorkspacePrincipal(ctx, authority, network, observation, gateway, previous, previousPresent, registry)
+			if err := r.verifyOwnedProjectResource(ctx, "network", network, string(authority.WorkspaceID), projectNetRole); err != nil {
+				return nil, nil, gateway, opa, err
+			}
+			observation, err := r.observeFinalWorkspaceContainer(ctx, container, network, authority)
 			if err != nil {
 				return nil, nil, gateway, opa, err
 			}
-			workspaceAddress = principal.WorkspaceIP
-			gatewayAddress = principal.GatewayIP
-		}
-		if gatewayAddress == "" {
-			gatewayAddress, err = r.selectFinalGatewayNetworkAddress(ctx, network, workspaceAddress)
-			if err != nil {
-				return nil, nil, gateway, opa, err
+			gatewayAddress := gateway.NetworkAddresses[network]
+			workspaceAddress := ""
+			var principal FinalWorkspacePrincipalRow
+			if observation.Running {
+				if err := observation.validateFor(authority.WorkspaceID, authority.AppliedEntry.ResolvedSpec, ""); err != nil {
+					return nil, nil, gateway, opa, err
+				}
+				workspaceAddress, err = r.workspaceNetworkAddress(ctx, container, network)
+				if err != nil {
+					return nil, nil, gateway, opa, err
+				}
+			} else {
+				principal, err = r.preserveStoppedFinalWorkspacePrincipal(ctx, authority, network, observation, gateway, previous, previousPresent, registry)
+				if err != nil {
+					return nil, nil, gateway, opa, err
+				}
+				workspaceAddress = principal.WorkspaceIP
+				gatewayAddress = principal.GatewayIP
 			}
-		}
-		subnet, err := r.projectNetworkSubnet(ctx, network)
-		if err != nil || validateProjectNetworkEndpoints(subnet, workspaceAddress, gatewayAddress) != nil {
-			return nil, nil, gateway, opa, fmt.Errorf("validate final Workspace network endpoints: %w", err)
-		}
-		networks[network] = gatewayAddress
-		if principal.WorkspaceID == "" {
-			principal = FinalWorkspacePrincipalRow{
-				ContextID: authority.ContextID, WorkspaceID: authority.WorkspaceID, TemplateID: authority.TemplateID,
-				Presentation: authority.Presentation, ProjectRoot: authority.ProjectRoot,
-				ContainerID: observation.ID, ResolvedSpec: authority.AppliedEntry.ResolvedSpec,
-				WorkspaceIP: workspaceAddress, GatewayIP: gatewayAddress, Network: network,
+			if gatewayAddress == "" {
+				gatewayAddress, err = r.selectFinalGatewayNetworkAddress(ctx, network, workspaceAddress)
+				if err != nil {
+					return nil, nil, gateway, opa, err
+				}
 			}
+			subnet, err := r.projectNetworkSubnet(ctx, network)
+			if err != nil || validateProjectNetworkEndpoints(subnet, workspaceAddress, gatewayAddress) != nil {
+				return nil, nil, gateway, opa, fmt.Errorf("validate final Workspace network endpoints: %w", err)
+			}
+			networks[network] = gatewayAddress
+			if principal.WorkspaceID == "" {
+				principal = FinalWorkspacePrincipalRow{
+					ContextID: authority.ContextID, WorkspaceID: authority.WorkspaceID, TemplateID: authority.TemplateID,
+					Presentation: authority.Presentation, ProjectRoot: authority.ProjectRoot,
+					ContainerID: observation.ID, ResolvedSpec: authority.AppliedEntry.ResolvedSpec,
+					WorkspaceIP: workspaceAddress, GatewayIP: gatewayAddress, Network: network,
+				}
+			}
+			rows = append(rows, principal)
 		}
-		rows = append(rows, principal)
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].WorkspaceID < rows[j].WorkspaceID })
 	topology := make([]FinalGatewayNetworkAddress, 0, len(networks))
@@ -1881,8 +1905,8 @@ func (r *Runtime) selectFinalGatewayNetworkAddress(ctx context.Context, network,
 func validateFinalSettlementPrincipals(plan tobari.WorkspacePolicyProjection, principals []FinalWorkspacePrincipalRow) error {
 	expected := map[tobari.WorkspaceID]tobari.WorkspacePolicyPrincipalAuthority{}
 	for _, item := range plan.Contexts {
-		if item.Principal != nil {
-			expected[item.Principal.WorkspaceID] = *item.Principal
+		for _, principal := range item.Principals {
+			expected[principal.WorkspaceID] = principal
 		}
 	}
 	previous := tobari.WorkspaceID("")
@@ -1997,7 +2021,7 @@ func finalComposeProjectionCount(contextCount int) int {
 
 func (r *Runtime) readOptionalFinalPolicyActivation(path string) (finalPolicyActivationRecord, bool, error) {
 	record, err := r.readFinalPolicyActivation(path)
-	if errors.Is(err, os.ErrNotExist) {
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, errLegacyFinalPolicyActivation) {
 		return finalPolicyActivationRecord{}, false, nil
 	}
 	return record, err == nil, err

@@ -54,14 +54,16 @@ Evidence retention is bounded, not an infinite durable permission inbox. If an o
 
 Pending observations group by exactly:
 
-- stable Workspace Template ID;
-- stable Context ID and Workspace ID;
+- stable Context ID;
 - host;
 - port;
 - method; and
 - normalized raw path.
 
-Body content, body presence, query, headers, reason, status, request ID, timestamp, provider, and profile display evidence do not split the identity.
+Workspace ID, Project root, CWD, directory ancestry, body content, body presence,
+query, headers, reason, status, request ID, timestamp, provider, and profile
+display evidence do not split the identity. Workspace and root remain
+observation provenance.
 
 The candidate ID has the `pcy_…` shape and is derived from those dimensions. It is opaque: actions accept it unchanged rather than decoding, reconstructing, or using list position as authority.
 
@@ -104,7 +106,7 @@ This matters for non-idempotent methods and bodies: Tobari cannot know whether b
 | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | Workspace Template policy baseline grant | Trusted baseline authority in the Workspace Template snapshot; the fixed agent-ready data is not a selectable profile |
 | Workspace Template policy terminal deny  | Ceiling rejection that never enters pending review and performs zero candidate/DNS/Authentication/upstream work       |
-| Learned exact allow                      | One Context/Workspace/host/port/method/path capability                                                                |
+| Learned exact allow                      | One Context/host/port/method/path capability; Workspace/root are observation provenance                               |
 | Learned exact deny                       | One explicitly reviewed terminal rejection; it wins over an allow for that effect                                     |
 | `policy reset`                           | Removes one learned allow or exact deny and returns the effect to initialized/default evaluation; it is not an allow  |
 
@@ -152,7 +154,10 @@ does not silently narrow the grant.
 
 ## Summary
 
-Denial produces bounded evidence, not permission. The host derives a project-bound opaque candidate, explicitly chooses an exact outcome, validates every affected policy source as one aggregate, activates atomically, and retries only by choice.
+Denial produces bounded evidence, not permission. The host derives a
+Context-bound opaque candidate, explicitly chooses an exact outcome, validates
+every affected policy source as one aggregate, activates atomically, and retries
+only by choice.
 
 ## Check your understanding
 
@@ -163,8 +168,8 @@ You should now be able to separate observation, discovery, mutation, activation,
     Do two requests with different bodies create two candidates?
   </summary>
   No. Body presence and content are not candidate identity. One exact rule
-  covers any body on that exact Workspace Workspace
-  Context/Workspace/host/port/method/path.
+  covers any body on that exact Context/host/port/method/path. Workspace and
+  root are observation provenance only.
 </details>
 
 <details>

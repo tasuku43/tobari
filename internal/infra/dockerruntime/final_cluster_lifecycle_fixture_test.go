@@ -329,10 +329,10 @@ func TestStatusHomeProductionAdaptersStayWithinFrozenDockerCallBudget(t *testing
 		t.Fatalf("status authority snapshots=%d err=%v", len(snapshots), err)
 	}
 	plan, err := tobari.BuildHotWorkspacePolicyProjection(workspaceFixture, finalProjectionContextID)
-	if err != nil || len(plan.Contexts) != 1 || plan.Contexts[0].Principal == nil {
+	if err != nil || len(plan.Contexts) != 1 || len(plan.Contexts[0].Principals) != 1 {
 		t.Fatalf("status Workspace plan=%#v err=%v", plan, err)
 	}
-	principal := *plan.Contexts[0].Principal
+	principal := plan.Contexts[0].Principals[0]
 	runner.base.workspaces[principal.WorkspaceID] = &principal
 	resolver := runtime.images.(testImageResolver)
 	resolver.runtimeImage = "tobari-runtime:test"

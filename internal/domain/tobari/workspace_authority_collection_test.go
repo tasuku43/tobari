@@ -117,6 +117,93 @@ func TestWorkspaceAuthorityCollectionCurrentContextIsLocationFreeAndRevisionBoun
 	}
 }
 
+func TestWorkspaceAuthorityCollectionAllowsContextSiblingsWithSharedHome(t *testing.T) {
+	base := workspaceAuthorityCollectionFixture(t)
+	sibling := base.Workspaces[0]
+	sibling.ID = WorkspaceID("01912345-6789-7abc-8def-0123456789a4")
+	sibling.ProjectRoot = "/workspace/sibling"
+	sibling.LastSuccessfulEntry = nil
+	workspaces := append(cloneWorkspaceBindings(base.Workspaces), sibling)
+	collection, changed, err := PublishWorkspaceAuthorityCollection(
+		base.Templates, base.Contexts, workspaces, base.PendingCandidates, base.DefaultTemplateID, &base,
+	)
+	if err != nil || !changed {
+		t.Fatalf("publish siblings: changed=%t err=%v", changed, err)
+	}
+	snapshots, err := collection.ContextSnapshots()
+	if err != nil || len(snapshots) != 1 || len(snapshots[0].Workspaces) != 2 || snapshots[0].Workspace != nil {
+		t.Fatalf("plural Context snapshot=%+v err=%v", snapshots, err)
+	}
+
+	duplicateRoot := sibling
+	duplicateRoot.ProjectRoot = base.Workspaces[0].ProjectRoot
+	if _, _, err := PublishWorkspaceAuthorityCollection(base.Templates, base.Contexts, []WorkspaceBinding{base.Workspaces[0], duplicateRoot}, base.PendingCandidates, base.DefaultTemplateID, &base); err == nil {
+		t.Fatal("duplicate (Context, ProjectRoot) was accepted")
+	}
+	differentDefaults := sibling
+	differentDefaults.CreationDefaults = authorityDigest("9")
+	if _, _, err := PublishWorkspaceAuthorityCollection(base.Templates, base.Contexts, []WorkspaceBinding{base.Workspaces[0], differentDefaults}, base.PendingCandidates, base.DefaultTemplateID, &base); err == nil {
+		t.Fatal("same-Context sibling changed create-once Home authority")
+	}
+}
+
+func TestContextHomeAuthoritySurvivesLastWorkspaceRemoval(t *testing.T) {
+	base := workspaceAuthorityCollectionFixture(t)
+	home := base.Contexts[0].ContextHome
+	defaults := base.Contexts[0].CreationDefaults
+	withoutWorkspaces, changed, err := PublishWorkspaceAuthorityCollection(
+		base.Templates, base.Contexts, []WorkspaceBinding{}, []PolicyCandidateAuthority{}, base.DefaultTemplateID, &base,
+	)
+	if err != nil || !changed {
+		t.Fatalf("remove last Workspace: changed=%t err=%v", changed, err)
+	}
+	if withoutWorkspaces.Contexts[0].ContextHome != home || withoutWorkspaces.Contexts[0].CreationDefaults != defaults {
+		t.Fatalf("Context Home authority was removed: %+v", withoutWorkspaces.Contexts[0])
+	}
+	snapshots, err := withoutWorkspaces.ContextSnapshots()
+	if err != nil || len(snapshots) != 1 || snapshots[0].ContextHome != home || snapshots[0].ContextCreationDefaults != defaults || len(snapshots[0].Workspaces) != 0 {
+		t.Fatalf("zero-Workspace Context snapshot lost Home authority: %+v err=%v", snapshots, err)
+	}
+	changedRecords := cloneWorkspaceAuthorityContextRecords(withoutWorkspaces.Contexts)
+	changedRecords[0].ContextHome = "/workspace/changed-home"
+	if _, _, err := PublishWorkspaceAuthorityCollection(withoutWorkspaces.Templates, changedRecords, withoutWorkspaces.Workspaces, withoutWorkspaces.PendingCandidates, withoutWorkspaces.DefaultTemplateID, &withoutWorkspaces); err == nil {
+		t.Fatal("generic publication changed retained Context Home authority")
+	}
+}
+
+func TestContextSnapshotRejectsSelectedWorkspaceIdentityCollision(t *testing.T) {
+	base := workspaceAuthorityCollectionFixture(t)
+	snapshots, err := base.ContextSnapshots()
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := base.Workspaces[0]
+	selected.ProjectRoot = "/workspace/other"
+	snapshots[0].Workspace = &selected
+	if err := snapshots[0].Validate(); err == nil {
+		t.Fatal("selected Workspace moved a retained ID to another root")
+	}
+}
+
+func TestPolicyCandidateIdentityUsesContextAndEffectNotWorkspace(t *testing.T) {
+	base := workspaceAuthorityCollectionFixture(t)
+	first := base.PendingCandidates[0]
+	second, err := NewPolicyCandidateAuthority(first.ContextID, WorkspaceID("01912345-6789-7abc-8def-0123456789a4"), first.Effect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID != second.ID {
+		t.Fatalf("Workspace provenance split candidate identity: %q != %q", first.ID, second.ID)
+	}
+	other, err := NewPolicyCandidateAuthority(ContextID("01912345-6789-7abc-8def-0123456789a5"), second.ObservingWorkspaceID, first.Effect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID == other.ID {
+		t.Fatal("different Contexts shared candidate identity")
+	}
+}
+
 func TestPolicyMemoryBoundaryTighteningSupersedesOnlyOutsideAllows(t *testing.T) {
 	context := ContextBinding{
 		SchemaVersion: ContextBindingSchemaVersion,

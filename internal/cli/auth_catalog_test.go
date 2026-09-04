@@ -4,6 +4,7 @@ package cli
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -117,8 +118,9 @@ func TestAuthRecoveryStartsWithExecutableContextDiscovery(t *testing.T) {
 			t.Fatalf("context recovery producer requires %q", input.Name)
 		}
 	}
-	if got := contextList.ProducedRefs(); !reflect.DeepEqual(got, []ProducedRef{{Kind: tobari.ContextReferenceKind, Field: "items[].context_ref"}}) {
-		t.Fatalf("context recovery producer refs=%+v", got)
+	got := contextList.ProducedRefs()
+	if !slices.Contains(got, ProducedRef{Kind: tobari.ContextReferenceKind, Field: "items[].context_ref"}) {
+		t.Fatalf("context recovery producer lacks Context refs: %+v", got)
 	}
 	for _, path := range []string{"auth login", "auth import", "auth logout"} {
 		spec, found := catalog.Lookup(path)

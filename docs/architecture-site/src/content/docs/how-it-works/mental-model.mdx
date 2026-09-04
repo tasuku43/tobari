@@ -12,7 +12,8 @@ request effect is allowed, then either refuses it locally or opens a separate
 upstream connection.
 
 Authentication and network permission remain separate. Claude Code and Codex
-store their native login state in the Workspace home. Gateway treats their
+store their native login state in the Context Home shared by sibling
+Workspaces. Gateway treats their
 Authorization and cookie values as secret request data: they are absent from
 OPA and audit, and are forwarded unchanged only after allow.
 
@@ -22,10 +23,11 @@ OPA and audit, and are forwarded unchanged only after allow.
 
 ### 1. Workspace: where project work and native login run
 
-A Workspace is one long-lived, directory-bound Tobari with a persistent home.
-Processes can read and modify the selected project root and can read native
-credentials stored in that same Workspace. They do not receive another
-Workspace's home, host credentials, Docker control, or a direct public route.
+A Workspace is one directory-bound routing/runtime/principal that belongs to
+one Context. Processes can read and modify the selected project root and can
+read native credentials stored in that Context Home. They do not receive
+another Context's Home, host credentials, Docker control, or a direct public
+route.
 
 ### 2. Gateway: the enforcement point
 
@@ -75,13 +77,13 @@ or refresh a credential.
 The supported standard topology guarantees that Gateway receives an allow
 before forwarding ordinary HTTP/HTTPS and that secret request values stay out
 of OPA and audit. It does not protect project files from the Workspace, isolate
-processes within one Workspace, stop exfiltration to an allowed destination,
+processes or sibling Workspaces sharing one Context Home, stop exfiltration to an allowed destination,
 or protect a compromised host, kernel, Docker Engine, Gateway, or OPA.
 
 ## Summary
 
 Remember one path: **Workspace → Gateway → Upstream**, with **OPA deciding**.
-The Workspace owns native authentication; Gateway owns whether the associated
+The Context Home owns native authentication; Gateway owns whether the associated
 HTTP effect can leave.
 
 ## Check your understanding
@@ -100,8 +102,9 @@ HTTP effect can leave.
 
 <details>
   <summary>
-    Can another process in the same Workspace read native login state?
+    Can a process in a sibling Workspace of the same Context read native login
+    state?
   </summary>
-  Yes. The Workspace is the isolation boundary; Tobari does not provide
-  process-level credential isolation inside it.
+  Yes. Sibling Workspaces share their Context Home; Tobari does not provide
+  process-level credential isolation inside that trust boundary.
 </details>

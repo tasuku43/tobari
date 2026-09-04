@@ -25,11 +25,11 @@ Workspace だけがbindする正規化済みホストディレクトリです。
 
 ### Context
 
-一つの Workspace Template ID に対するlocation-freeで永続かつ不変の binding です。Policy Memory と一つの managed Home を所有し、Workspace の置換や削除後も残ります。公開 name/default selector はなく、非既定の操作は discovery が返す exact `context` reference を使います。
+一つの Workspace Template ID に対するlocation-freeで永続かつ不変の binding です。Policy Memory と、所有する全Workspaceが共有する一つの managed Home を所有し、個別 Workspace の置換や削除後も残ります。公開 name/default selector はなく、非既定の操作は discovery が返す exact `context` reference を使います。
 
 ### Context Home
 
-一つの Context が所有し、その時点の Workspace にマウントする、独立した永続書き込み可能ホームです。agent CLI はここに native login state を保存します。session exit、container 再作成、Workspace の削除や置換後も残り、Workspace と attachment がない状態で exact `context delete` を行うと削除されます。
+一つの Context が所有し、そのContextの全 Workspace にマウントする、独立した永続書き込み可能ホームです。agent CLI はここに native login state を保存します。session exit、container 再作成、Workspace の削除や置換後も残り、Workspace と attachment がない状態で exact `context delete` を行うと削除されます。
 
 ### Policy Memory
 
@@ -49,7 +49,7 @@ bare root entry と bare `status` が使うインストール既定の Workspace
 
 ### 作業コンテナ
 
-Runtime image から一時的に実体化した Docker resource です。消失または置換されても、論理 Workspace、Context binding、active authority generation、Workspace home は残ります。container の存在だけから論理 Workspace を発明しません。
+Runtime image から一時的に実体化した Docker resource です。消失または置換されても、論理 Workspace、Context binding、active authority generation、Context Home は残ります。container の存在だけから論理 Workspace を発明しません。
 
 ### attached session
 
@@ -123,7 +123,7 @@ allow rule が一致しないときの既定の policy result です。ほかの
 
 ### learned allow
 
-一つの Workspace Template、Workspace、host、port、method、path effect に対して明示的に有効化された exact rule です。信頼するホストでレビューし、完全な policy validation と atomic activation が成功した場合だけ authority になります。
+一つの Context、host、port、method、path effect に対して明示的に有効化された exact rule です。Workspace、root、CWD、directory は provenance にだけ保持されます。信頼するホストでレビューし、完全な policy validation と atomic activation が成功した場合だけ authority になります。
 
 ### learned deny
 
@@ -153,7 +153,7 @@ discover コマンドが生成し、対応する action が値を変えずに消
 
 ### 認証
 
-agent CLI が外部サービスへログインし、結果を Workspace home に保存することです。ログインの成功は通信許可を意味しません。
+agent CLI が外部サービスへログインし、結果を Context Home に保存することです。同じ Context の sibling Workspace はその Home を共有します。ログインの成功は通信許可を意味しません。
 
 ### 認可
 
@@ -161,7 +161,7 @@ OPA が一つの HTTP effect について返し、Gateway が強制する判断�
 
 ### ツール固有の認証情報
 
-agent CLI が所有するファイルや環境値です。Tobari はホストの認証情報を継承せず、値を OPA 入力と監査から除外し、許可後だけ元の値を転送します。同じ Workspace のプロセスから読めることは、Workspace の境界モデルに含まれます。
+agent CLI が所有するファイルや環境値です。Tobari はホストの認証情報を継承せず、値を OPA 入力と監査から除外し、許可後だけ元の値を転送します。同じ Context の全 Workspace のプロセスから読めることは、Context Home の境界モデルに含まれます。
 
 ### Workspace 識別情報
 
@@ -203,15 +203,15 @@ immutable Template、Context、Policy Memory、Workspace object と optional def
 
 ## 共通の区別
 
-| 混同しない語                       | 違い                                                                                      |
-| ---------------------------------- | ----------------------------------------------------------------------------------------- |
-| Workspace と作業コンテナ           | Workspace は永続する論理状態、コンテナは交換可能な実行時リソース                          |
-| Context とクラスター               | Context は location-free な Template binding と Policy Memory、クラスターは共有の強制基盤 |
-| 認証と認可                         | agent CLI がログイン済みでも OPA は HTTP effect を拒否できる                              |
-| CA の信頼とポリシー許可            | CA は検査の前提、許可は一つの正規化された効果を通す判断                                   |
-| Workspace 識別情報とツールログイン | 前者はホスト由来、後者は agent CLI が Workspace home に所有                               |
-| `exit` と `workspace delete`       | 前者はセッション終了、後者は Context Home を保持した論理 Workspace／runtime の削除        |
-| タグとダイジェスト                 | タグは移動可能、ダイジェストは不変 OCI コンテンツの識別                                   |
+| 混同しない語                       | 違い                                                                                       |
+| ---------------------------------- | ------------------------------------------------------------------------------------------ |
+| Workspace と作業コンテナ           | Workspace は永続する論理状態、コンテナは交換可能な実行時リソース                           |
+| Context とクラスター               | Context は location-free な Template binding と Policy Memory、クラスターは共有の強制基盤  |
+| 認証と認可                         | agent CLI がログイン済みでも OPA は HTTP effect を拒否できる                               |
+| CA の信頼とポリシー許可            | CA は検査の前提、許可は一つの正規化された効果を通す判断                                    |
+| Workspace 識別情報とツールログイン | 前者はホスト由来、後者は agent CLI が Context Home に所有して sibling Workspace と共有する |
+| `exit` と `workspace delete`       | 前者はセッション終了、後者は Context Home を保持した論理 Workspace／runtime の削除         |
+| タグとダイジェスト                 | タグは移動可能、ダイジェストは不変 OCI コンテンツの識別                                    |
 
 ## 障害と制限
 
@@ -273,7 +273,7 @@ Tobari は、永続する実行識別情報、ホスト設定、共有の強制�
 <details>
   <summary>agent CLI がログイン済みなら、通信は許可されていますか？</summary>
 
-いいえ。ログイン情報は Workspace home にあり、OPA が通常の HTTP effect を別に許可する必要があります。Gateway は許可後に元の認証情報を転送します。
+いいえ。ログイン情報は Context Home にあり、OPA が通常の HTTP effect を別に許可する必要があります。Gateway は許可後に元の認証情報を転送します。
 
 </details>
 

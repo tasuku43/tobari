@@ -61,3 +61,46 @@ func TestBatchCB3ReviewSnapshotRejectsAChoiceFromAnotherReceipt(t *testing.T) {
 		t.Fatal("snapshot accepted a choice from another collection receipt")
 	}
 }
+
+func TestContextWideTemplateReviewOmitsSingularWorkspaceProvenance(t *testing.T) {
+	base := workspaceAuthorityCollectionFixture(t)
+	sibling := base.Workspaces[0]
+	sibling.ID = WorkspaceID("01912345-6789-7abc-8def-0123456789a4")
+	sibling.ProjectRoot = "/workspace/sibling"
+	sibling.LastSuccessfulEntry = nil
+	firstEffect := base.PendingCandidates[0].Effect.Clone()
+	firstEffect.Path, firstEffect.Examples = "/teams/a", []string{"/teams/a"}
+	secondEffect := firstEffect.Clone()
+	secondEffect.Path, secondEffect.Examples = "/teams/b", []string{"/teams/b"}
+	first, err := NewPolicyCandidateAuthority(base.Contexts[0].Context.ID, base.Workspaces[0].ID, firstEffect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewPolicyCandidateAuthority(base.Contexts[0].Context.ID, sibling.ID, secondEffect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection, changed, err := PublishWorkspaceAuthorityCollection(
+		base.Templates, base.Contexts, append(cloneWorkspaceBindings(base.Workspaces), sibling),
+		[]PolicyCandidateAuthority{first, second}, base.DefaultTemplateID, &base,
+	)
+	if err != nil || !changed {
+		t.Fatalf("publish sibling review evidence: changed=%t err=%v", changed, err)
+	}
+	snapshot, err := NewPolicyMemoryReviewSnapshot(collection, true)
+	if err != nil || len(snapshot.Items) != 1 {
+		t.Fatalf("context-wide review: items=%#v err=%v", snapshot.Items, err)
+	}
+	item := snapshot.Items[0]
+	if item.Match != PolicyMatchPathTemplate || item.ProjectRoot != "" || item.ObservingWorkspace != "" || item.ObservingWorkspaceID != "" {
+		t.Fatalf("Context-wide proposal claimed singular Workspace provenance: %#v", item)
+	}
+	set, err := snapshot.ReviewedSet(map[string]PolicyMemoryDecision{item.ID: PolicyMemoryAllow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	publication := reviewedPublicationFixture(t, collection, set)
+	if publication.AppliedDecisions[0].ObservingWorkspaceRef != "" || publication.AppliedDecisions[0].ObservingWorkspaceID != "" {
+		t.Fatalf("Context-wide applied result claimed singular Workspace provenance: %#v", publication.AppliedDecisions[0])
+	}
+}

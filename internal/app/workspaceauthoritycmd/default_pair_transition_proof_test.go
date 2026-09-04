@@ -63,6 +63,9 @@ func (f *defaultPairClusterRefreshFixture) EnterFinalDefaultPair(_ context.Conte
 		ProjectRoot: "/workspace/example", Home: "/workspace/home",
 		CreationDefaults: snapshot.Template.Current.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied,
 	}
+	snapshot.ContextHome = snapshot.Workspace.Home
+	snapshot.ContextCreationDefaults = snapshot.Workspace.CreationDefaults
+	snapshot.Workspaces = []tobari.WorkspaceBinding{*snapshot.Workspace}
 	return tobari.ContextEntryPublication{Snapshot: snapshot, Outcome: tobari.WorkspaceSessionOutcome{ExitCode: 0, CleanupIssues: []tobari.WorkspaceAttachmentCleanupIssue{}}}, nil
 }
 

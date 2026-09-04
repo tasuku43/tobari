@@ -3,12 +3,16 @@ package workspaceauthoritystore
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -723,6 +727,16 @@ func reviewedSetForCandidates(
 	return set
 }
 
+func testSemanticDigest(t *testing.T, value any) tobari.SemanticDigest {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(encoded)
+	return tobari.SemanticDigest("sha256:" + hex.EncodeToString(digest[:]))
+}
+
 func twoContextReviewedCollection(t *testing.T) (tobari.WorkspaceAuthorityCollection, tobari.PolicyCandidateAuthority, tobari.PolicyCandidateAuthority) {
 	t.Helper()
 	first := storeCollectionFixture(t)
@@ -1380,6 +1394,41 @@ func TestMutatorPublishesExactCandidateAndResetAuthority(t *testing.T) {
 	}
 }
 
+func TestMutatorCandidateDecisionConsumesLegacyAndCurrentAliases(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	current := existing.PendingCandidates[0].Clone()
+	legacy := current.Clone()
+	material, err := json.Marshal(struct {
+		ContextID   tobari.ContextID
+		WorkspaceID tobari.WorkspaceID
+		Payload     tobari.SemanticDigest
+	}{legacy.ContextID, legacy.ObservingWorkspaceID, legacy.PayloadDigest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(material)
+	legacy.ID = "pcy_" + hex.EncodeToString(digest[:16])
+	existing, changed, err := tobari.PublishWorkspaceAuthorityCollection(
+		existing.Templates, existing.Contexts, existing.Workspaces,
+		[]tobari.PolicyCandidateAuthority{legacy, current}, existing.DefaultTemplateID, &existing,
+	)
+	if err != nil || !changed {
+		t.Fatalf("publish candidate aliases: changed=%t err=%v", changed, err)
+	}
+	store, mutator, _, _, _ := newMutationFixture(t, &existing)
+	publication, err := mutator.AllowPolicyCandidateByReference(context.Background(), legacy.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := publication.ValidateFor(legacy.ID, tobari.PolicyMemoryAllow); err != nil {
+		t.Fatal(err)
+	}
+	currentCollection, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present || len(currentCollection.PendingCandidates) != 0 {
+		t.Fatalf("candidate alias survived direct apply: pending=%#v present=%t err=%v", currentCollection.PendingCandidates, present, err)
+	}
+}
+
 func TestPolicyMutationPreflightReadFailureIsObservationFault(t *testing.T) {
 	existing := storeCollectionFixture(t)
 	store, mutator, lifecycle, _, _ := newMutationFixture(t, &existing)
@@ -1877,6 +1926,92 @@ func TestApplyReviewedResumesOneGlobalDecisionAcrossPublicationBoundaries(t *tes
 				t.Fatalf("publication=%#v calls=%d confirms=%d err=%v validate=%v", publication, settlement.reviewedCalls, settlement.reviewedConfirms, err, publication.Validate())
 			}
 		})
+	}
+}
+
+func TestApplyReviewedResumesInterruptedLegacyPathTemplateDecision(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	firstEffect := existing.PendingCandidates[0].Effect.Clone()
+	firstEffect.Path = "/teams/first"
+	firstEffect.Examples = []string{"/teams/first"}
+	first, err := tobari.NewPolicyCandidateAuthority(storeContextID, storeWorkspaceID, firstEffect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondEffect := existing.PendingCandidates[0].Effect.Clone()
+	secondEffect.Path = "/teams/second"
+	secondEffect.Examples = []string{"/teams/second"}
+	second, err := tobari.NewPolicyCandidateAuthority(storeContextID, storeWorkspaceID, secondEffect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	existing, _, err = tobari.PublishWorkspaceAuthorityCollection(existing.Templates, existing.Contexts, existing.Workspaces,
+		[]tobari.PolicyCandidateAuthority{first, second}, existing.DefaultTemplateID, &existing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates := []tobari.PolicyCandidateAuthority{first, second}
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].ID < candidates[j].ID })
+	sources := []string{candidates[0].ID, candidates[1].ID}
+	sort.Strings(sources)
+	rule := tobari.PolicyMemoryRuleBody{
+		PolicyProtocolIdentity: candidates[0].Effect.PolicyProtocolIdentity,
+		Match:                  tobari.PolicyMatchPathTemplate, Host: candidates[0].Effect.Host, Port: candidates[0].Effect.Port, Method: candidates[0].Effect.Method,
+		Path: "/teams/" + tobari.PolicyPathTemplatePlaceholder, Segments: []string{"teams", tobari.PolicyPathTemplatePlaceholder}, Examples: []string{"/teams/first", "/teams/second"}, SourceCandidates: sources,
+	}
+	itemID, err := tobari.PolicyMemoryReviewedPathTemplateItemID(storeContextID, rule)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := tobari.NewPolicyMemoryReviewedDecision(itemID, candidates, nil, tobari.PolicyMemoryAllow, rule)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := tobari.NewPolicyMemoryReviewedDecisionSet(existing, []tobari.PolicyMemoryReviewedDecision{decision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, mutator, _, _, _ := newMutationFixture(t, &existing)
+	settlement := mutator.settlement.(*finalSettlementFixture)
+	settlement.err = errors.New("interrupt predecessor after durable decision")
+	if _, err := mutator.ApplyReviewedPolicyMemory(context.Background(), set); err == nil {
+		t.Fatal("predecessor interruption was reported complete")
+	}
+	data, err := os.ReadFile(mutator.effectDecisionPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var journal effectDecision
+	if err := json.Unmarshal(data, &journal); err != nil {
+		t.Fatal(err)
+	}
+	legacy := journal.ReviewedSet.Decisions[0]
+	material := []string{"tobari-policy-path-template-v1", string(storeContextID), string(storeWorkspaceID), rule.Host, strconv.Itoa(rule.Port), rule.Method, rule.Path, rule.PolicyProtocolIdentity.Scheme}
+	legacyIDSum := sha256.Sum256([]byte(strings.Join(material, "\x00")))
+	legacy.ReviewItemID = "ptp_" + hex.EncodeToString(legacyIDSum[:16])
+	legacy.Digest = testSemanticDigest(t, struct {
+		ReviewItemID   string
+		ProposalDigest tobari.SemanticDigest
+		Decision       tobari.PolicyMemoryDecision
+	}{legacy.ReviewItemID, legacy.ProposalDigest, legacy.Decision})
+	journal.ReviewedSet.Decisions[0] = legacy
+	journal.ReviewedSet.Digest = testSemanticDigest(t, struct {
+		TargetID           string
+		ObservedGeneration uint64
+		ObservedRevision   tobari.SemanticDigest
+		Decisions          []tobari.PolicyMemoryReviewedDecision
+	}{journal.ReviewedSet.TargetID, journal.ReviewedSet.ObservedGeneration, journal.ReviewedSet.ObservedRevision, journal.ReviewedSet.Decisions})
+	encoded, err := json.Marshal(journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mutator.effectDecisionPath(), encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	settlement.err = nil
+	publication, err := mutator.ApplyReviewedPolicyMemory(context.Background(), set)
+	if err != nil || publication.Validate() != nil || !reflect.DeepEqual(publication.DecisionSet, set) {
+		t.Fatalf("candidate recovery publication=%#v err=%v validate=%v", publication, err, publication.Validate())
 	}
 }
 

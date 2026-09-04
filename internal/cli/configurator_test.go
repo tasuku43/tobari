@@ -423,6 +423,8 @@ func TestConfigureExistingContextUsesItsRuntimeThenStagesPlansAndApplies(t *test
 	binding := tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: templates.template.ID}
 	snapshot := tobari.ContextAuthoritySnapshot{Context: binding, Template: templates.template.Clone(), PolicyMemory: memory}
 	snapshot.Workspace = &tobari.WorkspaceBinding{SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: tobari.WorkspaceID("01912345-6789-7abc-8def-0123456789ad"), ContextID: contextID, ProjectRoot: "/workspace/example", Home: "/workspace/home", CreationDefaults: templates.template.Current.Slices.CreationDefaultsDigest}
+	snapshot.ContextHome = snapshot.Workspace.Home
+	snapshot.ContextCreationDefaults = snapshot.Workspace.CreationDefaults
 	if err := snapshot.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -480,6 +482,8 @@ func TestConfigureResumesExactConfirmedStageWithoutRestartingAgent(t *testing.T)
 	}
 	snapshot := tobari.ContextAuthoritySnapshot{Context: tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: templates.template.ID}, Template: templates.template.Clone(), PolicyMemory: memory}
 	snapshot.Workspace = &tobari.WorkspaceBinding{SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: tobari.WorkspaceID("01912345-6789-7abc-8def-0123456789ad"), ContextID: contextID, ProjectRoot: "/workspace/example", Home: "/workspace/home", CreationDefaults: templates.template.Current.Slices.CreationDefaultsDigest}
+	snapshot.ContextHome = snapshot.Workspace.Home
+	snapshot.ContextCreationDefaults = snapshot.Workspace.CreationDefaults
 	selection := tobari.FinalDefaultPairSelection{SchemaVersion: tobari.FinalDefaultPairSelectionSchemaVersion, CollectionPresent: true, CollectionGeneration: 1, CollectionRevision: tobari.SemanticDigest("sha256:" + strings.Repeat("a", 64)), CanonicalCWD: snapshot.Workspace.ProjectRoot, DefaultTemplate: func() *tobari.WorkspaceTemplate { value := templates.template.Clone(); return &value }(), Candidates: []tobari.FinalDefaultPairCandidate{{Snapshot: snapshot.Clone()}}}
 	selected := workspaceauthoritycmd.SelectedDefaultPair{Selection: selection, Choice: tobari.FinalDefaultPairSelectionChoice{Kind: tobari.FinalDefaultPairSelectionUse, ContextID: contextID}}
 	seed, err := tobari.NewEvolveConfiguratorSeed("/workspace/example", snapshot)

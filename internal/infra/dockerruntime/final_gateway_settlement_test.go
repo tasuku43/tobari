@@ -50,7 +50,8 @@ func finalSettlementComponentFixture(profile tobari.SharedClusterAppliedProfile)
 	}
 	opa := appliedClusterComponentObservation{
 		ContainerID: strings.Repeat("e", 64), Owner: ownerValue, Component: "opa",
-		ImageID: candidate.OPAImageID, State: "running", Health: "healthy",
+		ComposeProjectDir: candidate.Compose.RuntimeDirectory,
+		ImageID:           candidate.OPAImageID, State: "running", Health: "healthy",
 		Environment: []string{"PATH=/usr/bin"}, MountDestinations: finalOPAMountDestinations(),
 		NetworkAddresses: map[string]string{"tobari-control": "172.28.0.3"},
 	}
@@ -116,6 +117,15 @@ func TestFinalSettlementEffectClassRequiresExactSelectedComponentClosure(t *test
 				t.Fatalf("drifted selected closure class=%q", got)
 			}
 		})
+	}
+}
+
+func TestFinalSettlementRejectsImageIdenticalOPAFromOlderComposeAuthority(t *testing.T) {
+	candidate, gateway, opa := finalSettlementComponentFixture(tobari.SharedClusterProfileUnix)
+	candidate.Compose.RuntimeDirectory = "/candidate/runtime"
+	opa.ComposeProjectDir = "/predecessor/runtime"
+	if err := verifySelectedFinalComponentClosure(gateway, opa, candidate); err == nil {
+		t.Fatal("image-identical OPA from an older Compose closure was accepted")
 	}
 }
 
@@ -194,7 +204,7 @@ func TestFinalGatewaySettlementPreservesOnlyExactStoppedWorkspacePrincipal(t *te
 		t.Fatalf("stopped principal observation principals=%#v networks=%#v err=%v", principals, networks, err)
 	}
 
-	authority := *journal.Candidate.Plan.Contexts[0].Principal
+	authority := journal.Candidate.Plan.Contexts[0].Principals[0]
 	exact := finalWorkspaceContainerObservation{
 		ID: retained.ContainerID, Owner: ownerValue, Component: "tobari", Workspace: string(retained.WorkspaceID),
 		Role: projectWorkRole, Spec: string(retained.ResolvedSpec), State: "exited", Running: false,
@@ -518,7 +528,8 @@ func (r *finalSettlementReadinessRunner) Run(_ context.Context, args, _ []string
 	}
 	payload, _ := json.Marshal(appliedClusterComponentObservation{
 		ContainerID: containerID, Owner: ownerValue, Component: component, Role: role,
-		ImageID: imageID, State: "running", Health: health, Environment: environment,
+		ComposeProjectDir: r.candidate.Compose.RuntimeDirectory,
+		ImageID:           imageID, State: "running", Health: health, Environment: environment,
 		MountDestinations: mounts, Networks: networks,
 	})
 	_, _ = out.Write(payload)
@@ -640,6 +651,7 @@ type finalGatewaySettlementRunner struct {
 	networkGuardCalls    int
 	networkGuardFailures int
 	componentStates      map[string]string
+	opaComposeProjectDir string
 	events               []string
 }
 
@@ -742,9 +754,14 @@ func (r *finalGatewaySettlementRunner) component(container string) appliedCluste
 		if r.replacementPending && !r.gatewayOPAReachable {
 			health = "starting"
 		}
+		composeProjectDir := candidate.Compose.RuntimeDirectory
+		if r.opaComposeProjectDir != "" {
+			composeProjectDir = r.opaComposeProjectDir
+		}
 		observation := appliedClusterComponentObservation{
 			ContainerID: strings.Repeat("e", 64), Owner: ownerValue, Component: "opa", ImageID: image,
-			State: "running", Health: health, Environment: []string{"PATH=/usr/bin"},
+			ComposeProjectDir: composeProjectDir,
+			State:             "running", Health: health, Environment: []string{"PATH=/usr/bin"},
 			MountDestinations: finalOPAMountDestinations(),
 			Networks:          map[string]json.RawMessage{"tobari-control": json.RawMessage(`{"IPAddress":"172.28.0.3","Aliases":["opa"]}`)},
 		}
@@ -772,7 +789,8 @@ func (r *finalGatewaySettlementRunner) component(container string) appliedCluste
 	}
 	observation := appliedClusterComponentObservation{
 		ContainerID: containerID, Owner: ownerValue, Component: "gateway", Role: gatewayRole, ImageID: image,
-		State: "running", Health: health, Environment: append([]string{"PATH=/usr/bin"}, candidate.GatewayEnv...),
+		ComposeProjectDir: candidate.Compose.RuntimeDirectory,
+		State:             "running", Health: health, Environment: append([]string{"PATH=/usr/bin"}, candidate.GatewayEnv...),
 		MountDestinations: finalGatewayMountDestinations(candidate.Profile),
 		Networks:          networks,
 	}
@@ -811,6 +829,9 @@ func (r *finalGatewaySettlementRunner) Run(_ context.Context, args, environment 
 		r.composeCalls++
 		if index := slices.Index(args, "--force-recreate"); index >= 0 {
 			r.replacementServices = append([]string(nil), args[index+1:]...)
+			if slices.Contains(r.replacementServices, "opa") {
+				r.opaComposeProjectDir = ""
+			}
 			r.gatewayContainerID = strings.Repeat(strconv.Itoa(r.composeCalls%8+1), 64)
 			r.replacementPending = true
 			r.gatewayOPAReachable = false
@@ -1040,25 +1061,23 @@ func finalGatewayCoordinatorPlanFixture(
 	principals := []FinalWorkspacePrincipalRow{}
 	gatewayNetworks := []FinalGatewayNetworkAddress{{Name: "tobari-control", Address: "172.28.0.2"}, {Name: "tobari-egress", Address: "172.29.0.2"}}
 	for _, item := range plan.Contexts {
-		if item.Principal == nil {
-			continue
+		for _, authority := range item.Principals {
+			_, network, namingErr := tobari.ProjectResourceNames(string(authority.WorkspaceID))
+			if namingErr != nil {
+				t.Fatal(namingErr)
+			}
+			authorityCopy := authority
+			runner.workspaces[authority.WorkspaceID] = &authorityCopy
+			runner.workspaceNets[authority.WorkspaceID] = network
+			last := string(authority.WorkspaceID)[len(authority.WorkspaceID)-1:]
+			workspaceIP, gatewayIP := finalWorkspaceFixtureAddresses(authority.WorkspaceID)
+			principals = append(principals, FinalWorkspacePrincipalRow{
+				ContextID: authority.ContextID, WorkspaceID: authority.WorkspaceID, TemplateID: authority.TemplateID,
+				Presentation: authority.Presentation, ProjectRoot: authority.ProjectRoot, ContainerID: strings.Repeat(last, 64),
+				ResolvedSpec: authority.AppliedEntry.ResolvedSpec, WorkspaceIP: workspaceIP, GatewayIP: gatewayIP, Network: network,
+			})
+			gatewayNetworks = append(gatewayNetworks, FinalGatewayNetworkAddress{Name: network, Address: gatewayIP})
 		}
-		authority := *item.Principal
-		_, network, namingErr := tobari.ProjectResourceNames(string(authority.WorkspaceID))
-		if namingErr != nil {
-			t.Fatal(namingErr)
-		}
-		authorityCopy := authority
-		runner.workspaces[authority.WorkspaceID] = &authorityCopy
-		runner.workspaceNets[authority.WorkspaceID] = network
-		last := string(authority.WorkspaceID)[len(authority.WorkspaceID)-1:]
-		workspaceIP, gatewayIP := finalWorkspaceFixtureAddresses(authority.WorkspaceID)
-		principals = append(principals, FinalWorkspacePrincipalRow{
-			ContextID: authority.ContextID, WorkspaceID: authority.WorkspaceID, TemplateID: authority.TemplateID,
-			Presentation: authority.Presentation, ProjectRoot: authority.ProjectRoot, ContainerID: strings.Repeat(last, 64),
-			ResolvedSpec: authority.AppliedEntry.ResolvedSpec, WorkspaceIP: workspaceIP, GatewayIP: gatewayIP, Network: network,
-		})
-		gatewayNetworks = append(gatewayNetworks, FinalGatewayNetworkAddress{Name: network, Address: gatewayIP})
 	}
 	slices.SortFunc(gatewayNetworks, func(left, right FinalGatewayNetworkAddress) int { return strings.Compare(left.Name, right.Name) })
 	candidate := finalGatewaySettlementCandidate{
@@ -1112,6 +1131,21 @@ func TestFinalGatewayPreparedRecoveryRestartsOnlyExactJournaledComponents(t *tes
 	}
 	if _, present, err := runtime.readFinalGatewaySettlementJournal(); err != nil || present {
 		t.Fatalf("prepared recovery retained journal: present=%t err=%v", present, err)
+	}
+}
+
+func TestFinalGatewayReplacementIncludesOPAWhenComposeAuthorityChanged(t *testing.T) {
+	runtime, runner, journal := finalGatewayCoordinatorFixture(t, finalProjectionWorkspaceA)
+	runner.opaComposeProjectDir = filepath.Join(runtime.stateDirectory, "runtime", "predecessor")
+	if err := runtime.resumeFinalGatewaySettlement(context.Background(), journal); err != nil {
+		t.Fatalf("replace stale OPA Compose authority: %v", err)
+	}
+	want := []string{"opa", "gateway"}
+	if brokerRuntimeEnabled {
+		want = append(want, "auth-broker")
+	}
+	if !slices.Equal(runner.replacementServices, want) {
+		t.Fatalf("replacement services=%v want=%v", runner.replacementServices, want)
 	}
 }
 

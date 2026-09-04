@@ -76,6 +76,30 @@ func TestWorkspacePolicyProjectionKeepsHotAndClusterActivationAxesIndependent(t 
 	}
 }
 
+func TestWorkspacePolicyProjectionProjectsAndRetiresExactSiblingPrincipal(t *testing.T) {
+	base := workspaceAuthorityCollectionFixture(t)
+	sibling := base.Workspaces[0]
+	sibling.ID = WorkspaceID("01912345-6789-7abc-8def-0123456789a4")
+	sibling.ProjectRoot = "/workspace/sibling"
+	workspaces := append(cloneWorkspaceBindings(base.Workspaces), sibling)
+	collection, _, err := PublishWorkspaceAuthorityCollection(base.Templates, base.Contexts, workspaces, base.PendingCandidates, base.DefaultTemplateID, &base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := BuildActiveWorkspacePolicyProjection(collection)
+	if err != nil || len(active.Contexts) != 1 || len(active.Contexts[0].Principals) != 2 {
+		t.Fatalf("sibling principals=%+v err=%v", active.Contexts, err)
+	}
+	remaining, _, err := PublishWorkspaceAuthorityCollection(base.Templates, base.Contexts, base.Workspaces, base.PendingCandidates, base.DefaultTemplateID, &collection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retired, err := BuildWorkspaceRetirementPolicyProjection(active, remaining, sibling)
+	if err != nil || len(retired.Contexts) != 1 || len(retired.Contexts[0].Principals) != 1 || retired.Contexts[0].Principals[0].WorkspaceID != base.Workspaces[0].ID {
+		t.Fatalf("exact sibling retirement=%+v err=%v", retired.Contexts, err)
+	}
+}
+
 func TestActiveWorkspacePolicyProjectionRepresentsEmptyAuthority(t *testing.T) {
 	base := workspaceAuthorityCollectionFixture(t)
 	empty, _, err := PublishWorkspaceAuthorityCollection(
@@ -120,7 +144,7 @@ func TestWorkspaceRetirementProjectionUsesVerifiedLiveAxesWhenDesiredReceiptsAre
 		t.Fatal(err)
 	}
 	if retirement.Mode != WorkspacePolicyProjectionActive || retirement.CollectionRevision != next.Revision ||
-		len(retirement.Contexts) != len(active.Contexts) || retirement.Contexts[0].Principal != nil ||
+		len(retirement.Contexts) != len(active.Contexts) || len(retirement.Contexts[0].Principals) != 0 ||
 		retirement.Contexts[0].TemplatePolicy.PolicySliceDigest != active.Contexts[0].TemplatePolicy.PolicySliceDigest ||
 		retirement.Contexts[0].PolicyMemory.Revision != active.Contexts[0].PolicyMemory.Revision {
 		t.Fatalf("retirement projection did not preserve live axes and remove only its principal: active=%+v retirement=%+v", active, retirement)
@@ -148,7 +172,7 @@ func TestWorkspaceRetirementProjectionRejectsRetainedOrReboundTarget(t *testing.
 		t.Fatal(err)
 	}
 	rebound := active.Clone()
-	rebound.Contexts[0].Principal.ProjectRoot = "/foreign"
+	rebound.Contexts[0].Principals[0].ProjectRoot = "/foreign"
 	rebound.ContentDigest, _ = workspacePolicyProjectionContentDigest(rebound)
 	rebound.PlanDigest, _ = workspacePolicyProjectionPlanDigest(rebound)
 	if _, err := BuildWorkspaceRetirementPolicyProjection(rebound, next, workspace); err == nil {
@@ -231,7 +255,7 @@ func TestWorkspacePolicyProjectionIsCompleteSortedAndCloneIsolated(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(projection.Contexts) != 1 || projection.Contexts[0].Principal != nil {
+	if len(projection.Contexts) != 1 || len(projection.Contexts[0].Principals) != 0 {
 		t.Fatalf("Context without Workspace produced a principal: %#v", projection.Contexts)
 	}
 	clone := projection.Clone()
@@ -327,7 +351,7 @@ func TestWorkspacePolicyProjectionUsesWorkspaceRetainedCreationAuthority(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := before.Contexts[0].Principal.CreationDefaults.Bootstrap.EKS.Server; got != bootstrapA.EKS.Server {
+	if got := before.Contexts[0].Principals[0].CreationDefaults.Bootstrap.EKS.Server; got != bootstrapA.EKS.Server {
 		t.Fatalf("live Workspace adopted Template-current creation defaults: %q", got)
 	}
 
@@ -335,7 +359,7 @@ func TestWorkspacePolicyProjectionUsesWorkspaceRetainedCreationAuthority(t *test
 	applied.TemplateRevision = revisionB.Revision
 	applied.EntrySliceDigest = revisionB.Slices.EntrySliceDigest
 	workspace.LastSuccessfulEntry = &applied
-	afterCollection, _, err := PublishWorkspaceAuthorityCollection([]WorkspaceTemplate{template}, []WorkspaceAuthorityContextRecord{record}, []WorkspaceBinding{workspace}, []PolicyCandidateAuthority{}, nil, &collection)
+	afterCollection, _, err := PublishWorkspaceAuthorityCollection([]WorkspaceTemplate{template}, []WorkspaceAuthorityContextRecord{record}, []WorkspaceBinding{workspace}, []PolicyCandidateAuthority{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,7 +367,7 @@ func TestWorkspacePolicyProjectionUsesWorkspaceRetainedCreationAuthority(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := after.Contexts[0].Principal.CreationDefaults.Bootstrap.EKS.Server; got != bootstrapB.EKS.Server || before.ContentDigest == after.ContentDigest {
+	if got := after.Contexts[0].Principals[0].CreationDefaults.Bootstrap.EKS.Server; got != bootstrapB.EKS.Server || before.ContentDigest == after.ContentDigest {
 		t.Fatalf("Workspace replacement did not adopt exact B creation authority: %q", got)
 	}
 }
@@ -363,7 +387,7 @@ func TestWorkspacePolicyProjectionRejectsMissingOrDriftingCompleteAuthority(t *t
 			value.Contexts[0].PolicyMemory.Generation++
 		},
 		"principal mismatch": func(value *WorkspacePolicyProjection) {
-			value.Contexts[0].Principal.ProjectRoot = "/workspace/other"
+			value.Contexts[0].Principals[0].ProjectRoot = "/workspace/other"
 		},
 		"plan digest mismatch": func(value *WorkspacePolicyProjection) {
 			value.PlanDigest = authorityDigest("9")

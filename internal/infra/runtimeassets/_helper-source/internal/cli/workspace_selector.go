@@ -91,18 +91,22 @@ func (s *workspaceSelector) SelectFinalDefaultPair(
 	if selection.DefaultTemplate == nil {
 		return tobari.FinalDefaultPairSelectionChoice{}, fmt.Errorf("default Template is unavailable for ancestor selection")
 	}
-	view := tobari.WorkspaceSelection{CWD: selection.CanonicalCWD, Candidates: []tobari.WorkspaceSelectionCandidate{}, CanCreate: true}
+	view := tobari.WorkspaceSelection{CWD: selection.CanonicalCWD, Candidates: []tobari.WorkspaceSelectionCandidate{}, CanCreate: true, ForceChoice: selection.RequiresChoice()}
 	for _, candidate := range selection.Candidates {
 		runtime := tobari.RuntimeDiagnosticMissing
 		if candidate.Snapshot.Workspace != nil {
 			runtime = tobari.RuntimeDiagnosticUnknown
 		}
+		contextRef, err := tobari.ContextRef(candidate.Snapshot.Context.ID)
+		if err != nil {
+			return tobari.FinalDefaultPairSelectionChoice{}, err
+		}
 		view.Candidates = append(view.Candidates, tobari.WorkspaceSelectionCandidate{
-			ID: string(candidate.Snapshot.Context.ID), Root: candidate.Snapshot.Workspace.ProjectRoot,
-			WorkspaceManifestID: string(selection.DefaultTemplate.ID), WorkspaceManifestName: selection.DefaultTemplate.Name,
-			Runtime: runtime,
+			ID: string(candidate.Snapshot.Workspace.ID), Root: candidate.Snapshot.Workspace.ProjectRoot,
+			WorkspaceManifestID: string(candidate.Snapshot.Template.ID), WorkspaceManifestName: candidate.Snapshot.Template.Name,
+			ContextRef: contextRef, Runtime: runtime,
 		})
-		if candidate.Snapshot.Workspace.ProjectRoot == selection.CanonicalCWD {
+		if candidate.Snapshot.Workspace.ProjectRoot == selection.CanonicalCWD && selection.CurrentContextID != nil && candidate.Snapshot.Context.ID == *selection.CurrentContextID {
 			view.CanCreate = false
 		}
 	}
@@ -113,8 +117,14 @@ func (s *workspaceSelector) SelectFinalDefaultPair(
 	if choice.Kind == tobari.ProjectSelectionCreate {
 		return tobari.FinalDefaultPairSelectionChoice{Kind: tobari.FinalDefaultPairSelectionCreate}, nil
 	}
-	contextID := tobari.ContextID(choice.ID)
-	result := tobari.FinalDefaultPairSelectionChoice{Kind: tobari.FinalDefaultPairSelectionUse, ContextID: contextID}
+	workspaceID := tobari.WorkspaceID(choice.ID)
+	result := tobari.FinalDefaultPairSelectionChoice{Kind: tobari.FinalDefaultPairSelectionUse, WorkspaceID: workspaceID}
+	for _, candidate := range selection.Candidates {
+		if candidate.Snapshot.Workspace.ID == workspaceID {
+			result.ContextID = candidate.Snapshot.Context.ID
+			break
+		}
+	}
 	if err := selection.ValidateChoice(result); err != nil {
 		return tobari.FinalDefaultPairSelectionChoice{}, err
 	}
@@ -428,6 +438,9 @@ func ansiWorkspaceOption(option workspaceSelectorOption, selected, style bool) s
 	if option.candidate.Runtime == tobari.RuntimeDiagnosticIncomplete {
 		detail += " · unavailable"
 	}
+	if option.candidate.ContextRef != "" {
+		detail += " · " + safeExternalText(option.candidate.ContextRef)
+	}
 	pathText := applyStyleToken(style, styleText, path)
 	statusText := applyStyleToken(style, humanStatusToken(status), detail)
 	return prefix + applyStyleToken(style, styleMuted, marker) + " " + pathText + "  " + statusText
@@ -443,6 +456,9 @@ func lineWorkspaceOption(option workspaceSelectorOption) string {
 	}
 	if !option.selectable {
 		detail += " · unavailable"
+	}
+	if option.candidate.ContextRef != "" {
+		detail += " · " + safeExternalText(option.candidate.ContextRef)
 	}
 	return truncateSelectorPath(option.candidate.Root, selectorPathWidth) + "  " + detail
 }
@@ -469,11 +485,15 @@ func writeWorkspaceSelectionSummary(out io.Writer, selection tobari.WorkspaceSel
 	if !found {
 		return fmt.Errorf("selected Workspace is absent from the snapshot")
 	}
-	return writeSelectorLines(out,
+	lines := []string{
 		"Using existing Workspace",
-		"  Root              "+safeExternalText(candidate.Root),
-		"  Working directory "+safeExternalText(selection.CWD),
-	)
+		"  Root              " + safeExternalText(candidate.Root),
+		"  Working directory " + safeExternalText(selection.CWD),
+	}
+	if candidate.ContextRef != "" {
+		lines = append(lines, "  Context           "+safeExternalText(candidate.ContextRef))
+	}
+	return writeSelectorLines(out, lines...)
 }
 
 func writeSelectorLines(out io.Writer, lines ...string) error {

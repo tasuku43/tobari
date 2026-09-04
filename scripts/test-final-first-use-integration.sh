@@ -11,7 +11,6 @@ predecessor_binary=${TOBARI_FIRST_USE_PREDECESSOR_BINARY:-}
 owns_shared_resources=false
 context_ref=
 workspace_ref=
-nested_context_ref=
 nested_workspace_ref=
 upgrade_context_ref=
 upgrade_prepared=false
@@ -157,7 +156,6 @@ cleanup() {
 	fi
 	if [[ $owns_shared_resources == true ]]; then
 		if [[ -n ${test_root:-} && -x ${binary:-} && -n ${nested_workspace_ref:-} ]]; then cleanup_step nested-workspace run_tobari workspace delete --id "$nested_workspace_ref" --confirm=delete --force; fi
-		if [[ -n ${test_root:-} && -x ${binary:-} && -n ${nested_context_ref:-} ]]; then cleanup_step nested-context run_tobari context delete --id "$nested_context_ref" --confirm=delete; fi
 		if [[ -n ${test_root:-} && -x ${binary:-} && -n ${upgrade_context_ref:-} ]]; then cleanup_step upgrade-context run_tobari context delete --id "$upgrade_context_ref" --confirm=delete; fi
 		if [[ -n ${test_root:-} && -x ${binary:-} && -n ${workspace_ref:-} ]]; then cleanup_step workspace run_tobari workspace delete --id "$workspace_ref" --confirm=delete --force; fi
 		if [[ -n ${test_root:-} && -x ${binary:-} && -n ${context_ref:-} ]]; then cleanup_step context run_tobari context delete --id "$context_ref" --confirm=delete; fi
@@ -342,8 +340,8 @@ grep -F 'Creating a new Workspace here' "$nested_log" >/dev/null
 grep -F 'E2E_CWD=/var/lib/tobari/project/child' "$nested_log" >/dev/null
 context_list=$(run_tobari context list --format=json)
 workspace_list=$(run_tobari workspace list --format=json)
-nested_context_id=$(python3 -c 'import json,sys; items=json.load(sys.stdin)["workspaces"]["items"]; assert len(items) == 2; print(next(x["context_id"] for x in items if x["project_root"].endswith("/project/child")))' <<<"$workspace_list")
-nested_context_ref=$(python3 -c 'import json,sys; target=sys.argv[1]; items=json.load(sys.stdin)["contexts"]["items"]; assert len(items) == 2; print(next(x["context_ref"] for x in items if x["context_id"] == target))' "$nested_context_id" <<<"$context_list")
 nested_workspace_ref=$(python3 -c 'import json,sys; items=json.load(sys.stdin)["workspaces"]["items"]; assert len(items) == 2; print(next(x["workspace_ref"] for x in items if x["project_root"].endswith("/project/child")))' <<<"$workspace_list")
+nested_context_id=$(python3 -c 'import json,sys; items=json.load(sys.stdin)["workspaces"]["items"]; assert len(items) == 2; print(next(x["context_id"] for x in items if x["project_root"].endswith("/project/child")))' <<<"$workspace_list")
+python3 -c 'import json,sys; target=sys.argv[1]; items=json.load(sys.stdin)["contexts"]["items"]; assert len(items) == 1; assert items[0]["context_id"] == target; assert items[0]["workspace_count"] == 2' "$nested_context_id" <<<"$context_list"
 
-echo "first-use integration: cold entry, re-entry, descendant selection, and stopped-ancestor nested creation OK"
+echo "first-use integration: cold entry, re-entry, descendant selection, and stopped-ancestor sibling creation in one Context OK"

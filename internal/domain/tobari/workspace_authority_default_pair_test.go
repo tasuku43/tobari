@@ -155,6 +155,50 @@ func TestFinalDefaultPairSelectionReusesExactRootWithoutChoice(t *testing.T) {
 	}
 }
 
+func TestFinalDefaultPairSelectionAllowsCurrentContextAtRootOwnedByAnotherContext(t *testing.T) {
+	base := workspaceAuthorityCollectionFixture(t)
+	otherID := ContextID("01912345-6789-7abc-8def-0123456789d4")
+	memory, _, err := PublishPolicyMemory(otherID, []PolicyMemoryRule{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := WorkspaceAuthorityContextRecord{Context: ContextBinding{
+		SchemaVersion: ContextBindingSchemaVersion, ID: otherID, TemplateID: *base.DefaultTemplateID,
+	}, PolicyMemory: memory}
+	withOther, changed, err := PublishWorkspaceAuthorityCollection(
+		base.Templates, append(base.Contexts, other), base.Workspaces, base.PendingCandidates,
+		base.DefaultTemplateID, &base,
+	)
+	if err != nil || !changed {
+		t.Fatalf("publish sibling Context: changed=%t err=%v", changed, err)
+	}
+	selected, changed, err := PublishWorkspaceAuthorityCollectionWithCurrentContext(
+		withOther.Templates, withOther.Contexts, withOther.Workspaces, withOther.PendingCandidates,
+		withOther.DefaultTemplateID, &otherID, &withOther,
+	)
+	if err != nil || !changed {
+		t.Fatalf("select sibling Context: changed=%t err=%v", changed, err)
+	}
+	selection, err := NewFinalDefaultPairSelection(selected, true, base.Workspaces[0].ProjectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !selection.RequiresChoice() {
+		t.Fatalf("other-Context exact root was selected implicitly: %+v", selection)
+	}
+	if _, automatic := selection.AutomaticChoice(); automatic {
+		t.Fatal("other-Context exact root bypassed explicit create choice")
+	}
+	create := FinalDefaultPairSelectionChoice{Kind: FinalDefaultPairSelectionCreate}
+	if err := selection.ValidateChoice(create); err != nil {
+		t.Fatalf("current Context could not create its own same-root Workspace: %v", err)
+	}
+	observation, err := selection.Observation(create)
+	if err != nil || observation.Context != nil || observation.ProjectRoot != base.Workspaces[0].ProjectRoot {
+		t.Fatalf("same-root create observation=%+v err=%v", observation, err)
+	}
+}
+
 func TestFinalDefaultPairSelectionDoesNotInferProjectFromUnboundContext(t *testing.T) {
 	base := workspaceAuthorityCollectionFixture(t)
 	withoutWorkspace, changed, err := PublishWorkspaceAuthorityCollection(

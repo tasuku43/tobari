@@ -18,7 +18,10 @@ func PublishWorkspaceEntryAuthority(previous WorkspaceAuthorityCollection, plan 
 	var snapshot *ContextAuthoritySnapshot
 	for index := range snapshots {
 		if snapshots[index].Context.ID == plan.Workspace.ContextID {
-			value := snapshots[index].Clone()
+			value, selectErr := snapshots[index].SelectWorkspaceAtRoot(plan.Workspace.ProjectRoot)
+			if selectErr != nil {
+				return WorkspaceAuthorityCollection{}, false, selectErr
+			}
 			snapshot = &value
 			break
 		}
@@ -62,7 +65,7 @@ func PublishWorkspaceEntryAuthority(previous WorkspaceAuthorityCollection, plan 
 	copy(workspaces, previous.Workspaces)
 	replaced := false
 	for index := range workspaces {
-		if workspaces[index].ContextID == plan.Workspace.ContextID {
+		if workspaces[index].ID == plan.Workspace.ID {
 			workspaces[index] = plan.Workspace
 			replaced = true
 			break
@@ -71,7 +74,7 @@ func PublishWorkspaceEntryAuthority(previous WorkspaceAuthorityCollection, plan 
 	if !replaced {
 		workspaces = append(workspaces, plan.Workspace)
 	}
-	next, changed, err := PublishWorkspaceAuthorityCollection(
+	next, changed, err := publishWorkspaceAuthorityCollectionForEntry(
 		previous.Templates, contexts, workspaces, previous.PendingCandidates, previous.DefaultTemplateID, &previous,
 	)
 	if err != nil {
@@ -85,12 +88,16 @@ func PublishWorkspaceEntryAuthority(previous WorkspaceAuthorityCollection, plan 
 		if current.Context.ID != plan.Workspace.ContextID {
 			continue
 		}
-		if err := plan.ValidateFor(current); err != nil {
+		focused, focusErr := current.SelectWorkspace(plan.Workspace.ID)
+		if focusErr != nil {
+			return WorkspaceAuthorityCollection{}, false, focusErr
+		}
+		if err := plan.ValidateFor(focused); err != nil {
 			return WorkspaceAuthorityCollection{}, false, err
 		}
 		if current.ActiveTemplatePolicy == nil || current.ActiveTemplatePolicy.PolicySliceDigest != current.Template.Current.Slices.PolicySliceDigest ||
 			current.ActivePolicyMemory == nil || current.ActivePolicyMemoryRef == nil || current.ActivePolicyMemory.Revision != current.PolicyMemory.Revision || current.ActivePolicyMemoryRef.Revision != current.PolicyMemory.Revision ||
-			current.Workspace == nil || current.Workspace.LastSuccessfulEntry == nil || *current.Workspace.LastSuccessfulEntry != plan.Applied {
+			focused.Workspace == nil || focused.Workspace.LastSuccessfulEntry == nil || *focused.Workspace.LastSuccessfulEntry != plan.Applied {
 			return WorkspaceAuthorityCollection{}, false, fmt.Errorf("Workspace entry publication is incomplete")
 		}
 		return next, changed, nil

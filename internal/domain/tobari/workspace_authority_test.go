@@ -426,11 +426,27 @@ func TestWorkspaceEntryPlanAndExactContainerReceiptBindCurrentAuthority(t *testi
 	}
 	plan := WorkspaceEntryReconciliationPlan{
 		Workspace: workspace, Applied: applied, Authority: authority,
-		CreationDefaults: revision.Body.CreationDefaults.Clone(),
-		Network:          WorkspaceRuntimeNetworkAuthority{Network: network, Subnet: "10.64.0.0/24", DockerGateway: "10.64.0.1", GatewayIP: "10.64.0.2", WorkspaceIP: "10.64.0.3"},
+		CreationDefaults: revision.Body.CreationDefaults.Clone(), InitializeContextHome: true,
+		Network: WorkspaceRuntimeNetworkAuthority{Network: network, Subnet: "10.64.0.0/24", DockerGateway: "10.64.0.1", GatewayIP: "10.64.0.2", WorkspaceIP: "10.64.0.3"},
 	}
 	if err := plan.ValidateFor(snapshot); err != nil {
 		t.Fatal(err)
+	}
+	recovery := plan.Clone()
+	recovery.InitializeContextHome = false
+	recovery.RecoverContextHome = true
+	if err := recovery.ValidateFor(snapshot); err != nil {
+		t.Fatalf("exact predecessor Context Home recovery plan was rejected: %v", err)
+	}
+	missingTransition := plan.Clone()
+	missingTransition.InitializeContextHome = false
+	if err := missingTransition.ValidateFor(snapshot); err == nil {
+		t.Fatal("first Workspace plan without a Context Home transition was accepted")
+	}
+	ambiguousTransition := plan.Clone()
+	ambiguousTransition.RecoverContextHome = true
+	if err := ambiguousTransition.ValidateFor(snapshot); err == nil {
+		t.Fatal("first Workspace plan both initialized and recovered Context Home")
 	}
 	receipt := WorkspaceEntryReconciliationReceipt{WorkspaceID: workspace.ID, ContextID: contextBinding.ID, Applied: applied, ContainerID: strings.Repeat("a", 64)}
 	if err := receipt.ValidateFor(plan); err != nil {
@@ -507,7 +523,8 @@ func TestWorkspaceSessionBindingCarriesCompleteFinalPrincipalAndEntryAuthority(t
 		LastSuccessfulEntry: &applied,
 	}
 	snapshot := ContextAuthoritySnapshot{
-		Context: contextBinding, Template: template, PolicyMemory: memory, Workspace: &workspace,
+		Context: contextBinding, Template: template, ContextHome: workspace.Home, ContextCreationDefaults: workspace.CreationDefaults,
+		PolicyMemory: memory, Workspaces: []WorkspaceBinding{workspace}, Workspace: &workspace,
 		ActiveTemplatePolicy: &templateReceipt, ActivePolicyMemory: &memory, ActivePolicyMemoryRef: &memoryReceipt,
 	}
 	receipt := WorkspaceEntryReconciliationReceipt{

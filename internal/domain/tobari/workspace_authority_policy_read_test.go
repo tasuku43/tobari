@@ -128,6 +128,34 @@ func TestFinalPolicyReadJSONProducesOnlyCandidateAndRuleReferences(t *testing.T)
 	}
 }
 
+func TestPolicyCandidateReadCoalescesLegacyAndCurrentIDsByContextEffect(t *testing.T) {
+	base := workspaceAuthorityCollectionFixture(t)
+	current := base.PendingCandidates[0].Clone()
+	legacy := current.Clone()
+	legacy.ID = legacyPolicyCandidateAuthorityID(legacy.ContextID, legacy.ObservingWorkspaceID, legacy.PayloadDigest)
+	collection, changed, err := PublishWorkspaceAuthorityCollection(
+		base.Templates, base.Contexts, base.Workspaces,
+		[]PolicyCandidateAuthority{legacy}, base.DefaultTemplateID, &base,
+	)
+	if err != nil || !changed {
+		t.Fatalf("publish legacy/current aliases: changed=%t err=%v", changed, err)
+	}
+	list, err := NewPolicyCandidateAuthorityListWithObservations(collection, true, []PolicyCandidateAuthority{current}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Items) != 1 || list.Items[0].ID != legacy.ID || list.Items[0].Authority.ContextID != current.ContextID || list.Items[0].Authority.PayloadDigest != current.PayloadDigest {
+		t.Fatalf("legacy/current aliases remained independently actionable: %#v", list.Items)
+	}
+	review, err := NewPolicyMemoryReviewSnapshot(collection, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(review.Items) != 1 || review.Items[0].Match != PolicyMatchExact {
+		t.Fatalf("legacy/current aliases produced duplicate review items: %#v", review.Items)
+	}
+}
+
 func TestFinalPolicyReadSchemaThreeRejectsPredecessorSchema(t *testing.T) {
 	collection := policyReadCollectionFixture(t)
 	candidates, err := NewPolicyCandidateAuthorityList(collection, true)

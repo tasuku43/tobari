@@ -3,6 +3,7 @@ package workspaceauthoritystore
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -156,6 +157,10 @@ func (r *entryRuntimeFixture) PlanWorkspaceEntry(_ context.Context, snapshot tob
 		SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: workspaceID, ContextID: snapshot.Context.ID,
 		ProjectRoot: projectRoot, Home: "/context/home-" + string(snapshot.Context.ID), CreationDefaults: snapshot.Template.Current.Slices.CreationDefaultsDigest,
 	}
+	if snapshot.ContextHome != "" {
+		workspace.Home = snapshot.ContextHome
+		workspace.CreationDefaults = snapshot.ContextCreationDefaults
+	}
 	if snapshot.Workspace != nil {
 		workspace = *snapshot.Workspace
 		if snapshot.Workspace.LastSuccessfulEntry != nil {
@@ -164,7 +169,13 @@ func (r *entryRuntimeFixture) PlanWorkspaceEntry(_ context.Context, snapshot tob
 		}
 	}
 	creationDefaults := authority.CreationDefaults.Clone()
-	if snapshot.Workspace != nil {
+	if snapshot.ContextCreationDefaults != "" {
+		for _, revision := range snapshot.Template.Retained {
+			if revision.Slices.CreationDefaultsDigest == snapshot.ContextCreationDefaults {
+				creationDefaults = revision.Body.CreationDefaults.Clone()
+			}
+		}
+	} else if snapshot.Workspace != nil {
 		for _, revision := range snapshot.Template.Retained {
 			if revision.Slices.CreationDefaultsDigest == snapshot.Workspace.CreationDefaults {
 				creationDefaults = revision.Body.CreationDefaults.Clone()
@@ -177,7 +188,7 @@ func (r *entryRuntimeFixture) PlanWorkspaceEntry(_ context.Context, snapshot tob
 	}
 	networkAuthority := tobari.WorkspaceRuntimeNetworkAuthority{Network: network, Subnet: "10.64.0.0/24", DockerGateway: "10.64.0.1", GatewayIP: "10.64.0.2", WorkspaceIP: "10.64.0.3"}
 	if r.reuseApplied && snapshot.Workspace != nil && snapshot.Workspace.LastSuccessfulEntry != nil {
-		return tobari.WorkspaceEntryReconciliationPlan{Workspace: workspace, Applied: *workspace.LastSuccessfulEntry, Authority: authority, CreationDefaults: creationDefaults, Network: networkAuthority}, nil
+		return tobari.WorkspaceEntryReconciliationPlan{Workspace: workspace, Applied: *workspace.LastSuccessfulEntry, Authority: authority, CreationDefaults: creationDefaults, InitializeContextHome: snapshot.ContextHome == "" && len(snapshot.Workspaces) == 0 && snapshot.Workspace == nil, Network: networkAuthority}, nil
 	}
 	resolved := r.resolvedSpec
 	if resolved == "" {
@@ -189,7 +200,7 @@ func (r *entryRuntimeFixture) PlanWorkspaceEntry(_ context.Context, snapshot tob
 		RuntimeRevision: snapshot.Template.Current.Slices.RuntimeRevision, ResolvedSpec: resolved, ReconciledAt: reconciledAt,
 	}
 	workspace.LastSuccessfulEntry = &applied
-	return tobari.WorkspaceEntryReconciliationPlan{Workspace: workspace, Applied: applied, Authority: authority, CreationDefaults: creationDefaults, Network: networkAuthority}, nil
+	return tobari.WorkspaceEntryReconciliationPlan{Workspace: workspace, Applied: applied, Authority: authority, CreationDefaults: creationDefaults, InitializeContextHome: snapshot.ContextHome == "" && len(snapshot.Workspaces) == 0 && snapshot.Workspace == nil, Network: networkAuthority}, nil
 }
 
 func (r *entryRuntimeFixture) ReconcileWorkspaceEntry(_ context.Context, plan tobari.WorkspaceEntryReconciliationPlan, _ string) (tobari.WorkspaceEntryReconciliationReceipt, error) {
@@ -1060,6 +1071,95 @@ func TestContextEntryNoOpDecisionInterruptedBeforeReconcileStillExecutesIdempote
 	}
 }
 
+func TestContextEntryUpgradesInterruptedPredecessorFirstEntryDecisionAndStage(t *testing.T) {
+	base := storeCollectionFixture(t)
+	record := base.Contexts[0].Clone()
+	record.ContextHome = ""
+	record.CreationDefaults = ""
+	previous, changed, err := tobari.PublishWorkspaceAuthorityCollection(
+		base.Templates, []tobari.WorkspaceAuthorityContextRecord{record}, []tobari.WorkspaceBinding{},
+		[]tobari.PolicyCandidateAuthority{}, base.DefaultTemplateID, nil,
+	)
+	if err != nil || !changed {
+		t.Fatalf("publish predecessor Context-only authority: changed=%t err=%v", changed, err)
+	}
+	store, mutator, adapter, _, runtime, _, _, sessions := newEntryFixture(t, previous)
+	interrupted := true
+	adapter.afterDecision = func() error {
+		if interrupted {
+			interrupted = false
+			return errors.New("synthetic predecessor death after durable decision")
+		}
+		return nil
+	}
+	contextRef, _ := tobari.ContextRef(storeContextID)
+	root := "/workspace/predecessor-first-entry"
+	if _, err := adapter.EnterContextByReferenceAtRoot(context.Background(), contextRef, root, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); !errors.Is(err, tobari.ErrWorkspaceEntryInterrupted) {
+		t.Fatalf("predecessor interruption error=%v", err)
+	}
+
+	decisionPath := mutator.effectDecisionPath()
+	data, err := os.ReadFile(decisionPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]any
+	if err := json.Unmarshal(data, &wire); err != nil {
+		t.Fatal(err)
+	}
+	plan, ok := wire["workspace_entry_plan"].(map[string]any)
+	if !ok {
+		t.Fatalf("decision omitted Workspace entry plan: %s", data)
+	}
+	delete(plan, "initialize_context_home")
+	legacyDecision, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(decisionPath, legacyDecision, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stagePath := mutationStagePath(store.root)
+	stageData, err := os.ReadFile(stagePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacyStage tobari.WorkspaceAuthorityCollection
+	if err := json.Unmarshal(stageData, &legacyStage); err != nil {
+		t.Fatal(err)
+	}
+	for index := range legacyStage.Contexts {
+		legacyStage.Contexts[index].ContextHome = ""
+		legacyStage.Contexts[index].CreationDefaults = ""
+	}
+	legacyStageData, err := json.Marshal(legacyStage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stagePath, []byte("corrupt predecessor stage bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.EnterContextByReferenceAtRoot(context.Background(), contextRef, root, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); err == nil || !strings.Contains(err.Error(), "stage") {
+		t.Fatalf("corrupt predecessor stage was replaced: %v", err)
+	}
+	if err := os.WriteFile(stagePath, legacyStageData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	publication, err := adapter.EnterContextByReferenceAtRoot(context.Background(), contextRef, root, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if publication.Snapshot.Workspace == nil || publication.Snapshot.Workspace.ProjectRoot != root ||
+		publication.Snapshot.ContextHome == "" || runtime.planCalls != 1 || runtime.reconcileCalls != 1 || sessions.run != 1 {
+		t.Fatalf("upgraded predecessor entry publication=%#v plan=%d reconcile=%d sessions=%d", publication, runtime.planCalls, runtime.reconcileCalls, sessions.run)
+	}
+	terminal, present, err := mutator.readTerminalEffectDecision()
+	if err != nil || !present || terminal.EntryPlanCompatibility != entryPlanContextHomeCompatibility || terminal.EntryPlan == nil || !terminal.EntryPlan.InitializeContextHome {
+		t.Fatalf("upgraded terminal decision=%#v present=%t err=%v", terminal, present, err)
+	}
+}
+
 func TestContextEntryNoOpObservationTimeoutRemainsReadOnlyAndRetryable(t *testing.T) {
 	collection := storeCollectionFixture(t)
 	_, mutator, adapter, _, runtime, _, _, sessions := newEntryFixture(t, collection)
@@ -1213,6 +1313,8 @@ func TestContextEntryTerminalExactRuntimeDriftPermitsBoundedSameTargetRepair(t *
 func TestContextEntryCreatesFreshWorkspaceAndBindsCreationDefaults(t *testing.T) {
 	collection := storeCollectionFixture(t)
 	collection.Workspaces = []tobari.WorkspaceBinding{}
+	collection.Contexts[0].ContextHome = ""
+	collection.Contexts[0].CreationDefaults = ""
 	collection.PendingCandidates = []tobari.PolicyCandidateAuthority{}
 	collection, _, err := tobari.PublishWorkspaceAuthorityCollection(collection.Templates, collection.Contexts, collection.Workspaces, collection.PendingCandidates, collection.DefaultTemplateID, nil)
 	if err != nil {
@@ -1227,6 +1329,160 @@ func TestContextEntryCreatesFreshWorkspaceAndBindsCreationDefaults(t *testing.T)
 	workspace := publication.Snapshot.Workspace
 	if workspace == nil || workspace.ID == storeWorkspaceID || workspace.Home != "/context/home-"+string(workspace.ContextID) || workspace.CreationDefaults != publication.Snapshot.Template.Current.Slices.CreationDefaultsDigest {
 		t.Fatalf("new Workspace=%#v", workspace)
+	}
+}
+
+func TestContextEntryCreatesSiblingAfterSuccessfulEntryTerminal(t *testing.T) {
+	collection := storeCollectionFixture(t)
+	store, _, adapter, _, _, _, _, _ := newEntryFixture(t, collection)
+	contextRef, _ := tobari.ContextRef(storeContextID)
+	if _, err := adapter.EnterContextByReferenceAtRoot(context.Background(), contextRef, collection.Workspaces[0].ProjectRoot, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	publication, err := adapter.EnterContextByReferenceAtRoot(context.Background(), contextRef, "/workspace/sibling", tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present || len(current.Workspaces) != 2 || publication.Snapshot.Workspace == nil {
+		t.Fatalf("sibling publication present=%t workspaces=%d snapshot=%+v err=%v", present, len(current.Workspaces), publication.Snapshot, err)
+	}
+	if publication.Snapshot.Workspace.ProjectRoot != "/workspace/sibling" || publication.Snapshot.Workspace.Home != current.Contexts[0].ContextHome || publication.Snapshot.Workspace.CreationDefaults != current.Contexts[0].CreationDefaults {
+		t.Fatalf("sibling did not share Context Home authority: %+v context=%+v", publication.Snapshot.Workspace, current.Contexts[0])
+	}
+}
+
+func TestEntryRecoveryPlanMustMatchSelectedWorkspaceRootAndID(t *testing.T) {
+	collection := storeCollectionFixture(t)
+	sibling := collection.Workspaces[0]
+	sibling.ID = "01912345-6789-7abc-8def-0123456789a4"
+	sibling.ProjectRoot = "/workspace/sibling"
+	sibling.LastSuccessfulEntry = nil
+	collection, _, err := tobari.PublishWorkspaceAuthorityCollection(
+		collection.Templates, collection.Contexts, []tobari.WorkspaceBinding{collection.Workspaces[0], sibling},
+		collection.PendingCandidates, collection.DefaultTemplateID, &collection,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := snapshotForContext(collection, storeContextID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := snapshot.SelectWorkspaceAtRoot(sibling.ProjectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := tobari.WorkspaceEntryReconciliationPlan{Workspace: collection.Workspaces[0]}
+	if entryPlanMatchesSelection(&plan, storeContextID, sibling.ProjectRoot, selected) {
+		t.Fatal("root B accepted root A recovery plan")
+	}
+	missing, err := snapshot.SelectWorkspaceAtRoot("/workspace/new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entryPlanMatchesSelection(&plan, storeContextID, "/workspace/new", missing) {
+		t.Fatal("new root accepted an existing Workspace ID recovery plan")
+	}
+}
+
+func TestContextEntryRejectsAnotherWorkspaceRootForPublishedActiveRecoveryWithoutChangingArtifacts(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		publishFault func(*Mutator)
+		recoveryPath func(*Mutator) string
+	}{
+		{
+			name: "published active",
+			publishFault: func(mutator *Mutator) {
+				originalRename := mutator.rename
+				mutator.rename = func(oldPath, newPath string) error {
+					if oldPath == mutator.effectDecisionPath() && newPath == mutator.effectDecisionDonePath() {
+						return errors.New("synthetic pre-terminal publication uncertainty")
+					}
+					return originalRename(oldPath, newPath)
+				}
+			},
+			recoveryPath: func(mutator *Mutator) string { return mutator.effectDecisionPath() },
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			collection := storeCollectionFixture(t)
+			sibling := collection.Workspaces[0]
+			sibling.ID = "01912345-6789-7abc-8def-0123456789a4"
+			sibling.ProjectRoot = "/workspace/sibling"
+			sibling.LastSuccessfulEntry = nil
+			collection, _, err := tobari.PublishWorkspaceAuthorityCollection(
+				collection.Templates, collection.Contexts, []tobari.WorkspaceBinding{collection.Workspaces[0], sibling},
+				collection.PendingCandidates, collection.DefaultTemplateID, &collection,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			store, mutator, adapter, _, runtime, _, _, sessions := newEntryFixture(t, collection)
+			test.publishFault(mutator)
+			contextRef, _ := tobari.ContextRef(storeContextID)
+			if _, err := adapter.EnterContextByReferenceAtRoot(context.Background(), contextRef, "/workspace/example", tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); err == nil {
+				t.Fatal("fixture did not stop after publishing root A")
+			}
+			published, present, err := store.ReadComplete(context.Background())
+			if err != nil || !present || published.Generation != collection.Generation+1 {
+				t.Fatalf("root A publication present=%t generation=%d err=%v", present, published.Generation, err)
+			}
+			type artifact struct {
+				present bool
+				data    []byte
+				mode    os.FileMode
+			}
+			paths := []string{mutator.effectDecisionPath(), mutator.effectDecisionDonePath(), mutationStagePath(mutator.store.root)}
+			before := make(map[string]artifact, len(paths))
+			for _, path := range paths {
+				data, readErr := os.ReadFile(path)
+				if errors.Is(readErr, os.ErrNotExist) {
+					before[path] = artifact{}
+					continue
+				}
+				if readErr != nil {
+					t.Fatal(readErr)
+				}
+				info, statErr := os.Lstat(path)
+				if statErr != nil {
+					t.Fatal(statErr)
+				}
+				before[path] = artifact{present: true, data: data, mode: info.Mode()}
+			}
+			if !before[test.recoveryPath(mutator)].present {
+				t.Fatalf("fixture omitted %s recovery decision", test.name)
+			}
+			planBefore, reconcileBefore, confirmBefore, beginBefore := runtime.planCalls, runtime.reconcileCalls, runtime.confirmCalls, sessions.begin
+			if _, err := adapter.EnterContextByReferenceAtRoot(context.Background(), contextRef, sibling.ProjectRoot, tobari.NewWorkspaceShellSession(), strings.NewReader(""), io.Discard, io.Discard); err == nil || !strings.Contains(err.Error(), "another Workspace root") {
+				t.Fatalf("root B recovery error=%v", err)
+			}
+			after, present, err := store.ReadComplete(context.Background())
+			if err != nil || !present || after.Generation != published.Generation || after.Revision != published.Revision {
+				t.Fatalf("root B changed published authority: before=%d/%s after=%d/%s present=%t err=%v", published.Generation, published.Revision, after.Generation, after.Revision, present, err)
+			}
+			for _, path := range paths {
+				want := before[path]
+				data, readErr := os.ReadFile(path)
+				if !want.present {
+					if !errors.Is(readErr, os.ErrNotExist) {
+						t.Fatalf("root B created recovery artifact %s: %v", filepath.Base(path), readErr)
+					}
+					continue
+				}
+				if readErr != nil {
+					t.Fatal(readErr)
+				}
+				info, statErr := os.Lstat(path)
+				if statErr != nil || !bytes.Equal(data, want.data) || info.Mode() != want.mode {
+					t.Fatalf("root B changed recovery artifact %s data=%q mode=%v err=%v", filepath.Base(path), data, info.Mode(), statErr)
+				}
+			}
+			if runtime.planCalls != planBefore || runtime.reconcileCalls != reconcileBefore || runtime.confirmCalls != confirmBefore || sessions.begin != beginBefore {
+				t.Fatalf("root B crossed runtime/session boundary plan=%d/%d reconcile=%d/%d confirm=%d/%d begin=%d/%d", runtime.planCalls, planBefore, runtime.reconcileCalls, reconcileBefore, runtime.confirmCalls, confirmBefore, sessions.begin, beginBefore)
+			}
+		})
 	}
 }
 

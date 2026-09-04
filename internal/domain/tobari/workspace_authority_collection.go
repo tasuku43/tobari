@@ -2,6 +2,7 @@ package tobari
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 )
 
@@ -12,6 +13,8 @@ const WorkspaceAuthorityCollectionSchemaVersion = 2
 // installation snapshot cannot carry divergent copies of either authority.
 type WorkspaceAuthorityContextRecord struct {
 	Context               ContextBinding                   `json:"context"`
+	ContextHome           string                           `json:"context_home,omitempty"`
+	CreationDefaults      SemanticDigest                   `json:"creation_defaults_digest,omitempty"`
 	PolicyMemory          PolicyMemoryRevision             `json:"policy_memory"`
 	ActiveTemplatePolicy  *TemplatePolicyActivationReceipt `json:"active_template_policy,omitempty"`
 	ActivePolicyMemory    *PolicyMemoryRevision            `json:"active_policy_memory,omitempty"`
@@ -133,7 +136,7 @@ func PublishWorkspaceAuthorityCollection(
 			return WorkspaceAuthorityCollection{}, false, fmt.Errorf("current Context selection cannot be removed implicitly")
 		}
 	}
-	return publishWorkspaceAuthorityCollection(templates, contexts, workspaces, candidates, defaultTemplateID, currentContextID, previous)
+	return publishWorkspaceAuthorityCollection(templates, contexts, workspaces, candidates, defaultTemplateID, currentContextID, previous, false)
 }
 
 // PublishWorkspaceAuthorityCollectionWithCurrentContext publishes the same
@@ -149,7 +152,23 @@ func PublishWorkspaceAuthorityCollectionWithCurrentContext(
 	currentContextID *ContextID,
 	previous *WorkspaceAuthorityCollection,
 ) (WorkspaceAuthorityCollection, bool, error) {
-	return publishWorkspaceAuthorityCollection(templates, contexts, workspaces, candidates, defaultTemplateID, currentContextID, previous)
+	return publishWorkspaceAuthorityCollection(templates, contexts, workspaces, candidates, defaultTemplateID, currentContextID, previous, false)
+}
+
+func publishWorkspaceAuthorityCollectionForEntry(
+	templates []WorkspaceTemplate,
+	contexts []WorkspaceAuthorityContextRecord,
+	workspaces []WorkspaceBinding,
+	candidates []PolicyCandidateAuthority,
+	defaultTemplateID *WorkspaceTemplateID,
+	previous *WorkspaceAuthorityCollection,
+) (WorkspaceAuthorityCollection, bool, error) {
+	var currentContextID *ContextID
+	if previous != nil && previous.CurrentContextID != nil {
+		value := *previous.CurrentContextID
+		currentContextID = &value
+	}
+	return publishWorkspaceAuthorityCollection(templates, contexts, workspaces, candidates, defaultTemplateID, currentContextID, previous, true)
 }
 
 func publishWorkspaceAuthorityCollection(
@@ -160,6 +179,7 @@ func publishWorkspaceAuthorityCollection(
 	defaultTemplateID *WorkspaceTemplateID,
 	currentContextID *ContextID,
 	previous *WorkspaceAuthorityCollection,
+	allowContextHomeInitialization bool,
 ) (WorkspaceAuthorityCollection, bool, error) {
 	if templates == nil || contexts == nil || workspaces == nil || candidates == nil {
 		return WorkspaceAuthorityCollection{}, false, fmt.Errorf("Workspace authority collections must be explicit")
@@ -172,6 +192,7 @@ func publishWorkspaceAuthorityCollection(
 		Workspaces:        cloneWorkspaceBindings(workspaces),
 		PendingCandidates: clonePolicyCandidateAuthorities(candidates),
 	}
+	bindContextHomeAuthority(result.Contexts, result.Workspaces)
 	if defaultTemplateID != nil {
 		value := *defaultTemplateID
 		result.DefaultTemplateID = &value
@@ -188,6 +209,25 @@ func publishWorkspaceAuthorityCollection(
 		if err := previous.Validate(); err != nil {
 			return WorkspaceAuthorityCollection{}, false, err
 		}
+		currentContexts := make(map[ContextID]WorkspaceAuthorityContextRecord, len(result.Contexts))
+		for _, record := range result.Contexts {
+			currentContexts[record.Context.ID] = record
+		}
+		for _, before := range previous.Contexts {
+			after, retained := currentContexts[before.Context.ID]
+			if !retained {
+				continue
+			}
+			if before.ContextHome == "" {
+				if after.ContextHome != "" && !allowContextHomeInitialization {
+					return WorkspaceAuthorityCollection{}, false, fmt.Errorf("Context Home initialization requires an exact Workspace entry plan")
+				}
+				continue
+			}
+			if after.ContextHome != before.ContextHome || after.CreationDefaults != before.CreationDefaults {
+				return WorkspaceAuthorityCollection{}, false, fmt.Errorf("Context Home creation authority cannot change")
+			}
+		}
 		result.Generation = previous.Generation + 1
 	}
 	revision, err := workspaceAuthorityCollectionRevision(result)
@@ -201,9 +241,42 @@ func publishWorkspaceAuthorityCollection(
 	return result, true, result.Validate()
 }
 
+// bindContextHomeAuthority promotes the first Workspace's create-once Home
+// facts into Context authority. Once present, those facts survive even when
+// the Context temporarily owns no Workspaces.
+func bindContextHomeAuthority(contexts []WorkspaceAuthorityContextRecord, workspaces []WorkspaceBinding) {
+	indexes := make(map[ContextID]int, len(contexts))
+	for index := range contexts {
+		indexes[contexts[index].Context.ID] = index
+	}
+	for _, workspace := range workspaces {
+		index, found := indexes[workspace.ContextID]
+		if !found || contexts[index].ContextHome != "" || contexts[index].CreationDefaults != "" {
+			continue
+		}
+		contexts[index].ContextHome = workspace.Home
+		contexts[index].CreationDefaults = workspace.CreationDefaults
+	}
+}
+
 func workspaceAuthorityCollectionRevision(collection WorkspaceAuthorityCollection) (SemanticDigest, error) {
+	contexts := cloneWorkspaceAuthorityContextRecords(collection.Contexts)
+	workspaceOwners := make(map[ContextID]struct{}, len(collection.Workspaces))
+	for _, workspace := range collection.Workspaces {
+		workspaceOwners[workspace.ContextID] = struct{}{}
+	}
+	for index := range contexts {
+		if _, found := workspaceOwners[contexts[index].Context.ID]; found {
+			// While a Workspace exists these values are validated mirrors of
+			// Workspace authority. Excluding the mirrors preserves the schema-v2
+			// collection revision for compatible reads; once the last Workspace
+			// is removed, the retained Context-owned values become revision-bearing.
+			contexts[index].ContextHome = ""
+			contexts[index].CreationDefaults = ""
+		}
+	}
 	content := workspaceAuthorityCollectionContent{
-		Templates: collection.Templates, Contexts: collection.Contexts, Workspaces: collection.Workspaces,
+		Templates: collection.Templates, Contexts: contexts, Workspaces: collection.Workspaces,
 		PendingCandidates: collection.PendingCandidates, DefaultTemplateID: collection.DefaultTemplateID,
 		CurrentContextID: collection.CurrentContextID,
 	}
@@ -241,6 +314,17 @@ func (c WorkspaceAuthorityCollection) Validate() error {
 			return fmt.Errorf("Context refers to an unavailable Workspace Template")
 		}
 		bindings[index] = record.Context
+		if (record.ContextHome == "") != (record.CreationDefaults == "") {
+			return fmt.Errorf("Context Home authority is incomplete")
+		}
+		if record.ContextHome != "" {
+			if !filepath.IsAbs(record.ContextHome) || filepath.Clean(record.ContextHome) != record.ContextHome {
+				return fmt.Errorf("Context Home authority is invalid")
+			}
+			if err := record.CreationDefaults.Validate(); err != nil {
+				return fmt.Errorf("Context Home creation authority is invalid: %w", err)
+			}
+		}
 		records[record.Context.ID] = record
 		previousContext = record.Context.ID
 	}
@@ -248,10 +332,20 @@ func (c WorkspaceAuthorityCollection) Validate() error {
 		return err
 	}
 
-	workspacesByContext := make(map[ContextID]WorkspaceBinding, len(c.Workspaces))
+	workspacesByContext := make(map[ContextID][]WorkspaceBinding, len(c.Contexts))
 	workspacesByID := make(map[WorkspaceID]WorkspaceBinding, len(c.Workspaces))
-	workspacesByHome := make(map[string]WorkspaceID, len(c.Workspaces))
+	workspacesByHome := make(map[string]ContextID, len(c.Contexts))
+	workspacesByContextRoot := make(map[string]WorkspaceID, len(c.Workspaces))
 	previousWorkspace := WorkspaceID("")
+	for _, record := range c.Contexts {
+		if record.ContextHome == "" {
+			continue
+		}
+		if previous, exists := workspacesByHome[record.ContextHome]; exists && previous != record.Context.ID {
+			return fmt.Errorf("one Context Home may belong to only one Context")
+		}
+		workspacesByHome[record.ContextHome] = record.Context.ID
+	}
 	for _, workspace := range c.Workspaces {
 		if previousWorkspace != "" && workspace.ID <= previousWorkspace {
 			return fmt.Errorf("Workspaces must be unique and sorted")
@@ -260,23 +354,40 @@ func (c WorkspaceAuthorityCollection) Validate() error {
 		if !exists {
 			return fmt.Errorf("Workspace refers to an unavailable Context")
 		}
-		if _, exists := workspacesByContext[workspace.ContextID]; exists {
-			return fmt.Errorf("one Context may have at most one Workspace")
-		}
 		if err := workspace.ValidateFor(record.Context); err != nil {
 			return err
 		}
-		if previous, exists := workspacesByHome[workspace.Home]; exists && previous != workspace.ID {
-			return fmt.Errorf("one Workspace home may belong to only one Workspace")
+		if record.ContextHome == "" || record.CreationDefaults == "" || workspace.Home != record.ContextHome || workspace.CreationDefaults != record.CreationDefaults {
+			return fmt.Errorf("Workspace does not match its Context Home creation authority")
 		}
-		workspacesByContext[workspace.ContextID] = workspace
+		pair := string(workspace.ContextID) + "\x00" + workspace.ProjectRoot
+		if previous, exists := workspacesByContextRoot[pair]; exists && previous != workspace.ID {
+			return fmt.Errorf("one Context may have at most one Workspace at one Project root")
+		}
+		if previous, exists := workspacesByHome[workspace.Home]; exists && previous != workspace.ContextID {
+			return fmt.Errorf("one Context Home may belong to only one Context")
+		}
+		workspacesByContext[workspace.ContextID] = append(workspacesByContext[workspace.ContextID], workspace)
 		workspacesByID[workspace.ID] = workspace
-		workspacesByHome[workspace.Home] = workspace.ID
+		workspacesByHome[workspace.Home] = workspace.ContextID
+		workspacesByContextRoot[pair] = workspace.ID
 		previousWorkspace = workspace.ID
 	}
 
 	for _, record := range c.Contexts {
 		template := templates[record.Context.TemplateID]
+		if record.CreationDefaults != "" {
+			creationFound := false
+			for _, revision := range template.Retained {
+				if revision.Slices.CreationDefaultsDigest == record.CreationDefaults {
+					creationFound = true
+					break
+				}
+			}
+			if !creationFound {
+				return fmt.Errorf("Context Home creation defaults have no retained Template revision")
+			}
+		}
 		currentRules := make(map[string]struct{}, len(record.PolicyMemory.Rules))
 		for _, rule := range record.PolicyMemory.Rules {
 			currentRules[rule.ID] = struct{}{}
@@ -299,10 +410,8 @@ func (c WorkspaceAuthorityCollection) Validate() error {
 				}
 			}
 		}
-		var workspace *WorkspaceBinding
-		if value, exists := workspacesByContext[record.Context.ID]; exists {
-			copy := value
-			workspace = &copy
+		workspaces := workspacesByContext[record.Context.ID]
+		for _, value := range workspaces {
 			creationFound := false
 			for _, revision := range template.Retained {
 				if revision.Slices.CreationDefaultsDigest == value.CreationDefaults {
@@ -314,10 +423,23 @@ func (c WorkspaceAuthorityCollection) Validate() error {
 				return fmt.Errorf("Workspace creation defaults have no retained Template revision")
 			}
 		}
+		if len(workspaces) > 1 {
+			home := workspaces[0].Home
+			creationDefaults := workspaces[0].CreationDefaults
+			for _, workspace := range workspaces[1:] {
+				if workspace.Home != home {
+					return fmt.Errorf("Workspaces owned by one Context must share one Context Home")
+				}
+				if workspace.CreationDefaults != creationDefaults {
+					return fmt.Errorf("Workspaces owned by one Context must share create-once Home defaults")
+				}
+			}
+		}
 		snapshot := ContextAuthoritySnapshot{
 			Context: record.Context, Template: template, PolicyMemory: record.PolicyMemory,
+			ContextHome: record.ContextHome, ContextCreationDefaults: record.CreationDefaults,
 			ActiveTemplatePolicy: record.ActiveTemplatePolicy, ActivePolicyMemory: record.ActivePolicyMemory,
-			ActivePolicyMemoryRef: record.ActivePolicyMemoryRef, Workspace: workspace,
+			ActivePolicyMemoryRef: record.ActivePolicyMemoryRef, Workspaces: cloneWorkspaceBindings(workspaces),
 		}
 		if err := snapshot.Validate(); err != nil {
 			return err
@@ -488,23 +610,20 @@ func (c WorkspaceAuthorityCollection) ContextSnapshots() ([]ContextAuthoritySnap
 	for _, template := range c.Templates {
 		templates[template.ID] = template
 	}
-	workspaces := make(map[ContextID]WorkspaceBinding, len(c.Workspaces))
+	workspaces := make(map[ContextID][]WorkspaceBinding, len(c.Contexts))
 	for _, workspace := range c.Workspaces {
-		workspaces[workspace.ContextID] = workspace
+		workspaces[workspace.ContextID] = append(workspaces[workspace.ContextID], workspace)
 	}
 	result := make([]ContextAuthoritySnapshot, len(c.Contexts))
 	for index, record := range c.Contexts {
 		result[index] = ContextAuthoritySnapshot{
 			Context: record.Context, Template: templates[record.Context.TemplateID].Clone(), PolicyMemory: record.PolicyMemory.Clone(),
+			ContextHome: record.ContextHome, ContextCreationDefaults: record.CreationDefaults,
 			ActiveTemplatePolicy: record.ActiveTemplatePolicy, ActivePolicyMemory: record.ActivePolicyMemory,
-			ActivePolicyMemoryRef: record.ActivePolicyMemoryRef,
+			ActivePolicyMemoryRef: record.ActivePolicyMemoryRef, Workspaces: cloneWorkspaceBindings(workspaces[record.Context.ID]),
 		}
-		if workspace, exists := workspaces[record.Context.ID]; exists {
-			value := workspace
-			if workspace.LastSuccessfulEntry != nil {
-				entry := *workspace.LastSuccessfulEntry
-				value.LastSuccessfulEntry = &entry
-			}
+		if len(result[index].Workspaces) == 1 {
+			value := result[index].Workspaces[0]
 			result[index].Workspace = &value
 		}
 		result[index] = result[index].Clone()
@@ -529,10 +648,11 @@ func cloneWorkspaceAuthorityContextRecords(values []WorkspaceAuthorityContextRec
 }
 
 func cloneWorkspaceBindings(values []WorkspaceBinding) []WorkspaceBinding {
-	result := append([]WorkspaceBinding{}, values...)
-	for index := range result {
-		if values[index].LastSuccessfulEntry != nil {
-			entry := *values[index].LastSuccessfulEntry
+	result := make([]WorkspaceBinding, len(values))
+	for index, value := range values {
+		result[index] = value
+		if value.LastSuccessfulEntry != nil {
+			entry := *value.LastSuccessfulEntry
 			result[index].LastSuccessfulEntry = &entry
 		}
 	}

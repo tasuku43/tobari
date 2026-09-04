@@ -23,7 +23,7 @@ func TestAuthenticationDocumentationSeparatesReleaseAndResearchSurfaces(t *testi
 		"tobari -- claude",
 		"tobari -- codex",
 		"tobari -- gh auth login",
-		"available to every process in the same Workspace",
+		"available to every process in every Workspace owned by that",
 		"never mounts",
 		"host CLI homes",
 		"The standard and release binaries have no `auth` namespace",

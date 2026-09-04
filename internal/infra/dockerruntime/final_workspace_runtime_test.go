@@ -25,12 +25,52 @@ type finalWorkspacePreparationRunner struct {
 	buildErr error
 }
 
+type finalWorkspaceHelperPreparationRunner struct {
+	*exposureHelperAssetRunner
+	builds [][]string
+	built  bool
+}
+
 func (r *finalWorkspacePreparationRunner) Run(ctx context.Context, args, environment []string, in io.Reader, out, errOut io.Writer) error {
 	if len(args) >= 2 && args[0] == "buildx" && args[1] == "build" {
 		r.builds = append(r.builds, append([]string{}, args...))
 		return r.buildErr
 	}
 	return r.lifecycleObservationRunner.Run(ctx, args, environment, in, out, errOut)
+}
+
+func (r *finalWorkspaceHelperPreparationRunner) Run(ctx context.Context, args, environment []string, in io.Reader, out, errOut io.Writer) error {
+	if len(args) >= 5 && args[0] == "image" && args[1] == "inspect" && args[3] == "{{.Id}}" {
+		if !r.built {
+			_, _ = io.WriteString(errOut, "Error: No such image: "+args[4])
+			return errors.New("not found")
+		}
+		_, _ = io.WriteString(out, "sha256:"+strings.Repeat("a", 64))
+		return nil
+	}
+	if len(args) >= 2 && args[0] == "buildx" && args[1] == "build" {
+		r.builds = append(r.builds, append([]string{}, args...))
+		r.built = true
+		return nil
+	}
+	return r.exposureHelperAssetRunner.Run(ctx, args, environment, in, out, errOut)
+}
+
+func installPreparedFinalWorkspaceHelpers(t *testing.T, runtime *Runtime) {
+	t.Helper()
+	version, err := runtimeassets.Version()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{exposureHelperImageBinary, permissionHelperImageBinary} {
+		path := filepath.Join(runtime.stateDirectory, "runtime", version, "helpers", name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("prepared helper"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func (finalWorkspacePlanningRunner) Run(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error {
@@ -191,6 +231,7 @@ func TestFinalWorkspacePreparationBuildsOnlyCanonicalStandardRuntime(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
+	installPreparedFinalWorkspaceHelpers(t, runtime)
 	bindEmptyFinalRuntimeProtection(t, runtime)
 	image, err := runtimeassets.StandardRuntimeImage()
 	if err != nil {
@@ -210,7 +251,7 @@ func TestFinalWorkspacePreparationBuildsOnlyCanonicalStandardRuntime(t *testing.
 		t.Fatalf("historical standard preparation: %v", err)
 	}
 	if len(runner.builds) != 0 {
-		t.Fatalf("historical standard Runtime triggered reconstruction: %v", runner.builds)
+		t.Fatalf("historical standard Runtime rebuilt candidate material with prepared helpers: %v", runner.builds)
 	}
 	if err := runtime.PrepareWorkspaceRuntimeMaterial(context.Background(), binding); err != nil {
 		t.Fatal(err)
@@ -231,7 +272,36 @@ func TestFinalWorkspacePreparationBuildsOnlyCanonicalStandardRuntime(t *testing.
 		t.Fatal(err)
 	}
 	if len(runner.builds) != 1 {
-		t.Fatalf("custom Runtime triggered implicit build: %v", runner.builds)
+		t.Fatalf("custom Runtime preparation changed candidate helper image build calls: %v", runner.builds)
+	}
+}
+
+func TestFinalWorkspacePreparationMaterializesCandidateHelpersBeforeHistoricalEntryDecision(t *testing.T) {
+	base := t.TempDir()
+	assets := &exposureHelperAssetRunner{
+		architecture: "arm64",
+		archive:      exposureHelperArchive(t, syntheticExposureHelperELF("arm64"), "arm64", nil),
+	}
+	runner := &finalWorkspaceHelperPreparationRunner{exposureHelperAssetRunner: assets}
+	runtime, err := newRuntimeWithData(filepath.Join(base, "config"), filepath.Join(base, "state"), filepath.Join(base, "data"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	image, err := runtime.defaultRuntimeImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.images = testImageResolver{runtimeImage: image, buildRuntime: true}
+
+	historical := historicalStandardRuntimeBinding(strings.Repeat("1", 64))
+	if err := runtime.PrepareWorkspaceRuntimeMaterial(context.Background(), historical); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.builds) != 1 || !containsArgs(runner.builds[0], image) {
+		t.Fatalf("candidate helper source build calls=%v", runner.builds)
+	}
+	if err := runtime.confirmPreparedFinalWorkspaceHelpers(); err != nil {
+		t.Fatalf("candidate helpers were not fully activated during preparation: %v", err)
 	}
 }
 
@@ -406,6 +476,33 @@ func TestFinalWorkspaceEntryBindsDistinctStaticNetworkAndReplaysReceipt(t *testi
 	}
 }
 
+func TestFinalWorkspaceEntryRefusesMissingPreparedHelpersBeforeRuntimeMutation(t *testing.T) {
+	runtime, _, plan := finalWorkspaceRuntimeFixture(t)
+	version, err := runtimeassets.Version()
+	if err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(runtime.stateDirectory, "runtime", version, "helpers", exposureHelperImageBinary)
+	if err := os.Remove(missing); err != nil {
+		t.Fatal(err)
+	}
+	reconciled := false
+	runtime.finalWorkspaceDockerReconcile = func(context.Context, tobari.WorkspaceEntryReconciliationPlan, finalWorkspaceRuntimeSpec) (string, error) {
+		reconciled = true
+		return strings.Repeat("c", 64), nil
+	}
+	decision := "workspace-entry:" + string(plan.Workspace.ID) + ":sha256:" + strings.Repeat("d", 64)
+	if _, err := runtime.ReconcileWorkspaceEntry(context.Background(), plan, decision); err == nil || !strings.Contains(err.Error(), "prepared Workspace helper authority changed") {
+		t.Fatalf("missing prepared helper error=%v", err)
+	}
+	if reconciled {
+		t.Fatal("missing prepared helper reached Workspace Docker mutation")
+	}
+	if _, err := os.Lstat(missing); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("reconciliation rematerialized a helper after durable decision: %v", err)
+	}
+}
+
 func TestFinalWorkspaceEntryRebindsSamePlanFromLegacyCollectionDecisionRef(t *testing.T) {
 	runtime, _, plan := finalWorkspaceRuntimeFixture(t)
 	containerID := strings.Repeat("c", 64)
@@ -557,9 +654,16 @@ func TestFinalWorkspaceEntryRetainsExistingCreationDefaultsAcrossTemplateAdvance
 		RuntimeRevision: revisionA.Slices.RuntimeRevision, ResolvedSpec: finalSessionDigest("7"), ReconciledAt: time.Unix(5, 0).UTC(),
 	}
 	projectRoot := plan.Workspace.ProjectRoot
-	snapshot.Workspace = &tobari.WorkspaceBinding{
+	workspace := tobari.WorkspaceBinding{
 		SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: finalProjectionWorkspaceA, ContextID: snapshot.Context.ID,
 		ProjectRoot: projectRoot, Home: home, CreationDefaults: revisionA.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &previous,
+	}
+	snapshot.ContextHome = home
+	snapshot.ContextCreationDefaults = revisionA.Slices.CreationDefaultsDigest
+	snapshot.Workspaces = []tobari.WorkspaceBinding{workspace}
+	snapshot.Workspace = &workspace
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
 	}
 	authorityB, err := tobari.DeriveWorkspaceTemplateEntryAuthority(revisionB)
 	if err != nil {
@@ -572,14 +676,134 @@ func TestFinalWorkspaceEntryRetainsExistingCreationDefaultsAcrossTemplateAdvance
 	if existing.CreationDefaults.Bootstrap != nil || existing.Authority.CreationDefaults.Bootstrap == nil || existing.Workspace.CreationDefaults != revisionA.Slices.CreationDefaultsDigest {
 		t.Fatalf("existing Workspace creation authority changed: plan=%+v", existing)
 	}
+	snapshot.Workspaces = []tobari.WorkspaceBinding{}
 	snapshot.Workspace = nil
-	created, err := runtime.PlanWorkspaceEntry(context.Background(), snapshot, authorityB, projectRoot, finalProjectionWorkspaceB, time.Unix(12, 0).UTC())
+	recreated, err := runtime.PlanWorkspaceEntry(context.Background(), snapshot, authorityB, projectRoot, finalProjectionWorkspaceB, time.Unix(13, 0).UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.CreationDefaults.Bootstrap == nil || created.Workspace.CreationDefaults != revisionB.Slices.CreationDefaultsDigest {
-		t.Fatalf("new Workspace did not consume current creation authority: plan=%+v", created)
+	if recreated.InitializeContextHome || recreated.CreationDefaults.Bootstrap != nil || recreated.Workspace.Home != home || recreated.Workspace.CreationDefaults != revisionA.Slices.CreationDefaultsDigest {
+		t.Fatalf("Workspace recreation changed retained zero-Workspace Context Home authority: plan=%+v", recreated)
 	}
+}
+
+func TestLaterWorkspacePreparationDoesNotRebootstrapContextHome(t *testing.T) {
+	runtime, snapshot, plan := finalWorkspaceRuntimeFixture(t)
+	if !plan.InitializeContextHome {
+		t.Fatal("first Workspace plan did not bind Context Home initialization")
+	}
+	bootstrap, err := tobari.NewContextBootstrapSnapshot(1, tobari.ManifestAWSBootstrap{
+		Profile: "engineering", SSOSession: "company", SSOStartURL: "https://example.awsapps.com/start",
+		SSORegion: "us-east-1", SSORegistrationScopes: []string{"sso:account:access"}, AccountID: "123456789012",
+		RoleName: "Developer", Region: "ap-northeast-1", Output: "json",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(plan.Workspace.Home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := reconcileFinalWorkspaceBootstrap(plan.Workspace.Home, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	changed := []byte("[profile tool-owned-change]\nregion = eu-west-1\n")
+	awsPath := filepath.Join(plan.Workspace.Home, ".aws", "config")
+	if err := os.WriteFile(awsPath, changed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan.InitializeContextHome = false
+	plan.CreationDefaults.Bootstrap = &bootstrap
+	gitConfig, err := runtime.finalWorkspaceGitConfig(context.Background(), plan.Authority.SessionDefaults.GitIdentity, plan.Workspace.ProjectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := runtime.finalWorkspaceSpec(
+		plan.Authority, plan.CreationDefaults, plan.Network, snapshot.Context, plan.Workspace.ProjectRoot,
+		plan.Workspace.ID, plan.Authority.Runtime.Image, "sha256:"+strings.Repeat("a", 64), gitConfig,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.prepareFinalWorkspaceFiles(plan, spec, gitConfig); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(awsPath)
+	if err != nil || !bytes.Equal(got, changed) {
+		t.Fatalf("later Workspace preparation rewrote Context Home bootstrap: %q err=%v", got, err)
+	}
+}
+
+func TestPlanWorkspaceEntryRecoversPredecessorZeroWorkspaceContextHomeFromExactRetirement(t *testing.T) {
+	runtime, snapshot, retired := finalWorkspaceRuntimeFixture(t)
+	if err := os.MkdirAll(retired.Workspace.Home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.ensureFinalWorkspaceRuntimeRoot(); err != nil {
+		t.Fatal(err)
+	}
+	decisionRef := "workspace-retirement:" + string(retired.Workspace.ID) + ":sha256:" + strings.Repeat("b", 64)
+	record := finalWorkspaceRetirementRecord{SchemaVersion: finalWorkspaceRuntimeSchema, DecisionRef: decisionRef, Workspace: retired.Workspace}
+	if err := writeAtomicJSON(runtime.finalWorkspaceRetirementRecordPath(), record); err != nil {
+		t.Fatal(err)
+	}
+	authority, err := tobari.DeriveWorkspaceTemplateEntryAuthority(snapshot.Template.Current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := runtime.PlanWorkspaceEntry(context.Background(), snapshot, authority, retired.Workspace.ProjectRoot, finalProjectionWorkspaceB, time.Unix(14, 0).UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.InitializeContextHome || !recovered.RecoverContextHome || recovered.Workspace.Home != retired.Workspace.Home || recovered.Workspace.CreationDefaults != retired.Workspace.CreationDefaults {
+		t.Fatalf("predecessor Context Home recovery changed exact authority: plan=%+v retired=%+v", recovered, retired.Workspace)
+	}
+}
+
+func TestPlanWorkspaceEntryRejectsUnboundExistingContextHomeWithoutExactRetirement(t *testing.T) {
+	runtime, snapshot, initial := finalWorkspaceRuntimeFixture(t)
+	if err := os.MkdirAll(initial.Workspace.Home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	authority, err := tobari.DeriveWorkspaceTemplateEntryAuthority(snapshot.Template.Current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = runtime.PlanWorkspaceEntry(context.Background(), snapshot, authority, initial.Workspace.ProjectRoot, finalProjectionWorkspaceB, time.Unix(14, 0).UTC())
+	if err == nil || !strings.Contains(err.Error(), "exact creation authority is unavailable") {
+		t.Fatalf("unbound existing Context Home was accepted without exact retirement evidence: %v", err)
+	}
+}
+
+func TestWorkspaceEntryPlanningFailsClosedOnAmbiguousOrMissingContextHome(t *testing.T) {
+	t.Run("unbound existing Home", func(t *testing.T) {
+		runtime, snapshot, plan := finalWorkspaceRuntimeFixture(t)
+		if err := os.MkdirAll(plan.Workspace.Home, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		authority, err := tobari.DeriveWorkspaceTemplateEntryAuthority(snapshot.Template.Current)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := runtime.PlanWorkspaceEntry(context.Background(), snapshot, authority, plan.Workspace.ProjectRoot, plan.Workspace.ID, time.Unix(20, 0).UTC()); err == nil {
+			t.Fatal("unbound pre-existing Context Home was adopted")
+		}
+	})
+
+	t.Run("retained missing Home", func(t *testing.T) {
+		runtime, snapshot, plan := finalWorkspaceRuntimeFixture(t)
+		snapshot.ContextHome = plan.Workspace.Home
+		snapshot.ContextCreationDefaults = plan.Workspace.CreationDefaults
+		authority, err := tobari.DeriveWorkspaceTemplateEntryAuthority(snapshot.Template.Current)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := runtime.PlanWorkspaceEntry(context.Background(), snapshot, authority, plan.Workspace.ProjectRoot, plan.Workspace.ID, time.Unix(21, 0).UTC()); err == nil {
+			t.Fatal("missing retained Context Home was recreated")
+		}
+		if _, err := os.Lstat(plan.Workspace.Home); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("failed planning created retained Context Home: %v", err)
+		}
+	})
 }
 
 func preparedFinalWorkspaceForRetirement(t *testing.T) (*Runtime, tobari.WorkspaceBinding, *finalWorkspaceRetirementRunner) {

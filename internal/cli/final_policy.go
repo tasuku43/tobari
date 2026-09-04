@@ -340,7 +340,7 @@ func writeFinalPolicyReviewFrame(out io.Writer, snapshot tobari.PolicyMemoryRevi
 		if value, found := staged[item.ID]; found {
 			decision = " [" + string(value) + "]"
 		}
-		fmt.Fprintf(&text, "%s %d  %s  %s  %s%s\n", marker, index+1, item.Match, safeExternalText(item.Template), finalPolicyEffectSummary(item.Rule.PolicyProtocolIdentity, item.Rule.Method, item.Rule.Host, item.Rule.Port, item.Rule.Path), decision)
+		fmt.Fprintf(&text, "%s %d  %s  %s  %s  %s%s\n", marker, index+1, item.Match, safeExternalText(item.Template), safeExternalText(finalPolicyReviewContextRef(item)), finalPolicyEffectSummary(item.Rule.PolicyProtocolIdentity, item.Rule.Method, item.Rule.Host, item.Rule.Port, item.Rule.Path), decision)
 	}
 	text.WriteString("Commands: number select · a allow · d deny · r refresh · p apply")
 	if snapshot.ReviewedApplyRecovery != nil {

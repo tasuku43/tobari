@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -130,6 +131,7 @@ func (m *Mutator) SetInstallationMigrationBoundaryForTest(boundary func(string) 
 
 const effectDecisionSchemaVersion = 2
 const maxEffectDecisionBytes = 8 << 20
+const entryPlanContextHomeCompatibility = "context-home-v2"
 
 func finalMutationRecoveryError(detail string) error {
 	return errors.Join(tobari.ErrFinalAuthorityMutationRecoveryRequired, errors.New(detail))
@@ -159,6 +161,8 @@ type effectDecision struct {
 	ClusterPlan               *tobari.WorkspaceAuthorityClusterReconciliationPlan `json:"cluster_plan,omitempty"`
 	ClusterProjectionIdentity *tobari.PolicyProjectionIdentity                    `json:"cluster_projection_identity,omitempty"`
 	ClusterDownPlan           *tobari.WorkspaceAuthorityClusterDownPlan           `json:"cluster_down_plan,omitempty"`
+	EntryPlanCompatibility    string                                              `json:"entry_plan_compatibility,omitempty"`
+	legacyEntryPlan           bool                                                `json:"-"`
 }
 
 type reviewedTerminalAppliedDecision struct {
@@ -241,6 +245,33 @@ func (r reviewedTerminalPublication) publication() tobari.PolicyMemoryReviewedSe
 
 func (r reviewedTerminalPublication) validate() error { return r.publication().Validate() }
 
+func normalizeReviewedEffectDecisionAliases(decision *effectDecision) error {
+	if decision.Operation != "policy-apply-reviewed" || decision.ReviewedSet == nil {
+		return nil
+	}
+	originalSet := decision.ReviewedSet.Clone()
+	normalizedSet, changed, err := tobari.NormalizePolicyMemoryReviewedDecisionSetAliases(originalSet)
+	if err != nil || !changed {
+		return err
+	}
+	if decision.ReviewedPublication != nil {
+		if !reflect.DeepEqual(decision.ReviewedPublication.DecisionSet, originalSet) {
+			return fmt.Errorf("legacy reviewed Policy Memory publication does not bind its decision set")
+		}
+		normalized, publicationChanged, normalizeErr := tobari.NormalizePolicyMemoryReviewedSetPublicationAliases(decision.ReviewedPublication.publication())
+		if normalizeErr != nil || !publicationChanged {
+			return fmt.Errorf("normalize legacy reviewed Policy Memory publication: %w", normalizeErr)
+		}
+		terminal, terminalErr := newReviewedTerminalPublication(normalized)
+		if terminalErr != nil {
+			return terminalErr
+		}
+		decision.ReviewedPublication = &terminal
+	}
+	decision.ReviewedSet = &normalizedSet
+	return nil
+}
+
 func cloneReviewedContextChanges(values []tobari.PolicyMemoryReviewedContextChange) []tobari.PolicyMemoryReviewedContextChange {
 	result := make([]tobari.PolicyMemoryReviewedContextChange, len(values))
 	for index := range values {
@@ -252,6 +283,10 @@ func cloneReviewedContextChanges(values []tobari.PolicyMemoryReviewedContextChan
 func (d effectDecision) validate() error {
 	if d.SchemaVersion != effectDecisionSchemaVersion || d.Operation == "" || d.Target == "" || d.PreviousGeneration == 0 {
 		return fmt.Errorf("final-authority effect decision metadata is invalid")
+	}
+	if d.EntryPlanCompatibility != "" &&
+		(d.Operation != "context-entry" || d.EntryPlanCompatibility != entryPlanContextHomeCompatibility) {
+		return fmt.Errorf("final-authority effect decision entry compatibility is invalid")
 	}
 	if err := d.PreviousRevision.Validate(); err != nil {
 		return err
@@ -499,7 +534,7 @@ func (m *Mutator) seedFinalDefaultPairForLegacyMigration(ctx context.Context, pr
 					return current, false, snapshotErr
 				}
 				for _, snapshot := range snapshots {
-					if snapshot.Context.TemplateID != previous.DefaultTemplate.ID || snapshot.Workspace != nil {
+					if snapshot.Context.TemplateID != previous.DefaultTemplate.ID || len(snapshot.Workspaces) != 0 {
 						continue
 					}
 					if selectedContextID != "" {
@@ -806,17 +841,23 @@ func (m *Mutator) planWorkspaceTemplateChange(
 		return tobari.WorkspaceTemplateChangePlan{}, err
 	}
 	for _, snapshot := range snapshots {
-		if snapshot.Template.ID != id || snapshot.Workspace == nil {
+		if snapshot.Template.ID != id {
 			continue
 		}
-		if m.runningWorkspace == nil {
-			return tobari.WorkspaceTemplateChangePlan{}, fmt.Errorf("running Workspace impact observer is unavailable")
+		for _, workspace := range snapshot.Workspaces {
+			if m.runningWorkspace == nil {
+				return tobari.WorkspaceTemplateChangePlan{}, fmt.Errorf("running Workspace impact observer is unavailable")
+			}
+			focused, focusErr := snapshot.SelectWorkspace(workspace.ID)
+			if focusErr != nil {
+				return tobari.WorkspaceTemplateChangePlan{}, focusErr
+			}
+			observation, observeErr := m.runningWorkspace.ObserveStatusWorkspace(ctx, focused)
+			if observeErr != nil {
+				return tobari.WorkspaceTemplateChangePlan{}, observeErr
+			}
+			running[workspace.ID] = observation.State == tobari.StatusWorkspaceRuntimeRunning
 		}
-		observation, err := m.runningWorkspace.ObserveStatusWorkspace(ctx, snapshot)
-		if err != nil {
-			return tobari.WorkspaceTemplateChangePlan{}, err
-		}
-		running[snapshot.Workspace.ID] = observation.State == tobari.StatusWorkspaceRuntimeRunning
 	}
 	return tobari.NewWorkspaceTemplateChangePlan(current, id, source, resolved, running, fingerprint)
 }
@@ -1585,7 +1626,13 @@ func (m *Mutator) applyPolicyCandidate(ctx context.Context, ref string, decision
 		if err != nil {
 			return effectPlan{}, err
 		}
-		candidates := append(clonePolicyCandidates(pendingCandidates[:candidateIndex]), clonePolicyCandidates(pendingCandidates[candidateIndex+1:])...)
+		candidates := make([]tobari.PolicyCandidateAuthority, 0, len(pendingCandidates)-1)
+		for _, pending := range pendingCandidates {
+			if pending.ContextID == candidate.ContextID && pending.PayloadDigest == candidate.PayloadDigest {
+				continue
+			}
+			candidates = append(candidates, pending.Clone())
+		}
 		next, collectionChanged, err := publishCollection(current, true, current.Templates, contexts, current.Workspaces, candidates, current.DefaultTemplateID)
 		if err != nil {
 			return effectPlan{}, err
@@ -1717,15 +1764,13 @@ func (m *Mutator) ApplyReviewedPolicyMemory(
 		contexts := cloneContextRecords(current.Contexts)
 		decisionsByContext := make(map[tobari.ContextID][]tobari.PolicyMemoryReviewedDecision)
 		consumed := make(map[string]struct{})
-		durableCandidates := make(map[string]struct{}, len(current.PendingCandidates))
-		for _, candidate := range current.PendingCandidates {
-			durableCandidates[candidate.ID] = struct{}{}
-		}
 		for _, decision := range set.Decisions {
 			decisionsByContext[decision.ContextID()] = append(decisionsByContext[decision.ContextID()], decision)
-			for _, candidate := range decision.Candidates {
-				if _, durable := durableCandidates[candidate.ID]; durable {
-					consumed[candidate.ID] = struct{}{}
+			for _, reviewed := range decision.Candidates {
+				for _, pending := range current.PendingCandidates {
+					if pending.ContextID == reviewed.ContextID && pending.PayloadDigest == reviewed.PayloadDigest {
+						consumed[pending.ID] = struct{}{}
+					}
 				}
 			}
 		}
@@ -2456,9 +2501,12 @@ func (m *Mutator) readTerminalEffectDecision() (effectDecision, bool, error) {
 	if err != nil {
 		return effectDecision{}, false, fmt.Errorf("read terminal final-authority effect decision: %w", err)
 	}
-	var decision effectDecision
-	if err := decodeStrictJSON(data, &decision); err != nil {
+	decision, err := decodeEffectDecision(data)
+	if err != nil {
 		return effectDecision{}, false, fmt.Errorf("decode terminal final-authority effect decision: %w", err)
+	}
+	if err := normalizeReviewedEffectDecisionAliases(&decision); err != nil {
+		return effectDecision{}, false, err
 	}
 	if err := decision.validate(); err != nil {
 		return effectDecision{}, false, err
@@ -2480,14 +2528,37 @@ func (m *Mutator) readEffectDecision() (effectDecision, bool, error) {
 	if err != nil {
 		return effectDecision{}, false, fmt.Errorf("read final-authority effect decision: %w", err)
 	}
-	var decision effectDecision
-	if err := decodeStrictJSON(data, &decision); err != nil {
+	decision, err := decodeEffectDecision(data)
+	if err != nil {
 		return effectDecision{}, false, fmt.Errorf("decode final-authority effect decision: %w", err)
+	}
+	if err := normalizeReviewedEffectDecisionAliases(&decision); err != nil {
+		return effectDecision{}, false, err
 	}
 	if err := decision.validate(); err != nil {
 		return effectDecision{}, false, err
 	}
 	return decision, true, nil
+}
+
+func decodeEffectDecision(data []byte) (effectDecision, error) {
+	var decision effectDecision
+	if err := decodeStrictJSON(data, &decision); err != nil {
+		return effectDecision{}, err
+	}
+	if decision.Operation != "context-entry" || decision.EntryPlan == nil {
+		return decision, nil
+	}
+	var envelope struct {
+		EntryPlan map[string]json.RawMessage `json:"workspace_entry_plan"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return effectDecision{}, err
+	}
+	if _, present := envelope.EntryPlan["initialize_context_home"]; !present {
+		decision.legacyEntryPlan = true
+	}
+	return decision, nil
 }
 
 func (m *Mutator) writeEffectDecision(decision effectDecision) error {

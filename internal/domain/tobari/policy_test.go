@@ -644,11 +644,10 @@ func TestResolvedPolicyCandidatesRemainOutsidePendingAggregation(t *testing.T) {
 func TestPolicyCandidateAggregationKeepsExactEffectDimensionsDistinct(t *testing.T) {
 	t.Parallel()
 	tests := map[string]func(*PolicyDenial){
-		"project": func(value *PolicyDenial) { value.ProjectID = policyProjectB },
-		"host":    func(value *PolicyDenial) { value.Host = "uploads.github.com" },
-		"port":    func(value *PolicyDenial) { value.Port = 8443 },
-		"method":  func(value *PolicyDenial) { value.Method = "POST" },
-		"path":    func(value *PolicyDenial) { value.Path = "/repos/cli/other" },
+		"host":   func(value *PolicyDenial) { value.Host = "uploads.github.com" },
+		"port":   func(value *PolicyDenial) { value.Port = 8443 },
+		"method": func(value *PolicyDenial) { value.Method = "POST" },
+		"path":   func(value *PolicyDenial) { value.Path = "/repos/cli/other" },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -665,6 +664,23 @@ func TestPolicyCandidateAggregationKeepsExactEffectDimensionsDistinct(t *testing
 				t.Fatalf("%s-distinct candidates = %+v", name, items)
 			}
 		})
+	}
+}
+
+func TestPersistentPolicyCandidateAggregationUsesContextEffectAcrossWorkspaces(t *testing.T) {
+	t.Parallel()
+	first := validPolicyDenial()
+	second := first
+	second.ProjectID = policyProjectB
+	second.ProjectRoot = "/workspace/other"
+	second.RequestID = "8185da2688d7469aae9cd9068e920b0b"
+	second.Timestamp = "2026-07-30T10:42:11Z"
+	items, err := PolicyCandidates([]PolicyDenial{first, second}, []LearnedPolicyRule{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].ObservationCount != 2 || items[0].ID == "" {
+		t.Fatalf("same-Context effect did not converge across Workspaces: %+v", items)
 	}
 }
 
@@ -819,7 +835,7 @@ func TestExactLearnedRuleBindsCandidateAndDoesNotBroadenPath(t *testing.T) {
 	}
 }
 
-func TestPolicyCandidateIdentityIncludesProjectPrincipal(t *testing.T) {
+func TestPersistentPolicyCandidateIdentityExcludesWorkspaceProvenance(t *testing.T) {
 	t.Parallel()
 	first := validPolicyDenial()
 	second := first
@@ -832,8 +848,8 @@ func TestPolicyCandidateIdentityIncludesProjectPrincipal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if firstCandidate.ID == secondCandidate.ID {
-		t.Fatal("project-scoped candidates share an opaque ID")
+	if firstCandidate.ID != secondCandidate.ID {
+		t.Fatal("same-Context effect split by Workspace provenance")
 	}
 }
 

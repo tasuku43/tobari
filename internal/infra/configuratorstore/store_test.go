@@ -634,7 +634,7 @@ func TestAdoptHomeMovesBootstrapHomeToExactContextAndIsReplaySafe(t *testing.T) 
 		t.Fatal(err)
 	}
 	workspace := tobari.WorkspaceBinding{SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: tobari.WorkspaceID("01912345-6789-7abc-8def-0123456789ae"), ContextID: contextID, ProjectRoot: draft.ProjectRoot, Home: filepath.Join(state, "contexts", string(contextID), "home"), CreationDefaults: revision.Slices.CreationDefaultsDigest}
-	snapshot := tobari.ContextAuthoritySnapshot{Context: tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: draft.TemplateID}, Template: template, PolicyMemory: memory, Workspace: &workspace}
+	snapshot := tobari.ContextAuthoritySnapshot{Context: tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: draft.TemplateID}, Template: template, ContextHome: workspace.Home, ContextCreationDefaults: workspace.CreationDefaults, PolicyMemory: memory, Workspaces: []tobari.WorkspaceBinding{workspace}, Workspace: &workspace}
 	replacementID := tobari.ContextID("01912345-6789-7abc-8def-0123456789ac")
 	if replacementID == contextID {
 		replacementID = "01912345-6789-7abc-8def-0123456789ad"

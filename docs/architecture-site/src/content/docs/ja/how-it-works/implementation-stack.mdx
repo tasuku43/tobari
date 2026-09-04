@@ -5,7 +5,7 @@ description: Go、Docker、mitmproxy、OPA、Rego、Python、Unix ソケット�
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-Tobari は、役割ごとの境界に合わせて実装技術を選んでいます。Go はホスト CLI と検証を伴う構成管理を担当します。agent CLI は各自のログイン情報を永続 Workspace home に保存します。Docker はプロセス、ネットワーク、マウントの境界を実現し、mitmproxy と Python アドオンは HTTP/TLS 通信を制御し、OPA と Rego は一般化された HTTP 通信を許可するか判断します。
+Tobari は、役割ごとの境界に合わせて実装技術を選んでいます。Go はホスト CLI と検証を伴う構成管理を担当します。agent CLI は各自のログイン情報を永続 Context Home に保存し、同じ Context の sibling Workspace と共有します。Docker はプロセス、ネットワーク、マウントの境界を実現し、mitmproxy と Python アドオンは HTTP/TLS 通信を制御し、OPA と Rego は一般化された HTTP 通信を許可するか判断します。
 
 Tobari は認証情報を保管・解決する別サービスを持ちません。Gateway は OPA の許可後に Workspace 内の agent CLI が用意した元の認証情報を転送します。編集元となる Gateway 正本、埋め込み用の写し、変更不能な OCI イメージ、固定したダイジェストにより、この分離を実行環境への供給経路でも維持します。
 
@@ -41,9 +41,9 @@ OPA は共有のポリシー判断サービスです。Tobari が所有する一
 
 OPA はリクエスト本文も認証情報の値も受け取らず、外部へ接続するインターフェースを持ちません。判断処理を分けることで、OPA にネットワーク転送権限を与えずに、判断の入力と結果の契約をテストできます。
 
-**Agent CLI のログインと Workspace home。**
+**Agent CLI のログインと Context Home。**
 
-agent CLI は自分の認証情報を永続 Workspace home に保存します。Tobari は
+agent CLI は自分の認証情報を永続 Context Home に保存します。Tobari は
 provider 固有の認証ストアや専用サービスを持たず、
 ログイン情報の形式を解釈しません。Gateway は OPA の許可後に元の値を
 転送し、OPA と監査には認証情報の値を渡しません。
@@ -95,7 +95,7 @@ CI は正本から複数アーキテクチャ向け OCI イメージを cache-on
 
 ## 保証と制限
 
-**契約とテストで保証すること:** 固定されたコンポーネントの役割。通常利用するサービスを不変に識別できること。バイト単位で正本との一致を検査した埋め込み用の写し。Workspace home と agent CLI の境界。補助プロセスに待受ポートや不要なソケットのマウントがないこと。OPA に外部接続経路がないこと。正確な Compose 構成。実行環境の互換性を事前検査すること。
+**契約とテストで保証すること:** 固定されたコンポーネントの役割。通常利用するサービスを不変に識別できること。バイト単位で正本との一致を検査した埋め込み用の写し。Context Home と agent CLI の境界。補助プロセスに待受ポートや不要なソケットのマウントがないこと。OPA に外部接続経路がないこと。正確な Compose 構成。実行環境の互換性を事前検査すること。
 
 **保証しないこと:** イメージダイジェストだけでコードが安全になること。Docker、カーネル、ホストが侵害された後の分離。利用者が選んだ独自イメージの来歴。GHCR や外部レジストリの可用性。独自の実行環境レシピでインストールした任意ツールのセキュリティレビュー。
 
@@ -110,7 +110,7 @@ CI は正本から複数アーキテクチャ向け OCI イメージを cache-on
 
 ## まとめ
 
-Tobari の動作は、複数技術の組み合わせで成り立ちます。Go が検証と構成管理を行い、Docker が境界を実現します。Gateway が HTTP/TLS 通信に判断を適用し、OPA/Rego が許可を判断します。agent CLI は Workspace home でログインを管理し、Gateway は許可後に元の値を転送します。不変な OCI イメージの識別情報と、正本と埋め込み用の写しの一致検査により、配布する実行環境をレビュー可能にします。
+Tobari の動作は、複数技術の組み合わせで成り立ちます。Go が検証と構成管理を行い、Docker が境界を実現します。Gateway が HTTP/TLS 通信に判断を適用し、OPA/Rego が許可を判断します。agent CLI は Context Home でログインを管理し、Gateway は許可後に元の値を転送します。不変な OCI イメージの識別情報と、正本と埋め込み用の写しの一致検査により、配布する実行環境をレビュー可能にします。
 
 製品上の主張を、具体的な技術境界に結び付けて説明できるはずです。
 
@@ -125,7 +125,7 @@ Tobari の動作は、複数技術の組み合わせで成り立ちます。Go �
   <summary>
     agent CLI のログインが Workspace 向け HTTP API を使わないのは なぜですか？
   </summary>
-  ログイン情報は agent CLI が Workspace home に保存し、Tobari のサービス
+  ログイン情報は agent CLI が Context Home に保存し、Tobari のサービス
   経路へ公開しないためです。Gateway は OPA の許可後に元の値を転送します。
 </details>
 

@@ -54,8 +54,10 @@ release surface, host credentials are never inherited.
 Tobari is the product, executable, and ownership adjective. A Workspace
 Template is the reusable setup; a Context is a location-free durable Template
 binding and Policy Memory owner; a Workspace is the replaceable isolated
-instance that alone binds one canonical Project root to one Context and its
-managed Home. Project names the selected host source directory; it is not a
+instance that alone binds one canonical Project root to one Context and mounts
+that Context's managed Home. A Context may own multiple Workspaces at distinct
+canonical roots; all share its Home, native authentication state, immutable
+Template binding, and Policy Memory. Project names the selected host source directory; it is not a
 second name for any authority identity.
 An attached standard session may bridge only the closed reviewed native browser
 login union for pinned Claude Code, Codex, GitHub CLI, AWS CLI,
@@ -157,8 +159,9 @@ review remains in the separate trusted-host terminal.
 Routine users reason about network authority in three layers: **Workspace Template
 policy** is the desired destination and method Boundary plus routine traffic
 admitted inside it; **remembered Context decisions** are reviewed Allow and
-exact Deny choices retained in Context Policy Memory for one Context and Workspace until
-reset; and **this-session Host Loopback access** is exact attachment authority
+exact Deny choices retained in Context Policy Memory for one Context until
+reset, independent of Workspace ID, Project root, CWD, or directory ancestry;
+and **this-session Host Loopback access** is exact attachment authority
 that ends with its owning attachment. The third layer is a separate closed
 policy branch. Ordinary Template, Policy Memory, baseline, and the fixed Tobari
 evaluator
@@ -603,7 +606,8 @@ exist only when the research surface is compiled.
   should not publish or log it. A real credential at a declared header or AWS
   signing binding fails before OPA, broker resolution, DNS, or upstream I/O.
 - Brokered login does not itself grant network authority. OPA remains the sole
-  authority for Context, Workspace, scheme, host, port, method, and path. A
+  authority for Context, scheme, host, port, method, and path. Workspace,
+  root, CWD, and directory remain routing and observation provenance only. A
   brokered request receives only authority already present in the Workspace Template's
   immutable snapshot, selected binary readiness overlay, or learned rules. The
   fixed agent-ready compatibility baseline includes
@@ -711,17 +715,16 @@ XDG-owned home directory.
 - Bare `status` and `tobari` select the nearest canonical Workspace root and
   then resolve that Workspace's permanently bound Context without consulting
   the installation current Context. At a new root, explicit create-here binds
-  current only while it is unattached; when it already owns a Workspace, Tobari
-  creates a distinct Context from the default Template. Fresh first use selects
+  the current Context, whether or not it already owns sibling Workspaces. Fresh first use selects
   the first Context it activates. No entry path changes the selector.
   `context use --id CONTEXT_REF` changes only that location-free installation
   selector. `workspace list`
   discovers exact Workspace references; `workspace status` and `workspace
   delete` consume one unchanged reference and never rediscover by CWD or name.
-- A Context identity is independent from every Project root. One Context owns
-  at most one replaceable Workspace, and the Workspace alone owns the canonical
-  root. Repeated or concurrent creation for the same Context converges to one
-  logical Workspace; the same root may have independent Workspaces whose
+- A Context identity is independent from every Project root. One Context may
+  own multiple replaceable Workspaces, and each Workspace alone owns one
+  canonical root. Repeated or concurrent creation for the same Context and
+  canonical root converges to one logical Workspace; the same root may have independent Workspaces whose
   Contexts bind different Templates.
 - Each Workspace is permanently bound to one Context. That Context resolves
   its bound Workspace Template's exact Runtime revision for entry; the
@@ -1030,7 +1033,7 @@ administration project.
 - `policy allow --id` and `policy deny --id` are explicit trusted-host actions
   that consume one candidate ID unchanged. `policy reset --id` consumes one
   current `policy-rule` ID unchanged. Allow preflights and atomically records
-  one exact learned rule; deny records one exact project-bound terminal rule;
+  one exact learned rule; deny records one exact Context-bound terminal rule;
   reset removes one current learned rule and leaves the same request at
   default deny. All three activate through the same portable OPA boundary, and
   an exact deny wins over a learned allow for the same request.
@@ -1117,9 +1120,8 @@ The installation default Template seeds fresh authority and is prospective
 status only when no Workspace is selected; changing it cannot retarget or
 mutate existing Contexts, Workspaces, or shared enforcement. `context use`
 selects current Context by opaque reference without reading CWD. At a root
-without a Workspace, explicit create-here binds that Context only while it is
-unattached; if it already owns a Workspace, Tobari creates a distinct Context
-from the default Template. Neither path rewrites the current selector.
+without a Workspace, explicit create-here binds the current Context even when
+it already owns sibling Workspaces. Neither path rewrites the current selector.
 Tool-native authentication state remains below each Context Home and is not a
 Workspace Template secret. In the research surface, a brokered credential is owned once by a stable Context and
 enables that Context's Workspace to receive a Context/Workspace-bound
@@ -1219,7 +1221,7 @@ OPA allow.
   result and never invents a successful revision for a failed draft.
 - Managed Runtime lifecycle closure keeps immutable revision identity separate
   from replaceable local execution material. Whole-Runtime deletion consumes a
-  stable Runtime reference and preserves Workspace Template, Workspace, home,
+  stable Runtime reference and preserves Workspace Template, Workspace, Context Home,
   applied receipt, project-root, credential, and shared-cluster authority.
   Read-only prune review produces one ephemeral plan reference; apply consumes
   that exact plan and removes only still-unused owned image tags. Restore
@@ -1236,10 +1238,12 @@ OPA allow.
   --copy-source-from` copies current editable Runtime source into a fresh
   Runtime ID with empty history. Neither persists lineage or lower-lifetime
   state, neither reconciles a Workspace or cluster, and `--base` has no alias.
-- A Workspace Template's typed Workspace-bootstrap snapshot is a creation default,
-  not a live Workspace setting. It changes only by editing `template.yaml` and
-  applying one fresh Template change plan; existing Workspace homes retain
-  their create-time bytes and revision.
+- A Workspace Template's typed Workspace-bootstrap snapshot is a Context-Home
+  creation default, not a live Workspace setting. It changes only by editing
+  `template.yaml` and applying one fresh Template change plan. Only the first
+  Workspace for a Context initializes that Context Home; later siblings do not
+  rerun bootstrap, and existing Context Homes retain their create-time bytes and
+  revision.
 - Workspace Template creation issues a stable draft ID and writes the closed
   owner-only `template.yaml`/`policy.yaml` source pair. It creates no active
   Template, Context, Policy Memory, Workspace, or cluster projection until a
@@ -1315,14 +1319,17 @@ OPA allow.
   exact-review, GET-only, or other bounded method postures without a named
   profile catalog. GET receives no intrinsic safe or read-only classification,
   and exact Deny remains terminal over method Allow.
-- Tobari-owned ordinary learned permission identity binds Context, Workspace,
-  scheme, host, port, method, and raw path. Query, headers, and bodies are not
-  learned dimensions; GraphQL adds only operation type and root field, MCP adds
+- Tobari-owned ordinary learned permission identity binds Context, scheme, host,
+  port, method, and raw path. Workspace ID, Project root, CWD, and directory
+  ancestry are observation provenance and routing only. Query, headers, and
+  bodies are not learned dimensions; GraphQL adds only operation type and root field, MCP adds
   only JSON-RPC method and, for `tools/call`, exact tool name, and signed AWS
   RPC adds only wire protocol, SigV4 service, and exact wire operation.
-- Permission candidates, learned rules, exact denies, audits, and brokered
-  handles retain Context and Workspace identity. `review permissions` and
-  `policy rules` cross all Contexts; mutations bind solely to opaque references.
+- Permission candidates and audits retain observing Workspace provenance;
+  learned rules and exact denies remain Context-owned and omit Workspace/root
+  identity. Research brokered handles retain their separately declared binding.
+  `review permissions` and `policy rules` cross all Contexts; mutations bind
+  solely to opaque references.
 
 ### Mechanical enforcement
 

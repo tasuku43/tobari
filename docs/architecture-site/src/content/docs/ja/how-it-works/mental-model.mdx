@@ -11,7 +11,7 @@ Tobari の standard の外向き経路には、Workspace、Gateway、OPA、Upstr
 OPA に問い合わせ、ローカルで拒否するか、別の upstream connection を開きます。
 
 認証とネットワーク権限は別です。Claude Code と Codex はネイティブログイン
-状態を Workspace home に保存します。Gateway は Authorization と cookie を
+状態を Context Home に保存し、同じ Context の sibling Workspace と共有します。Gateway は Authorization と cookie を
 secret request data として扱い、OPA と audit から除外し、allow 後だけ元の値を
 変えずに転送します。
 
@@ -21,9 +21,9 @@ secret request data として扱い、OPA と audit から除外し、allow 後�
 
 ### 1. Workspace：作業とネイティブログインを実行する場所
 
-Workspace は一つの長期利用する directory-bound Tobari で、永続 home を持ちます。
-process は選択した project root を読み書きでき、同じ Workspace に保存された
-native credential も読めます。別 Workspace の home、host credential、Docker
+Workspace は一つの directory-bound routing/runtime/principal で、一つの Context に属します。
+process は選択した project root を読み書きでき、同じ Context Home に保存された
+native credential も読めます。別 Context の Home、host credential、Docker
 control、public network への直接経路は受け取りません。
 
 ### 2. Gateway：通信を強制する場所
@@ -73,14 +73,14 @@ native login は policy rule を作らず、policy approval は credential を�
 
 standard の対応 topology では、通常の HTTP/HTTPS を転送する前に Gateway が allow
 を受け取り、secret request value が OPA と audit に入らないことを保証します。
-project file を Workspace から保護すること、同じ Workspace 内の process isolation、
+project file を Workspace から保護すること、同じ Context Home を共有する process や sibling Workspace の isolation、
 許可済み接続先への送信防止、host/kernel/Docker Engine/Gateway/OPA 侵害後の保護は
 提供しません。
 
 ## まとめ
 
 覚える経路は **Workspace → Gateway → Upstream**、判断するのは **OPA** です。
-Workspace が native authentication を所有し、その HTTP effect を外へ出せるかは
+Context Home が native authentication を所有し、その HTTP effect を外へ出せるかは
 Gateway が制御します。
 
 ## 理解を確認する
@@ -101,8 +101,9 @@ Gateway が制御します。
 
 <details>
   <summary>
-    同じ Workspace の別 process は native login state を読めますか？
+    同じ Context の sibling Workspace の別 process は native login state
+    を読めますか？
   </summary>
-  はい。isolation boundary は Workspace であり、その内部で process-level の
-  credential isolation は提供しません。
+  はい。Context Home は sibling Workspace で共有され、その内部で process-level
+  の credential isolation は提供しません。
 </details>

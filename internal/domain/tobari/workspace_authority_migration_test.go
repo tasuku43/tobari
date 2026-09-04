@@ -188,8 +188,9 @@ func TestMigratedPendingCandidateIsCompleteForExactDecision(t *testing.T) {
 			templateReceipt := TemplatePolicyActivationReceipt{ContextID: context.ID, TemplateID: template.ID, PolicySliceDigest: template.Current.Slices.PolicySliceDigest}
 			memoryReceipt := PolicyMemoryActivationReceipt{ContextID: context.ID, Revision: current.Revision}
 			snapshot := ContextAuthoritySnapshot{
-				Context: context, Template: template, PolicyMemory: current, ActiveTemplatePolicy: &templateReceipt,
-				ActivePolicyMemory: ptrPolicyMemory(current), ActivePolicyMemoryRef: &memoryReceipt, Workspace: &workspace,
+				Context: context, Template: template, ContextHome: workspace.Home, ContextCreationDefaults: workspace.CreationDefaults,
+				PolicyMemory: current, ActiveTemplatePolicy: &templateReceipt, ActivePolicyMemory: ptrPolicyMemory(current),
+				ActivePolicyMemoryRef: &memoryReceipt, Workspaces: []WorkspaceBinding{workspace}, Workspace: &workspace,
 			}
 			publication := PolicyCandidatePublication{
 				Candidate: candidate, RuleID: rule.ID, Previous: previous,

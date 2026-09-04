@@ -285,9 +285,40 @@ func (r *Runtime) PlanWorkspaceEntry(
 	if err != nil {
 		return tobari.WorkspaceEntryReconciliationPlan{}, err
 	}
-	creationDefaults, err := retainedWorkspaceCreationDefaults(snapshot, authority)
+	home, err := r.finalContextHome(snapshot.Context.ID)
 	if err != nil {
 		return tobari.WorkspaceEntryReconciliationPlan{}, err
+	}
+	initializeContextHome := false
+	recoverContextHome := false
+	var creationDefaults tobari.WorkspaceTemplateCreationDefaults
+	var creationDefaultsDigest tobari.SemanticDigest
+	if snapshot.ContextHome == "" && len(snapshot.Workspaces) == 0 && snapshot.Workspace == nil {
+		if _, inspectErr := os.Lstat(home); errors.Is(inspectErr, os.ErrNotExist) {
+			creationDefaults = authority.CreationDefaults.Clone()
+			creationDefaultsDigest = snapshot.Template.Current.Slices.CreationDefaultsDigest
+			initializeContextHome = true
+		} else if inspectErr != nil {
+			return tobari.WorkspaceEntryReconciliationPlan{}, inspectErr
+		} else {
+			creationDefaults, creationDefaultsDigest, err = r.recoverLegacyContextHomeAuthority(ctx, snapshot, home)
+			if err != nil {
+				return tobari.WorkspaceEntryReconciliationPlan{}, err
+			}
+			recoverContextHome = true
+		}
+	} else {
+		if err := requirePrivateDirectory(home); err != nil {
+			return tobari.WorkspaceEntryReconciliationPlan{}, fmt.Errorf("observe retained Context Home: %w", err)
+		}
+		creationDefaults, err = retainedWorkspaceCreationDefaults(snapshot, authority)
+		if err != nil {
+			return tobari.WorkspaceEntryReconciliationPlan{}, err
+		}
+		creationDefaultsDigest, err = semanticCreationDefaultsDigest(creationDefaults)
+		if err != nil {
+			return tobari.WorkspaceEntryReconciliationPlan{}, err
+		}
 	}
 	spec, err := r.finalWorkspaceSpec(authority, creationDefaults, networkAuthority, snapshot.Context, projectRoot, workspaceID, image, imageID, gitConfig)
 	if err != nil {
@@ -304,14 +335,17 @@ func (r *Runtime) PlanWorkspaceEntry(
 	if err := r.requireWorkspaceMountGuardBeforeMutation(ctx, projectRoot, container, string(workspaceID), string(resolvedSpec)); err != nil {
 		return tobari.WorkspaceEntryReconciliationPlan{}, err
 	}
-	home, err := r.finalContextHome(snapshot.Context.ID)
-	if err != nil {
-		return tobari.WorkspaceEntryReconciliationPlan{}, err
-	}
 	workspace := tobari.WorkspaceBinding{
 		SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: workspaceID,
 		ContextID: snapshot.Context.ID, ProjectRoot: projectRoot,
-		Home: home, CreationDefaults: snapshot.Template.Current.Slices.CreationDefaultsDigest,
+		Home: home, CreationDefaults: creationDefaultsDigest,
+	}
+	if snapshot.ContextHome != "" {
+		workspace.Home = snapshot.ContextHome
+		workspace.CreationDefaults = snapshot.ContextCreationDefaults
+	} else if len(snapshot.Workspaces) > 0 {
+		workspace.Home = snapshot.Workspaces[0].Home
+		workspace.CreationDefaults = snapshot.Workspaces[0].CreationDefaults
 	}
 	if snapshot.Workspace != nil {
 		workspace = *snapshot.Workspace
@@ -336,17 +370,74 @@ func (r *Runtime) PlanWorkspaceEntry(
 	workspace.LastSuccessfulEntry = &applied
 	plan := tobari.WorkspaceEntryReconciliationPlan{
 		Workspace: workspace, Applied: applied, Authority: authority,
-		CreationDefaults: creationDefaults, Network: networkAuthority,
+		CreationDefaults: creationDefaults, InitializeContextHome: initializeContextHome, RecoverContextHome: recoverContextHome,
+		Network: networkAuthority,
 	}
 	return plan, plan.ValidateFor(snapshot)
 }
 
-func retainedWorkspaceCreationDefaults(snapshot tobari.ContextAuthoritySnapshot, current tobari.WorkspaceTemplateEntryAuthority) (tobari.WorkspaceTemplateCreationDefaults, error) {
-	if snapshot.Workspace == nil {
-		return current.CreationDefaults.Clone(), nil
+func semanticCreationDefaultsDigest(defaults tobari.WorkspaceTemplateCreationDefaults) (tobari.SemanticDigest, error) {
+	encoded, err := json.Marshal(defaults)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(encoded)
+	return tobari.SemanticDigest("sha256:" + hex.EncodeToString(sum[:])), nil
+}
+
+// recoverLegacyContextHomeAuthority handles the one predecessor state that
+// could not persist Context-owned Home fields: its final Workspace was retired
+// before the candidate binary first read schema-v2 authority. The Home itself
+// is never evidence. Recovery requires the strict terminal runtime receipt,
+// exact resource absence, the deterministic Context path, and a retained
+// Template revision that independently authenticates the creation defaults.
+func (r *Runtime) recoverLegacyContextHomeAuthority(ctx context.Context, snapshot tobari.ContextAuthoritySnapshot, home string) (tobari.WorkspaceTemplateCreationDefaults, tobari.SemanticDigest, error) {
+	if err := requirePrivateDirectory(home); err != nil {
+		return tobari.WorkspaceTemplateCreationDefaults{}, "", fmt.Errorf("legacy Context Home is unsafe: %w", err)
+	}
+	if _, active, err := r.readFinalWorkspaceRetirementDecision(); err != nil {
+		return tobari.WorkspaceTemplateCreationDefaults{}, "", err
+	} else if active {
+		return tobari.WorkspaceTemplateCreationDefaults{}, "", fmt.Errorf("legacy Context Home recovery conflicts with an active Workspace retirement")
+	}
+	record, present, err := r.readFinalWorkspaceRetirementRecord()
+	if err != nil {
+		return tobari.WorkspaceTemplateCreationDefaults{}, "", err
+	}
+	if !present || record.Workspace.ContextID != snapshot.Context.ID || record.Workspace.Home != home {
+		return tobari.WorkspaceTemplateCreationDefaults{}, "", fmt.Errorf("unbound Context Home already exists; exact creation authority is unavailable")
+	}
+	if err := r.confirmFinalWorkspaceRetired(ctx, record); err != nil {
+		return tobari.WorkspaceTemplateCreationDefaults{}, "", fmt.Errorf("legacy Context Home retirement evidence is incomplete: %w", err)
 	}
 	for _, revision := range snapshot.Template.Retained {
-		if revision.Slices.CreationDefaultsDigest == snapshot.Workspace.CreationDefaults {
+		if revision.Slices.CreationDefaultsDigest != record.Workspace.CreationDefaults {
+			continue
+		}
+		defaults := revision.Body.CreationDefaults.Clone()
+		digest, digestErr := semanticCreationDefaultsDigest(defaults)
+		if digestErr != nil || digest != record.Workspace.CreationDefaults {
+			return tobari.WorkspaceTemplateCreationDefaults{}, "", fmt.Errorf("legacy Context Home creation authority is invalid")
+		}
+		return defaults, digest, nil
+	}
+	return tobari.WorkspaceTemplateCreationDefaults{}, "", fmt.Errorf("legacy Context Home creation authority is not retained")
+}
+
+func retainedWorkspaceCreationDefaults(snapshot tobari.ContextAuthoritySnapshot, current tobari.WorkspaceTemplateEntryAuthority) (tobari.WorkspaceTemplateCreationDefaults, error) {
+	if snapshot.ContextCreationDefaults == "" && snapshot.Workspace == nil && len(snapshot.Workspaces) == 0 {
+		return current.CreationDefaults.Clone(), nil
+	}
+	var digest tobari.SemanticDigest
+	if snapshot.ContextCreationDefaults != "" {
+		digest = snapshot.ContextCreationDefaults
+	} else if snapshot.Workspace != nil {
+		digest = snapshot.Workspace.CreationDefaults
+	} else {
+		digest = snapshot.Workspaces[0].CreationDefaults
+	}
+	for _, revision := range snapshot.Template.Retained {
+		if revision.Slices.CreationDefaultsDigest == digest {
 			return revision.Body.CreationDefaults.Clone(), nil
 		}
 	}
@@ -510,33 +601,74 @@ func (r *Runtime) PrepareWorkspaceRuntimeMaterial(ctx context.Context, expected 
 	if err := expected.Validate(); err != nil {
 		return err
 	}
+	currentStandard := false
 	if expected.RuntimeID == tobari.StandardRuntimeID {
 		if err := r.validateExactStandardRuntimeBinding(expected); err != nil {
 			return err
 		}
-		canonical, err := r.defaultRuntimeImage()
+		manifest, err := r.standardRuntimeManifest()
 		if err != nil {
 			return err
 		}
-		// Only the current compiled source closure can be rebuilt. Historical
-		// exact material is retained authority and must already exist locally.
-		if expected.Image == canonical && r.imageResolver().ShouldBuildRuntimeImage(expected.Image) {
-			if err := r.ensureLocalBaseRuntimeImage(ctx, expected.Image); err != nil {
+		binding, err := manifest.Binding(1)
+		if err != nil {
+			return err
+		}
+		currentStandard = reflect.DeepEqual(binding, expected)
+	} else {
+		snapshot, _, err := r.readRuntimeLifecycleSnapshotLocked(ctx)
+		if err != nil {
+			return err
+		}
+		binding, err := runtimeBindingFromLifecycle(snapshot, expected.RuntimeID, expected.Revision)
+		if err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(binding, expected) {
+			return fmt.Errorf("Runtime binding changed or is not canonical")
+		}
+	}
+	canonical, err := r.defaultRuntimeImage()
+	if err != nil {
+		return err
+	}
+	if currentStandard {
+		if r.imageResolver().ShouldPullRuntimeImage(canonical) {
+			if err := r.pullOfficialRuntimeImage(ctx, canonical); err != nil {
 				return errors.Join(tobari.ErrWorkspaceRuntimePreparationUncertain, err)
 			}
 		}
+		if r.imageResolver().ShouldBuildRuntimeImage(canonical) {
+			if err := r.ensureLocalBaseRuntimeImage(ctx, canonical); err != nil {
+				return errors.Join(tobari.ErrWorkspaceRuntimePreparationUncertain, err)
+			}
+		}
+	}
+	if err := r.confirmPreparedFinalWorkspaceHelpers(); err == nil {
 		return nil
-	}
-	snapshot, _, err := r.readRuntimeLifecycleSnapshotLocked(ctx)
-	if err != nil {
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	binding, err := runtimeBindingFromLifecycle(snapshot, expected.RuntimeID, expected.Revision)
-	if err != nil {
-		return err
+	// Workspace helpers belong to this Tobari build rather than to the selected
+	// Runtime revision. An upgrade can therefore retain an exact historical or
+	// custom Runtime while still needing the current canonical image as the
+	// reviewed source of candidate-version helper binaries. Prepare that image
+	// only when candidate helpers are absent, then fully validate and activate
+	// the helpers before the durable entry decision can be published.
+	if !currentStandard {
+		if r.imageResolver().ShouldPullRuntimeImage(canonical) {
+			if err := r.pullOfficialRuntimeImage(ctx, canonical); err != nil {
+				return errors.Join(tobari.ErrWorkspaceRuntimePreparationUncertain, err)
+			}
+		}
+		if r.imageResolver().ShouldBuildRuntimeImage(canonical) {
+			if err := r.ensureLocalBaseRuntimeImage(ctx, canonical); err != nil {
+				return errors.Join(tobari.ErrWorkspaceRuntimePreparationUncertain, err)
+			}
+		}
 	}
-	if !reflect.DeepEqual(binding, expected) {
-		return fmt.Errorf("Runtime binding changed or is not canonical")
+	if err := r.ensureFinalWorkspaceHelpers(ctx); err != nil {
+		return errors.Join(tobari.ErrWorkspaceRuntimePreparationUncertain, err)
 	}
 	return nil
 }
@@ -805,10 +937,10 @@ func (r *Runtime) ReconcileWorkspaceEntry(ctx context.Context, plan tobari.Works
 		); err != nil {
 			return err
 		}
-		if err := r.ensureFinalWorkspaceRuntimeRoot(); err != nil {
-			return err
+		if err := r.confirmPreparedFinalWorkspaceHelpers(); err != nil {
+			return fmt.Errorf("prepared Workspace helper authority changed before reconciliation: %w", err)
 		}
-		if err := r.ensureFinalWorkspaceHelpers(ctx); err != nil {
+		if err := r.ensureFinalWorkspaceRuntimeRoot(); err != nil {
 			return err
 		}
 		if err := r.prepareFinalWorkspaceFiles(plan, spec, gitConfig); err != nil {
@@ -904,14 +1036,20 @@ func (r *Runtime) prepareFinalWorkspaceFiles(plan tobari.WorkspaceEntryReconcili
 	if err := syncDirectory(filepath.Dir(directory)); err != nil {
 		return err
 	}
-	if err := r.ensurePrivateDirectory(spec.WorkspaceHome); err != nil {
-		return fmt.Errorf("prepare final Workspace home: %w", err)
+	if plan.InitializeContextHome {
+		if err := r.ensurePrivateDirectory(spec.WorkspaceHome); err != nil {
+			return fmt.Errorf("prepare final Workspace home: %w", err)
+		}
+	} else if err := requirePrivateDirectory(spec.WorkspaceHome); err != nil {
+		return fmt.Errorf("observe retained final Workspace home: %w", err)
 	}
 	if err := syncDirectory(directory); err != nil {
 		return err
 	}
-	if err := reconcileFinalWorkspaceBootstrap(spec.WorkspaceHome, plan.Authority.CreationDefaults.Bootstrap); err != nil {
-		return err
+	if plan.InitializeContextHome {
+		if err := reconcileFinalWorkspaceBootstrap(spec.WorkspaceHome, plan.CreationDefaults.Bootstrap); err != nil {
+			return err
+		}
 	}
 	if err := ensureProjectHomeMountTarget(spec.WorkspaceHome, spec.WorkspaceRoot); err != nil {
 		return err
@@ -951,12 +1089,7 @@ func (r *Runtime) confirmFinalWorkspaceRuntimeAssets(spec finalWorkspaceRuntimeS
 }
 
 func (r *Runtime) ensureFinalWorkspaceHelpers(ctx context.Context) error {
-	version, err := runtimeassets.Version()
-	if err != nil {
-		return err
-	}
-	runtimeDirectory := filepath.Join(r.stateDirectory, "runtime", version)
-	if err := r.confirmFinalWorkspaceHelperAssets(runtimeDirectory); err == nil {
+	if err := r.confirmPreparedFinalWorkspaceHelpers(); err == nil {
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -974,7 +1107,15 @@ func (r *Runtime) ensureFinalWorkspaceHelpers(ctx context.Context) error {
 	if err := r.materializeWorkspaceHelpers(ctx, image); err != nil {
 		return fmt.Errorf("materialize final Workspace helpers: %w", err)
 	}
-	return r.confirmFinalWorkspaceHelperAssets(runtimeDirectory)
+	return r.confirmPreparedFinalWorkspaceHelpers()
+}
+
+func (r *Runtime) confirmPreparedFinalWorkspaceHelpers() error {
+	version, err := runtimeassets.Version()
+	if err != nil {
+		return err
+	}
+	return r.confirmFinalWorkspaceHelperAssets(filepath.Join(r.stateDirectory, "runtime", version))
 }
 
 func (r *Runtime) confirmFinalWorkspaceHelperAssets(runtimeDirectory string) error {

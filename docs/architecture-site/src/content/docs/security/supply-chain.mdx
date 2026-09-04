@@ -32,7 +32,7 @@ The copies are not a second implementation. `check-gateway-source.sh` and `check
 `versions.env` pins OPA, the mitmproxy build base, Gateway, and the Debian
 build base by `@sha256:` digest. Each digest is the exact runtime identity;
 friendly OPA/mitmproxy version strings are repository declarations paired with
-those digests. Agent CLI login is stored in the Workspace home and is not a
+those digests. Agent CLI login is stored in the Context Home shared by sibling Workspaces and is not a
 Tobari image input.
 
 The official base uses a source-derived local tag. It is built from the CLI's

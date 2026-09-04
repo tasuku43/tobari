@@ -875,7 +875,7 @@ func (r WorkspaceTemplatePolicyMigrationResult) Validate() error {
 	return nil
 }
 
-const WorkspaceTemplateChangePlanSchemaVersion = 1
+const WorkspaceTemplateChangePlanSchemaVersion = 2
 
 type WorkspaceTemplateChangeImpact string
 
@@ -896,10 +896,14 @@ type WorkspaceTemplateChangeDiff struct {
 }
 
 type WorkspaceTemplateChangeContext struct {
-	ContextRef           string         `json:"context_ref"`
-	PolicyMemoryRevision SemanticDigest `json:"policy_memory_revision"`
-	WorkspaceRef         string         `json:"workspace_ref,omitempty"`
-	WorkspaceRunning     bool           `json:"workspace_running"`
+	ContextRef           string                             `json:"context_ref"`
+	PolicyMemoryRevision SemanticDigest                     `json:"policy_memory_revision"`
+	Workspaces           []WorkspaceTemplateChangeWorkspace `json:"workspaces"`
+}
+
+type WorkspaceTemplateChangeWorkspace struct {
+	WorkspaceRef string `json:"workspace_ref"`
+	Running      bool   `json:"running"`
 }
 
 // WorkspaceTemplateChangePlan is a read-only, content-addressed review of one
@@ -968,20 +972,21 @@ func NewWorkspaceTemplateChangePlan(collection WorkspaceAuthorityCollection, id 
 	}
 	contexts := make([]WorkspaceTemplateChangeContext, 0)
 	running := 0
-	workspaceByContext := make(map[ContextID]WorkspaceBinding, len(collection.Workspaces))
+	workspaceByContext := make(map[ContextID][]WorkspaceBinding, len(collection.Contexts))
 	for _, workspace := range collection.Workspaces {
-		workspaceByContext[workspace.ContextID] = workspace
+		workspaceByContext[workspace.ContextID] = append(workspaceByContext[workspace.ContextID], workspace)
 	}
 	for _, record := range collection.Contexts {
 		if record.Context.TemplateID != id {
 			continue
 		}
 		contextRef, _ := ContextRef(record.Context.ID)
-		item := WorkspaceTemplateChangeContext{ContextRef: contextRef, PolicyMemoryRevision: record.PolicyMemory.Revision}
-		if workspace, ok := workspaceByContext[record.Context.ID]; ok {
-			item.WorkspaceRef, _ = WorkspaceRef(workspace.ID)
-			item.WorkspaceRunning = runningWorkspaces[workspace.ID]
-			if item.WorkspaceRunning {
+		item := WorkspaceTemplateChangeContext{ContextRef: contextRef, PolicyMemoryRevision: record.PolicyMemory.Revision, Workspaces: []WorkspaceTemplateChangeWorkspace{}}
+		for _, workspace := range workspaceByContext[record.Context.ID] {
+			workspaceRef, _ := WorkspaceRef(workspace.ID)
+			workspaceRunning := runningWorkspaces[workspace.ID]
+			item.Workspaces = append(item.Workspaces, WorkspaceTemplateChangeWorkspace{WorkspaceRef: workspaceRef, Running: workspaceRunning})
+			if workspaceRunning {
 				running++
 			}
 		}
@@ -1086,7 +1091,7 @@ func (p WorkspaceTemplateChangePlan) Validate() error {
 	if p.ActiveRevision == nil && p.ActiveMetadataRevision != nil {
 		return fmt.Errorf("draft Template plan claims active metadata")
 	}
-	if err := p.SourceRevision.Validate(); err != nil || p.AffectedContextCount != len(p.Contexts) || p.RunningWorkspaceCount < 0 || p.RunningWorkspaceCount > len(p.Contexts) {
+	if err := p.SourceRevision.Validate(); err != nil || p.AffectedContextCount != len(p.Contexts) || p.RunningWorkspaceCount < 0 {
 		return fmt.Errorf("Template change plan evidence is invalid")
 	}
 	switch p.Impact {
@@ -1099,15 +1104,21 @@ func (p WorkspaceTemplateChangePlan) Validate() error {
 		if _, err := ParseContextRef(item.ContextRef); err != nil || item.PolicyMemoryRevision.Validate() != nil {
 			return fmt.Errorf("Template change plan Context evidence is invalid")
 		}
-		if item.WorkspaceRef != "" {
-			if _, err := ParseWorkspaceRef(item.WorkspaceRef); err != nil {
+		if item.Workspaces == nil {
+			return fmt.Errorf("Template change plan Workspace evidence is unknown")
+		}
+		previousWorkspaceRef := ""
+		for _, workspace := range item.Workspaces {
+			if _, err := ParseWorkspaceRef(workspace.WorkspaceRef); err != nil {
 				return fmt.Errorf("Template change plan Workspace evidence is invalid")
 			}
-		} else if item.WorkspaceRunning {
-			return fmt.Errorf("Template change plan claims a running absent Workspace")
-		}
-		if item.WorkspaceRunning {
-			observedRunning++
+			if previousWorkspaceRef != "" && workspace.WorkspaceRef <= previousWorkspaceRef {
+				return fmt.Errorf("Template change plan Workspace evidence is not canonical")
+			}
+			if workspace.Running {
+				observedRunning++
+			}
+			previousWorkspaceRef = workspace.WorkspaceRef
 		}
 		if index > 0 && p.Contexts[index-1].ContextRef >= item.ContextRef {
 			return fmt.Errorf("Template change plan Context evidence is not canonical")

@@ -21,8 +21,8 @@ description: 現在の Tobari における資産、攻撃者、前提、攻撃�
 
 Workspace 内のコードは、次のことができると仮定します。
 
-- 選択したプロジェクトと Workspace home を読み書きする
-- プロセスを起動し、同じ Workspace 内の別プロセスと連携する
+- 選択したプロジェクトと Context Home を読み書きする
+- プロセスを起動し、同じ Context Home を共有する sibling Workspace の別プロセスと連携する
 - 直接ソケットを開き、Gateway の迂回を試みる
 - ヘッダー、URL、Workspace ID に見える値、認証情報に見える値を偽造する
 - ポリシーの拒否を発生させ、利用者のレビューと競合する
@@ -42,7 +42,7 @@ Gateway はリクエスト側が申告した権限を無視します。カーネ
 
 ### 秘密情報をポリシーまたはログへ混入させる
 
-認識可能な認証ヘッダーと cookie の値は、OPA への問い合わせと監査記録より前に削除または伏せます。Workspace 内の agent CLI が保持する値は Workspace home に残り、Tobari はホストの認証情報を継承しません。本文はポリシー入力にも監査記録にもなりません。
+認識可能な認証ヘッダーと cookie の値は、OPA への問い合わせと監査記録より前に削除または伏せます。Workspace 内の agent CLI が保持する値は Context Home に残り、同じ Context の sibling Workspace が共有します。Tobari はホストの認証情報を継承しません。本文はポリシー入力にも監査記録にもなりません。
 
 ただし任意の値をすべて認証情報として認識できるわけではありません。通常のクエリや安全なヘッダーに機微な文字列を置かないでください。
 
@@ -50,13 +50,13 @@ Gateway はリクエスト側が申告した権限を無視します。カーネ
 
 Gateway が返すのは拒否とホストレビューの案内だけです。変更操作は現在の状態を再検出し、完全一致規則と集約結果全体を検証してからアトミックに有効化します。Workspace が自身を許可することはできず、古い参照値で自動再送もしません。
 
-### Workspace 間でログインファイルをコピーする
+### Context 間でログインファイルをコピーする
 
-agent CLI のログインファイルを別 Workspace にコピーしても、Gateway が導出する host principal やポリシー範囲は変わりません。宛先 Workspace は自身の Workspace ID と OPA の完全一致許可を必要とします。Tobari はログインファイルの形式やリモート失効を代行しません。
+agent CLI のログインファイルを別 Context Home にコピーしても、Gateway が導出する host principal やポリシー範囲は変わりません。宛先 Workspace は自身の Context が所有する OPA の完全一致許可を必要とします。同じ Context の sibling Workspace は、コピーせずに同じ Home を共有します。Tobari はログインファイルの形式やリモート失効を代行しません。
 
 ### Workspace からホスト状態を読む
 
-Workspace には Docker control mount がなく、選択した project root と永続 home の外にある host configuration/state への path もありません。host が state file を使う前に owner と mode を検査し、不一致では fail closed です。agent CLI の login file は Workspace home 内に残り、Tobari authority の source にはなりません。
+Workspace には Docker control mount がなく、選択した project root と Context Home の外にある host configuration/state への path もありません。host が state file を使う前に owner と mode を検査し、不一致では fail closed です。agent CLI の login file は Context Home 内に残り、Tobari authority の source にはなりません。
 
 ## 残るリスク
 
@@ -64,7 +64,7 @@ Workspace には Docker control mount がなく、選択した project root と�
 - 完全一致で許可した接続先は、悪意ある内容を返せます。
 - 本文を識別に使わないため、許可済みのパスは異なる本文にも適用されます。
 - 安全なクエリやヘッダーのメタデータに、実装が認証情報と分類しない機微なデータが含まれる可能性があります。
-- 同じ Workspace 内のプロセスは、その Workspace home にある agent CLI の状態を読めます。
+- 同じ Context Home を共有するプロセスと sibling Workspace は、その agent CLI state を読めます。
 - 重複するプロジェクトルートでは同じホストファイルへの変更を共有します。
 - agent CLI のログアウトは外部サービス側の失効を保証せず、実行中プロセスの環境値も書き換えません。
 - 証明書を固定するクライアントと未対応プロトコルは、この HTTP/HTTPS 境界では仲介しません。

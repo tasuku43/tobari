@@ -534,12 +534,14 @@ func NewPolicyCandidate(denial PolicyDenial) (PolicyCandidate, error) {
 	}
 	material := appendPolicyProtocolIdentity(
 		[]string{
-			"tobari-policy-candidate-v1", denial.WorkspaceManifestID, denial.ProjectID, denial.Host, strconv.Itoa(denial.Port), denial.Method, denial.Path,
+			"tobari-policy-candidate-v2", denial.WorkspaceManifestID, denial.Host, strconv.Itoa(denial.Port), denial.Method, denial.Path,
 		},
 		denial.PolicyProtocolIdentity,
 	)
 	if denial.EffectiveDestinationKind() == PolicyDestinationHostLoopback {
-		material = append(material, denial.EffectiveDestinationKind(), denial.EffectiveAuthorityLifetime(), denial.AttachmentEpochID)
+		// Host Loopback authority is attachment-local, so its exact Workspace
+		// remains part of identity. Persistent policy never includes it.
+		material = append(material, denial.ProjectID, denial.EffectiveDestinationKind(), denial.EffectiveAuthorityLifetime(), denial.AttachmentEpochID)
 	}
 	sum := sha256.Sum256([]byte(strings.Join(material, "\x00")))
 	return PolicyCandidate{
@@ -1289,7 +1291,7 @@ func PolicyCandidatesWithDenyRules(
 	}
 	type effectKey struct {
 		contextID         string
-		projectID         string
+		attachmentProject string
 		host              string
 		port              int
 		method            string
@@ -1322,10 +1324,13 @@ func PolicyCandidatesWithDenyRules(
 			return nil, err
 		}
 		key := effectKey{
-			contextID: denial.WorkspaceManifestID, projectID: denial.ProjectID, host: denial.Host, port: denial.Port,
+			contextID: denial.WorkspaceManifestID, host: denial.Host, port: denial.Port,
 			method: denial.Method, path: denial.Path, protocol: denial.EffectiveProtocol(),
 			protocolKey:     strings.Join(appendPolicyProtocolIdentity(nil, denial.PolicyProtocolIdentity), "\x00"),
 			destinationKind: denial.EffectiveDestinationKind(), attachmentEpochID: denial.AttachmentEpochID,
+		}
+		if denial.EffectiveDestinationKind() == PolicyDestinationHostLoopback {
+			key.attachmentProject = denial.ProjectID
 		}
 		current, found := aggregates[key]
 		if !found {

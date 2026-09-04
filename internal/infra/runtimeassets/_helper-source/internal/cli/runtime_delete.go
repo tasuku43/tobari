@@ -181,7 +181,7 @@ func runtimeDeleteOutput() CommandOutput {
 			{Name: "workspace_manifests_preserved", Type: OutputFieldTypeBoolean, Description: "Legacy-named field retained by the unchanged Runtime schema; always true because no Workspace Template, Context, or Workspace was deleted or rewritten."},
 			{Name: "workspaces_preserved", Type: OutputFieldTypeBoolean, Description: "Always true: no Workspace was deleted or rewritten."},
 			{Name: "workspace_ids_preserved", Type: OutputFieldTypeBoolean, Description: "Always true: no workspace_id was deleted or rewritten."},
-			{Name: "workspace_homes_preserved", Type: OutputFieldTypeBoolean, Description: "Always true: no Workspace home was deleted or rewritten."},
+			{Name: "workspace_homes_preserved", Type: OutputFieldTypeBoolean, Description: "Always true: no Context Home mounted by a Workspace was deleted or rewritten."},
 			{Name: "applied_receipts_preserved", Type: OutputFieldTypeBoolean, Description: "Always true: no applied receipt was deleted or rewritten."},
 			{Name: "project_roots_preserved", Type: OutputFieldTypeBoolean, Description: "Always true: no Project root was deleted or rewritten."},
 			{Name: "credentials_preserved", Type: OutputFieldTypeBoolean, Description: "Always true: no credential state was deleted or rewritten."},

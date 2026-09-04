@@ -180,6 +180,13 @@ Typed bootstrap recipes affect only future Context Home creation. None of these
 paths changes source/network authority, retargets an existing Workspace, or
 changes agent-owned authentication in the Context Home.
 
+Every Workspace owned by one Context mounts that same writable Context Home.
+Those sibling Workspace processes are therefore one mutual trust group for
+native authentication and tool state; different Contexts remain isolated.
+Tobari does not promise application-level file locking between sibling tools.
+Workspace ID and Project root remain principal-routing and denial-provenance
+facts only and never narrow persistent Context Policy Memory compatibility.
+
 Desired Template state, active Template policy, current and active Context
 Policy Memory, last-successful Workspace AppliedEntry, and currently observed
 Docker/attachment state are distinct trusted facts. Only explicit
@@ -520,15 +527,22 @@ files cannot introduce a second image or execution-boundary authority. The
 stored project image is diagnostic last-success state rather than an image
 authority.
 
-Entry may build only the source-addressed image for the exact canonical
-`builtin/standard` binding already selected by final Template authority. Build
-inputs are the embedded, pinned, byte-checked Runtime and helper-source closure;
-project data, environment selectors, and arbitrary image names cannot widen
-that mutation. A historical standard binding may reuse only its exact existing
-`base-<source-id>` image after the binding revision and image contract are
-verified; it is never rebuilt from current source or aliased to the current
-standard image. A custom Runtime must already have explicit authoritative
-material and is never implicitly built by entry.
+Entry may build the selected execution image only for the source-addressed
+exact canonical `builtin/standard` binding already selected by final Template
+authority. Build inputs are the embedded, pinned, byte-checked Runtime and
+helper-source closure; project data, environment selectors, and arbitrary image
+names cannot widen that mutation. Candidate-version helper preparation is a
+separate build-owned exception: if the owner-only verified helpers are absent,
+entry may prepare the current source-addressed built-in image solely as the
+fixed extraction source, then validates labels, source, platform, volumes,
+identity records, digests, and ELF form and atomically activates both helpers
+before publishing the durable Workspace decision. That image is never selected
+or aliased as the Workspace execution Runtime. A historical standard binding
+may reuse only its exact existing `base-<source-id>` execution image after the
+binding revision and image contract are verified; it is never rebuilt from
+current source or aliased to the current standard image. A custom Runtime must
+already have explicit authoritative execution material and is never implicitly
+built by entry.
 
 Project runtime readiness is an explicit healthcheck boundary. Enter waits for
 healthy rather than treating a running or healthcheck-less container as ready;
@@ -590,8 +604,9 @@ All resources carry `io.tobari.owner=default`; per-Workspace resources also carr
 the exact stable Workspace ID and a resource role. `workspace delete` consumes
 one exact discovered Workspace reference and revalidates its Context binding,
 stored owner, ID, and role labels before removal. It removes that Workspace's
-persistent XDG home and record after the session-attachment guard; `--force`
-explicitly overrides only that guard.
+private runtime state and record after the session-attachment guard while
+preserving the Context-owned Home and every sibling; `--force` explicitly
+overrides only that guard.
 Shared cluster removal is rejected while any Workspace record remains.
 Both `cluster down` and `cluster down --purge` preserve encrypted Context vaults
 and the installation root key. Purge removes only the shared CA volumes and
@@ -746,9 +761,9 @@ OPA timeout, connection failure, non-2xx status, malformed JSON, missing
 fields, unknown decision values, and Gateway exceptions all deny. Plain HTTP
 to non-local destinations is denied by the initialized policy. The initialized
 policy also requires an explicit port for each supported scheme; learned rules
-retain the observed Context/scheme/host/port/method/path and optional
-GraphQL, AWS, Kubernetes, Git, or OCI coordinate and cannot be used on another
-Context, Workspace, port, or scheme. Request headers and client/raw query values
+bind Context/scheme/host/port/method/path and optional GraphQL, AWS, Kubernetes,
+Git, or OCI coordinate and cannot be used by another Context, port, or scheme.
+Workspace/root/CWD facts remain observation provenance and routing only. Request headers and client/raw query values
 never enter OPA. The normalized classifier-derived Git GET `service` coordinate
 is the sole query input required by the fixed evaluator and may become Git
 candidate/rule identity only through its typed protocol coordinate.
@@ -1515,7 +1530,7 @@ treats a failed read as no candidates, never as shell source or authority.
 | OPA cannot rewrite Workspace Template policy | Read-only mount-spec test |
 | Tested host policy activates across Docker hosts | Docker-managed watched-bundle and exact-revision adapter tests plus a live stable-OPA allow-and-retry integration canary |
 | CWD lifecycle actions use exact Workspace identity | Canonical-root, state, and label-validation tests |
-| One canonical root/Workspace Template pair has one Context and each Context has at most one Workspace | Atomic authority-envelope validation, locked exact-pair checks, immutable Context binding, same-root/different-Template tests, and concurrent entry convergence |
+| One `(ContextID, canonical ProjectRoot)` has at most one Workspace; Contexts may own siblings and different Contexts may share one root | Atomic authority-envelope validation, locked exact-pair checks, immutable Context binding, shared-Home sibling tests, same-root/different-Context tests, and concurrent entry convergence |
 | Session exit cannot delete a Workspace | Child exit-status tests, host-stderr summary tests, and logical-state preservation after entry |
 | Gateway cannot accept caller-selected Context or Workspace authority | Owner-only atomic schema-1 registry, exact Workspace-source and Gateway-endpoint binding, duplicate/stale rejection, forged-header/SNI/authority and unknown-principal denial, source-bind/IP_FREEBIND canaries, and multi-Context integration |
 | Static broker credentials cannot cross Context principals | Encrypted Context vaults, explicit project-bound handles, pre-OPA introspection, same-revision post-allow replacement, cross-Context tests, and integration |

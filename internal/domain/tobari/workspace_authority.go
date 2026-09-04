@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -1303,11 +1304,13 @@ type WorkspaceAppliedEntry struct {
 // may resolve image and container details, but it cannot change the Context,
 // Template, Workspace, Runtime, or creation-default authority selected here.
 type WorkspaceEntryReconciliationPlan struct {
-	Workspace        WorkspaceBinding                  `json:"workspace"`
-	Applied          WorkspaceAppliedEntry             `json:"applied_entry"`
-	Authority        WorkspaceTemplateEntryAuthority   `json:"entry_authority"`
-	CreationDefaults WorkspaceTemplateCreationDefaults `json:"creation_defaults"`
-	Network          WorkspaceRuntimeNetworkAuthority  `json:"network_authority"`
+	Workspace             WorkspaceBinding                  `json:"workspace"`
+	Applied               WorkspaceAppliedEntry             `json:"applied_entry"`
+	Authority             WorkspaceTemplateEntryAuthority   `json:"entry_authority"`
+	CreationDefaults      WorkspaceTemplateCreationDefaults `json:"creation_defaults"`
+	InitializeContextHome bool                              `json:"initialize_context_home"`
+	RecoverContextHome    bool                              `json:"recover_context_home"`
+	Network               WorkspaceRuntimeNetworkAuthority  `json:"network_authority"`
 }
 
 // WorkspaceRuntimeNetworkAuthority is the exact decision-bound private
@@ -1413,12 +1416,36 @@ func (p WorkspaceEntryReconciliationPlan) ValidateFor(snapshot ContextAuthorityS
 	if p.Workspace.LastSuccessfulEntry == nil || *p.Workspace.LastSuccessfulEntry != p.Applied {
 		return fmt.Errorf("Workspace entry plan does not publish its exact AppliedEntry")
 	}
+	if p.InitializeContextHome && p.RecoverContextHome {
+		return fmt.Errorf("Workspace entry plan cannot initialize and recover Context Home")
+	}
+	if snapshot.ContextHome == "" && len(snapshot.Workspaces) == 0 && snapshot.Workspace == nil {
+		if !p.InitializeContextHome && !p.RecoverContextHome {
+			return fmt.Errorf("first Workspace entry plan must initialize or recover Context Home")
+		}
+	} else if p.InitializeContextHome || p.RecoverContextHome {
+		firstPublication := snapshot.ContextHome == p.Workspace.Home && snapshot.ContextCreationDefaults == p.Workspace.CreationDefaults &&
+			len(snapshot.Workspaces) == 1 && snapshot.Workspace != nil && snapshot.Workspace.ID == p.Workspace.ID &&
+			snapshot.Workspace.LastSuccessfulEntry != nil && *snapshot.Workspace.LastSuccessfulEntry == p.Applied
+		if !firstPublication {
+			return fmt.Errorf("Workspace entry plan Context Home transition fact is inconsistent")
+		}
+	}
 	if snapshot.Workspace != nil {
 		if p.Workspace.ID != snapshot.Workspace.ID || p.Workspace.ContextID != snapshot.Workspace.ContextID || p.Workspace.ProjectRoot != snapshot.Workspace.ProjectRoot || p.Workspace.Home != snapshot.Workspace.Home || p.Workspace.CreationDefaults != snapshot.Workspace.CreationDefaults {
 			return fmt.Errorf("Workspace entry plan changed create-once Workspace authority")
 		}
-	} else if p.Workspace.CreationDefaults != snapshot.Template.Current.Slices.CreationDefaultsDigest {
-		return fmt.Errorf("new Workspace entry plan does not bind current creation defaults")
+	} else if snapshot.ContextHome != "" {
+		if p.Workspace.Home != snapshot.ContextHome || p.Workspace.CreationDefaults != snapshot.ContextCreationDefaults {
+			return fmt.Errorf("new Workspace entry plan changed Context Home creation authority")
+		}
+	} else if len(snapshot.Workspaces) > 0 {
+		owner := snapshot.Workspaces[0]
+		if p.Workspace.Home != owner.Home || p.Workspace.CreationDefaults != owner.CreationDefaults {
+			return fmt.Errorf("new sibling Workspace entry plan changed Context Home creation authority")
+		}
+	} else if p.InitializeContextHome && p.Workspace.CreationDefaults != snapshot.Template.Current.Slices.CreationDefaultsDigest {
+		return fmt.Errorf("first Workspace entry plan does not bind current creation defaults")
 	}
 	return nil
 }
@@ -1605,13 +1632,20 @@ func (r PolicyMemoryActivationReceipt) ValidateFor(context ContextBinding, memor
 // ContextAuthoritySnapshot is one coherent final-authority read. Runtime
 // observation remains a separate infrastructure-owned read dimension.
 type ContextAuthoritySnapshot struct {
-	Context               ContextBinding
-	Template              WorkspaceTemplate
-	PolicyMemory          PolicyMemoryRevision
-	ActiveTemplatePolicy  *TemplatePolicyActivationReceipt
-	ActivePolicyMemory    *PolicyMemoryRevision
-	ActivePolicyMemoryRef *PolicyMemoryActivationReceipt
-	Workspace             *WorkspaceBinding
+	Context                 ContextBinding
+	Template                WorkspaceTemplate
+	ContextHome             string
+	ContextCreationDefaults SemanticDigest
+	PolicyMemory            PolicyMemoryRevision
+	ActiveTemplatePolicy    *TemplatePolicyActivationReceipt
+	ActivePolicyMemory      *PolicyMemoryRevision
+	ActivePolicyMemoryRef   *PolicyMemoryActivationReceipt
+	// Workspaces is the complete ordered set owned by this Context. Workspace is
+	// populated only when a caller has selected one exact Workspace for an
+	// entry, session, or root-scoped task; Context-level reads never guess among
+	// siblings.
+	Workspaces []WorkspaceBinding
+	Workspace  *WorkspaceBinding
 }
 
 // WorkspaceSessionBinding is the complete final-identity input to the
@@ -1876,20 +1910,86 @@ func (s ContextAuthoritySnapshot) Validate() error {
 			return err
 		}
 	}
-	if s.Workspace != nil {
-		if err := s.Workspace.ValidateFor(s.Context); err != nil {
+	workspaces := s.Workspaces
+	if len(workspaces) == 0 && s.Workspace != nil {
+		workspaces = []WorkspaceBinding{*s.Workspace}
+	} else if workspaces == nil {
+		workspaces = []WorkspaceBinding{}
+	}
+	previousWorkspace := WorkspaceID("")
+	if (s.ContextHome == "") != (s.ContextCreationDefaults == "") {
+		return fmt.Errorf("Context snapshot Home authority is incomplete")
+	}
+	if s.ContextHome != "" {
+		if !filepath.IsAbs(s.ContextHome) || filepath.Clean(s.ContextHome) != s.ContextHome {
+			return fmt.Errorf("Context snapshot Home authority is invalid")
+		}
+		if err := s.ContextCreationDefaults.Validate(); err != nil {
+			return fmt.Errorf("Context snapshot Home creation authority is invalid: %w", err)
+		}
+		retained := false
+		for _, revision := range s.Template.Retained {
+			if revision.Slices.CreationDefaultsDigest == s.ContextCreationDefaults {
+				retained = true
+				break
+			}
+		}
+		if !retained {
+			return fmt.Errorf("Context snapshot Home creation authority has no retained Template revision")
+		}
+	} else if len(workspaces) > 0 {
+		return fmt.Errorf("Context snapshot Workspaces require Context Home authority")
+	}
+	workspaceRoots := make(map[string]WorkspaceID, len(workspaces))
+	for index := range workspaces {
+		workspace := workspaces[index]
+		if previousWorkspace != "" && workspace.ID <= previousWorkspace {
+			return fmt.Errorf("Context snapshot Workspaces must be unique and sorted")
+		}
+		if err := workspace.ValidateFor(s.Context); err != nil {
 			return err
 		}
-		if s.Workspace.LastSuccessfulEntry != nil {
+		if s.ContextHome != "" && (workspace.Home != s.ContextHome || workspace.CreationDefaults != s.ContextCreationDefaults) {
+			return fmt.Errorf("Workspace does not match Context snapshot Home authority")
+		}
+		if previous, found := workspaceRoots[workspace.ProjectRoot]; found && previous != workspace.ID {
+			return fmt.Errorf("Context snapshot has multiple Workspaces at one Project root")
+		}
+		workspaceRoots[workspace.ProjectRoot] = workspace.ID
+		if workspace.LastSuccessfulEntry != nil {
 			found := false
 			for _, revision := range s.Template.Retained {
-				if s.Workspace.LastSuccessfulEntry.ValidateForRevision(s.Context, revision) == nil {
+				if workspace.LastSuccessfulEntry.ValidateForRevision(s.Context, revision) == nil {
 					found = true
 					break
 				}
 			}
 			if !found {
 				return fmt.Errorf("Workspace AppliedEntry has no exact retained Template revision")
+			}
+		}
+		previousWorkspace = workspace.ID
+	}
+	if s.Workspace != nil {
+		if err := s.Workspace.ValidateFor(s.Context); err != nil {
+			return err
+		}
+		matchedID := false
+		for _, workspace := range workspaces {
+			if workspace.ProjectRoot == s.Workspace.ProjectRoot && workspace.ID != s.Workspace.ID {
+				return fmt.Errorf("selected Workspace root belongs to another Workspace")
+			}
+			if workspace.ID != s.Workspace.ID {
+				continue
+			}
+			matchedID = true
+			if !reflect.DeepEqual(workspace, *s.Workspace) {
+				return fmt.Errorf("selected Workspace changed retained identity")
+			}
+		}
+		if len(workspaces) > 0 && !matchedID {
+			if s.ContextHome != "" && (s.Workspace.Home != s.ContextHome || s.Workspace.CreationDefaults != s.ContextCreationDefaults) {
+				return fmt.Errorf("selected Workspace changed Context Home authority")
 			}
 		}
 	}
@@ -1912,6 +2012,12 @@ func (s ContextAuthoritySnapshot) Clone() ContextAuthoritySnapshot {
 		value := *s.ActivePolicyMemoryRef
 		result.ActivePolicyMemoryRef = &value
 	}
+	result.Workspaces = cloneWorkspaceBindings(s.Workspaces)
+	if len(s.Workspaces) == 0 && s.Workspace != nil {
+		result.Workspaces = cloneWorkspaceBindings([]WorkspaceBinding{*s.Workspace})
+	} else if s.Workspaces == nil {
+		result.Workspaces = []WorkspaceBinding{}
+	}
 	if s.Workspace != nil {
 		value := *s.Workspace
 		if s.Workspace.LastSuccessfulEntry != nil {
@@ -1921,6 +2027,49 @@ func (s ContextAuthoritySnapshot) Clone() ContextAuthoritySnapshot {
 		result.Workspace = &value
 	}
 	return result
+}
+
+// SelectWorkspace returns an exact Workspace-focused view without changing
+// the complete Context-owned Workspace set.
+func (s ContextAuthoritySnapshot) SelectWorkspace(workspaceID WorkspaceID) (ContextAuthoritySnapshot, error) {
+	if err := s.Validate(); err != nil {
+		return ContextAuthoritySnapshot{}, err
+	}
+	result := s.Clone()
+	result.Workspace = nil
+	for index := range result.Workspaces {
+		if result.Workspaces[index].ID == workspaceID {
+			value := result.Workspaces[index]
+			result.Workspace = &value
+			return result, result.Validate()
+		}
+	}
+	return ContextAuthoritySnapshot{}, ErrWorkspaceBindingNotFound
+}
+
+// SelectWorkspaceAtRoot focuses the unique Workspace owned by this Context at
+// one canonical Project root. A missing root returns an unselected Context
+// snapshot so create-here can add a sibling Workspace.
+func (s ContextAuthoritySnapshot) SelectWorkspaceAtRoot(projectRoot string) (ContextAuthoritySnapshot, error) {
+	if err := ValidateCanonicalRoot(projectRoot); err != nil {
+		return ContextAuthoritySnapshot{}, err
+	}
+	if err := s.Validate(); err != nil {
+		return ContextAuthoritySnapshot{}, err
+	}
+	result := s.Clone()
+	result.Workspace = nil
+	for index := range result.Workspaces {
+		if result.Workspaces[index].ProjectRoot != projectRoot {
+			continue
+		}
+		if result.Workspace != nil {
+			return ContextAuthoritySnapshot{}, fmt.Errorf("Context has multiple Workspaces at one Project root")
+		}
+		value := result.Workspaces[index]
+		result.Workspace = &value
+	}
+	return result, result.Validate()
 }
 
 type WorkspaceTemplateCopyPublication struct {
@@ -2042,8 +2191,8 @@ type PolicyMemoryPublication struct {
 }
 
 // PolicyCandidateAuthority is the complete immutable authority behind one
-// opaque candidate reference. The ID binds the candidate to both its Context
-// owner and the Workspace observation that produced the exact payload.
+// opaque candidate reference. Persistent identity binds Context plus effect;
+// the observing Workspace is provenance retained outside that identity.
 type PolicyCandidateAuthority struct {
 	ID                   string                `json:"id"`
 	ContextID            ContextID             `json:"context_id"`
@@ -2111,13 +2260,24 @@ func NewPolicyCandidateAuthority(contextID ContextID, workspaceID WorkspaceID, e
 		return PolicyCandidateAuthority{}, err
 	}
 	candidate := PolicyCandidateAuthority{
-		ID: policyCandidateAuthorityID(contextID, workspaceID, payload), ContextID: contextID,
+		ID: policyCandidateAuthorityID(contextID, payload), ContextID: contextID,
 		ObservingWorkspaceID: workspaceID, PayloadDigest: payload, Effect: effect.Clone(),
 	}
 	return candidate, candidate.Validate()
 }
 
-func policyCandidateAuthorityID(contextID ContextID, workspaceID WorkspaceID, payload SemanticDigest) string {
+func policyCandidateAuthorityID(contextID ContextID, payload SemanticDigest) string {
+	digest, _ := semanticIdentity(struct {
+		ContextID ContextID
+		Payload   SemanticDigest
+	}{contextID, payload})
+	return "pcy_" + strings.TrimPrefix(string(digest), "sha256:")[:32]
+}
+
+// legacyPolicyCandidateAuthorityID recognizes predecessor references during
+// upgrade. New candidate identity is Context policy plus normalized effect;
+// the observing Workspace is provenance only.
+func legacyPolicyCandidateAuthorityID(contextID ContextID, workspaceID WorkspaceID, payload SemanticDigest) string {
 	digest, _ := semanticIdentity(struct {
 		ContextID   ContextID
 		WorkspaceID WorkspaceID
@@ -2146,10 +2306,19 @@ func (c PolicyCandidateAuthority) Validate() error {
 	if payload != c.PayloadDigest {
 		return fmt.Errorf("Policy candidate payload does not bind its exact effect")
 	}
-	if c.ID != policyCandidateAuthorityID(c.ContextID, c.ObservingWorkspaceID, c.PayloadDigest) {
+	if c.ID != policyCandidateAuthorityID(c.ContextID, c.PayloadDigest) &&
+		c.ID != legacyPolicyCandidateAuthorityID(c.ContextID, c.ObservingWorkspaceID, c.PayloadDigest) {
 		return fmt.Errorf("Policy candidate ID does not bind its complete authority")
 	}
 	return nil
+}
+
+func policyCandidateAuthoritiesShareEffect(left, right PolicyCandidateAuthority) bool {
+	return left.ContextID == right.ContextID && left.PayloadDigest == right.PayloadDigest
+}
+
+func policyCandidateAuthorityEffectKey(candidate PolicyCandidateAuthority) string {
+	return string(candidate.ContextID) + "\x00" + string(candidate.PayloadDigest)
 }
 
 type PolicyCandidatePublication struct {
@@ -2220,8 +2389,20 @@ func (p PolicyCandidatePublication) ValidateFor(candidateID string, decision Pol
 	if !p.Memory.Changed {
 		return fmt.Errorf("Policy candidate publication did not change authority")
 	}
-	if p.Memory.Snapshot.Context.ID != p.Candidate.ContextID || p.Memory.Snapshot.Workspace == nil || p.Memory.Snapshot.Workspace.ID != p.Candidate.ObservingWorkspaceID {
-		return fmt.Errorf("Policy candidate publication crosses its Context or observing Workspace")
+	observingWorkspaceFound := false
+	for _, workspace := range p.Memory.Snapshot.Workspaces {
+		if workspace.ID == p.Candidate.ObservingWorkspaceID && workspace.ContextID == p.Candidate.ContextID {
+			observingWorkspaceFound = true
+			break
+		}
+	}
+	if !observingWorkspaceFound && p.Memory.Snapshot.Workspace != nil &&
+		p.Memory.Snapshot.Workspace.ID == p.Candidate.ObservingWorkspaceID &&
+		p.Memory.Snapshot.Workspace.ContextID == p.Candidate.ContextID {
+		observingWorkspaceFound = true
+	}
+	if p.Memory.Snapshot.Context.ID != p.Candidate.ContextID || !observingWorkspaceFound {
+		return fmt.Errorf("Policy candidate publication crosses its Context or loses observing Workspace provenance")
 	}
 	if err := p.Previous.ValidateFor(p.Memory.Snapshot.Context, p.Memory.Snapshot.Template.Current); err != nil {
 		return err

@@ -306,11 +306,15 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 	projectRoot := invocationRoot
 	if expected != nil {
 		projectRoot = expected.ProjectRoot
-	} else if projectRoot == "" && selected.Workspace != nil {
-		projectRoot = selected.Workspace.ProjectRoot
+	} else if projectRoot == "" && len(selected.Workspaces) == 1 {
+		projectRoot = selected.Workspaces[0].ProjectRoot
 	}
 	if err := tobari.ValidateCanonicalRoot(projectRoot); err != nil {
 		return tobari.ContextAuthoritySnapshot{}, nil, fmt.Errorf("Workspace entry requires one explicit Project root: %w", err)
+	}
+	selected, err = selected.SelectWorkspaceAtRoot(projectRoot)
+	if err != nil {
+		return tobari.ContextAuthoritySnapshot{}, nil, err
 	}
 	releaseAttachment, err := a.runtime.AcquireWorkspaceEntryAttachment(ctx, contextID, projectRoot)
 	if err != nil {
@@ -344,7 +348,8 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 	if err != nil {
 		return tobari.ContextAuthoritySnapshot{}, nil, err
 	}
-	terminalEntryRequiresSettlement := terminalPresent && terminal.Operation == "context-entry" && terminal.Target == contextRef
+	terminalEntryRequiresSettlement := terminalPresent && terminal.Operation == "context-entry" && terminal.Target == contextRef &&
+		entryPlanMatchesSelection(terminal.EntryPlan, contextID, projectRoot, selected)
 	_, stageErr := os.Lstat(mutationStagePath(m.store.root))
 	stagePresent := stageErr == nil
 	if stageErr != nil && !errors.Is(stageErr, os.ErrNotExist) {
@@ -387,9 +392,16 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 		if decision.Operation != "context-entry" || decision.Target != contextRef || decision.EntryPlan == nil {
 			return tobari.ContextAuthoritySnapshot{}, nil, fmt.Errorf("another final-authority mutation requires exact same-target recovery")
 		}
+		if !entryPlanMatchesSelection(decision.EntryPlan, contextID, projectRoot, selected) {
+			return tobari.ContextAuthoritySnapshot{}, nil, fmt.Errorf("pending Context entry belongs to another Workspace root")
+		}
 		if decision.NextGeneration != decision.PreviousGeneration && current.Generation == decision.NextGeneration && current.Revision == decision.NextRevision {
 			publicationConfirmed = true
 			snapshot, err := snapshotForContext(current, contextID)
+			if err != nil {
+				return tobari.ContextAuthoritySnapshot{}, nil, err
+			}
+			snapshot, err = snapshot.SelectWorkspace(decision.EntryPlan.Workspace.ID)
 			if err != nil {
 				return tobari.ContextAuthoritySnapshot{}, nil, err
 			}
@@ -421,6 +433,10 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 	if err != nil {
 		return tobari.ContextAuthoritySnapshot{}, nil, err
 	}
+	desired, err = desired.SelectWorkspaceAtRoot(projectRoot)
+	if err != nil {
+		return tobari.ContextAuthoritySnapshot{}, nil, err
+	}
 	entryAuthority, err := tobari.DeriveWorkspaceTemplateEntryAuthority(desired.Template.Current)
 	if err != nil {
 		return tobari.ContextAuthoritySnapshot{}, nil, err
@@ -433,6 +449,9 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 	var changed bool
 	if active {
 		plan = decision.EntryPlan.Clone()
+		if decision.legacyEntryPlan && desired.ContextHome == "" {
+			plan.InitializeContextHome = true
+		}
 		if err := plan.ValidateFor(desired); err != nil {
 			return tobari.ContextAuthoritySnapshot{}, nil, err
 		}
@@ -444,13 +463,36 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 			return tobari.ContextAuthoritySnapshot{}, nil, err
 		}
 		if next.Generation != decision.NextGeneration || next.Revision != decision.NextRevision {
-			return tobari.ContextAuthoritySnapshot{}, nil, fmt.Errorf("same-target Context entry no longer matches its durable decision")
+			if !decision.legacyEntryPlan || next.Generation != decision.NextGeneration {
+				return tobari.ContextAuthoritySnapshot{}, nil, fmt.Errorf("same-target Context entry no longer matches its durable decision")
+			}
 		}
 		encoded, err := EncodeComplete(next)
 		if err != nil {
 			return tobari.ContextAuthoritySnapshot{}, nil, err
 		}
-		if err := m.validatePreparedStage(encoded); err != nil {
+		legacyStage := false
+		if decision.legacyEntryPlan {
+			if err := m.validatePreparedStage(encoded); err != nil {
+				if legacyErr := m.validateLegacyContextHomeEntryStage(next); legacyErr != nil {
+					return tobari.ContextAuthoritySnapshot{}, nil, errors.Join(err, legacyErr)
+				}
+				legacyStage = true
+			}
+			decision.EntryPlan = &plan
+			decision.NextGeneration = next.Generation
+			decision.NextRevision = next.Revision
+			decision.EntryPlanCompatibility = entryPlanContextHomeCompatibility
+			decision.legacyEntryPlan = false
+			if err := m.replaceEffectDecision(decision); err != nil {
+				return tobari.ContextAuthoritySnapshot{}, nil, err
+			}
+			if legacyStage {
+				if err := m.prepareEffectStage(encoded); err != nil {
+					return tobari.ContextAuthoritySnapshot{}, nil, fmt.Errorf("replace predecessor Context entry stage: %w", err)
+				}
+			}
+		} else if err := m.validatePreparedStage(encoded); err != nil {
 			return tobari.ContextAuthoritySnapshot{}, nil, err
 		}
 		if err := acquireReconciliation(); err != nil {
@@ -572,6 +614,11 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 		cancelSettlement()
 		return tobari.ContextAuthoritySnapshot{}, nil, snapshotErr
 	}
+	nextSnapshot, snapshotErr = nextSnapshot.SelectWorkspace(plan.Workspace.ID)
+	if snapshotErr != nil {
+		cancelSettlement()
+		return tobari.ContextAuthoritySnapshot{}, nil, snapshotErr
+	}
 	confirmedReceipt, confirmErr := a.confirmEntry(completionContext, next, nextSnapshot, plan, decisionRef)
 	cancelSettlement()
 	if confirmErr != nil {
@@ -594,6 +641,10 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 	if err != nil {
 		return tobari.ContextAuthoritySnapshot{}, nil, err
 	}
+	confirmed, err = confirmed.SelectWorkspace(plan.Workspace.ID)
+	if err != nil {
+		return tobari.ContextAuthoritySnapshot{}, nil, err
+	}
 	publicationConfirmed = true
 	if err := m.clearEffectDecision(); err != nil {
 		return tobari.ContextAuthoritySnapshot{}, nil, err
@@ -611,6 +662,50 @@ func (a *ContextEntryAdapter) reconcileAndBegin(ctx context.Context, contextRef 
 		return confirmed, nil, confirmedEntryAttachmentError(err)
 	}
 	return confirmed, owner, nil
+}
+
+// validateLegacyContextHomeEntryStage admits only the exact predecessor
+// serialization that omitted Context-owned Home mirrors while retaining the
+// same Workspace bindings and collection revision. Arbitrary or partially
+// changed stage bytes remain corruption and are never overwritten.
+func (m *Mutator) validateLegacyContextHomeEntryStage(expected tobari.WorkspaceAuthorityCollection) error {
+	data, err := readAuthorityFile(mutationStagePath(m.store.root))
+	if err != nil {
+		return fmt.Errorf("read predecessor Context entry stage: %w", err)
+	}
+	var legacy tobari.WorkspaceAuthorityCollection
+	if err := decodeStrictJSON(data, &legacy); err != nil {
+		return fmt.Errorf("decode predecessor Context entry stage: %w", err)
+	}
+	workspaceByContext := make(map[tobari.ContextID]tobari.WorkspaceBinding, len(legacy.Workspaces))
+	for _, workspace := range legacy.Workspaces {
+		if prior, found := workspaceByContext[workspace.ContextID]; found && (prior.Home != workspace.Home || prior.CreationDefaults != workspace.CreationDefaults) {
+			return fmt.Errorf("predecessor Context entry stage has divergent Context Home mirrors")
+		}
+		workspaceByContext[workspace.ContextID] = workspace
+	}
+	normalized := legacy.Clone()
+	changed := false
+	for index := range normalized.Contexts {
+		record := &normalized.Contexts[index]
+		if (record.ContextHome == "") != (record.CreationDefaults == "") {
+			return fmt.Errorf("predecessor Context entry stage has partial Context Home authority")
+		}
+		if record.ContextHome != "" {
+			continue
+		}
+		workspace, found := workspaceByContext[record.Context.ID]
+		if !found {
+			continue
+		}
+		record.ContextHome = workspace.Home
+		record.CreationDefaults = workspace.CreationDefaults
+		changed = true
+	}
+	if !changed || normalized.Validate() != nil || !reflect.DeepEqual(normalized, expected) {
+		return fmt.Errorf("predecessor Context entry stage does not match the active decision")
+	}
+	return nil
 }
 
 func containsCleanupIssue(values []tobari.WorkspaceAttachmentCleanupIssue, target tobari.WorkspaceAttachmentCleanupIssue) bool {
@@ -777,6 +872,10 @@ func entryTerminalConsequence(current tobari.WorkspaceAuthorityCollection, decis
 	if err != nil {
 		return tobari.ContextAuthoritySnapshot{}, err
 	}
+	snapshot, err = snapshot.SelectWorkspace(decision.EntryPlan.Workspace.ID)
+	if err != nil {
+		return tobari.ContextAuthoritySnapshot{}, err
+	}
 	if snapshot.Workspace == nil || !reflect.DeepEqual(*snapshot.Workspace, decision.EntryPlan.Workspace) {
 		return tobari.ContextAuthoritySnapshot{}, fmt.Errorf("terminal Context entry consequence is no longer current")
 	}
@@ -784,6 +883,21 @@ func entryTerminalConsequence(current tobari.WorkspaceAuthorityCollection, decis
 		return tobari.ContextAuthoritySnapshot{}, err
 	}
 	return snapshot, nil
+}
+
+func entryPlanMatchesSelection(plan *tobari.WorkspaceEntryReconciliationPlan, contextID tobari.ContextID, projectRoot string, selected tobari.ContextAuthoritySnapshot) bool {
+	if plan == nil || plan.Workspace.ContextID != contextID || plan.Workspace.ProjectRoot != projectRoot {
+		return false
+	}
+	if selected.Workspace != nil {
+		return selected.Workspace.ID == plan.Workspace.ID && selected.Workspace.ProjectRoot == projectRoot
+	}
+	for _, workspace := range selected.Workspaces {
+		if workspace.ID == plan.Workspace.ID || workspace.ProjectRoot == projectRoot {
+			return false
+		}
+	}
+	return true
 }
 
 func entryDecisionRef(plan tobari.WorkspaceEntryReconciliationPlan) (string, error) {

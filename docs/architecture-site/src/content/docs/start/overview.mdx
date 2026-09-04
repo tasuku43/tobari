@@ -19,7 +19,7 @@ Read the diagram in this order:
 
 1. A process in the **Workspace** makes an ordinary HTTP or HTTPS request. A bounded synthetic DNS answer and a closed output route deliver TCP to its project Gateway without client proxy configuration.
 2. **Gateway** receives the request. It derives the Context/Workspace principal from the kernel-observed Workspace source endpoint and host-owned registry.
-3. **OPA** decides the normalized HTTP effect: Workspace Template, project, scheme, destination, port, method, and path. The request body is not a policy identity field.
+3. **OPA** decides the normalized HTTP effect: Context, scheme, destination, port, method, and path. Workspace and Project identify observation provenance and routing, not persistent policy identity. The request body is not a policy identity field.
 4. **Gateway**, not the Workspace, opens the separate connection to the **Upstream** after allow. Native authentication remains on the original request but is absent from OPA and audit.
 
 OPA makes the decision. Gateway enforces it by either refusing the request or creating the upstream connection.
@@ -35,8 +35,8 @@ curl -X PUT https://example.com/quickstart
 If no rule covers that exact effect, Gateway returns a learnable `403`. It retains bounded, secret-free evidence and tells the agent where the trusted host can review it. Nothing is approved automatically. The person leaves the Workspace, runs `tobari review permissions`, chooses allow or deny for the exact effect, and retries only after a confirmed decision.
 
 The rule does not mean “the agent may use example.com.” It remains bound to the
-owning Context, observed Workspace, HTTPS destination and port, HTTP method,
-and path represented by the reviewed effect.
+owning Context, HTTPS destination and port, HTTP method, and path represented by
+the reviewed effect. The observed Workspace and root remain provenance.
 
 ## What the boundary protects
 
@@ -44,9 +44,9 @@ In the supported Docker topology, Tobari is designed to keep these outside an un
 
 - host files outside the selected project root;
 - the Docker socket and Docker control plane;
-- another Workspace and its persistent home;
+- another Workspace's runtime and network, and another Context's persistent Home;
 - a direct public-Internet route that bypasses Gateway;
-- another Workspace's native credential state; and
+- another Context's native credential state; and
 - the host-owned policy review and activation path.
 
 When Gateway, OPA, or the principal registry cannot establish a valid decision, the relevant request fails closed. An OPA outage does not become an allow.
@@ -57,7 +57,7 @@ Tobari deliberately does **not** promise to protect:
 
 - files inside the selected project root from processes in that Workspace;
 - data a process sends to a destination the user has allowed;
-- one process in a Workspace from another process in the same Workspace;
+- one process in a Context's Workspaces from another process sharing that Context Home;
 - overlapping project roots from observing each other's host-file changes;
 - the system after compromise of the host, kernel, Docker, Gateway, or OPA; or
 - raw TCP, UDP, HTTP/3, Git over SSH, and other non-HTTP protocols.

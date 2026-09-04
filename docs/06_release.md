@@ -117,8 +117,9 @@ migration engine is dormant implementation history and is unreachable from
 the public command graph.
 
 The release V1 boundaries include command paths, exit meanings, Docker labels,
-configuration keys, and preservation of each Context Home across Workspace
-replacement or deletion. Broker
+configuration keys, one-to-many Context/Workspace cardinality, Context-only
+Policy Memory identity, shared Context Home authentication, and preservation
+of each Context Home across individual Workspace replacement or deletion. Broker
 root-key identifiers, handles, sockets, and vault preservation belong only to
 the unpublished research surface. Pre-release research predecessor authority
 is neither migrated nor quarantined. A research user must reset or recreate the

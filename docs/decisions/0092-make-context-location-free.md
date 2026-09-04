@@ -8,7 +8,7 @@
 - Revises: ADR 0084, ADR 0085, ADR 0088, and ADR 0090
 - Related: ADR 0086 and ADR 0091
 - Revised by: ADR 0093 at current Context selection and CWD-only Workspace
-  routing
+  routing; ADR 0094 at plural Workspaces and shared Context Home authority
 - Superseded by: None
 
 ## Context

@@ -164,15 +164,27 @@ func NewPolicyCandidateAuthorityListWithObservations(
 		workspaces[workspace.ID] = workspace
 	}
 	seen := make(map[string]struct{}, len(result.Items))
+	seenEffects := make(map[string]struct{}, len(result.Items))
 	for _, item := range result.Items {
 		seen[item.ID] = struct{}{}
+		seenEffects[policyCandidateAuthorityEffectKey(item.Authority)] = struct{}{}
 	}
+	observed = clonePolicyCandidateAuthorities(observed)
+	sort.Slice(observed, func(i, j int) bool {
+		if observed[i].ID != observed[j].ID {
+			return observed[i].ID < observed[j].ID
+		}
+		return observed[i].ObservingWorkspaceID < observed[j].ObservingWorkspaceID
+	})
 	for index := range observed {
 		candidate := observed[index]
 		if err := candidate.Validate(); err != nil {
 			return PolicyCandidateAuthorityList{}, err
 		}
 		if _, duplicate := seen[candidate.ID]; duplicate {
+			continue
+		}
+		if _, duplicate := seenEffects[policyCandidateAuthorityEffectKey(candidate)]; duplicate {
 			continue
 		}
 		binding, contextFound := contexts[candidate.ContextID]
@@ -196,6 +208,7 @@ func NewPolicyCandidateAuthorityListWithObservations(
 			ObservingProjectRoot: workspace.ProjectRoot,
 		})
 		seen[candidate.ID] = struct{}{}
+		seenEffects[policyCandidateAuthorityEffectKey(candidate)] = struct{}{}
 	}
 	for index := range attachments {
 		candidate := attachments[index]
@@ -312,20 +325,25 @@ func newPolicyCandidateAuthorityList(collection WorkspaceAuthorityCollection, pr
 		workspaceRoots[workspace.ID] = workspace.ProjectRoot
 	}
 	result.CollectionGeneration, result.CollectionRevision = collection.Generation, collection.Revision
-	result.Items = make([]PolicyCandidateAuthorityView, len(collection.PendingCandidates))
-	for index, candidate := range collection.PendingCandidates {
+	result.Items = make([]PolicyCandidateAuthorityView, 0, len(collection.PendingCandidates))
+	seenEffects := make(map[string]struct{}, len(collection.PendingCandidates))
+	for _, candidate := range collection.PendingCandidates {
+		if _, duplicate := seenEffects[policyCandidateAuthorityEffectKey(candidate)]; duplicate {
+			continue
+		}
 		contextRef, _ := ContextRef(candidate.ContextID)
 		templateRef, _ := WorkspaceTemplateRef(contexts[candidate.ContextID])
 		workspaceRef, _ := WorkspaceRef(candidate.ObservingWorkspaceID)
 		name := templateNames[contexts[candidate.ContextID]]
 		root := workspaceRoots[candidate.ObservingWorkspaceID]
-		result.Items[index] = PolicyCandidateAuthorityView{
+		result.Items = append(result.Items, PolicyCandidateAuthorityView{
 			ID: candidate.ID, Context: name, Template: name, ProjectRoot: root, ObservingWorkspace: root,
 			ContextRef: contextRef, TemplateRef: templateRef, ObservingWorkspaceRef: workspaceRef,
 			Effect: candidate.Effect.Clone(), Authority: candidate.Clone(), ContextAuthority: contextAuthority[candidate.ContextID],
 			ContextID: candidate.ContextID, TemplateID: contexts[candidate.ContextID], ObservingWorkspaceID: candidate.ObservingWorkspaceID,
 			TemplateName: name, ObservingProjectRoot: root,
-		}
+		})
+		seenEffects[policyCandidateAuthorityEffectKey(candidate)] = struct{}{}
 	}
 	return result, nil
 }

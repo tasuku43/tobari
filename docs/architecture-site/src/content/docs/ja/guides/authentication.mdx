@@ -36,7 +36,7 @@ Tobari は host home、host CLI のログイン状態、Keychain、SSH agent、�
 
 ## リクエスト境界
 
-同じ Workspace 内の全プロセスは、その Workspace の認証情報を読めます。
+同じ Context が所有する全 Workspace の全プロセスは、その Context Home の認証情報を読めます。
 Gateway はどの実行ファイルが認証情報を作成・利用したかを推測しません。
 
 1. Gateway が host 所有の Context/Workspace principal を導出します。
@@ -92,9 +92,9 @@ tobari review permissions
 
 ## 保証と限界
 
-release surface の Tobari は host 管理の認証情報を Workspace に入れず、Workspace の
-認証情報を OPA、audit、denial output、log に出しません。同じ Workspace 内の
-相互に敵対するプロセスの分離、すでに許可された認証済み capability の利用防止、
+release surface の Tobari は host 管理の認証情報を Context Home に入れず、Context Home の
+認証情報を OPA、audit、denial output、log に出しません。同じ Context Home を共有する
+プロセスや sibling Workspace の分離、すでに許可された認証済み capability の利用防止、
 remote logout、provider credential schema の解釈は提供しません。
 
 ## 根拠となるソース
@@ -104,5 +104,5 @@ remote logout、provider credential schema の解釈は提供しません。
 
 ## まとめ
 
-provider 公式のログインを Workspace 内で実行します。Workspace がネイティブ
-認証情報を所有し、Gateway がその HTTP effect を外へ出せるかを決めます。
+provider 公式のログインを Workspace 内で実行します。Context Home がネイティブ
+認証情報を所有して sibling Workspace 間で共有し、Gateway がその HTTP effect を外へ出せるかを決めます。

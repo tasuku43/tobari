@@ -162,11 +162,25 @@ func statusSelectedSnapshot(collection tobari.WorkspaceAuthorityCollection, pres
 	if err != nil {
 		return nil, err
 	}
+	var selected *tobari.ContextAuthoritySnapshot
 	for _, snapshot := range snapshots {
-		if snapshot.Workspace != nil && snapshot.Workspace.ProjectRoot == root && snapshot.Context.TemplateID == *collection.DefaultTemplateID {
-			copy := snapshot.Clone()
-			return &copy, nil
+		if snapshot.Context.TemplateID != *collection.DefaultTemplateID {
+			continue
+		}
+		for _, workspace := range snapshot.Workspaces {
+			if workspace.ProjectRoot != root {
+				continue
+			}
+			if selected != nil {
+				return nil, fmt.Errorf("status Project root has multiple default-Template Contexts")
+			}
+			focused, focusErr := snapshot.SelectWorkspace(workspace.ID)
+			if focusErr != nil {
+				return nil, focusErr
+			}
+			copy := focused.Clone()
+			selected = &copy
 		}
 	}
-	return nil, nil
+	return selected, nil
 }

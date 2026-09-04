@@ -239,6 +239,64 @@ func materializeCollection(t *testing.T, root string, collection tobari.Workspac
 	return data
 }
 
+func TestStoreReadsSchemaTwoContextObjectWithoutContextHomeFields(t *testing.T) {
+	collection := storeCollectionFixture(t)
+	prepared, err := prepareAuthorityGeneration(collection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := collection.Contexts[0]
+	legacyContext := contextAuthorityObject{
+		SchemaVersion: authorityStoreSchemaVersion, Context: record.Context,
+		ActiveTemplatePolicy: record.ActiveTemplatePolicy, ActivePolicyMemoryRef: record.ActivePolicyMemoryRef,
+		SupersededAllows: record.SupersededAllows,
+	}
+	legacyRef, legacyData, err := objectRef("contexts", string(record.Context.ID), legacyContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared.manifest.Contexts[0].Context = legacyRef
+	manifestData, manifestDigest, err := encodeAuthorityObject(prepared.manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pointerData, _, err := encodeAuthorityObject(activeGenerationPointer{SchemaVersion: authorityStoreSchemaVersion, GenerationDigest: manifestDigest})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	root := filepath.Join(t.TempDir(), "final-authority")
+	materializeCollection(t, root, collection)
+	if err := writeImmutableAuthorityFile(filepath.Join(root, filepath.FromSlash(legacyRef.Path)), legacyData); err != nil {
+		t.Fatal(err)
+	}
+	component, err := digestFileComponent(manifestDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeImmutableAuthorityFile(filepath.Join(root, "generations", component+".json"), manifestData); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, activeFileName), pointerData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present {
+		t.Fatalf("legacy schema-v2 Context read present=%t err=%v", present, err)
+	}
+	if !reflect.DeepEqual(got, collection) {
+		t.Fatalf("legacy schema-v2 Context reconstruction changed authority:\n got=%#v\nwant=%#v", got, collection)
+	}
+	afterPointer, err := os.ReadFile(filepath.Join(root, activeFileName))
+	if err != nil || !bytes.Equal(afterPointer, pointerData) {
+		t.Fatalf("compatible read rewrote active pointer=%q err=%v", afterPointer, err)
+	}
+}
+
 func TestStoreAbsentObservationCreatesNothing(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "final-authority")
 	store, err := New(root)

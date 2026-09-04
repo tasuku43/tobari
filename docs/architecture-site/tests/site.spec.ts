@@ -259,7 +259,7 @@ test("home and request sequence publish Workspace-owned login without an auth-se
 }) => {
   await page.goto("");
   await expect(page.locator("main")).toContainText(
-    "Complete the supported tool's login inside the persistent Workspace home",
+    "Complete the supported tool's login inside the persistent Context Home shared by sibling Workspaces",
   );
   await expect(page.locator("main")).toContainText(
     "Host credentials are never inherited",
@@ -370,7 +370,7 @@ test("native credential contract remains readable with JavaScript disabled", asy
     page.getByRole("heading", { name: "Standard ownership" }),
   ).toBeVisible();
   await expect(page.locator("main")).toContainText(
-    "Every process in the same Workspace can read that state",
+    "Every process in every Workspace of the same Context can read that state",
   );
   await expect(page.locator("main")).toContainText(
     "Deny performs no DNS or upstream connection",
@@ -490,14 +490,14 @@ test("representative English and Japanese release pages hide research recovery j
       route: "ja/reference/configuration-and-state/",
       required: [
         "agent CLI",
-        "Workspace home",
+        "Context Home",
         "ホストのログイン情報を継承しません",
       ],
     },
     {
       route: "security/guarantees-and-limitations/",
       required: [
-        "Workspace home",
+        "Context Home",
         "agent CLI",
         "host credentials are never inherited",
       ],
@@ -505,22 +505,18 @@ test("representative English and Japanese release pages hide research recovery j
     {
       route: "start/learning-path/",
       required: [
-        "agent’s own login inside the persistent Workspace home",
+        "agent’s own login inside the persistent Context Home shared by sibling Workspaces",
         "does not add a host-side credential service",
       ],
     },
     {
       route: "ja/security/guarantees-and-limitations/",
-      required: [
-        "Workspace home",
-        "agent CLI",
-        "host credential は継承しません",
-      ],
+      required: ["Context Home", "agent CLI", "host credential は継承しません"],
     },
     {
       route: "ja/start/learning-path/",
       required: [
-        "永続的な Workspace home の中で agent CLI 自身のログイン",
+        "同じ Context の sibling Workspace が共有する永続 Context Home の中で agent CLI 自身のログイン",
         "ホスト側の認証サービスを追加しません",
       ],
     },

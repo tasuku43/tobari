@@ -123,8 +123,8 @@ func (p FinalWorkspacePolicyProjection) Validate() error {
 	}
 	expected := make(map[tobari.WorkspaceID]tobari.WorkspacePolicyPrincipalAuthority)
 	for _, item := range p.Plan.Contexts {
-		if item.Principal != nil {
-			expected[item.Principal.WorkspaceID] = *item.Principal
+		for _, principal := range item.Principals {
+			expected[principal.WorkspaceID] = principal
 		}
 	}
 	previous := tobari.WorkspaceID("")
@@ -240,54 +240,52 @@ func (r *Runtime) observeFinalWorkspacePrincipalRows(
 	}
 	rows := make([]FinalWorkspacePrincipalRow, 0)
 	for _, item := range plan.Contexts {
-		if item.Principal == nil {
-			continue
-		}
-		authority := *item.Principal
-		container, network, err := tobari.ProjectResourceNames(string(authority.WorkspaceID))
-		if err != nil {
-			return FinalGatewayComponentAuthority{}, nil, err
-		}
-		if err := r.verifyOwnedProjectResource(ctx, "network", network, string(authority.WorkspaceID), projectNetRole); err != nil {
-			return FinalGatewayComponentAuthority{}, nil, fmt.Errorf("observe exact final Workspace network: %w", err)
-		}
-		observed, err := r.observeFinalWorkspaceContainer(ctx, container, network, authority)
-		if err != nil {
-			return FinalGatewayComponentAuthority{}, nil, err
-		}
-		gatewayAddress, exists := gateway.NetworkAddresses[network]
-		if !exists || gatewayAddress == "" {
-			return FinalGatewayComponentAuthority{}, nil, fmt.Errorf("healthy final Gateway is not attached to exact Workspace network")
-		}
-		var principal FinalWorkspacePrincipalRow
-		if observed.Running {
-			if err := observed.validateFor(authority.WorkspaceID, authority.AppliedEntry.ResolvedSpec, ""); err != nil {
-				return FinalGatewayComponentAuthority{}, nil, err
-			}
-			workspaceAddress, err := r.workspaceNetworkAddress(ctx, container, network)
+		for _, authority := range item.Principals {
+			container, network, err := tobari.ProjectResourceNames(string(authority.WorkspaceID))
 			if err != nil {
 				return FinalGatewayComponentAuthority{}, nil, err
 			}
-			subnet, err := r.projectNetworkSubnet(ctx, network)
+			if err := r.verifyOwnedProjectResource(ctx, "network", network, string(authority.WorkspaceID), projectNetRole); err != nil {
+				return FinalGatewayComponentAuthority{}, nil, fmt.Errorf("observe exact final Workspace network: %w", err)
+			}
+			observed, err := r.observeFinalWorkspaceContainer(ctx, container, network, authority)
 			if err != nil {
 				return FinalGatewayComponentAuthority{}, nil, err
 			}
-			if err := validateProjectNetworkEndpoints(subnet, workspaceAddress, gatewayAddress); err != nil {
-				return FinalGatewayComponentAuthority{}, nil, err
+			gatewayAddress, exists := gateway.NetworkAddresses[network]
+			if !exists || gatewayAddress == "" {
+				return FinalGatewayComponentAuthority{}, nil, fmt.Errorf("healthy final Gateway is not attached to exact Workspace network")
 			}
-			principal = FinalWorkspacePrincipalRow{
-				ContextID: authority.ContextID, WorkspaceID: authority.WorkspaceID, TemplateID: authority.TemplateID,
-				Presentation: authority.Presentation, ProjectRoot: authority.ProjectRoot,
-				ContainerID: observed.ID, ResolvedSpec: authority.AppliedEntry.ResolvedSpec,
-				WorkspaceIP: workspaceAddress, GatewayIP: gatewayAddress, Network: network,
+			var principal FinalWorkspacePrincipalRow
+			if observed.Running {
+				if err := observed.validateFor(authority.WorkspaceID, authority.AppliedEntry.ResolvedSpec, ""); err != nil {
+					return FinalGatewayComponentAuthority{}, nil, err
+				}
+				workspaceAddress, err := r.workspaceNetworkAddress(ctx, container, network)
+				if err != nil {
+					return FinalGatewayComponentAuthority{}, nil, err
+				}
+				subnet, err := r.projectNetworkSubnet(ctx, network)
+				if err != nil {
+					return FinalGatewayComponentAuthority{}, nil, err
+				}
+				if err := validateProjectNetworkEndpoints(subnet, workspaceAddress, gatewayAddress); err != nil {
+					return FinalGatewayComponentAuthority{}, nil, err
+				}
+				principal = FinalWorkspacePrincipalRow{
+					ContextID: authority.ContextID, WorkspaceID: authority.WorkspaceID, TemplateID: authority.TemplateID,
+					Presentation: authority.Presentation, ProjectRoot: authority.ProjectRoot,
+					ContainerID: observed.ID, ResolvedSpec: authority.AppliedEntry.ResolvedSpec,
+					WorkspaceIP: workspaceAddress, GatewayIP: gatewayAddress, Network: network,
+				}
+			} else {
+				principal, err = r.preserveStoppedFinalWorkspacePrincipal(ctx, authority, network, observed, gateway, previous, previousPresent, registry)
+				if err != nil {
+					return FinalGatewayComponentAuthority{}, nil, err
+				}
 			}
-		} else {
-			principal, err = r.preserveStoppedFinalWorkspacePrincipal(ctx, authority, network, observed, gateway, previous, previousPresent, registry)
-			if err != nil {
-				return FinalGatewayComponentAuthority{}, nil, err
-			}
+			rows = append(rows, principal)
 		}
-		rows = append(rows, principal)
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].WorkspaceID < rows[j].WorkspaceID })
 	expectedNetworks := map[string]struct{}{"tobari-control": {}, "tobari-egress": {}}
@@ -560,7 +558,7 @@ func finalAggregateContext(authority tobari.WorkspacePolicyProjectionContext) (a
 	if err != nil {
 		return aggregateContext{}, err
 	}
-	kubernetes, err := finalKubernetesEndpoints(authority.Principal)
+	kubernetes, err := finalKubernetesEndpoints(authority.Principals)
 	if err != nil {
 		return aggregateContext{}, err
 	}
@@ -588,47 +586,49 @@ func finalPolicyMemoryRows(authority tobari.WorkspacePolicyProjectionContext) ([
 	allows := []map[string]any{}
 	denies := []map[string]any{}
 	graphql := []tobari.GraphQLEndpoint{}
-	if authority.Principal == nil {
+	if len(authority.Principals) == 0 {
 		return allows, denies, graphql, nil
 	}
-	for _, rule := range authority.PolicyMemory.Rules {
-		var encoded []byte
-		var err error
-		switch rule.Decision {
-		case tobari.PolicyMemoryAllow:
-			var projected tobari.LearnedPolicyRule
-			projected, err = tobari.NewLearnedPolicyRuleFromPolicyMemory(
-				authority.ContextID, authority.Presentation, authority.Principal.WorkspaceID, authority.Principal.ProjectRoot, rule,
-			)
-			if err == nil {
-				encoded, err = json.Marshal(projected)
+	for _, principal := range authority.Principals {
+		for _, rule := range authority.PolicyMemory.Rules {
+			var encoded []byte
+			var err error
+			switch rule.Decision {
+			case tobari.PolicyMemoryAllow:
+				var projected tobari.LearnedPolicyRule
+				projected, err = tobari.NewLearnedPolicyRuleFromPolicyMemory(
+					authority.ContextID, authority.Presentation, principal.WorkspaceID, principal.ProjectRoot, rule,
+				)
+				if err == nil {
+					encoded, err = json.Marshal(projected)
+				}
+			case tobari.PolicyMemoryDeny:
+				var projected tobari.PolicyDenyRule
+				projected, err = tobari.NewPolicyDenyRuleFromPolicyMemory(
+					authority.ContextID, authority.Presentation, principal.WorkspaceID, principal.ProjectRoot, rule,
+				)
+				if err == nil {
+					encoded, err = json.Marshal(projected)
+				}
+			default:
+				err = fmt.Errorf("final Policy Memory decision is invalid")
 			}
-		case tobari.PolicyMemoryDeny:
-			var projected tobari.PolicyDenyRule
-			projected, err = tobari.NewPolicyDenyRuleFromPolicyMemory(
-				authority.ContextID, authority.Presentation, authority.Principal.WorkspaceID, authority.Principal.ProjectRoot, rule,
-			)
-			if err == nil {
-				encoded, err = json.Marshal(projected)
+			if err != nil {
+				return nil, nil, nil, err
 			}
-		default:
-			err = fmt.Errorf("final Policy Memory decision is invalid")
-		}
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		row := map[string]any{}
-		if err := json.Unmarshal(encoded, &row); err != nil {
-			return nil, nil, nil, err
-		}
-		completeFinalPolicyProtocolCoordinates(row, rule.Body.PolicyProtocolIdentity)
-		if rule.Decision == tobari.PolicyMemoryAllow {
-			allows = append(allows, row)
-		} else {
-			denies = append(denies, row)
-		}
-		if rule.Body.EffectiveProtocol() == tobari.PolicyProtocolGraphQL {
-			graphql = append(graphql, tobari.GraphQLEndpoint{Scheme: rule.Body.Scheme, Host: rule.Body.Host, Port: rule.Body.Port, Path: rule.Body.Path})
+			row := map[string]any{}
+			if err := json.Unmarshal(encoded, &row); err != nil {
+				return nil, nil, nil, err
+			}
+			completeFinalPolicyProtocolCoordinates(row, rule.Body.PolicyProtocolIdentity)
+			if rule.Decision == tobari.PolicyMemoryAllow {
+				allows = append(allows, row)
+			} else {
+				denies = append(denies, row)
+			}
+			if rule.Body.EffectiveProtocol() == tobari.PolicyProtocolGraphQL {
+				graphql = append(graphql, tobari.GraphQLEndpoint{Scheme: rule.Body.Scheme, Host: rule.Body.Host, Port: rule.Body.Port, Path: rule.Body.Path})
+			}
 		}
 	}
 	return allows, denies, graphql, nil
@@ -651,19 +651,28 @@ func completeFinalPolicyProtocolCoordinates(row map[string]any, identity tobari.
 	}
 }
 
-func finalKubernetesEndpoints(principal *tobari.WorkspacePolicyPrincipalAuthority) ([]tobari.GraphQLEndpoint, error) {
-	if principal == nil || principal.CreationDefaults.Bootstrap == nil || principal.CreationDefaults.Bootstrap.EKS == nil {
-		return []tobari.GraphQLEndpoint{}, nil
+func finalKubernetesEndpoints(principals []tobari.WorkspacePolicyPrincipalAuthority) ([]tobari.GraphQLEndpoint, error) {
+	result := []tobari.GraphQLEndpoint{}
+	seen := map[tobari.GraphQLEndpoint]struct{}{}
+	for _, principal := range principals {
+		if principal.CreationDefaults.Bootstrap == nil || principal.CreationDefaults.Bootstrap.EKS == nil {
+			continue
+		}
+		eks := principal.CreationDefaults.Bootstrap.EKS
+		if err := eks.Validate(); err != nil {
+			return nil, err
+		}
+		endpoint := tobari.GraphQLEndpoint{Scheme: "https", Host: strings.TrimPrefix(eks.Server, "https://"), Port: 443, Path: "/"}
+		if err := endpoint.Validate(); err != nil {
+			return nil, err
+		}
+		if _, exists := seen[endpoint]; exists {
+			continue
+		}
+		seen[endpoint] = struct{}{}
+		result = append(result, endpoint)
 	}
-	eks := principal.CreationDefaults.Bootstrap.EKS
-	if err := eks.Validate(); err != nil {
-		return nil, err
-	}
-	endpoint := tobari.GraphQLEndpoint{Scheme: "https", Host: strings.TrimPrefix(eks.Server, "https://"), Port: 443, Path: "/"}
-	if err := endpoint.Validate(); err != nil {
-		return nil, err
-	}
-	return []tobari.GraphQLEndpoint{endpoint}, nil
+	return result, nil
 }
 
 func (r *Runtime) testFinalContextPolicy(ctx context.Context, authority tobari.WorkspacePolicyProjectionContext, item aggregateContext) error {

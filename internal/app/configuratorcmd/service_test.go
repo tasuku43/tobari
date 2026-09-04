@@ -465,7 +465,7 @@ func TestStageAcceptsOnlyExactEvolveSubmissionAndTemplateReference(t *testing.T)
 		t.Fatal(err)
 	}
 	workspace := tobari.WorkspaceBinding{SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: tobari.WorkspaceID("01912345-6789-7abc-8def-0123456789ad"), ContextID: contextID, ProjectRoot: "/workspace/example", Home: "/workspace/home", CreationDefaults: revision.Slices.CreationDefaultsDigest}
-	snapshot := tobari.ContextAuthoritySnapshot{Context: tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: templateID}, Template: template, PolicyMemory: memory, Workspace: &workspace}
+	snapshot := tobari.ContextAuthoritySnapshot{Context: tobari.ContextBinding{SchemaVersion: tobari.ContextBindingSchemaVersion, ID: contextID, TemplateID: templateID}, Template: template, ContextHome: workspace.Home, ContextCreationDefaults: workspace.CreationDefaults, PolicyMemory: memory, Workspace: &workspace}
 	seed, err := tobari.NewEvolveConfiguratorSeed("/workspace/example", snapshot)
 	if err != nil {
 		t.Fatal(err)

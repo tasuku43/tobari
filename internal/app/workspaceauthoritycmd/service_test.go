@@ -73,6 +73,9 @@ func snapshotFixture(t *testing.T, workspace, active bool) tobari.ContextAuthori
 	if workspace {
 		applied := tobari.WorkspaceAppliedEntry{ContextID: contextID, TemplateID: templateID, TemplateRevision: template.Current.Revision, EntrySliceDigest: template.Current.Slices.EntrySliceDigest, RuntimeID: tobari.StandardRuntimeID, RuntimeRevision: template.Current.Slices.RuntimeRevision, ResolvedSpec: digest("7"), ReconciledAt: time.Unix(1, 0).UTC()}
 		value := tobari.WorkspaceBinding{SchemaVersion: tobari.WorkspaceBindingSchemaVersion, ID: workspaceID, ContextID: contextID, ProjectRoot: "/workspace/example", Home: "/workspace/home", CreationDefaults: template.Current.Slices.CreationDefaultsDigest, LastSuccessfulEntry: &applied}
+		result.ContextHome = value.Home
+		result.ContextCreationDefaults = value.CreationDefaults
+		result.Workspaces = []tobari.WorkspaceBinding{value}
 		result.Workspace = &value
 	}
 	if err := result.Validate(); err != nil {
@@ -973,6 +976,7 @@ func rebindSnapshot(t *testing.T, source tobari.ContextAuthoritySnapshot, newCon
 		if result.Workspace.LastSuccessfulEntry != nil {
 			result.Workspace.LastSuccessfulEntry.ContextID = newContextID
 		}
+		result.Workspaces = []tobari.WorkspaceBinding{*result.Workspace}
 	}
 	if err := result.Validate(); err != nil {
 		t.Fatal(err)
@@ -989,11 +993,15 @@ func TestExhaustiveAuthorityListsRejectDuplicateContextIDs(t *testing.T) {
 	firstWorkspace := snapshotFixture(t, true, true)
 	secondForContext := firstWorkspace.Clone()
 	secondForContext.Workspace.ID = otherWorkspaceID
+	secondForContext.Workspace.ProjectRoot = "/workspace/sibling"
+	siblings := []tobari.WorkspaceBinding{*firstWorkspace.Workspace, *secondForContext.Workspace}
+	firstWorkspace.Workspaces = siblings
+	secondForContext.Workspaces = siblings
 	if err := secondForContext.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewWorkspaceList([]ContextSnapshot{firstWorkspace, secondForContext}); err == nil {
-		t.Fatal("multiple Workspaces for one Context were accepted")
+	if _, err := NewWorkspaceList([]ContextSnapshot{firstWorkspace, secondForContext}); err != nil {
+		t.Fatalf("same-Context sibling Workspaces were rejected: %v", err)
 	}
 
 	duplicateWorkspaceID := rebindSnapshot(t, firstWorkspace, otherContextID, "/workspace/other", workspaceID)

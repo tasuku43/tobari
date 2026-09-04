@@ -66,7 +66,7 @@ HTTPS クライアントが Tobari 経由で `api.example.com` へ接続しま�
 
 ## 6. 同じ通信条件、異なる本文
 
-二つのリクエストで Workspace Template、プロジェクト、スキーム、ホスト、ポート、メソッド、パスが同じですが、JSON 本文が異なります。別々の学習済みルールが必要ですか？
+二つのリクエストで Context、スキーム、ホスト、ポート、メソッド、パスが同じですが、JSON 本文が異なります。別々の学習済みルールが必要ですか？
 
 <details>
 <summary>回答</summary>
@@ -104,7 +104,7 @@ Workspace B が、Workspace A に許可されたものと同じホスト、メ�
 <details>
 <summary>回答</summary>
 
-いいえ。学習済みルールは安定した Workspace Template と、ホストが発行したプロジェクトプリンシパルにも結び付きます。B が同じ Workspace Template とプロジェクトの権限を持たない限り、別の一致するルールが必要です。[プロジェクトの識別](../../how-it-works/project-identity/)を参照してください。
+A と B が同じ Context なら許可します。学習済みルールは Context と完全一致 effect に結び付き、Workspace、root、CWD、directory は routing と provenance にだけ使われます。別 Context なら別の一致するルールが必要です。[プロジェクトの識別](../../how-it-works/project-identity/)を参照してください。
 
 </details>
 
@@ -115,18 +115,18 @@ agent CLI のログインに成功しました。Workspace はすぐにすべて
 <details>
 <summary>回答</summary>
 
-いいえ。ログインは agent CLI が Workspace home に保存します。それでも OPA は通常の HTTP 通信を判断し、完全一致の許可を要求します。ログインに成功しても、通信許可は広がりません。[認証](../../guides/authentication/)を参照してください。
+いいえ。ログインは agent CLI が Context Home に保存します。それでも OPA は通常の HTTP 通信を判断し、完全一致の許可を要求します。ログインに成功しても、通信許可は広がりません。[認証](../../guides/authentication/)を参照してください。
 
 </details>
 
 ## 11. Workspace が受け取るもの
 
-Workspace home に agent CLI のログイン状態があります。これは Tobari のポリシー許可ですか？
+Context Home に agent CLI のログイン状態があります。これは Tobari のポリシー許可ですか？
 
 <details>
 <summary>回答</summary>
 
-いいえ。Workspace home は agent CLI が自分のログイン状態を保管する場所です。Tobari は各 HTTP effect を独立に評価し、Gateway は OPA の許可後に元の値を転送します。[認証情報](../../how-it-works/credentials/)を参照してください。
+いいえ。Context Home は agent CLI が自分のログイン状態を保管し、同じ Context の sibling Workspace と共有する場所です。Tobari は各 HTTP effect を独立に評価し、Gateway は OPA の許可後に元の値を転送します。[認証情報](../../how-it-works/credentials/)を参照してください。
 
 </details>
 
@@ -154,12 +154,12 @@ agent CLI はログイン済みですが、OPA が HTTP 通信を拒否しまし
 
 ## 14. クラスターの完全削除
 
-すべての Workspace を削除し、`tobari cluster down --purge` を実行しました。Workspace home と host-owned state も削除されますか？
+すべての Workspace を削除し、`tobari cluster down --purge` を実行しました。Context Home と host-owned state も削除されますか？
 
 <details>
 <summary>回答</summary>
 
-いいえ。`--purge` は、通常のクラスター停止に加えて、共有 Gateway CA と現在有効なポリシーバンドルのボリュームを削除します。Workspace home と host-owned state は残ります。外部サービスのログインは、そのサービスの CLI が管理します。[状態と復旧](../../how-it-works/state-and-recovery/)を参照してください。
+いいえ。`--purge` は、通常のクラスター停止に加えて、共有 Gateway CA と現在有効なポリシーバンドルのボリュームを削除します。Context Home と host-owned state は残ります。外部サービスのログインは、そのサービスの CLI が管理します。[状態と復旧](../../how-it-works/state-and-recovery/)を参照してください。
 
 </details>
 
@@ -252,6 +252,6 @@ Gateway は、登録済みでカーネルが観測した Workspace の送信元�
 
 ## まとめ
 
-各回答を、状態や権限を管理するコンポーネントへ結び付けられれば、現在のモデルを理解できています。ホストが identity を選び、Workspace が作業対象の権限を持ち、OPA がポリシーを判断し、Gateway が通信経路を強制し、agent CLI が Workspace home のログインを所有します。ライフサイクルコマンドは、それぞれが所有する状態だけを変更または削除します。
+各回答を、状態や権限を管理するコンポーネントへ結び付けられれば、現在のモデルを理解できています。ホストが identity を選び、Workspace が作業対象の権限を持ち、OPA が Context-owned Policy Memory で判断し、Gateway が通信経路を強制し、agent CLI が Context Home のログインを所有します。ライフサイクルコマンドは、それぞれが所有する状態だけを変更または削除します。
 
 推測に頼った回答があれば、各回答のリンク先へ戻ってください。正確な引数、スキーマ、保存先、障害、バージョンは[リファレンス](../../reference/cli/)で確認できます。

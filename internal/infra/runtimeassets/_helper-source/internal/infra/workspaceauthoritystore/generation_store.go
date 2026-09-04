@@ -60,9 +60,12 @@ type authorityGenerationManifest struct {
 type contextAuthorityObject struct {
 	SchemaVersion         int                                     `json:"schema_version"`
 	Context               tobari.ContextBinding                   `json:"context"`
+	ContextHome           string                                  `json:"context_home,omitempty"`
+	CreationDefaults      tobari.SemanticDigest                   `json:"creation_defaults_digest,omitempty"`
 	ActiveTemplatePolicy  *tobari.TemplatePolicyActivationReceipt `json:"active_template_policy,omitempty"`
 	ActivePolicyMemoryRef *tobari.PolicyMemoryActivationReceipt   `json:"active_policy_memory_receipt,omitempty"`
 	SupersededAllows      []tobari.PolicyMemoryAllowSupersession  `json:"superseded_policy_memory_allows,omitempty"`
+	SupersededCandidates  []tobari.PolicyCandidateSupersession    `json:"superseded_policy_candidates,omitempty"`
 }
 
 func digestBytes(data []byte) string {
@@ -152,7 +155,7 @@ func prepareAuthorityGenerationWithMigrationProvenance(collection tobari.Workspa
 		prepared.objects[ref.Path] = data
 	}
 	for _, record := range collection.Contexts {
-		contextObject := contextAuthorityObject{SchemaVersion: authorityStoreSchemaVersion, Context: record.Context, ActiveTemplatePolicy: record.ActiveTemplatePolicy, ActivePolicyMemoryRef: record.ActivePolicyMemoryRef, SupersededAllows: record.SupersededAllows}
+		contextObject := contextAuthorityObject{SchemaVersion: authorityStoreSchemaVersion, Context: record.Context, ContextHome: record.ContextHome, CreationDefaults: record.CreationDefaults, ActiveTemplatePolicy: record.ActiveTemplatePolicy, ActivePolicyMemoryRef: record.ActivePolicyMemoryRef, SupersededAllows: record.SupersededAllows, SupersededCandidates: record.SupersededCandidates}
 		contextRef, contextData, err := objectRef("contexts", string(record.Context.ID), contextObject)
 		if err != nil {
 			return prepared, err
@@ -344,7 +347,7 @@ func (s *Store) collectionFromManifest(ctx context.Context, manifest authorityGe
 		if err := s.readTypedObject(ctx, "policy-memory", refs.Context.ID, refs.PolicyMemory, &memory); err != nil {
 			return collection, err
 		}
-		record := tobari.WorkspaceAuthorityContextRecord{Context: object.Context, PolicyMemory: memory, ActiveTemplatePolicy: object.ActiveTemplatePolicy, ActivePolicyMemoryRef: object.ActivePolicyMemoryRef, SupersededAllows: object.SupersededAllows}
+		record := tobari.WorkspaceAuthorityContextRecord{Context: object.Context, ContextHome: object.ContextHome, CreationDefaults: object.CreationDefaults, PolicyMemory: memory, ActiveTemplatePolicy: object.ActiveTemplatePolicy, ActivePolicyMemoryRef: object.ActivePolicyMemoryRef, SupersededAllows: object.SupersededAllows, SupersededCandidates: object.SupersededCandidates}
 		if refs.ActivePolicyMemory != nil {
 			var active tobari.PolicyMemoryRevision
 			if err := s.readTypedObject(ctx, "policy-memory", refs.Context.ID, *refs.ActivePolicyMemory, &active); err != nil {
@@ -363,6 +366,22 @@ func (s *Store) collectionFromManifest(ctx context.Context, manifest authorityGe
 			return collection, fmt.Errorf("Workspace object identity mismatch")
 		}
 		collection.Workspaces = append(collection.Workspaces, value)
+	}
+	// Schema-v2 Context objects written before Context Home became an explicit
+	// Context-owned fact omit these fields. Reconstruct only the exact mirrors
+	// already bound by a retained Workspace; zero-Workspace Contexts cannot be
+	// widened or guessed.
+	contextIndexes := make(map[tobari.ContextID]int, len(collection.Contexts))
+	for index := range collection.Contexts {
+		contextIndexes[collection.Contexts[index].Context.ID] = index
+	}
+	for _, workspace := range collection.Workspaces {
+		index, found := contextIndexes[workspace.ContextID]
+		if !found || collection.Contexts[index].ContextHome != "" || collection.Contexts[index].CreationDefaults != "" {
+			continue
+		}
+		collection.Contexts[index].ContextHome = workspace.Home
+		collection.Contexts[index].CreationDefaults = workspace.CreationDefaults
 	}
 	if err := validateCollectionBounds(collection); err != nil {
 		return collection, err

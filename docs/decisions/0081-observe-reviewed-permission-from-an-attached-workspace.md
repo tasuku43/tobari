@@ -5,7 +5,8 @@
 - Deciders: Tobari product owner and maintainers
 - Scope: Product, CLI, architecture, security, Gateway denial output, attachment runtime, and harness
 - Revised by: ADR 0084 replaces migration sequencing with final-only clean
-  attachment authority
+  attachment authority; ADR 0094 makes Workspace/root observation provenance
+  independent from persistent Context policy compatibility
 - Related: ADR 0024, ADR 0061, ADR 0073, ADR 0074, and ADR 0079
 - Superseded by: None
 

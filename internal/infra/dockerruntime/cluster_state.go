@@ -298,13 +298,14 @@ const (
 	appliedClusterScanTimeout    = 7 * time.Second
 )
 
-const appliedClusterInspectTemplate = `{"container_id":{{json .Id}},"owner":{{json (index .Config.Labels "io.tobari.owner")}},"component":{{json (index .Config.Labels "io.tobari.component")}},"role":{{json (index .Config.Labels "io.tobari.gateway-role")}},"image_id":{{json .Image}},"state":{{json .State.Status}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}"none"{{end}},"environment":{{json .Config.Env}},"mount_destinations":[{{$first := true}}{{range $mount := .Mounts}}{{if not $first}},{{end}}{{json $mount.Destination}}{{$first = false}}{{end}}{{range $destination,$_ := .HostConfig.Tmpfs}}{{if not $first}},{{end}}{{json $destination}}{{$first = false}}{{end}}],"networks":{{json .NetworkSettings.Networks}}}`
+const appliedClusterInspectTemplate = `{"container_id":{{json .Id}},"owner":{{json (index .Config.Labels "io.tobari.owner")}},"component":{{json (index .Config.Labels "io.tobari.component")}},"role":{{json (index .Config.Labels "io.tobari.gateway-role")}},"compose_project_directory":{{json (index .Config.Labels "com.docker.compose.project.working_dir")}},"image_id":{{json .Image}},"state":{{json .State.Status}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}"none"{{end}},"environment":{{json .Config.Env}},"mount_destinations":[{{$first := true}}{{range $mount := .Mounts}}{{if not $first}},{{end}}{{json $mount.Destination}}{{$first = false}}{{end}}{{range $destination,$_ := .HostConfig.Tmpfs}}{{if not $first}},{{end}}{{json $destination}}{{$first = false}}{{end}}],"networks":{{json .NetworkSettings.Networks}}}`
 
 type appliedClusterComponentObservation struct {
 	ContainerID       string                     `json:"container_id"`
 	Owner             string                     `json:"owner"`
 	Component         string                     `json:"component"`
 	Role              string                     `json:"role"`
+	ComposeProjectDir string                     `json:"compose_project_directory"`
 	ImageID           string                     `json:"image_id"`
 	State             string                     `json:"state"`
 	Health            string                     `json:"health"`

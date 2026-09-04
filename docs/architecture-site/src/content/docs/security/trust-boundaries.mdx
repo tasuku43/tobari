@@ -30,8 +30,9 @@ boundaries enforce.
 The trusted host selects a canonical project root. Immutable Workspace Template
 `source_access` chooses a `read-only` or `read-write` live bind; CLI omission
 defaults to `read-write`. A read-only bind still observes changes by the host or
-another Workspace Template. Other host paths and Docker control are excluded, while each
-Workspace receives its own writable persistent home.
+another Workspace Template. Other host paths and Docker control are excluded,
+while every Workspace receives its Context's writable persistent Home. Sibling
+Workspaces intentionally share that Home; different Contexts do not.
 
 The root selection boundary is not a file-integrity sandbox for the selected tree. If `/work/team` and `/work/team/service` are intentionally used by different Workspaces or Workspace Templates, the overlapping host files remain shared even though network, home, identity, and policy bindings differ.
 

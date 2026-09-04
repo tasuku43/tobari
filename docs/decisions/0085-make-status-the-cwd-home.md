@@ -8,7 +8,8 @@
 - Revises: ADR 0027 and ADR 0084 at the CWD status projection
 - Related: ADR 0074, ADR 0080, ADR 0081, ADR 0082, ADR 0083, and ADR 0084
 - Revised by: ADR 0092 at the Workspace-only ProjectRoot selection seam; ADR
-  0093 at current-Context independence and existing-Workspace precedence
+  0093 at current-Context independence and existing-Workspace precedence; ADR
+  0094 at plural Workspace membership
 - Superseded by: None
 
 ## Context

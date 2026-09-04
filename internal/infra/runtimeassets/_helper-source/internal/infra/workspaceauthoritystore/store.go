@@ -394,10 +394,14 @@ func (s *Store) ListWorkspaceAuthority(ctx context.Context) ([]tobari.ContextAut
 	if err != nil {
 		return nil, err
 	}
-	result := make([]tobari.ContextAuthoritySnapshot, 0, len(snapshots))
+	result := make([]tobari.ContextAuthoritySnapshot, 0)
 	for _, snapshot := range snapshots {
-		if snapshot.Workspace != nil {
-			result = append(result, snapshot.Clone())
+		for _, workspace := range snapshot.Workspaces {
+			focused, focusErr := snapshot.SelectWorkspace(workspace.ID)
+			if focusErr != nil {
+				return nil, focusErr
+			}
+			result = append(result, focused)
 		}
 	}
 	return result, nil

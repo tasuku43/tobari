@@ -7,7 +7,7 @@ import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
 Gateway は OPA へ問い合わせる前に、request の Context と Workspace を特定します。caller が送った header ではなく、trusted host が作成した registry と kernel-observed Workspace source endpoint を使います。このように host-side fact から確立する通信主体を principal と呼びます。
 
-caller が申告した Context ID、Workspace ID、Template ID は通信許可の根拠になりません。そのため header を書き換えても別 Workspace に許可された rule は利用できません。同じ host、method、path でも、その Context/Workspace principal に結び付いた authority が必要です。この仕組みは[システム全体像](../system-overview/)の専用 network を使い、[HTTPS と TLS](../https-and-tls/)で検査する通信にも同じように適用されます。
+caller が申告した Context ID、Workspace ID、Template ID は通信許可の根拠になりません。そのため header を書き換えても別 Context に許可された rule は利用できません。同じ Context の sibling Workspace は、その Context が所有する同じ rule を利用します。Workspace principal は送信元の routing と provenance を確立しますが、永続する rule の identity にはなりません。この仕組みは[システム全体像](../system-overview/)の専用 network を使い、[HTTPS と TLS](../https-and-tls/)で検査する通信にも同じように適用されます。
 
 <ConceptDiagram name="project-principal" />
 
@@ -39,7 +39,7 @@ Gateway は `flow.client_conn.peername[0]`、つまりプロジェクトネッ�
 - 認証情報のプロファイルまたは外部サービス名
 - URL パラメーター
 
-照合後、Gateway は検証済み Context ID と Workspace ID を、frozen private schema-1 field `workspace_template_id` と `project_id` へ入れます。これらの wire name は public alias ではありません。固定 OPA router は Context の active Template baseline と Policy Memory を選び、learned rule は observed Workspace ID を保持します。
+照合後、Gateway は検証済み Context ID と Workspace ID を、frozen private schema-1 field `workspace_template_id` と `project_id` へ入れます。これらの wire name は public alias ではありません。固定 OPA router は Context の active Template baseline と Policy Memory を選びます。learned rule の identity は Context と effect だけで決まり、observed Workspace ID は provenance として保持されます。
 
 ## 偽装を試みる具体例
 
@@ -51,7 +51,7 @@ X-Tobari-Workspace Template: review
 Authorization: Bearer example
 ```
 
-connection には変わらず kernel-observed Workspace B source endpoint が付きます。Gateway は B の Context/Workspace binding を選び、必要に応じて control value や credential を除去または redaction します。host、port、method、path が同じでも、A のために学習した rule は B に一致しません。
+connection には変わらず kernel-observed Workspace B source endpoint が付きます。Gateway は B の Context/Workspace binding を選び、必要に応じて control value や credential を除去または redaction します。A と B が別 Context なら、host、port、method、path が同じでも A のために学習した rule は B に一致しません。同じ Context の sibling Workspace なら、同じ effect の rule を共有します。
 
 request に A から copy した Workspace identity が含まれる場合はさらに厳格です。Gateway は導出した B principal と host-owned Context、Workspace、target、source-header binding を OPA より前に確認します。一致しない場合は拒否されます。
 
@@ -73,7 +73,7 @@ Gateway の登録簿解析処理は、各レコードの形式と必須値が完
 
 ## 保証と制限
 
-**サポート対象のライフサイクルと構成で保証すること:** 呼び出し元が申告した識別情報に権限はありません。プロジェクトと Workspace Template は、OPA より前に一緒に確立されます。学習済みルールと Authentication 識別子は、プロジェクトのプリンシパルを越えられません。古いネットワーク結び付きは拒否されます。
+**サポート対象のライフサイクルと構成で保証すること:** 呼び出し元が申告した識別情報に権限はありません。Context と Workspace は、OPA より前に一緒に確立されます。学習済みルールと Context Home の Authentication state は Context 境界を越えられません。同じ Context の sibling Workspace はそれらを共有します。古いネットワーク結び付きは拒否されます。
 
 **保証しないこと:** ホスト、Docker、Gateway、登録簿が侵害された後の耐性。重なる作業対象ルート間の分離。リモートの通信主体を暗号学的に識別する一般的な仕組み。Tobari のライフサイクル外で手作業により作られた任意のコンテナからの識別情報導出。
 
@@ -93,7 +93,7 @@ host は Workspace source endpoint、Gateway endpoint、dedicated network を st
 
 ## 理解を確認する
 
-Gateway と OPA を共有しても、学習済みの許可まで共有されない理由を説明できるはずです。
+Gateway と OPA を共有していても、学習済みの許可が Context 間では分離され、同じ Context の sibling Workspace 間では共有される理由を説明できるはずです。
 
 <details>
   <summary>
@@ -110,8 +110,9 @@ Gateway と OPA を共有しても、学習済みの許可まで共有されな�
     Workspace A と B が同じホスト、ポート、メソッド、パスを使うとき、A
     が学習したルールは B の通信を許可しますか？
   </summary>
-  いいえ。完全一致の学習済みルールは、安定した Workspace Template ID は一つの
-  Context が所有し、observed Workspace ID も保持します。
+  A と B が同じ Context なら許可します。完全一致の学習済みルールは Context
+  が所有し、 Workspace ID は routing と provenance にだけ使われます。別 Context
+  なら許可しません。
 </details>
 
 <details>

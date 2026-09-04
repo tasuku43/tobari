@@ -119,8 +119,9 @@ func (s PolicyMemoryReviewChoiceSet) Validate() error {
 }
 
 // PolicyMemoryReviewItem is one immutable exact or path-template proposal.
-// Complete candidate and source-rule authority stays private; public fields
-// contain only final owner facts needed to review the effect.
+// Complete candidate and source-rule authority stays private. Exact items keep
+// one observing Workspace; Context-wide templates leave singular provenance
+// empty rather than misrepresenting one evidence source as the owner.
 type PolicyMemoryReviewItem struct {
 	ID                   string                        `json:"id"`
 	Match                string                        `json:"match"`
@@ -151,10 +152,15 @@ func (i PolicyMemoryReviewItem) Clone() PolicyMemoryReviewItem {
 
 func (i PolicyMemoryReviewItem) Validate() error {
 	if ValidatePolicyReviewItemID(i.ID) != nil || (i.Match != PolicyMatchExact && i.Match != PolicyMatchPathTemplate) ||
-		i.ContextID.Validate() != nil || i.TemplateID.Validate() != nil || i.ObservingWorkspaceID.Validate() != nil ||
-		ValidateName(i.Template) != nil || i.Context != i.Template || ValidateCanonicalRoot(i.ProjectRoot) != nil ||
-		ValidateCanonicalRoot(i.ObservingWorkspace) != nil {
+		i.ContextID.Validate() != nil || i.TemplateID.Validate() != nil || ValidateName(i.Template) != nil || i.Context != i.Template {
 		return fmt.Errorf("Policy Memory review item metadata is invalid")
+	}
+	if i.Match == PolicyMatchExact {
+		if i.ObservingWorkspaceID.Validate() != nil || ValidateCanonicalRoot(i.ProjectRoot) != nil || ValidateCanonicalRoot(i.ObservingWorkspace) != nil {
+			return fmt.Errorf("exact Policy Memory review item provenance is invalid")
+		}
+	} else if i.ProjectRoot != "" || i.ObservingWorkspace != "" || i.ObservingWorkspaceID != "" {
+		return fmt.Errorf("Context-wide Policy Memory review item claimed singular Workspace provenance")
 	}
 	if i.AttachmentCandidate != nil {
 		candidate := *i.AttachmentCandidate
@@ -171,7 +177,7 @@ func (i PolicyMemoryReviewItem) Validate() error {
 		return fmt.Errorf("Policy Memory review item metadata is invalid")
 	}
 	for _, candidate := range i.Candidates {
-		if err := candidate.Validate(); err != nil || candidate.ContextID != i.ContextID || candidate.ObservingWorkspaceID != i.ObservingWorkspaceID {
+		if err := candidate.Validate(); err != nil || candidate.ContextID != i.ContextID {
 			return fmt.Errorf("Policy Memory review candidate authority is inconsistent")
 		}
 	}
@@ -227,16 +233,21 @@ func JoinPolicyMemoryReviewCandidates(snapshot PolicyMemoryReviewSnapshot, candi
 	result := snapshot.Clone()
 	ordinary := clonePolicyCandidateAuthorities(result.Collection.PendingCandidates)
 	ordinaryIDs := make(map[string]struct{}, len(ordinary))
+	ordinaryEffects := make(map[string]struct{}, len(ordinary))
 	for _, candidate := range ordinary {
 		ordinaryIDs[candidate.ID] = struct{}{}
+		ordinaryEffects[policyCandidateAuthorityEffectKey(candidate)] = struct{}{}
 	}
 	for _, candidate := range candidates.Items {
 		if candidate.AttachmentAuthority != nil {
 			continue
 		}
-		if _, duplicate := ordinaryIDs[candidate.ID]; !duplicate {
+		_, duplicateID := ordinaryIDs[candidate.ID]
+		_, duplicateEffect := ordinaryEffects[policyCandidateAuthorityEffectKey(candidate.Authority)]
+		if !duplicateID && !duplicateEffect {
 			ordinary = append(ordinary, candidate.Authority.Clone())
 			ordinaryIDs[candidate.ID] = struct{}{}
+			ordinaryEffects[policyCandidateAuthorityEffectKey(candidate.Authority)] = struct{}{}
 		}
 	}
 	var err error
@@ -311,8 +322,11 @@ func (s PolicyMemoryReviewSnapshot) Validate() error {
 	}
 	previous := ""
 	for _, item := range s.Items {
-		if err := item.Validate(); err != nil || previous != "" && item.ID <= previous {
-			return fmt.Errorf("Permission Inbox items must be valid, unique, and sorted")
+		if err := item.Validate(); err != nil {
+			return fmt.Errorf("Permission Inbox item %q is invalid: %w", item.ID, err)
+		}
+		if previous != "" && item.ID <= previous {
+			return fmt.Errorf("Permission Inbox items must be unique and sorted: %q follows %q", item.ID, previous)
 		}
 		previous = item.ID
 	}
@@ -452,6 +466,17 @@ func policyMemoryReviewItems(collection WorkspaceAuthorityCollection) ([]PolicyM
 }
 
 func policyMemoryReviewItemsWithCandidates(collection WorkspaceAuthorityCollection, candidatesInput []PolicyCandidateAuthority) ([]PolicyMemoryReviewItem, error) {
+	canonicalCandidates := make([]PolicyCandidateAuthority, 0, len(candidatesInput))
+	seenEffects := make(map[string]struct{}, len(candidatesInput))
+	for _, candidate := range candidatesInput {
+		key := policyCandidateAuthorityEffectKey(candidate)
+		if _, duplicate := seenEffects[key]; duplicate {
+			continue
+		}
+		canonicalCandidates = append(canonicalCandidates, candidate.Clone())
+		seenEffects[key] = struct{}{}
+	}
+	candidatesInput = canonicalCandidates
 	templates := map[WorkspaceTemplateID]WorkspaceTemplate{}
 	contexts := map[ContextID]WorkspaceAuthorityContextRecord{}
 	workspaces := map[WorkspaceID]WorkspaceBinding{}
@@ -473,7 +498,7 @@ func policyMemoryReviewItemsWithCandidates(collection WorkspaceAuthorityCollecti
 		}
 		evidence := []finalReviewEvidence{{path: seed.Effect.Path, candidate: clonePolicyCandidatePointer(seed)}}
 		for _, candidate := range candidatesInput {
-			if candidate.ID == seed.ID || candidate.ContextID != seed.ContextID || candidate.ObservingWorkspaceID != seed.ObservingWorkspaceID || !reviewedTemplateIdentityMatchesEffect(seed.Effect.RuleBody(seed.ID), candidate.Effect) {
+			if candidate.ID == seed.ID || candidate.ContextID != seed.ContextID || !reviewedTemplateIdentityMatchesEffect(seed.Effect.RuleBody(seed.ID), candidate.Effect) {
 				continue
 			}
 			evidence = append(evidence, finalReviewEvidence{path: candidate.Effect.Path, candidate: clonePolicyCandidatePointer(candidate)})
@@ -530,7 +555,7 @@ func policyMemoryReviewItemsWithCandidates(collection WorkspaceAuthorityCollecti
 		sourceCandidates = uniqueSortedStrings(sourceCandidates)
 		rule := seed.Effect.RuleBody(seed.ID)
 		rule.Match, rule.Path, rule.Segments, rule.Examples, rule.SourceCandidates = PolicyMatchPathTemplate, templatePath, append([]string{}, segments...), examples, sourceCandidates
-		id, err := PolicyMemoryReviewedPathTemplateItemID(seed.ContextID, seed.ObservingWorkspaceID, rule)
+		id, err := PolicyMemoryReviewedPathTemplateItemID(seed.ContextID, rule)
 		if err != nil {
 			return nil, err
 		}
@@ -554,7 +579,17 @@ func policyMemoryReviewItemsWithCandidates(collection WorkspaceAuthorityCollecti
 		items = append(items, item)
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
-	return items, nil
+	canonical := make([]PolicyMemoryReviewItem, 0, len(items))
+	for _, item := range items {
+		if len(canonical) > 0 && canonical[len(canonical)-1].ID == item.ID {
+			if !reflect.DeepEqual(canonical[len(canonical)-1], item) {
+				return nil, fmt.Errorf("Permission Inbox item identity is ambiguous")
+			}
+			continue
+		}
+		canonical = append(canonical, item)
+	}
+	return canonical, nil
 }
 
 func clonePolicyCandidatePointer(value PolicyCandidateAuthority) *PolicyCandidateAuthority {
@@ -568,11 +603,17 @@ func newPolicyMemoryReviewItem(_ WorkspaceAuthorityCollection, id, match string,
 		return PolicyMemoryReviewItem{}, fmt.Errorf("Permission Inbox Context is missing")
 	}
 	template, found := templates[contextRecord.Context.TemplateID]
-	workspace, workspaceFound := workspaces[candidates[0].ObservingWorkspaceID]
-	if !found || !workspaceFound {
+	if !found {
 		return PolicyMemoryReviewItem{}, fmt.Errorf("Permission Inbox owner is missing")
 	}
-	item := PolicyMemoryReviewItem{ID: id, Match: match, Context: template.Name, Template: template.Name, ProjectRoot: workspace.ProjectRoot, ObservingWorkspace: workspace.ProjectRoot, ContextID: contextRecord.Context.ID, TemplateID: template.ID, ObservingWorkspaceID: workspace.ID, Rule: rule.Clone(), Candidates: clonePolicyCandidateAuthorities(candidates), SourceRules: clonePolicyMemoryRules(sourceRules)}
+	item := PolicyMemoryReviewItem{ID: id, Match: match, Context: template.Name, Template: template.Name, ContextID: contextRecord.Context.ID, TemplateID: template.ID, Rule: rule.Clone(), Candidates: clonePolicyCandidateAuthorities(candidates), SourceRules: clonePolicyMemoryRules(sourceRules)}
+	if match == PolicyMatchExact {
+		workspace, workspaceFound := workspaces[candidates[0].ObservingWorkspaceID]
+		if !workspaceFound {
+			return PolicyMemoryReviewItem{}, fmt.Errorf("Permission Inbox observing Workspace is missing")
+		}
+		item.ProjectRoot, item.ObservingWorkspace, item.ObservingWorkspaceID = workspace.ProjectRoot, workspace.ProjectRoot, workspace.ID
+	}
 	if err := item.Validate(); err != nil {
 		return PolicyMemoryReviewItem{}, err
 	}
@@ -583,5 +624,5 @@ func newPolicyMemoryReviewItem(_ WorkspaceAuthorityCollection, id, match string,
 // future diagnostics explicit about all dimensions that make two effects
 // compatible for one path-template proposal.
 func finalReviewIdentityKey(candidate PolicyCandidateAuthority) string {
-	return strings.Join(appendPolicyProtocolIdentity([]string{string(candidate.ContextID), string(candidate.ObservingWorkspaceID), candidate.Effect.Host, fmt.Sprint(candidate.Effect.Port), candidate.Effect.Method}, candidate.Effect.PolicyProtocolIdentity), "\x00")
+	return strings.Join(appendPolicyProtocolIdentity([]string{string(candidate.ContextID), candidate.Effect.Host, fmt.Sprint(candidate.Effect.Port), candidate.Effect.Method}, candidate.Effect.PolicyProtocolIdentity), "\x00")
 }

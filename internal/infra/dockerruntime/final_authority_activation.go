@@ -12,11 +12,14 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 const finalPolicyActivationSchema = 1
+
+var errLegacyFinalPolicyActivation = errors.New("legacy singular final policy activation requires reconciliation")
 
 type finalPolicyActivationRecord struct {
 	SchemaVersion     int                              `json:"schema_version"`
@@ -24,6 +27,166 @@ type finalPolicyActivationRecord struct {
 	Material          FinalWorkspacePolicyProjection   `json:"material"`
 	Aggregate         FinalAggregateProjection         `json:"aggregate"`
 	Receipt           FinalAggregatePublicationReceipt `json:"receipt"`
+}
+
+// legacyFinalPolicyActivationRecord is the one recognized predecessor wire
+// shape. It is decoded separately so a damaged current record cannot become
+// "legacy" merely by changing its plan version byte.
+type legacyFinalPolicyActivationRecord struct {
+	SchemaVersion     int                                  `json:"schema_version"`
+	ReviewedSetDigest tobari.SemanticDigest                `json:"reviewed_set_digest,omitempty"`
+	Material          legacyFinalWorkspacePolicyProjection `json:"material"`
+	Aggregate         FinalAggregateProjection             `json:"aggregate"`
+	Receipt           FinalAggregatePublicationReceipt     `json:"receipt"`
+}
+
+type legacyFinalWorkspacePolicyProjection struct {
+	Plan               legacyWorkspacePolicyProjection
+	Principals         []FinalWorkspacePrincipalRow
+	Gateway            FinalGatewayComponentAuthority
+	MaterializedDigest tobari.SemanticDigest
+}
+
+type legacyWorkspacePolicyProjection struct {
+	SchemaVersion      int                                      `json:"schema_version"`
+	Mode               tobari.WorkspacePolicyProjectionMode     `json:"mode"`
+	CollectionRevision tobari.SemanticDigest                    `json:"collection_revision"`
+	TargetContextID    *tobari.ContextID                        `json:"target_context_id,omitempty"`
+	TargetContextIDs   []tobari.ContextID                       `json:"target_context_ids,omitempty"`
+	Contexts           []legacyWorkspacePolicyProjectionContext `json:"contexts"`
+	ContentDigest      tobari.SemanticDigest                    `json:"content_digest"`
+	PlanDigest         tobari.SemanticDigest                    `json:"plan_digest"`
+}
+
+type legacyWorkspacePolicyProjectionContext struct {
+	ContextID       tobari.ContextID                          `json:"context_id"`
+	TemplateID      tobari.WorkspaceTemplateID                `json:"workspace_template_id"`
+	Presentation    string                                    `json:"presentation"`
+	TemplatePolicy  tobari.WorkspaceTemplatePolicyAuthority   `json:"template_policy"`
+	PolicyMemory    tobari.PolicyMemoryRevision               `json:"policy_memory"`
+	TemplateReceipt tobari.TemplatePolicyActivationReceipt    `json:"template_policy_receipt"`
+	MemoryReceipt   tobari.PolicyMemoryActivationReceipt      `json:"policy_memory_receipt"`
+	Principal       *tobari.WorkspacePolicyPrincipalAuthority `json:"principal,omitempty"`
+}
+
+func (r legacyFinalPolicyActivationRecord) validate(runtime *Runtime) error {
+	if r.SchemaVersion != finalPolicyActivationSchema || runtime == nil || r.Material.Plan.SchemaVersion != 1 {
+		return fmt.Errorf("legacy final policy activation metadata is invalid")
+	}
+	plan := r.Material.Plan
+	contexts := make([]tobari.WorkspacePolicyProjectionContext, len(plan.Contexts))
+	for index, item := range plan.Contexts {
+		principals := []tobari.WorkspacePolicyPrincipalAuthority{}
+		if item.Principal != nil {
+			principals = append(principals, *item.Principal)
+		}
+		contexts[index] = tobari.WorkspacePolicyProjectionContext{
+			ContextID: item.ContextID, TemplateID: item.TemplateID, Presentation: item.Presentation,
+			TemplatePolicy: item.TemplatePolicy, PolicyMemory: item.PolicyMemory,
+			TemplateReceipt: item.TemplateReceipt, MemoryReceipt: item.MemoryReceipt, Principals: principals,
+		}
+	}
+	contentDigest, err := digestFinalValue(plan.Contexts)
+	if err != nil || contentDigest != plan.ContentDigest {
+		return fmt.Errorf("legacy final policy content digest is invalid: %w", err)
+	}
+	planDigest, err := digestFinalValue(struct {
+		Mode               tobari.WorkspacePolicyProjectionMode
+		CollectionRevision tobari.SemanticDigest
+		TargetContextID    *tobari.ContextID
+		TargetContextIDs   []tobari.ContextID
+		ContentDigest      tobari.SemanticDigest
+	}{plan.Mode, plan.CollectionRevision, plan.TargetContextID, plan.TargetContextIDs, plan.ContentDigest})
+	if err != nil || planDigest != plan.PlanDigest {
+		return fmt.Errorf("legacy final policy plan digest is invalid: %w", err)
+	}
+	normalizedContent, err := digestFinalValue(contexts)
+	if err != nil {
+		return err
+	}
+	normalizedPlanDigest, err := digestFinalValue(struct {
+		Mode               tobari.WorkspacePolicyProjectionMode
+		CollectionRevision tobari.SemanticDigest
+		TargetContextID    *tobari.ContextID
+		TargetContextIDs   []tobari.ContextID
+		ContentDigest      tobari.SemanticDigest
+	}{plan.Mode, plan.CollectionRevision, plan.TargetContextID, plan.TargetContextIDs, normalizedContent})
+	if err != nil {
+		return err
+	}
+	normalized := tobari.WorkspacePolicyProjection{
+		SchemaVersion: tobari.WorkspacePolicyProjectionSchemaVersion, Mode: plan.Mode,
+		CollectionRevision: plan.CollectionRevision, TargetContextID: plan.TargetContextID,
+		TargetContextIDs: plan.TargetContextIDs, Contexts: contexts,
+		ContentDigest: normalizedContent, PlanDigest: normalizedPlanDigest,
+	}
+	if err := normalized.Validate(); err != nil {
+		return fmt.Errorf("legacy final policy plan is invalid: %w", err)
+	}
+	if r.Material.Principals == nil || r.Material.Gateway.Validate() != nil {
+		return fmt.Errorf("legacy final policy material is incomplete")
+	}
+	expected := make(map[tobari.WorkspaceID]tobari.WorkspacePolicyPrincipalAuthority)
+	for _, item := range plan.Contexts {
+		if item.Principal != nil {
+			expected[item.Principal.WorkspaceID] = *item.Principal
+		}
+	}
+	previous := tobari.WorkspaceID("")
+	for _, principal := range r.Material.Principals {
+		authority, found := expected[principal.WorkspaceID]
+		if !found || previous != "" && principal.WorkspaceID <= previous || principal.validateFor(authority) != nil {
+			return fmt.Errorf("legacy final policy principal authority is invalid")
+		}
+		delete(expected, principal.WorkspaceID)
+		previous = principal.WorkspaceID
+	}
+	if len(expected) != 0 {
+		return fmt.Errorf("legacy final policy principal authority is incomplete")
+	}
+	materialized, err := digestFinalValue(struct {
+		Contexts   []legacyWorkspacePolicyProjectionContext
+		Principals []FinalWorkspacePrincipalRow
+		Gateway    FinalGatewayComponentAuthority
+	}{plan.Contexts, r.Material.Principals, r.Material.Gateway})
+	if err != nil || materialized != r.Material.MaterializedDigest {
+		return fmt.Errorf("legacy final policy material digest is invalid: %w", err)
+	}
+	if r.Aggregate.MaterializedDigest != materialized || !aggregateRevisionPattern.MatchString(r.Aggregate.AggregateRevision) ||
+		r.Aggregate.EvaluatorIdentity.Validate() != nil || r.Aggregate.PolicyDataIdentity.Validate() != nil ||
+		r.Receipt.SchemaVersion != finalAggregatePublicationReceiptSchema || r.Receipt.MaterializedDigest != materialized ||
+		r.Receipt.AggregateRevision != r.Aggregate.AggregateRevision || !aggregateRevisionPattern.MatchString(r.Receipt.AggregateRevision) ||
+		r.Receipt.PolicyArtifact.Validate() != nil || r.Receipt.GatewayArtifact.Validate() != nil || r.Receipt.PrincipalDigest.Validate() != nil ||
+		r.Receipt.EvaluatorIdentity != r.Aggregate.EvaluatorIdentity || r.Receipt.PolicyDataIdentity != r.Aggregate.PolicyDataIdentity {
+		return fmt.Errorf("legacy final policy aggregate authority is invalid")
+	}
+	for _, path := range []string{r.Aggregate.PolicyDirectory, r.Aggregate.GatewayConfig} {
+		relative, pathErr := filepath.Rel(runtime.aggregateRoot(), path)
+		if pathErr != nil || relative == "." || relative == ".." || filepath.IsAbs(relative) || strings.HasPrefix(relative, "../") {
+			return fmt.Errorf("legacy final policy artifact crosses the owned aggregate root")
+		}
+	}
+	templates := make([]tobari.TemplatePolicyActivationReceipt, len(plan.Contexts))
+	memories := make([]tobari.PolicyMemoryActivationReceipt, len(plan.Contexts))
+	for index, item := range plan.Contexts {
+		templates[index], memories[index] = item.TemplateReceipt, item.MemoryReceipt
+	}
+	principalDigest, err := digestFinalValue(r.Material.Principals)
+	if err != nil || !reflect.DeepEqual(r.Receipt.TemplateReceipts, templates) || !reflect.DeepEqual(r.Receipt.PolicyMemoryReceipts, memories) || r.Receipt.PrincipalDigest != principalDigest {
+		return fmt.Errorf("legacy final policy receipt authority is invalid: %w", err)
+	}
+	receiptDigest, err := digestFinalValue(r.Receipt.content())
+	if err != nil || receiptDigest != r.Receipt.ReceiptDigest {
+		return fmt.Errorf("legacy final policy receipt digest is invalid: %w", err)
+	}
+	if plan.Mode == tobari.WorkspacePolicyProjectionReviewed {
+		if r.ReviewedSetDigest.Validate() != nil {
+			return fmt.Errorf("legacy reviewed activation set is invalid")
+		}
+	} else if r.ReviewedSetDigest != "" {
+		return fmt.Errorf("legacy activation has an unexpected reviewed set")
+	}
+	return nil
 }
 
 func (r finalPolicyActivationRecord) validate(runtime *Runtime) error {
@@ -238,6 +401,14 @@ func (r *Runtime) prepareFinalPolicyActivation(
 			return finalPolicyActivationRecord{}, fmt.Errorf("another final policy activation requires exact recovery")
 		}
 		return existing, nil
+	} else if errors.Is(err, errLegacyFinalPolicyActivation) {
+		// A predecessor can leave its singular projection journal behind after
+		// interruption. That journal is not active authority and cannot be resumed
+		// under the plural schema, so retire it before re-observing the complete
+		// current state and preparing a replacement below.
+		if err := r.removeFinalPolicyActivationJournal(); err != nil {
+			return finalPolicyActivationRecord{}, fmt.Errorf("retire legacy final policy activation recovery: %w", err)
+		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return finalPolicyActivationRecord{}, fmt.Errorf("read final policy activation recovery: %w", err)
 	}
@@ -264,7 +435,7 @@ func (r *Runtime) prepareFinalPolicyActivation(
 		if err := r.confirmFinalPolicyRecord(ctx, record); err == nil {
 			return record, nil
 		}
-	} else if activeErr != nil && !errors.Is(activeErr, os.ErrNotExist) {
+	} else if activeErr != nil && !errors.Is(activeErr, os.ErrNotExist) && !errors.Is(activeErr, errLegacyFinalPolicyActivation) {
 		return finalPolicyActivationRecord{}, activeErr
 	}
 	if err := r.writeFinalPolicyActivation(r.finalPolicyActivationJournalPath(), record); err != nil {
@@ -282,7 +453,7 @@ func (r *Runtime) resumeFinalPolicyActivation(ctx context.Context, record finalP
 			return err
 		}
 		return r.removeFinalPolicyActivationJournal()
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, errLegacyFinalPolicyActivation) {
 		return err
 	}
 	if r.finalProjectionBeforeEffect != nil {
@@ -563,6 +734,32 @@ func (r *Runtime) readFinalPolicyActivationFile(path string, record *finalPolicy
 	}
 	if err := validateNoDuplicateJSONKeys(data); err != nil {
 		return fmt.Errorf("final policy activation receipt is ambiguous: %w", err)
+	}
+	var version struct {
+		Material struct {
+			Plan struct {
+				SchemaVersion int `json:"schema_version"`
+			} `json:"plan"`
+		} `json:"material"`
+	}
+	if err := json.Unmarshal(data, &version); err != nil {
+		return err
+	}
+	if version.Material.Plan.SchemaVersion > 0 && version.Material.Plan.SchemaVersion < tobari.WorkspacePolicyProjectionSchemaVersion {
+		var legacy legacyFinalPolicyActivationRecord
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&legacy); err != nil {
+			return fmt.Errorf("decode legacy final policy activation: %w", err)
+		}
+		var trailing any
+		if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+			return fmt.Errorf("legacy final policy activation contains trailing data")
+		}
+		if err := legacy.validate(r); err != nil {
+			return fmt.Errorf("legacy final policy activation is invalid: %w", err)
+		}
+		return errLegacyFinalPolicyActivation
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()

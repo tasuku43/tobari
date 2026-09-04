@@ -115,6 +115,7 @@ func entryTransitionPlan(t *testing.T, snapshot ContextAuthoritySnapshot, newApp
 	}
 	return WorkspaceEntryReconciliationPlan{
 		Workspace: workspace, Applied: entry, Authority: authority, CreationDefaults: creation,
-		Network: WorkspaceRuntimeNetworkAuthority{Network: network, Subnet: "10.64.0.0/24", DockerGateway: "10.64.0.1", GatewayIP: "10.64.0.2", WorkspaceIP: "10.64.0.3"},
+		InitializeContextHome: snapshot.ContextHome == "" && len(snapshot.Workspaces) == 0 && snapshot.Workspace == nil,
+		Network:               WorkspaceRuntimeNetworkAuthority{Network: network, Subnet: "10.64.0.0/24", DockerGateway: "10.64.0.1", GatewayIP: "10.64.0.2", WorkspaceIP: "10.64.0.3"},
 	}
 }
