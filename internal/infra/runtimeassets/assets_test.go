@@ -498,6 +498,23 @@ func TestComposeSpecCapsSharedServiceResources(t *testing.T) {
 	}
 }
 
+func TestComposeSpecKeepsOPAHeapBelowItsContainerLimit(t *testing.T) {
+	data, err := Read("compose.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := string(data)
+	opaIndex := strings.Index(spec, "  opa:\n")
+	gatewayIndex := strings.Index(spec, "  gateway:\n")
+	if opaIndex < 0 || gatewayIndex <= opaIndex {
+		t.Fatal("compose spec is missing the ordered OPA and Gateway services")
+	}
+	opa := spec[opaIndex:gatewayIndex]
+	if !strings.Contains(opa, "    environment:\n      GOMEMLIMIT: 384MiB\n") {
+		t.Fatal("OPA is missing the fixed Go heap limit below its 512 MiB container ceiling")
+	}
+}
+
 func TestGatewayEntrypointCapsBufferedHTTPBodies(t *testing.T) {
 	data, err := Read("gateway/entrypoint.sh")
 	if err != nil {

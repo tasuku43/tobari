@@ -1227,6 +1227,7 @@ assert_component_log_bounds tobari-auth-broker
 assert_component_resource_bounds tobari-opa 1000000000 536870912 128
 assert_component_resource_bounds tobari-gateway 2000000000 1073741824 256
 assert_component_resource_bounds tobari-auth-broker 1000000000 536870912 128
+[[ $(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' tobari-opa | grep -Fxc 'GOMEMLIMIT=384MiB') == 1 ]] || fail "OPA does not constrain its Go heap below the container memory ceiling"
 [[ $(docker ps -a --filter name='^/tobari-gateway$' --format '{{.Names}}' | wc -l | tr -d ' ') == 1 ]] || fail "cluster did not create exactly one Gateway"
 [[ $(docker ps -a --filter name='^/tobari-opa$' --format '{{.Names}}' | wc -l | tr -d ' ') == 1 ]] || fail "cluster did not create exactly one OPA"
 [[ $(docker ps -a --filter name='^/tobari-auth-broker$' --format '{{.Names}}' | wc -l | tr -d ' ') == 1 ]] || fail "cluster did not create exactly one Auth Broker"
