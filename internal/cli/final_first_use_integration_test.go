@@ -108,6 +108,14 @@ func (s *firstUseIntegrationSettlement) ConfirmFinalAuthoritySettled(context.Con
 	return nil
 }
 
+func (s *firstUseIntegrationSettlement) SettleFinalWorkspaceRetirement(context.Context, tobari.WorkspaceAuthorityCollection, tobari.WorkspaceAuthorityCollection, tobari.WorkspaceBinding, string, string) error {
+	return nil
+}
+
+func (s *firstUseIntegrationSettlement) ConfirmFinalWorkspaceRetirementSettled(context.Context, tobari.WorkspaceAuthorityCollection, tobari.WorkspaceBinding) error {
+	return nil
+}
+
 func (s *firstUseIntegrationSettlement) SettleFinalContextDeletion(context.Context, tobari.WorkspaceAuthorityCollection, tobari.WorkspaceAuthorityCollection, tobari.ContextID, string, string) error {
 	return nil
 }

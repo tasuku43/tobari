@@ -335,6 +335,77 @@ func BuildActiveWorkspacePolicyProjection(collection WorkspaceAuthorityCollectio
 	return buildWorkspacePolicyProjection(collection, WorkspacePolicyProjectionActive, "", nil)
 }
 
+// BuildWorkspaceRetirementPolicyProjection preserves the last verified live
+// policy axes while removing one exact Workspace principal. It is the bounded
+// recovery path for authority written by older binaries that lost an active
+// Template or Memory receipt after publishing desired Template state. The
+// live projection is trusted input from the infrastructure-owned activation
+// receipt; desired Template and Policy Memory state are never inferred here.
+func BuildWorkspaceRetirementPolicyProjection(active WorkspacePolicyProjection, next WorkspaceAuthorityCollection, workspace WorkspaceBinding) (WorkspacePolicyProjection, error) {
+	if err := active.Validate(); err != nil {
+		return WorkspacePolicyProjection{}, fmt.Errorf("active Workspace retirement projection: %w", err)
+	}
+	if err := next.Validate(); err != nil {
+		return WorkspacePolicyProjection{}, err
+	}
+	contextIndex := -1
+	for index, record := range next.Contexts {
+		if record.Context.ID == workspace.ContextID {
+			contextIndex = index
+			break
+		}
+	}
+	if contextIndex < 0 || workspace.ValidateFor(next.Contexts[contextIndex].Context) != nil {
+		return WorkspacePolicyProjection{}, fmt.Errorf("Workspace retirement projection crosses Context authority")
+	}
+	for _, retained := range next.Workspaces {
+		if retained.ID == workspace.ID || retained.ContextID == workspace.ContextID {
+			return WorkspacePolicyProjection{}, fmt.Errorf("Workspace retirement projection retains its target")
+		}
+	}
+
+	contextsByID := make(map[ContextID]ContextBinding, len(next.Contexts))
+	for _, record := range next.Contexts {
+		contextsByID[record.Context.ID] = record.Context
+	}
+	contexts := make([]WorkspacePolicyProjectionContext, len(active.Contexts))
+	targetFound := false
+	principalFound := false
+	for index, item := range active.Contexts {
+		binding, found := contextsByID[item.ContextID]
+		if !found || binding.TemplateID != item.TemplateID {
+			return WorkspacePolicyProjection{}, fmt.Errorf("Workspace retirement projection contains foreign Context authority")
+		}
+		contexts[index] = item.Clone()
+		if item.ContextID == workspace.ContextID {
+			targetFound = true
+			if item.Principal != nil {
+				if !workspacePrincipalMatchesBinding(*item.Principal, workspace) {
+					return WorkspacePolicyProjection{}, fmt.Errorf("Workspace retirement projection principal differs from its target")
+				}
+				contexts[index].Principal = nil
+				principalFound = true
+			}
+		} else if item.Principal != nil && item.Principal.WorkspaceID == workspace.ID {
+			return WorkspacePolicyProjection{}, fmt.Errorf("Workspace retirement projection rebinds its target principal")
+		}
+	}
+	if !targetFound {
+		return WorkspacePolicyProjection{}, fmt.Errorf("Workspace retirement projection target Context is not active")
+	}
+	if !principalFound && (active.Mode != WorkspacePolicyProjectionActive || active.CollectionRevision != next.Revision) {
+		return WorkspacePolicyProjection{}, fmt.Errorf("Workspace retirement projection has no exact target principal")
+	}
+	return NewWorkspacePolicyProjection(WorkspacePolicyProjectionActive, next.Revision, nil, contexts)
+}
+
+func workspacePrincipalMatchesBinding(principal WorkspacePolicyPrincipalAuthority, workspace WorkspaceBinding) bool {
+	return workspace.LastSuccessfulEntry != nil &&
+		principal.ContextID == workspace.ContextID && principal.WorkspaceID == workspace.ID &&
+		principal.TemplateID == workspace.LastSuccessfulEntry.TemplateID && principal.ProjectRoot == workspace.ProjectRoot &&
+		principal.AppliedEntry == *workspace.LastSuccessfulEntry && principal.CreationDefaultsDigest == workspace.CreationDefaults
+}
+
 func BuildReviewedWorkspacePolicyProjection(collection WorkspaceAuthorityCollection, targets []ContextID) (WorkspacePolicyProjection, error) {
 	if len(targets) == 0 || len(targets) > MaxPolicyReviewDecisions {
 		return WorkspacePolicyProjection{}, fmt.Errorf("reviewed Workspace policy projection target set is invalid")

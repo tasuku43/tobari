@@ -222,6 +222,33 @@ func (r *Runtime) SettleFinalAuthority(
 	return r.settleFinalAuthority(ctx, previous, next, plan, operation, decisionRef)
 }
 
+// SettleFinalWorkspaceRetirement removes one exact principal while preserving
+// every live Template-policy and Policy-Memory axis. Older binaries could
+// clear a desired Template's active receipt before re-entry; in that bounded
+// case the last verified live activation receipt supplies the unchanged axes.
+func (r *Runtime) SettleFinalWorkspaceRetirement(
+	ctx context.Context,
+	previous, next tobari.WorkspaceAuthorityCollection,
+	workspace tobari.WorkspaceBinding,
+	operation, decisionRef string,
+) error {
+	plan, err := tobari.BuildActiveWorkspacePolicyProjection(next)
+	if err != nil {
+		active, present, readErr := r.readOptionalFinalPolicyActivation(r.finalPolicyActiveReceiptPath())
+		if readErr != nil {
+			return readErr
+		}
+		if !present {
+			return err
+		}
+		plan, err = tobari.BuildWorkspaceRetirementPolicyProjection(active.Material.Plan, next, workspace)
+		if err != nil {
+			return err
+		}
+	}
+	return r.settleFinalAuthority(ctx, previous, next, plan, operation, decisionRef)
+}
+
 // SettleFinalContextDeletion removes one Context from the complete active
 // projection without adopting any remaining Context's pending Template or
 // Policy-Memory axis. The deleted Context ID binds the task decision even
@@ -362,6 +389,28 @@ func (r *Runtime) ConfirmFinalAuthoritySettled(
 	}
 	return r.confirmFinalPolicyActivation(ctx, plan, func(item tobari.WorkspacePolicyProjectionContext) bool {
 		return item.ContextID == target
+	})
+}
+
+func (r *Runtime) ConfirmFinalWorkspaceRetirementSettled(
+	ctx context.Context, next tobari.WorkspaceAuthorityCollection, workspace tobari.WorkspaceBinding,
+) error {
+	plan, err := tobari.BuildActiveWorkspacePolicyProjection(next)
+	if err != nil {
+		active, present, readErr := r.readOptionalFinalPolicyActivation(r.finalPolicyActiveReceiptPath())
+		if readErr != nil {
+			return readErr
+		}
+		if !present {
+			return err
+		}
+		plan, err = tobari.BuildWorkspaceRetirementPolicyProjection(active.Material.Plan, next, workspace)
+		if err != nil {
+			return err
+		}
+	}
+	return r.confirmFinalPolicyActivation(ctx, plan, func(item tobari.WorkspacePolicyProjectionContext) bool {
+		return item.ContextID == workspace.ContextID && item.Principal == nil
 	})
 }
 
@@ -956,6 +1005,9 @@ func (r *Runtime) resumeFinalGatewaySettlement(ctx context.Context, journal fina
 		if err := r.ConfirmNoFinalWorkspaceSessions(ctx); err != nil {
 			return err
 		}
+		if err := r.restorePreparedFinalSettlementComponents(ctx, journal.Candidate); err != nil {
+			return err
+		}
 		if r.finalGatewayAfterFirstSessionFence != nil {
 			r.finalGatewayAfterFirstSessionFence()
 		}
@@ -1070,9 +1122,139 @@ func (r *Runtime) interruptFinalGatewaySettlement(boundary string) error {
 	return r.finalGatewayAfterEffect(boundary)
 }
 
+// restorePreparedFinalSettlementComponents makes exact same-action recovery
+// possible when an already journaled settlement lost a selected component to
+// a host restart or OOM kill before the policy fence was published. Only the
+// exact journaled containers may be restarted; absence, identity drift, or
+// topology drift remains a hard failure rather than creating fresh authority.
+func (r *Runtime) restorePreparedFinalSettlementComponents(ctx context.Context, candidate finalGatewaySettlementCandidate) error {
+	gateway, gatewayMissing, err := r.observeFinalClusterComponentRaw(ctx, "gateway", gatewayContainer)
+	if err != nil {
+		return fmt.Errorf("observe prepared final Gateway recovery closure: %w", err)
+	}
+	if gatewayMissing {
+		return fmt.Errorf("prepared final Gateway recovery closure is absent")
+	}
+	opa, opaMissing, err := r.observeFinalClusterComponentRaw(ctx, "opa", opaContainer)
+	if err != nil {
+		return fmt.Errorf("observe prepared final OPA recovery closure: %w", err)
+	}
+	if opaMissing {
+		return fmt.Errorf("prepared final OPA recovery closure is absent")
+	}
+	if gateway.State == "running" && gateway.Health == "healthy" && opa.State == "running" && opa.Health == "healthy" {
+		return nil
+	}
+	if gateway.ContainerID != candidate.ReviewedGateway || verifyPreparedFinalRestartClosure(gateway, opa, candidate) != nil {
+		return fmt.Errorf("prepared final component recovery closure differs from journaled authority")
+	}
+	if err := r.ConfirmNoFinalWorkspaceSessions(ctx); err != nil {
+		return err
+	}
+	restart := []string{opaContainer, gatewayContainer}
+	if brokerRuntimeEnabled {
+		broker, missing, observeErr := r.observeFinalClusterComponentRaw(ctx, "auth-broker", authBrokerContainer)
+		if observeErr != nil {
+			return fmt.Errorf("observe prepared final Auth Broker recovery closure: %w", observeErr)
+		}
+		if missing || broker.State != "running" && broker.State != "exited" || broker.ImageID != candidate.AuthBrokerImageID ||
+			verifyRestartableFinalComponentTopology(broker, candidate.AuthBrokerNetworks, "auth-broker") != nil {
+			return fmt.Errorf("prepared final Auth Broker recovery closure differs from journaled authority")
+		}
+		restart = append(restart, authBrokerContainer)
+	}
+	if err := r.restartFinalReplacementComponents(ctx, restart); err != nil {
+		return fmt.Errorf("restart prepared final settlement components: %w", err)
+	}
+	if brokerRuntimeEnabled {
+		rootKey, err := r.unlockAuthBroker(ctx)
+		if err != nil {
+			return err
+		}
+		defer clear(rootKey)
+		if err := r.startCredentialCompanion(ctx, rootKey); err != nil {
+			return err
+		}
+	}
+	if err := r.waitForFinalSelectedComponents(ctx, candidate); err != nil {
+		return fmt.Errorf("confirm restarted prepared final settlement components: %w", err)
+	}
+	return nil
+}
+
+func verifyPreparedFinalRestartClosure(
+	gateway, opa appliedClusterComponentObservation, candidate finalGatewaySettlementCandidate,
+) error {
+	for _, component := range []appliedClusterComponentObservation{gateway, opa} {
+		if component.State != "running" && component.State != "exited" {
+			return fmt.Errorf("prepared final component state is not restartable")
+		}
+	}
+	if err := verifyRestartableFinalComponentTopology(gateway, candidate.GatewayNetworks, "gateway"); err != nil {
+		return err
+	}
+	if err := verifyRestartableFinalComponentTopology(opa, candidate.OPANetworks, "opa"); err != nil {
+		return err
+	}
+	// A stopped Docker container has no live endpoint addresses. Substitute the
+	// already validated configured topology only for the existing closure
+	// validator; the raw network rows above still prove exact names, aliases,
+	// and every fixed per-Workspace address before restart.
+	gateway.NetworkAddresses = finalNetworkAddressMap(candidate.GatewayNetworks)
+	opa.NetworkAddresses = finalNetworkAddressMap(candidate.OPANetworks)
+	return verifySelectedFinalComponentClosure(gateway, opa, candidate)
+}
+
+func verifyRestartableFinalComponentTopology(
+	component appliedClusterComponentObservation, expected []FinalGatewayNetworkAddress, alias string,
+) error {
+	if len(component.Networks) != len(expected) {
+		return fmt.Errorf("prepared final %s network topology is incomplete", alias)
+	}
+	for _, network := range expected {
+		raw, present := component.Networks[network.Name]
+		if !present {
+			return fmt.Errorf("prepared final %s network topology is incomplete", alias)
+		}
+		var endpoint struct {
+			IPAddress string   `json:"IPAddress"`
+			Aliases   []string `json:"Aliases"`
+			IPAM      struct {
+				IPv4Address string `json:"IPv4Address"`
+			} `json:"IPAMConfig"`
+		}
+		if err := json.Unmarshal(raw, &endpoint); err != nil || !slices.Contains(endpoint.Aliases, alias) {
+			return fmt.Errorf("prepared final %s network topology is invalid", alias)
+		}
+		if !isFinalSharedNetwork(network.Name) {
+			address := endpoint.IPAddress
+			if address == "" {
+				address = endpoint.IPAM.IPv4Address
+			}
+			if address != network.Address {
+				return fmt.Errorf("prepared final %s fixed network address differs from journaled authority", alias)
+			}
+		}
+	}
+	return nil
+}
+
+func finalNetworkAddressMap(networks []FinalGatewayNetworkAddress) map[string]string {
+	result := make(map[string]string, len(networks))
+	for _, network := range networks {
+		result[network.Name] = network.Address
+	}
+	return result
+}
+
 func (r *Runtime) resumeFinalGatewayOPAOnly(ctx context.Context, journal finalGatewaySettlementJournal) error {
 	if journal.Phase == finalGatewayPhaseReceipt {
 		return r.removeFinalGatewaySettlementJournal()
+	}
+	if journal.Phase == finalGatewayPhasePrepared {
+		if err := r.restorePreparedFinalSettlementComponents(ctx, journal.Candidate); err != nil {
+			return err
+		}
 	}
 	if err := r.confirmSelectedFinalComponentClosure(ctx, journal.Candidate); err != nil {
 		return err

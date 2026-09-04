@@ -230,6 +230,14 @@ func (s *finalSettlementFixture) ConfirmFinalAuthoritySettled(ctx context.Contex
 	return s.activation.ConfirmPolicyMemoryActive(ctx, next, contextID, *snapshot.ActivePolicyMemoryRef)
 }
 
+func (s *finalSettlementFixture) SettleFinalWorkspaceRetirement(ctx context.Context, previous, next tobari.WorkspaceAuthorityCollection, workspace tobari.WorkspaceBinding, operation, decisionRef string) error {
+	return s.SettleFinalAuthority(ctx, previous, next, workspace.ContextID, operation, decisionRef)
+}
+
+func (s *finalSettlementFixture) ConfirmFinalWorkspaceRetirementSettled(ctx context.Context, next tobari.WorkspaceAuthorityCollection, workspace tobari.WorkspaceBinding) error {
+	return s.ConfirmFinalAuthoritySettled(ctx, next, workspace.ContextID)
+}
+
 func (a *policyActivationFixture) ConfirmPolicyMemoryActive(_ context.Context, collection tobari.WorkspaceAuthorityCollection, contextID tobari.ContextID, receipt tobari.PolicyMemoryActivationReceipt) error {
 	if a.confirmErr != nil {
 		return a.confirmErr
@@ -897,6 +905,84 @@ func TestApplyWorkspaceTemplateSourcePublishesOneMovingHeadRevision(t *testing.T
 	}
 }
 
+func TestTemplateApplyPreservesLivePolicyAxesForNonPolicyEntryChange(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	store, mutator, _, _, _ := newMutationFixture(t, &existing)
+	active := existing.Templates[0]
+	mutator.runtimeRevision = &templateRuntimeRevisionFixture{binding: active.Current.Body.EntryDefaults.Runtime}
+	source, err := tobari.NewWorkspaceTemplateSource(active)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if source.Template.SourceAccess == tobari.ManifestSourceAccessReadOnly {
+		source.Template.SourceAccess = tobari.ManifestSourceAccessReadWrite
+	} else {
+		source.Template.SourceAccess = tobari.ManifestSourceAccessReadOnly
+	}
+	fingerprint := strings.Repeat("6", 64)
+	templateRef, _ := tobari.WorkspaceTemplateRef(active.ID)
+	plan, err := mutator.PlanWorkspaceTemplateSourceByReference(context.Background(), templateRef, func(context.Context) (tobari.WorkspaceTemplateSource, string, error) {
+		return source.Clone(), fingerprint, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	publication, err := mutator.ApplyWorkspaceTemplateSourceByReference(context.Background(), plan.PlanRef, func(context.Context) (tobari.WorkspaceTemplateSource, string, error) {
+		return source.Clone(), fingerprint, nil
+	})
+	if err != nil || !publication.Changed {
+		t.Fatalf("non-policy Template Apply=%+v err=%v", publication, err)
+	}
+	current, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present {
+		t.Fatalf("read non-policy Template Apply: present=%t err=%v", present, err)
+	}
+	before, after := existing.Contexts[0], current.Contexts[0]
+	if !reflect.DeepEqual(after.ActiveTemplatePolicy, before.ActiveTemplatePolicy) ||
+		!reflect.DeepEqual(after.ActivePolicyMemory, before.ActivePolicyMemory) ||
+		!reflect.DeepEqual(after.ActivePolicyMemoryRef, before.ActivePolicyMemoryRef) {
+		t.Fatalf("non-policy Template Apply invalidated live policy axes: before=%+v after=%+v", before, after)
+	}
+	if current.Workspaces[0].LastSuccessfulEntry == nil || current.Workspaces[0].LastSuccessfulEntry.TemplateRevision == publication.Current.Revision {
+		t.Fatalf("non-policy Template Apply invented a current Workspace entry: %+v", current.Workspaces[0])
+	}
+}
+
+func TestTemplateApplyPreservesLiveTemplatePolicyUntilReconciliation(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	store, mutator, _, _, _ := newMutationFixture(t, &existing)
+	active := existing.Templates[0]
+	mutator.runtimeRevision = &templateRuntimeRevisionFixture{binding: active.Current.Body.EntryDefaults.Runtime}
+	source, err := tobari.NewWorkspaceTemplateSource(active)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source.Policy.Semantic.Protocols.HTTP.Generic.Allow.Rules[0].Path = "/policy-changed"
+	fingerprint := strings.Repeat("7", 64)
+	templateRef, _ := tobari.WorkspaceTemplateRef(active.ID)
+	plan, err := mutator.PlanWorkspaceTemplateSourceByReference(context.Background(), templateRef, func(context.Context) (tobari.WorkspaceTemplateSource, string, error) {
+		return source.Clone(), fingerprint, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mutator.ApplyWorkspaceTemplateSourceByReference(context.Background(), plan.PlanRef, func(context.Context) (tobari.WorkspaceTemplateSource, string, error) {
+		return source.Clone(), fingerprint, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	current, present, err := store.ReadComplete(context.Background())
+	if err != nil || !present {
+		t.Fatalf("read policy Template Apply: present=%t err=%v", present, err)
+	}
+	if !reflect.DeepEqual(current.Contexts[0].ActiveTemplatePolicy, existing.Contexts[0].ActiveTemplatePolicy) {
+		t.Fatalf("policy-changing Template Apply replaced independently active Template receipt: before=%+v after=%+v", existing.Contexts[0].ActiveTemplatePolicy, current.Contexts[0].ActiveTemplatePolicy)
+	}
+	if current.Contexts[0].ActiveTemplatePolicy == nil || current.Contexts[0].ActiveTemplatePolicy.PolicySliceDigest == current.Templates[0].Current.Slices.PolicySliceDigest {
+		t.Fatalf("policy-changing Template Apply inferred desired policy as active: context=%+v template=%+v", current.Contexts[0], current.Templates[0])
+	}
+}
+
 func TestHistoricalStandardRuntimeBindingSurvivesTemplatePlanAndApply(t *testing.T) {
 	existing := storeCollectionFixture(t)
 	store, mutator, _, _, _ := newMutationFixture(t, &existing)
@@ -946,6 +1032,55 @@ func TestHistoricalStandardRuntimeBindingSurvivesTemplatePlanAndApply(t *testing
 	})
 	if err != nil || noOp.Changed || noOp.ResolvedRuntime == nil || *noOp.ResolvedRuntime != active.Current.Body.EntryDefaults.Runtime {
 		t.Fatalf("no-op retained publication=%+v err=%v", noOp, err)
+	}
+}
+
+func TestTemplatePlanCanRevertFromManagedRuntimeToRetainedHistoricalStandard(t *testing.T) {
+	existing := storeCollectionFixture(t)
+	original := existing.Templates[0].Current.Body.EntryDefaults.Runtime
+	template := existing.Templates[0].Clone()
+	body := template.Current.Body.Clone()
+	body.EntryDefaults.Runtime = tobari.RuntimeBinding{
+		RuntimeID: "01912345-6789-7abc-8def-0123456789f1",
+		Name:      "managed-current",
+		Revision:  "sha256:" + strings.Repeat("e", 64),
+		Ordinal:   1,
+		Image:     "tobari-runtime-managed:eeeeeeeeeeee",
+	}
+	managed, err := tobari.NewWorkspaceTemplateRevision(template.ID, template.Current.Generation+1, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template.Current = managed
+	template.Retained = append(template.Retained, managed.Clone())
+	existing, changed, err := tobari.PublishWorkspaceAuthorityCollection(
+		[]tobari.WorkspaceTemplate{template}, existing.Contexts, existing.Workspaces,
+		existing.PendingCandidates, existing.DefaultTemplateID, &existing,
+	)
+	if err != nil || !changed {
+		t.Fatalf("publish managed desired Runtime: changed=%t err=%v", changed, err)
+	}
+	_, mutator, _, _, _ := newMutationFixture(t, &existing)
+	runtime := mutator.runtimeRevision.(*templateRuntimeRevisionFixture)
+	runtime.err = tobari.ErrRuntimeRevisionNotFound
+	source, err := tobari.NewWorkspaceTemplateSource(template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source.Template.EntryDefaults.Runtime = tobari.RuntimeSourceRefFrom(original)
+	fingerprint := strings.Repeat("5", 64)
+	templateRef, _ := tobari.WorkspaceTemplateRef(template.ID)
+	plan, err := mutator.PlanWorkspaceTemplateSourceByReference(context.Background(), templateRef, func(context.Context) (tobari.WorkspaceTemplateSource, string, error) {
+		return source.Clone(), fingerprint, nil
+	})
+	if err != nil {
+		t.Fatalf("plan retained historical standard revert=%+v err=%v", plan, err)
+	}
+	publication, err := mutator.ApplyWorkspaceTemplateSourceByReference(context.Background(), plan.PlanRef, func(context.Context) (tobari.WorkspaceTemplateSource, string, error) {
+		return source.Clone(), fingerprint, nil
+	})
+	if err != nil || !publication.Changed || publication.Current.Body.EntryDefaults.Runtime != original {
+		t.Fatalf("apply retained historical standard revert=%+v err=%v", publication, err)
 	}
 }
 

@@ -639,6 +639,7 @@ type finalGatewaySettlementRunner struct {
 	replacementServices  []string
 	networkGuardCalls    int
 	networkGuardFailures int
+	componentStates      map[string]string
 	events               []string
 }
 
@@ -726,10 +727,14 @@ func (r *finalGatewaySettlementRunner) component(container string) appliedCluste
 			payload, _ := json.Marshal(map[string]any{"IPAddress": network.Address, "Aliases": []string{"auth-broker"}})
 			networks[network.Name] = payload
 		}
-		return appliedClusterComponentObservation{
+		observation := appliedClusterComponentObservation{
 			ContainerID: strings.Repeat("7", 64), Owner: ownerValue, Component: "auth-broker",
 			ImageID: candidate.AuthBrokerImageID, State: "running", Health: "healthy", Networks: networks,
 		}
+		if state := r.componentStates[container]; state != "" {
+			observation.State, observation.Health = state, "unhealthy"
+		}
+		return observation
 	}
 	if container == opaContainer {
 		image := candidate.OPAImageID
@@ -737,12 +742,16 @@ func (r *finalGatewaySettlementRunner) component(container string) appliedCluste
 		if r.replacementPending && !r.gatewayOPAReachable {
 			health = "starting"
 		}
-		return appliedClusterComponentObservation{
+		observation := appliedClusterComponentObservation{
 			ContainerID: strings.Repeat("e", 64), Owner: ownerValue, Component: "opa", ImageID: image,
 			State: "running", Health: health, Environment: []string{"PATH=/usr/bin"},
 			MountDestinations: finalOPAMountDestinations(),
 			Networks:          map[string]json.RawMessage{"tobari-control": json.RawMessage(`{"IPAddress":"172.28.0.3","Aliases":["opa"]}`)},
 		}
+		if state := r.componentStates[container]; state != "" {
+			observation.State, observation.Health = state, "unhealthy"
+		}
+		return observation
 	}
 	image := "sha256:" + strings.Repeat("f", 64)
 	if r.selected {
@@ -761,12 +770,16 @@ func (r *finalGatewaySettlementRunner) component(container string) appliedCluste
 	if containerID == "" {
 		containerID = candidate.ReviewedGateway
 	}
-	return appliedClusterComponentObservation{
+	observation := appliedClusterComponentObservation{
 		ContainerID: containerID, Owner: ownerValue, Component: "gateway", Role: gatewayRole, ImageID: image,
 		State: "running", Health: health, Environment: append([]string{"PATH=/usr/bin"}, candidate.GatewayEnv...),
 		MountDestinations: finalGatewayMountDestinations(candidate.Profile),
 		Networks:          networks,
 	}
+	if state := r.componentStates[container]; state != "" {
+		observation.State, observation.Health = state, "unhealthy"
+	}
+	return observation
 }
 
 func (r *finalGatewaySettlementRunner) Run(_ context.Context, args, environment []string, _ io.Reader, out, _ io.Writer) error {
@@ -810,6 +823,7 @@ func (r *finalGatewaySettlementRunner) Run(_ context.Context, args, environment 
 		r.gatewayOPAReachable = true
 		r.replacementPending = false
 		for _, container := range args[2:] {
+			delete(r.componentStates, container)
 			_, _ = io.WriteString(out, container+"\n")
 		}
 		return nil
@@ -863,6 +877,11 @@ func (r *finalGatewaySettlementRunner) Run(_ context.Context, args, environment 
 }
 
 func (r *finalGatewaySettlementRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
+	if len(args) >= 4 && args[0] == "inspect" && args[2] == appliedClusterInspectTemplate &&
+		(args[len(args)-1] == gatewayContainer || args[len(args)-1] == opaContainer || args[len(args)-1] == authBrokerContainer) {
+		payload, _ := json.Marshal(r.component(args[len(args)-1]))
+		return payload, nil
+	}
 	if len(args) >= 4 && args[0] == "inspect" && strings.Contains(args[2], ".State.Status") && args[len(args)-1] == gatewayContainer {
 		return []byte(`{"state":"running","health":"healthy"}`), nil
 	}
@@ -1074,6 +1093,39 @@ func finalGatewayCoordinatorPlanFixture(
 		t.Fatal(err)
 	}
 	return runtime, runner, journal
+}
+
+func TestFinalGatewayPreparedRecoveryRestartsOnlyExactJournaledComponents(t *testing.T) {
+	runtime, runner, journal := finalGatewayCoordinatorFixture(t, finalProjectionWorkspaceA)
+	runner.selected = true
+	runner.componentStates = map[string]string{opaContainer: "exited", gatewayContainer: "exited"}
+	wantRestart := []string{opaContainer, gatewayContainer}
+	if brokerRuntimeEnabled {
+		runner.componentStates[authBrokerContainer] = "exited"
+		wantRestart = append(wantRestart, authBrokerContainer)
+	}
+	if err := runtime.resumeFinalGatewaySettlement(context.Background(), journal); err != nil {
+		t.Fatalf("recover prepared settlement after exact component interruption: %v", err)
+	}
+	if len(runner.restartCalls) != 1 || !slices.Equal(runner.restartCalls[0], wantRestart) {
+		t.Fatalf("prepared recovery restarts=%v want exactly %v", runner.restartCalls, wantRestart)
+	}
+	if _, present, err := runtime.readFinalGatewaySettlementJournal(); err != nil || present {
+		t.Fatalf("prepared recovery retained journal: present=%t err=%v", present, err)
+	}
+}
+
+func TestFinalGatewayPreparedRecoveryRejectsStoppedIdentityDriftBeforeRestart(t *testing.T) {
+	runtime, runner, journal := finalGatewayCoordinatorFixture(t)
+	runner.selected = true
+	runner.componentStates = map[string]string{opaContainer: "exited"}
+	runner.candidate.OPAImageID = "sha256:" + strings.Repeat("8", 64)
+	if err := runtime.resumeFinalGatewaySettlement(context.Background(), journal); err == nil {
+		t.Fatal("prepared settlement restarted a stopped component with drifted identity")
+	}
+	if len(runner.restartCalls) != 0 {
+		t.Fatalf("drifted prepared recovery reached restart: %v", runner.restartCalls)
+	}
 }
 
 func TestFinalSharedNetworkRefreshPersistsReplacementAddressesInRecoveryJournal(t *testing.T) {

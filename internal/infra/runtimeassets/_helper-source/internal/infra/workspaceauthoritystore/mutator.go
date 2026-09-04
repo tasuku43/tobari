@@ -89,6 +89,8 @@ type policyCandidateObservationAuthority interface {
 type FinalAuthoritySettlementAuthority interface {
 	SettleFinalAuthority(context.Context, tobari.WorkspaceAuthorityCollection, tobari.WorkspaceAuthorityCollection, tobari.ContextID, string, string) error
 	ConfirmFinalAuthoritySettled(context.Context, tobari.WorkspaceAuthorityCollection, tobari.ContextID) error
+	SettleFinalWorkspaceRetirement(context.Context, tobari.WorkspaceAuthorityCollection, tobari.WorkspaceAuthorityCollection, tobari.WorkspaceBinding, string, string) error
+	ConfirmFinalWorkspaceRetirementSettled(context.Context, tobari.WorkspaceAuthorityCollection, tobari.WorkspaceBinding) error
 	SettleFinalContextDeletion(context.Context, tobari.WorkspaceAuthorityCollection, tobari.WorkspaceAuthorityCollection, tobari.ContextID, string, string) error
 	ConfirmFinalContextDeletionSettled(context.Context, tobari.WorkspaceAuthorityCollection, tobari.ContextID) error
 	SettleFinalReviewedPolicyAuthority(context.Context, tobari.WorkspaceAuthorityCollection, tobari.WorkspaceAuthorityCollection, tobari.PolicyMemoryReviewedDecisionSet, []tobari.PolicyCandidateAuthority, string, string) (tobari.PolicyMemoryReviewedSettlementReceipt, error)
@@ -869,9 +871,16 @@ func (m *Mutator) resolveWorkspaceTemplateRuntimeForActiveTemplate(
 	source tobari.RuntimeSourceRef,
 ) (tobari.RuntimeBinding, error) {
 	for _, template := range current.Templates {
-		if template.ID == id {
-			return m.ResolveWorkspaceTemplateRuntimeSourceWithRetainedBinding(ctx, source, template.Current.Body.EntryDefaults.Runtime)
+		if template.ID != id {
+			continue
 		}
+		for index := len(template.Retained) - 1; index >= 0; index-- {
+			binding := template.Retained[index].Body.EntryDefaults.Runtime
+			if source.Matches(binding) {
+				return m.ResolveWorkspaceTemplateRuntimeSourceWithRetainedBinding(ctx, source, binding)
+			}
+		}
+		return m.ResolveWorkspaceTemplateRuntimeSource(ctx, source)
 	}
 	return m.ResolveWorkspaceTemplateRuntimeSource(ctx, source)
 }
@@ -979,11 +988,13 @@ func (m *Mutator) ApplyWorkspaceTemplateSourceByReference(
 			contexts := cloneContextRecords(current.Contexts)
 			pendingCandidates := clonePolicyCandidates(current.PendingCandidates)
 			if changed {
+				// Template publication changes desired authority only. Preserve the
+				// independently active Template-policy receipt until entry or cluster
+				// reconciliation selects the new revision.
 				for contextIndex := range contexts {
 					if contexts[contextIndex].Context.TemplateID != id {
 						continue
 					}
-					contexts[contextIndex].ActiveTemplatePolicy = nil
 					if previous.Slices.BoundaryFingerprint != nextRevision.Slices.BoundaryFingerprint {
 						updated, _, supersedeErr := tobari.SupersedePolicyMemoryAllowsOutsideBoundary(contexts[contextIndex], nextRevision)
 						if supersedeErr != nil {
@@ -1484,7 +1495,7 @@ func (m *Mutator) DeleteWorkspaceByReference(ctx context.Context, ref string, fo
 				if m.settlement == nil {
 					return fmt.Errorf("final Gateway settlement authority is unavailable")
 				}
-				if err := m.settlement.SettleFinalAuthority(effectContext, current.Clone(), next.Clone(), workspace.ContextID, operation, decisionRef); err != nil {
+				if err := m.settlement.SettleFinalWorkspaceRetirement(effectContext, current.Clone(), next.Clone(), workspace, operation, decisionRef); err != nil {
 					return err
 				}
 				if err := m.deletion.CompleteWorkspaceRetirement(effectContext, workspace, force, decisionRef); err != nil {
@@ -2321,7 +2332,7 @@ func (m *Mutator) confirmCommittedEffect(ctx context.Context, current tobari.Wor
 		if m.settlement == nil {
 			return fmt.Errorf("final Gateway settlement recovery authority is unavailable")
 		}
-		if err := m.settlement.ConfirmFinalAuthoritySettled(ctx, current.Clone(), decision.Workspace.ContextID); err != nil {
+		if err := m.settlement.ConfirmFinalWorkspaceRetirementSettled(ctx, current.Clone(), *decision.Workspace); err != nil {
 			return err
 		}
 		return m.deletion.ConfirmWorkspaceRetired(ctx, *decision.Workspace, decisionRef)

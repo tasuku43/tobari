@@ -94,6 +94,68 @@ func TestActiveWorkspacePolicyProjectionRepresentsEmptyAuthority(t *testing.T) {
 	}
 }
 
+func TestWorkspaceRetirementProjectionUsesVerifiedLiveAxesWhenDesiredReceiptsArePartial(t *testing.T) {
+	base := workspaceAuthorityCollectionFixture(t)
+	active, err := BuildHotWorkspacePolicyProjection(base, base.Contexts[0].Context.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := base.Workspaces[0]
+	contexts := cloneWorkspaceAuthorityContextRecords(base.Contexts)
+	contexts[0].ActiveTemplatePolicy = nil
+	contexts[0].ActivePolicyMemory = nil
+	contexts[0].ActivePolicyMemoryRef = nil
+	next, changed, err := PublishWorkspaceAuthorityCollection(
+		base.Templates, contexts, []WorkspaceBinding{}, []PolicyCandidateAuthority{}, base.DefaultTemplateID, &base,
+	)
+	if err != nil || !changed {
+		t.Fatalf("publish partial legacy retirement state: changed=%t err=%v", changed, err)
+	}
+	if _, err := BuildHotWorkspacePolicyProjection(next, workspace.ContextID); err == nil {
+		t.Fatal("partial legacy authority unexpectedly built an ordinary hot projection")
+	}
+
+	retirement, err := BuildWorkspaceRetirementPolicyProjection(active, next, workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retirement.Mode != WorkspacePolicyProjectionActive || retirement.CollectionRevision != next.Revision ||
+		len(retirement.Contexts) != len(active.Contexts) || retirement.Contexts[0].Principal != nil ||
+		retirement.Contexts[0].TemplatePolicy.PolicySliceDigest != active.Contexts[0].TemplatePolicy.PolicySliceDigest ||
+		retirement.Contexts[0].PolicyMemory.Revision != active.Contexts[0].PolicyMemory.Revision {
+		t.Fatalf("retirement projection did not preserve live axes and remove only its principal: active=%+v retirement=%+v", active, retirement)
+	}
+	replayed, err := BuildWorkspaceRetirementPolicyProjection(retirement, next, workspace)
+	if err != nil || !reflect.DeepEqual(replayed, retirement) {
+		t.Fatalf("settled retirement projection did not replay exactly: replayed=%+v err=%v", replayed, err)
+	}
+}
+
+func TestWorkspaceRetirementProjectionRejectsRetainedOrReboundTarget(t *testing.T) {
+	base := workspaceAuthorityCollectionFixture(t)
+	active, err := BuildHotWorkspacePolicyProjection(base, base.Contexts[0].Context.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := base.Workspaces[0]
+	if _, err := BuildWorkspaceRetirementPolicyProjection(active, base, workspace); err == nil {
+		t.Fatal("retirement projection accepted a still-bound Workspace")
+	}
+	next, _, err := PublishWorkspaceAuthorityCollection(
+		base.Templates, base.Contexts, []WorkspaceBinding{}, []PolicyCandidateAuthority{}, base.DefaultTemplateID, &base,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rebound := active.Clone()
+	rebound.Contexts[0].Principal.ProjectRoot = "/foreign"
+	rebound.ContentDigest, _ = workspacePolicyProjectionContentDigest(rebound)
+	rebound.PlanDigest, _ = workspacePolicyProjectionPlanDigest(rebound)
+	if _, err := BuildWorkspaceRetirementPolicyProjection(rebound, next, workspace); err == nil {
+		t.Fatal("retirement projection accepted a rebound principal")
+	}
+}
+
 func TestWorkspacePolicyProjectionPreservesFullyInactiveContexts(t *testing.T) {
 	base := workspaceAuthorityCollectionFixture(t)
 	inactiveID := ContextID("01912345-6789-7abc-8def-0123456789a4")
