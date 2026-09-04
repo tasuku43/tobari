@@ -27,9 +27,10 @@ aws sso login --profile your-profile
 ```
 
 Claude Code and Codex are part of the locally built agent-ready base. Their
-native state is written below that Workspace's persistent home. It survives
-`exit` and container recreation, is not shared with another Workspace, and is
-removed by `tobari workspace delete --id WORKSPACE_REF --confirm=delete`.
+native state is written below the Context Home mounted into that Workspace. It
+survives `exit`, container recreation, and Workspace replacement, and is not
+shared with another Context. `context delete` retires it after the Context has
+no Workspace or attachment.
 
 Tobari never copies the host home, host CLI login state, Keychain, SSH agent,
 or credential environment into the Workspace.

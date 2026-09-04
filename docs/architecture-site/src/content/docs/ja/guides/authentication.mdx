@@ -27,9 +27,9 @@ aws sso login --profile your-profile
 ```
 
 Claude Code と Codex はローカルでビルドされる agent-ready base に含まれます。
-ネイティブ認証状態はその Workspace の永続 home に保存されます。`exit` や
-container 再作成後も残り、別の Workspace とは共有されず、`tobari workspace delete --id WORKSPACE_REF --confirm=delete` で
-削除されます。
+ネイティブ認証状態は Workspace にマウントされた Context Home に保存されます。
+`exit`、container 再作成、Workspace 置換後も残り、別の Context とは共有されません。
+Workspace と attachment がない状態で `context delete` を行うと削除されます。
 
 Tobari は host home、host CLI のログイン状態、Keychain、SSH agent、認証用
 環境変数を Workspace にコピーしません。

@@ -89,7 +89,7 @@ The agent types `exit`, then the user runs `tobari workspace delete --id WORKSPA
 <details>
 <summary>Answer</summary>
 
-`exit` ends the attached shell while preserving the Workspace, home, Context binding, runtime resources, and policy. `workspace delete` removes one exact detached Workspace and its owned home/container/network/principal/state, while preserving project files, Context, Policy Memory, and Workspace Template. See [Workspace lifecycle](../../how-it-works/workspace-lifecycle/).
+`exit` ends the attached shell while preserving the Workspace, Context Home, runtime resources, and policy. `workspace delete` removes one exact detached Workspace and its container/network/principal/runtime state while preserving project files, Context Home and native state, Policy Memory, and Workspace Template. See [Workspace lifecycle](../../how-it-works/workspace-lifecycle/).
 
 </details>
 
@@ -171,13 +171,13 @@ Workspace/project/host/method/path effect remains the policy identity. See
 
 ## 14. Purging the cluster
 
-The user deletes every Workspace and runs `tobari cluster down --purge`. Are Workspace homes and host-owned state deleted?
+The user deletes every Workspace and runs `tobari cluster down --purge`. Are Context Homes and host-owned state deleted?
 
 <details>
 <summary>Answer</summary>
 
-No. `--purge` additionally removes the shared Gateway CA volumes. Workspace
-home and host-owned state remain; logout remains the agent CLI's responsibility.
+No. `--purge` additionally removes the shared Gateway CA volumes. Context
+Homes and host-owned state remain; logout remains the agent CLI's responsibility.
 See [State and recovery](../../how-it-works/state-and-recovery/).
 
 </details>

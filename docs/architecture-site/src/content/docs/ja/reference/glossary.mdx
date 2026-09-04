@@ -13,7 +13,7 @@ description: Tobari の実行、ネットワーク、ポリシー、認証、状
 
 ### Workspace
 
-Context が所有する、置き換え可能な隔離インスタンスです。安定した Workspace ID、専用 home、最後に成功した AppliedEntry、実行時リソースを持ちます。セッション終了は Workspace の削除ではなく、Workspace の削除後も Context と Policy Memory は残ります。
+Context が所有する、置き換え可能な隔離インスタンスです。安定した Workspace ID、最後に成功した AppliedEntry、実行時リソースを持ち、Context Home をマウントします。セッション終了は Workspace の削除ではなく、Workspace の削除後も Context、Home、Policy Memory は残ります。
 
 ### プロジェクトルート
 
@@ -25,7 +25,11 @@ Workspace だけがbindする正規化済みホストディレクトリです。
 
 ### Context
 
-一つの Workspace Template ID に対するlocation-freeで永続かつ不変の binding です。Policy Memory を所有し、Workspace の置換や削除後も残ります。公開 name/default selector はなく、非既定の操作は discovery が返す exact `context` reference を使います。
+一つの Workspace Template ID に対するlocation-freeで永続かつ不変の binding です。Policy Memory と一つの managed Home を所有し、Workspace の置換や削除後も残ります。公開 name/default selector はなく、非既定の操作は discovery が返す exact `context` reference を使います。
+
+### Context Home
+
+一つの Context が所有し、その時点の Workspace にマウントする、独立した永続書き込み可能ホームです。agent CLI はここに native login state を保存します。session exit、container 再作成、Workspace の削除や置換後も残り、Workspace と attachment がない状態で exact `context delete` を行うと削除されます。
 
 ### Policy Memory
 
@@ -38,10 +42,6 @@ bare root entry と bare `status` が使うインストール既定の Workspace
 ### クラスター
 
 共有 Gateway、OPA、ネットワーク、CA ボリューム、ポリシー投影の集合です。各 Context は結び付いた Template baseline と Policy Memory を提供し、クラスターは有効な完全集合を強制します。
-
-### Workspace home
-
-Workspace が所有する独立した書き込み可能ホームです。agent CLI はここに自分のログイン状態を保存します。セッション終了やコンテナ再作成後も残り、Workspace の `workspace delete` で削除されます。
 
 ### ランタイムイメージ
 
@@ -210,7 +210,7 @@ immutable Template、Context、Policy Memory、Workspace object と optional def
 | 認証と認可                         | agent CLI がログイン済みでも OPA は HTTP effect を拒否できる                              |
 | CA の信頼とポリシー許可            | CA は検査の前提、許可は一つの正規化された効果を通す判断                                   |
 | Workspace 識別情報とツールログイン | 前者はホスト由来、後者は agent CLI が Workspace home に所有                               |
-| `exit` と `workspace delete`       | 前者はセッション終了、後者は論理 Workspace とホームの削除                                 |
+| `exit` と `workspace delete`       | 前者はセッション終了、後者は Context Home を保持した論理 Workspace／runtime の削除        |
 | タグとダイジェスト                 | タグは移動可能、ダイジェストは不変 OCI コンテンツの識別                                   |
 
 ## 障害と制限

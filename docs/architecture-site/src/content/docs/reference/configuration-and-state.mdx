@@ -51,15 +51,15 @@ boundary, and adopting that revision requires a later Template edit and Apply.
 
 ## Durable runtime state
 
-| Path below the state root                   | Contract and lifetime                                                                                                                                                            |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `authority/`                                | Immutable concept objects, complete generation manifests, verified `active.json`, tombstones, and recovery journals.                                                             |
-| `runtimes/<runtime-id>/`                    | Immutable Runtime revisions, build receipts, and lifecycle state; editable source remains under the config root.                                                                 |
-| Workspace home owned by the Workspace owner | Independent writable home for native login and tool configuration; it survives exit and recreation, and exact `workspace delete --id WORKSPACE_REF --confirm=delete` removes it. |
-| `state.json`                                | Shared cluster state and active aggregate receipts; never credential contents or desired authority.                                                                              |
-| `workspace-authority-policy/`               | Content-addressed complete policy projections and bounded activation receipt/journal state.                                                                                      |
-| `runtime/`                                  | Host-owned Gateway runtime directory; sockets are recreated with services and are not durable credentials.                                                                       |
-| `runtime/<asset-revision>/`                 | Materialized embedded Compose, Gateway, OPA, and runtime assets.                                                                                                                 |
+| Path below the state root         | Contract and lifetime                                                                                                                                                                             |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `authority/`                      | Immutable concept objects, complete generation manifests, verified `active.json`, tombstones, and recovery journals.                                                                              |
+| `runtimes/<runtime-id>/`          | Immutable Runtime revisions, build receipts, and lifecycle state; editable source remains under the config root.                                                                                  |
+| Context Home owned by one Context | Independent writable home for native login and tool configuration; it survives exit, recreation, and Workspace deletion, and exact `context delete --id CONTEXT_REF --confirm=delete` retires it. |
+| `state.json`                      | Shared cluster state and active aggregate receipts; never credential contents or desired authority.                                                                                               |
+| `workspace-authority-policy/`     | Content-addressed complete policy projections and bounded activation receipt/journal state.                                                                                                       |
+| `runtime/`                        | Host-owned Gateway runtime directory; sockets are recreated with services and are not durable credentials.                                                                                        |
+| `runtime/<asset-revision>/`       | Materialized embedded Compose, Gateway, OPA, and runtime assets.                                                                                                                                  |
 
 Workspace Template policy source consists only of canonical typed policy data
 in `policy.yaml`. The current schema is
@@ -103,16 +103,16 @@ generation does.
 
 ## What remains after each operation?
 
-| Operation                                                               | What changes                                                                                             | What remains                                                                                                      |
-| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Shell `exit` or child-command completion                                | Only the attached exec session ends.                                                                     | Workspace, work container, dedicated network, home, Context, Policy Memory, project files, and credentials.       |
-| `workspace delete`                                                      | Removes the exact detached Workspace authority, container, network, home, and runtime records.           | Project-root files, Context, Policy Memory, Workspace Template, cluster, host-owned state, and other Workspaces.  |
-| `workspace delete --id WORKSPACE_REF --confirm=delete --force`          | Performs the same deletion while overriding only the “attached exec exists” guard.                       | It does not broaden the target or delete project-root files.                                                      |
-| Container or project-network loss                                       | The next root entry reconciles the missing owned runtime resource.                                       | Workspace identity, Context binding, active authority generation, home, and project files.                        |
-| `cluster down`                                                          | Requires no logical Workspace; removes shared containers and transient shared resources.                 | Workspace Templates, policies, Workspace homes, host-owned state, and Gateway CA volumes.                         |
-| `cluster down --purge`                                                  | Also removes only the shared Gateway/public CA volumes.                                                  | Workspace Templates, policies, Workspace homes, and host-owned state.                                             |
-| `runtime build --id RUNTIME_REF`                                        | Snapshots, builds, validates, and appends one immutable Runtime revision.                                | Every Workspace Template binding and Workspace remains unchanged; failed and unchanged builds append no revision. |
-| edit `template.yaml`; `template plan`; `template apply --plan PLAN_REF` | Reviews and atomically publishes one complete Template revision, including an exact Runtime ID+revision. | Existing Workspace identity, home, and current container until the next entry reconciles it.                      |
+| Operation                                                               | What changes                                                                                               | What remains                                                                                                                           |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Shell `exit` or child-command completion                                | Only the attached exec session ends.                                                                       | Workspace, work container, dedicated network, home, Context, Policy Memory, project files, and credentials.                            |
+| `workspace delete`                                                      | Removes the exact detached Workspace authority, container, network, and Workspace-private runtime records. | Project-root files, Context Home and native state, Policy Memory, Workspace Template, cluster, host-owned state, and other Workspaces. |
+| `workspace delete --id WORKSPACE_REF --confirm=delete --force`          | Performs the same deletion while overriding only the “attached exec exists” guard.                         | It does not broaden the target or delete project-root files.                                                                           |
+| Container or project-network loss                                       | The next root entry reconciles the missing owned runtime resource.                                         | Workspace identity, Context binding, active authority generation, home, and project files.                                             |
+| `cluster down`                                                          | Requires no logical Workspace; removes shared containers and transient shared resources.                   | Workspace Templates, policies, Workspace homes, host-owned state, and Gateway CA volumes.                                              |
+| `cluster down --purge`                                                  | Also removes only the shared Gateway/public CA volumes.                                                    | Workspace Templates, policies, Workspace homes, and host-owned state.                                                                  |
+| `runtime build --id RUNTIME_REF`                                        | Snapshots, builds, validates, and appends one immutable Runtime revision.                                  | Every Workspace Template binding and Workspace remains unchanged; failed and unchanged builds append no revision.                      |
+| edit `template.yaml`; `template plan`; `template apply --plan PLAN_REF` | Reviews and atomically publishes one complete Template revision, including an exact Runtime ID+revision.   | Existing Workspace identity, home, and current container until the next entry reconciles it.                                           |
 
 The default official runtime is a local image built from the CLI's pinned
 embedded recipe when absent. A release-derived local tag identifies the recipe
@@ -220,10 +220,10 @@ You should now be able to explain why deleting a container is not the same as
 deleting a Workspace.
 
 <details>
-  <summary>Does `cluster down --purge` delete Workspace home or host-owned lifecycle state?</summary>
+  <summary>Does `cluster down --purge` delete Context Home or host-owned lifecycle state?</summary>
 
 No. It removes shared runtime resources and additionally the shared CA
-volumes. Workspace home and host-owned lifecycle state remain.
+volumes. Context Home and host-owned lifecycle state remain.
 
 </details>
 

@@ -4,7 +4,7 @@ description: coding agent のネイティブログインを Workspace 内で実�
 ---
 
 agent binary が存在していても、account credential があるとは限りません。
-release surface では agent CLI が Workspace 内のログイン状態を所有します。
+release surface では agent CLI が Workspace に mount された Context Home 内のログイン状態を所有します。
 
 ## ネイティブログインを実行する
 
@@ -40,8 +40,8 @@ Workspace に残ることを一行だけ案内する場合があります。dire
 自身の prompt を使います。Tobari は host login/setup stage を持たず、credential
 state を検査しません。
 
-生成された状態はこの Workspace の永続 home に保存されます。通常の `exit` や
-work container の置換後も残りますが、host からコピーされず、別 Workspace とも
+生成された状態はこの Workspace に mount された Context Home に保存されます。通常の `exit`、
+work container の置換、Workspace の削除後も残りますが、host からコピーされず、別 Context とも
 共有されません。
 
 attached native AWS SSO login では、review 済みの動的 localhost callback がこの
@@ -68,9 +68,10 @@ tobari review permissions
 ## credential の lifetime
 
 - `exit` 後も Workspace とネイティブログイン状態は残ります。
-- runtime rebuild や container recovery は同じ Workspace home を使います。
-- `tobari workspace delete --id <workspace-ref> --confirm=delete` は完全一致する
-  Workspace home と tool-owned credential を削除します。
+- runtime rebuild や container recovery は同じ Context Home を使います。
+- `tobari workspace delete --id <workspace-ref> --confirm=delete` は Context Home と
+  tool-owned credential を置換後の Workspace のために保持します。Workspace と
+  attachment がない状態で `context delete` を行うと削除します。
 - host home、Keychain、SSH agent、host credential variable は継承されません。
 
 [認証の詳細](../../guides/authentication/) または

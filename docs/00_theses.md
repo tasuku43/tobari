@@ -101,7 +101,7 @@ selector or authority: bare `tobari review` is catalog-derived discovery only,
 services` owns immediate attachment-local Allow once or Deny. The lower-level
 `policy` and `service` namespaces retain resource discovery and exact actions.
 One installation-local standard cluster shares one Gateway, one OPA, an atomic
-all-Context policy projection, and CA state without sharing Workspace homes or
+all-Context policy projection, and CA state without sharing Context Homes or
 runtime networks. The repository-only research surface may additionally
 compile the Auth Broker research boundary. Host-issued Context
 principals bind mutable learned permissions to the exact current-directory
@@ -281,6 +281,13 @@ through exact ownership checks.
   denial-to-retry path, including discovery rounds and undeclared external
   processing, rather than checking only that each command is individually
   correct.
+- Release readiness proves both cold first use and one exact persisted-state
+  transition from the nearest reachable annotated development release. The
+  latter uses the predecessor release surface to create real authority and a
+  Workspace, changes ordinary authority only after replacing the executable
+  with the candidate, and requires repeated bare entry to preserve the same
+  logical Workspace and Context-owned Home. Fresh-state success, package
+  identity, and focused receipt tests are not substitutes for that timeline.
 - Human CLI help and README lead with the bounded-autonomy outcome and an
   exact next action; scoped agent help retains the complete catalog contract.
 - One deterministic CLI-experience eligibility test rejects concrete palettes,
@@ -1088,12 +1095,12 @@ remembered Allows with provenance; loosening grants no authority by itself.
 Other fields share Template ownership but activate only at their
 typed boundary: cluster projection at `cluster up`, entry state at explicit
 Workspace entry, session defaults for a later child session, and creation
-defaults once for a new Workspace home.
+defaults once for a new Context Home.
 
 A Context is a location-free durable immutable binding to one
-WorkspaceTemplateID and owns Policy Memory. A Workspace is the replaceable
-applied instance that alone binds one canonical Project root to one Context and
-managed Home. It permanently records ContextID, its create-once state, the last successful AppliedEntry, and
+WorkspaceTemplateID and owns Policy Memory and one complete managed Home. A
+Workspace is the replaceable applied instance that alone binds one canonical
+Project root to one Context and mounts that Home. It permanently records ContextID, its create-once state, the last successful AppliedEntry, and
 at most one bounded latest failed or unknown reconciliation. Desired,
 last-successful applied, and currently observed facts remain separate. Tobari
 has no resident controller: only explicit Workspace entry and `cluster up`
@@ -1113,7 +1120,7 @@ selects current Context by opaque reference without reading CWD. At a root
 without a Workspace, explicit create-here binds that Context only while it is
 unattached; if it already owns a Workspace, Tobari creates a distinct Context
 from the default Template. Neither path rewrites the current selector.
-Tool-native authentication state remains below each Workspace home and is not a
+Tool-native authentication state remains below each Context Home and is not a
 Workspace Template secret. In the research surface, a brokered credential is owned once by a stable Context and
 enables that Context's Workspace to receive a Context/Workspace-bound
 handle on its next reconciliation. A declared provider binding is handle-only;
@@ -1383,7 +1390,7 @@ no-Rego checks.
 ### Typed Workspace bootstrap is a Workspace Template recipe, not host inheritance
 
 A Workspace Template may snapshot a closed, schema-versioned, secret-free subset of host
-tool configuration for one-time projection into future Workspace homes. Each
+tool configuration for one-time projection into future Context Homes. Each
 adapter owns exact source paths, selected fields, normalization, dependencies,
 semantic revision, and hostile-input tests. The first adapter accepts one AWS
 IAM Identity Center profile plus its referenced SSO session from
@@ -1407,10 +1414,10 @@ not invalidate it. Direct command flags retain exact selector compatibility.
 
 Projection occurs only while a new logical Workspace is being created and is
 recorded before that Workspace becomes authoritative. Workspace Template refresh changes
-only the recipe for future Workspaces. Existing Workspace homes are never
+only the recipe for future Context Homes. Existing Context Homes are never
 synchronized or rewritten and retain their create-time revision. This grants
 no network permission and transfers no authentication authority; native login
-remains owned by each Workspace home.
+remains owned by each Context Home.
 
 MVP does not support multiple clusters, non-EKS clusters or generic kubeconfig,
 process-level identity, a per-project

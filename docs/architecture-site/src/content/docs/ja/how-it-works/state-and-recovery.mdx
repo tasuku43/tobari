@@ -21,21 +21,21 @@ Tobari は、プロジェクト、Workspace、Workspace Template、Runtime、ク
 
 以下のパスは、特に記載がない限り、実際に使われる XDG の設定／状態ルートからの相対パスです。
 
-| 状態                                                         | 管理主体と意味                                                                                    | 寿命                                                                                     |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| プロジェクトルート                                           | immutable Workspace Template の `source_access` に従って mount する user-selected live host file  | Tobari のライフサイクル操作では削除しない                                                |
-| config の `templates/`、`contexts/`、`runtimes/`             | concept ごとに分離した editable desired source。reviewed Apply または Runtime build まで inactive | source の missing/invalid は drift であり last-known-good active authority を削除しない  |
-| state の `authority/`                                        | immutable concept object、完全な generation manifest、検証済み active pointer、tombstone、journal | Context は Workspace 削除後も残り、各 exact resource action が狭い削除範囲を所有する     |
-| `workspace-authority-runtime/workspaces/<workspace-id>/home` | Workspace ごとの書き込み可能 home と agent CLI 所有の login state                                 | `exit` や Runtime 再作成後も残り、exact Workspace delete で消える                        |
-| Workspace Template revision                                  | stable ID、reviewed edit 可能な Boundary、static policy、exact Runtime binding、typed defaults    | Context、Workspace、cluster runtime より長く残り、exact Template delete でだけ消える     |
-| Runtime `source/` と不変リビジョン                           | インストール全体で再利用するビルドソースと成功履歴                                                | Workspace と Workspace Template のライフサイクルを越えて残り、build だけでは展開されない |
-| Workspace Template のポリシーデータ                          | 再利用可能な canonical typed policy data                                                          | complete immutable Template revision の発行でだけ変わる                                  |
-| Context Policy Memory                                        | 一つのlocation-freeな Template Context が所有する完全な remembered-decision revision              | Workspace replacement 後も残り、Context と一緒にだけ消える                               |
-| 統合ポリシー生成物                                           | OPA に読み取り専用でマウントする全 Context 用ルーター、データ、モジュールの写し                   | 原本から不可分に公開し、クラスター稼働中だけ有効                                         |
-| 現在有効なポリシーバンドル                                   | owner label 付きの Docker 管理ボリュームにある完全な OPA bundle                                   | `cluster down --purge` だけが削除し、原本から再構築する                                  |
-| プリンシパル台帳                                             | host-issued の Workspace 送信元、Gateway endpoint、network、Context／Workspace の結び付き         | Workspace network に合わせて調整し、Gateway に read-only で mount                        |
-| host-owned lifecycle state                                   | Runtime と policy が使うホスト設定、信頼情報、検査結果                                            | `cluster down` と `--purge` の後も残り、安全でなければ停止                               |
-| Gateway CA state                                             | Workspace 側の HTTPS 検査に使う install-local CA                                                  | 通常の `cluster down` 後も残り、共有 CA volume は `--purge` で削除                       |
+| 状態                                                     | 管理主体と意味                                                                                    | 寿命                                                                                     |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| プロジェクトルート                                       | immutable Workspace Template の `source_access` に従って mount する user-selected live host file  | Tobari のライフサイクル操作では削除しない                                                |
+| config の `templates/`、`contexts/`、`runtimes/`         | concept ごとに分離した editable desired source。reviewed Apply または Runtime build まで inactive | source の missing/invalid は drift であり last-known-good active authority を削除しない  |
+| state の `authority/`                                    | immutable concept object、完全な generation manifest、検証済み active pointer、tombstone、journal | Context は Workspace 削除後も残り、各 exact resource action が狭い削除範囲を所有する     |
+| `workspace-authority-runtime/contexts/<context-id>/home` | Context-owned の書き込み可能 home と agent CLI 所有の login state                                 | `exit`、Runtime 再作成、Workspace削除後も残り、exact Context delete で消える             |
+| Workspace Template revision                              | stable ID、reviewed edit 可能な Boundary、static policy、exact Runtime binding、typed defaults    | Context、Workspace、cluster runtime より長く残り、exact Template delete でだけ消える     |
+| Runtime `source/` と不変リビジョン                       | インストール全体で再利用するビルドソースと成功履歴                                                | Workspace と Workspace Template のライフサイクルを越えて残り、build だけでは展開されない |
+| Workspace Template のポリシーデータ                      | 再利用可能な canonical typed policy data                                                          | complete immutable Template revision の発行でだけ変わる                                  |
+| Context Policy Memory                                    | 一つのlocation-freeな Template Context が所有する完全な remembered-decision revision              | Workspace replacement 後も残り、Context と一緒にだけ消える                               |
+| 統合ポリシー生成物                                       | OPA に読み取り専用でマウントする全 Context 用ルーター、データ、モジュールの写し                   | 原本から不可分に公開し、クラスター稼働中だけ有効                                         |
+| 現在有効なポリシーバンドル                               | owner label 付きの Docker 管理ボリュームにある完全な OPA bundle                                   | `cluster down --purge` だけが削除し、原本から再構築する                                  |
+| プリンシパル台帳                                         | host-issued の Workspace 送信元、Gateway endpoint、network、Context／Workspace の結び付き         | Workspace network に合わせて調整し、Gateway に read-only で mount                        |
+| host-owned lifecycle state                               | Runtime と policy が使うホスト設定、信頼情報、検査結果                                            | `cluster down` と `--purge` の後も残り、安全でなければ停止                               |
+| Gateway CA state                                         | Workspace 側の HTTPS 検査に使う install-local CA                                                  | 通常の `cluster down` 後も残り、共有 CA volume は `--purge` で削除                       |
 
 クラスター状態には、共有資源名、読み込み済み Workspace Template 数、内容アドレス方式で作った
 統合データの版、生成物のパスも記録します。現在選択中の Workspace Template は通信制御の権限ではなく、
@@ -43,14 +43,14 @@ Workspace home のログイン状態も Workspace Template に含めません。
 
 ## 操作ごとに保持するもの
 
-| 操作または出来事          | Workspace home／identity                                        | Workspace Template／policy                 | shared service／CA                            | project files |
-| ------------------------- | --------------------------------------------------------------- | ------------------------------------------ | --------------------------------------------- | ------------- |
-| `exit`                    | 保持                                                            | 保持                                       | 稼働を続け、CA も保持                         | 保持          |
-| `workspace delete`        | 対象 Workspace の home、Runtime 記録、container、network を削除 | Workspace Template と policy source は保持 | 変更なし                                      | 保持          |
-| `cluster down`            | Workspace が残る間は拒否                                        | 保持                                       | service と一時 network を削除、CA は保持      | 保持          |
-| `cluster down --purge`    | 保持                                                            | 保持                                       | service、共有 CA、active policy bundle を削除 | 保持          |
-| Runtime の再作成          | identity と home は保持。container は次の entry で調整          | policy は保持                              | 変更なし                                      | 保持          |
-| container／network の消失 | logical state と home は保持                                    | 保持                                       | 必要に応じて Gateway を再接続                 | 保持          |
+| 操作または出来事          | Context Home／Workspace identity                         | Workspace Template／policy                        | shared service／CA                            | project files |
+| ------------------------- | -------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------- | ------------- |
+| `exit`                    | 保持                                                     | 保持                                              | 稼働を続け、CA も保持                         | 保持          |
+| `workspace delete`        | Workspace identity/runtime を削除し、Context Home は保持 | Workspace Template、Context、Policy Memory は保持 | 変更なし                                      | 保持          |
+| `cluster down`            | Workspace が残る間は拒否                                 | 保持                                              | service と一時 network を削除、CA は保持      | 保持          |
+| `cluster down --purge`    | 保持                                                     | 保持                                              | service、共有 CA、active policy bundle を削除 | 保持          |
+| Runtime の再作成          | identity と home は保持。container は次の entry で調整   | policy は保持                                     | 変更なし                                      | 保持          |
+| container／network の消失 | logical state と home は保持                             | 保持                                              | 必要に応じて Gateway を再接続                 | 保持          |
 
 ## 正本に従って復旧する
 
@@ -83,7 +83,7 @@ outcome が unknown なら fail closed します。Docker resource から replac
 ## 具体的な復旧シナリオ
 
 ホスト再起動後、Workspace container と専用 network はありませんが、active authority generation
-には Context と Workspace が残り、Workspace home も保持されています。
+には Context と Workspace が残り、Context Home も保持されています。
 
 1. `tobari` が canonical root の Workspace と、installation default Template に属するその exact Context を解決する
 2. Context の current Template revision と exact Runtime binding を検証する
@@ -105,11 +105,11 @@ outcome が unknown なら fail closed します。Docker resource から replac
 ## 保証と制限
 
 **保証すること:** ライフサイクル操作の範囲は限定され、project files は削除しません。有効な
-logical state から作り直せる Docker state は記録に合わせて調整できます。Workspace home と
+logical state から作り直せる Docker state は記録に合わせて調整できます。Context Home と
 host-owned lifecycle state は `cluster down --purge` の後も残ります。policy の一部だけを有効化
 することはありません。
 
-**保証しないこと:** 手動削除した project files、削除済みの Workspace home、破損した host storage、
+**保証しないこと:** 手動削除した project files、手動削除した Context Home、破損した host storage、
 侵害された trust host、外部 service 側のログイン失効、project 移動後の自動判定。
 
 ## 根拠となるソース

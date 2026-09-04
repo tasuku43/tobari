@@ -487,7 +487,8 @@ Context option overrides only one invocation.
 Template current, active Template-policy, current/active Context Policy Memory,
 Workspace AppliedEntry, and live observation are independent:
 
-- Template mutation publishes desired state only.
+- Template mutation publishes desired state only and retains the prior active
+  receipts until entry or cluster reconciliation replaces them.
 - `cluster up` validates and atomically activates one complete installation
   projection with separate Template-policy and Policy-Memory receipts per
   Context.
@@ -504,10 +505,25 @@ failure or unknown outcome without replacing prior success. Runtime
 reconciliation publishes AppliedEntry only after runtime, health, network,
 principal, and endpoint checks succeed.
 
+Workspace retirement builds an active-authority projection with the exact
+target principal removed. For pre-fix collections whose active receipts are
+partial, infrastructure may reconstruct only that projection from the last
+validated live activation receipt, rebind it to the reviewed next collection,
+and remove no other principal or policy content.
+Prepared Gateway-settlement recovery also owns bounded component-liveness
+repair. When an exact journaled Gateway or OPA was stopped by a host restart or
+OOM event before the policy fence, same-action replay validates the existing
+container IDs, images, mounts, environment, network names and aliases, plus
+every fixed Workspace address, before restarting those exact containers.
+Absence or identity/topology drift performs no restart.
+
 Runtime lifecycle observation joins current/retained Template Runtime
 references, Workspace applied/pending/observed evidence, journals, receipts,
 and bounded Docker facts. Build, restore, prune, and delete remain Runtime-owned
-actions. Root never invokes them implicitly.
+actions. Template Plan resolves an exact historical standard binding only from
+the same Template's retained revisions, which permits a custom-to-standard
+revert without creating another selector. Root never invokes Runtime lifecycle
+actions implicitly.
 
 The cluster projection is per Context: its static slice derives from the bound
 Template revision and its learned slice from current Policy Memory. OPA and
@@ -849,7 +865,8 @@ the separate mount-free login container; it never makes an ordinary Workspace
 process or image executable a general host helper. Codex uses the official standalone package, which keeps its
 CLI companion binaries and Linux sandbox resources together. Agent executables
 and package resources live in image-owned `/usr/local/bin` and `/opt/tobari`
-paths; `/var/lib/tobari` contains only per-Workspace home state and is safe to
+paths; `/var/lib/tobari` contains only the Context Home mounted for that
+Workspace and is safe to
 replace with the persistent home bind. The base lock records each upstream
 artifact's version, source, license-review state, architecture, checksum, and
 size; there are no per-agent child images.
@@ -886,7 +903,7 @@ Project runtime path mapping is owned by the Docker adapter. The selected root
 is mounted exactly once with the bound Workspace Template's immutable source access. If
 its canonical path is below the host
 home, the adapter maps the host-home-relative suffix below `/var/lib/tobari`;
-otherwise it uses the mirrored `/workspace` path. The per-Workspace home mount
+otherwise it uses the mirrored `/workspace` path. The Context Home mount
 is established before a nested project mount, and the runtime image contract
 keeps executable and package assets in `/usr/local/bin` or `/opt/tobari`, not
 below `/var/lib/tobari`.
@@ -894,7 +911,10 @@ below `/var/lib/tobari`.
 The shared Gateway, OPA, and Auth Broker Compose services use fixed CPU, memory-plus-swap,
 PID, and JSON-file log rotation bounds (`10m` per file, three files) so one
 project cannot grow shared service resources without a cap. These are shared
-service ceilings, not per-project fairness controls.
+service ceilings, not per-project fairness controls. OPA additionally receives
+a fixed Go heap limit below its container ceiling so repeated watched-bundle
+activation leaves headroom for the runtime and does not make a recoverable
+final-authority settlement loop on cgroup OOM.
 
 Before any shared-component or Workspace-helper container create, the Docker
 adapter performs one timeout- and byte-bounded narrow image-metadata inspect.
@@ -1216,7 +1236,7 @@ Workspace absent
 The child Bash `exit`, or any exit from `tobari -- COMMAND [ARG...]`, ends only
 the foreground exec process and returns its exact status to the host; it does
 not fall through to Bash or stop or delete the work container, logical
-Workspace record or per-Workspace home. There is no persisted stopped or
+Workspace record or Context Home. There is no persisted stopped or
 paused state. Reference-bound `workspace delete` removes the logical
 Workspace; an attached exec makes ordinary deletion fail, and `--force` is the
 explicit host-side override of only that guard.
@@ -1367,6 +1387,15 @@ existing binding while the Gateway and Workspace guards are revalidated, then
 atomically refreshes the derived current endpoints. Any drift takes the slower
 path that closes the binding before a resource can change; interruption on that
 path leaves the source unregistered for explicit cluster reconciliation.
+The Workspace-entry decision receipt identifies the immutable reconciliation
+plan, not the revision of the surrounding authority collection. A collection
+revision may change because a policy decision, cluster operation, or unrelated
+Context changed while the selected Workspace plan remained identical. Receipt
+comparison therefore treats matching plan evidence as current across those
+changes and reserves repair for actual plan or runtime drift. The release
+upgrade harness exercises this through a historically packaged predecessor and
+the candidate release-surface binary over one persisted store and real Docker resources, rather than
+reconstructing either side with an in-memory adapter.
 Whole-projection Gateway settlement observes running Workspace principals from
 their live endpoints. For an exact stopped Workspace it instead admits only the
 already-published principal row from the prior active aggregate, after matching
@@ -1399,7 +1428,8 @@ test, and authority-reduction fence are never skipped.
 active Docker exec IDs before ordinary removal, then verifies owner, ID, and
 role labels before removing the selected container and network; an attached
 exec rejects ordinary deletion and `--force` skips only that guard. It then
-removes only its XDG home and Workspace record. Container
+removes only the Workspace-private runtime directory and Workspace record,
+preserving the Context-owned managed Home. Container
 or network loss is reconciled by the root operation; it never deletes logical
 state. Cluster status and reconcile derive project counts and network joins
 from the indexed CWD-owned records.

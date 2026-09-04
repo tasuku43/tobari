@@ -199,7 +199,7 @@ read-only Workspace Template must:
 
 - read source bytes successfully;
 - fail create, content change, delete, rename, chmod, and Git metadata writes;
-- write successfully below its Workspace home and declared tmpfs;
+- write successfully below its mounted Context Home and declared tmpfs;
 - expose no writable source alias in mount inspection;
 - include `source_access` in the runtime desired-state hash and Docker inspect
   reconciliation;
@@ -207,8 +207,8 @@ read-only Workspace Template must:
   Workspace Template.
 
 The last observation proves a live direct bind, not a snapshot or filesystem-
-integrity boundary. Neither Workspace Template is allowed to mutate the other's home,
-network, or policy state. Native credentials follow the owning Workspace home.
+integrity boundary. Neither Workspace Template is allowed to mutate the other's Context Home,
+network, or policy state. Native credentials follow the owning Context Home.
 
 ## Workspace Template policy matrix
 

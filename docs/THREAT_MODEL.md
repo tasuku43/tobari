@@ -77,7 +77,8 @@ refresh, signing, symlinks, unsafe modes, and unknown fields fail closed.
 
 ### Secret exposure or policy bypass
 
-Workspace-owned login state is deliberately inside one Workspace home. Tobari
+Agent-owned login state is deliberately inside the Context Home mounted into
+one Workspace. Tobari
 does not inherit host CLI homes, keychains, SSH agents, or credential
 environment variables.
 

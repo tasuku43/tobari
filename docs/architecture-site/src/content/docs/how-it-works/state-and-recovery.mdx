@@ -21,35 +21,35 @@ tool login state. The tables below apply the [Workspace lifecycle](/how-it-works
 
 Paths below are relative to the effective XDG configuration/state roots unless noted.
 
-| State                                                        | Owner and meaning                                                                                           | Lifetime                                                                                    |
-| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Project root                                                 | User-selected live host files mounted according to immutable Workspace Template `source_access`             | Never deleted by Tobari lifecycle commands                                                  |
-| Config `templates/`, `contexts/`, and `runtimes/`            | Concept-separated editable desired source; file edits are inactive until reviewed Apply or Runtime build    | Missing or invalid source is drift and never deletes last-known-good active authority       |
-| State `authority/`                                           | Immutable concept objects, complete generation manifests, verified active pointer, tombstones, and journals | Context survives Workspace deletion; each exact resource action owns its narrower removal   |
-| `workspace-authority-runtime/workspaces/<workspace-id>/home` | Per-Workspace writable home and tool-native login state                                                     | Survives exit/runtime recreation; removed by exact Workspace delete                         |
-| Workspace Template revision                                  | Host-owned stable ID, reviewed editable Boundary, static policy, exact Runtime revision, and typed defaults | Survives Context, Workspace, and cluster runtime operations until exact Template deletion   |
-| Runtime `source/` and immutable revisions                    | Reusable installation-wide build source and successful history                                              | Survive Workspace Template and Workspace lifecycle; builds never roll out implicitly        |
-| Workspace Template policy data                               | Reusable canonical typed policy data, owned by one Workspace Template                                       | Survives cluster runtime; changes only through a complete immutable Template revision       |
-| Context Policy Memory                                        | Complete immutable remembered-decision revision owned by one location-free Template Context                 | Survives Workspace replacement; removed only with the Context                               |
-| Aggregate policy projection                                  | Content-addressed all-Context router/data/module snapshot mounted read-only into OPA                        | Rebuilt and atomically published; transient cluster authority derived from sources          |
-| Active policy bundle                                         | Revisioned complete OPA bundle in an owner-labeled Docker-managed volume                                    | Hot-loaded by OPA; removed only by `cluster down --purge`, then rebuilt from policy sources |
-| Principal registry                                           | Host-issued schema-1 Workspace source + Gateway endpoint + network → Context/Workspace binding              | Reconciled with existing Workspace networks; mounted read-only into Gateway                 |
-| Workspace-owned agent state                                  | Per-Workspace tool configuration and login state in the persistent home                                     | Survives exit/runtime recreation; removed by Workspace delete                               |
-| Installation state                                           | Host configuration and trust material used by the runtime and policy                                        | Survives cluster down/purge; unsafe or missing state fails closed                           |
-| Gateway CA state                                             | Installation CA used for Workspace-side HTTPS interception                                                  | Survives ordinary cluster down; shared CA volumes are removed by `--purge`                  |
+| State                                                    | Owner and meaning                                                                                           | Lifetime                                                                                    |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Project root                                             | User-selected live host files mounted according to immutable Workspace Template `source_access`             | Never deleted by Tobari lifecycle commands                                                  |
+| Config `templates/`, `contexts/`, and `runtimes/`        | Concept-separated editable desired source; file edits are inactive until reviewed Apply or Runtime build    | Missing or invalid source is drift and never deletes last-known-good active authority       |
+| State `authority/`                                       | Immutable concept objects, complete generation manifests, verified active pointer, tombstones, and journals | Context survives Workspace deletion; each exact resource action owns its narrower removal   |
+| `workspace-authority-runtime/contexts/<context-id>/home` | Context-owned writable home and tool-native login state                                                     | Survives exit/runtime recreation/Workspace deletion; removed by exact Context delete        |
+| Workspace Template revision                              | Host-owned stable ID, reviewed editable Boundary, static policy, exact Runtime revision, and typed defaults | Survives Context, Workspace, and cluster runtime operations until exact Template deletion   |
+| Runtime `source/` and immutable revisions                | Reusable installation-wide build source and successful history                                              | Survive Workspace Template and Workspace lifecycle; builds never roll out implicitly        |
+| Workspace Template policy data                           | Reusable canonical typed policy data, owned by one Workspace Template                                       | Survives cluster runtime; changes only through a complete immutable Template revision       |
+| Context Policy Memory                                    | Complete immutable remembered-decision revision owned by one location-free Template Context                 | Survives Workspace replacement; removed only with the Context                               |
+| Aggregate policy projection                              | Content-addressed all-Context router/data/module snapshot mounted read-only into OPA                        | Rebuilt and atomically published; transient cluster authority derived from sources          |
+| Active policy bundle                                     | Revisioned complete OPA bundle in an owner-labeled Docker-managed volume                                    | Hot-loaded by OPA; removed only by `cluster down --purge`, then rebuilt from policy sources |
+| Principal registry                                       | Host-issued schema-1 Workspace source + Gateway endpoint + network → Context/Workspace binding              | Reconciled with existing Workspace networks; mounted read-only into Gateway                 |
+| Context-owned agent state                                | Tool configuration and login state in the persistent Context Home                                           | Survives exit/runtime recreation and Workspace deletion; removed by Context delete          |
+| Installation state                                       | Host configuration and trust material used by the runtime and policy                                        | Survives cluster down/purge; unsafe or missing state fails closed                           |
+| Gateway CA state                                         | Installation CA used for Workspace-side HTTPS interception                                                  | Survives ordinary cluster down; shared CA volumes are removed by `--purge`                  |
 
 Cluster state also records shared resource names, loaded Workspace Template count, content-addressed aggregate revision, and projection paths. It never turns the current Workspace Template into enforcement authority and never contains a primary credential.
 
 ## What each operation preserves
 
-| Operation/event                    | Workspace identity and home                                     | Workspace Template/policy                      | Workspace state and host-owned state | Shared services/CA                                    | Project files |
-| ---------------------------------- | --------------------------------------------------------------- | ---------------------------------------------- | ------------------------------------ | ----------------------------------------------------- | ------------- |
-| `exit`                             | Preserved                                                       | Template, Context, and Policy Memory preserved | Preserved                            | Running; CA preserved                                 | Preserved     |
-| `workspace delete`                 | Removed for the exact Workspace, including home/runtime records | Template, Context, and Policy Memory preserved | Installation state preserved         | Shared services unchanged                             | Preserved     |
-| `cluster down`                     | Command is refused until all Workspaces are deleted             | Preserved                                      | Preserved                            | Services/transient networks removed; CA preserved     | Preserved     |
-| `cluster down --purge`             | Same prerequisite                                               | Preserved                                      | Preserved                            | Services, shared CA, and active policy bundle removed | Preserved     |
-| Workspace Template runtime rebuild | Identity/home remain; bound container reconciles next entry     | Policy preserved                               | Preserved                            | Shared services unchanged                             | Preserved     |
-| Container/network loss             | Logical state/home remain; resources reconcile next entry       | Preserved                                      | Preserved                            | Gateway attachment/principal is repaired as needed    | Preserved     |
+| Operation/event                    | Workspace identity and home                                 | Workspace Template/policy                      | Workspace state and host-owned state | Shared services/CA                                    | Project files |
+| ---------------------------------- | ----------------------------------------------------------- | ---------------------------------------------- | ------------------------------------ | ----------------------------------------------------- | ------------- |
+| `exit`                             | Preserved                                                   | Template, Context, and Policy Memory preserved | Preserved                            | Running; CA preserved                                 | Preserved     |
+| `workspace delete`                 | Workspace identity/runtime removed; Context Home preserved  | Template, Context, and Policy Memory preserved | Installation state preserved         | Shared services unchanged                             | Preserved     |
+| `cluster down`                     | Command is refused until all Workspaces are deleted         | Preserved                                      | Preserved                            | Services/transient networks removed; CA preserved     | Preserved     |
+| `cluster down --purge`             | Same prerequisite                                           | Preserved                                      | Preserved                            | Services, shared CA, and active policy bundle removed | Preserved     |
+| Workspace Template runtime rebuild | Identity/home remain; bound container reconciles next entry | Policy preserved                               | Preserved                            | Shared services unchanged                             | Preserved     |
+| Container/network loss             | Logical state/home remain; resources reconcile next entry   | Preserved                                      | Preserved                            | Gateway attachment/principal is repaired as needed    | Preserved     |
 
 ## Recovery follows the source of truth
 
@@ -103,9 +103,9 @@ This is reconciliation, not a new Workspace.
 
 ## Guarantees and limitations
 
-**Guaranteed:** lifecycle commands have narrow owner scopes; project files are never removed; derived Docker state can be reconciled from valid logical state; Template, Context, Policy Memory, Workspace home, and host-owned state survive cluster purge; partial policy projections do not activate.
+**Guaranteed:** lifecycle commands have narrow owner scopes; project files are never removed; derived Docker state can be reconciled from valid logical state; Template, Context, Policy Memory, Context Home, and host-owned state survive cluster purge; partial policy projections do not activate.
 
-**Not guaranteed:** recovery from lost project files, deleted Workspace home, lost installation state, corrupted host storage, compromised trusted host, remote credential revocation, or automatically inferred project moves.
+**Not guaranteed:** recovery from lost project files, a manually deleted Context Home, lost installation state, corrupted host storage, compromised trusted host, remote credential revocation, or automatically inferred project moves.
 
 ## Source evidence
 
@@ -125,15 +125,16 @@ You should now be able to predict state retention without equating “container 
 
 <details>
   <summary>What does `workspace delete` remove that `exit` preserves?</summary>
-  The exact Workspace authority record, home, container, network, and its
-  principal-registry entry. Neither operation deletes project files, the
-  Context, its Policy Memory, or Workspace Template state.
+  The exact Workspace authority record, container, network, Workspace-private
+  runtime state, and principal-registry entry. Neither operation deletes project
+  files, the Context Home or native state, Policy Memory, or Workspace Template
+  state.
 </details>
 
 <details>
   <summary>What additional state does `cluster down --purge` remove?</summary>
-  The shared Gateway CA volumes. It still preserves Workspace-owned home and
-  host-owned lifecycle state.
+  The shared Gateway CA volumes. It still preserves Context Homes and host-owned
+  lifecycle state.
 </details>
 
 <details>

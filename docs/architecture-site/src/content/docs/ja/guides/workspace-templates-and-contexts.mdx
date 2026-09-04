@@ -124,7 +124,8 @@ tobari context delete --id CONTEXT_REF --confirm=delete
 tobari template delete --id TEMPLATE_REF --confirm=delete
 ```
 
-Workspace削除はhomeとnative credentialを削除しますがContext Policy Memoryを
-保持します。Context削除にはWorkspace、attachment、research credentialが
-残っていないこと、Template削除にはdefault selectionでもContext参照先でも
-ないことが必要です。
+Workspace削除は置き換え可能なWorkspaceとruntime resourceを削除しますが、
+Context-owned managed Home、native credential、Context Policy Memoryを保持します。
+Context削除にはWorkspace、attachment、research credentialが残っていないことが
+必要で、その時点でHomeも削除します。Template削除にはdefault selectionでも
+Context参照先でもないことが必要です。

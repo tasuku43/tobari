@@ -6,16 +6,16 @@ description: Understand entry, exit, deletion, runtime reconciliation, and clust
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
 A Workspace outlives the shell attached to it. `exit` ends only that exec
-session; the logical Workspace, home, runtime records, and permanent Context
+session; the logical Workspace, Context Home, runtime records, and permanent Context
 binding remain available for the next entry. `workspace delete` removes one
-replaceable Workspace and its owned state while preserving the Context and its
-Policy Memory. Cluster teardown is separate and is allowed only after all
+replaceable Workspace and its owned runtime state while preserving the Context,
+its managed Home, native state, and Policy Memory. Cluster teardown is separate and is allowed only after all
 Workspaces have been deleted.
 
 Container or network loss does not automatically mean that the logical
 Workspace is gone: entry reconciles replaceable runtime state against durable
 records. `workspace delete --id WORKSPACE_REF --confirm=delete --force` has a narrower recovery purpose, and `cluster down
---purge` is neither Workspace deletion nor removal of a Workspace-owned login. See [Workspace,
+--purge` is neither Workspace deletion nor removal of Context-owned login state. See [Workspace,
 Workspace Template, cluster, and runtime](/how-it-works/workspace-template-context-workspace-cluster/) for the
 identities used in this lifecycle.
 
@@ -49,10 +49,10 @@ Shell `exit`, an exact agent command finishing, or a nonzero child exit ends onl
 
 - the active authority generation and exact Workspace record;
 - the permanent Workspace-to-Context binding and Workspace ID;
-- the per-Workspace home and tool-owned login state;
+- the Context Home and tool-owned login state;
 - the runtime container and dedicated network;
 - Policy Memory owned by the surviving Context; and
-- Workspace-owned agent login state in the persistent home.
+- Context-owned agent login state in that persistent Home.
 
 It does not preserve pending service requests, host service listeners, or
 active service relays; those are attachment-owned and close on exit.
@@ -71,8 +71,9 @@ Context binding, or home.
 
 `workspace delete` first confirms that no exec session is attached. It verifies
 the exact opaque Workspace reference and owner labels before removing only that
-Workspace's authority record, container, network, home, and principal-registry
-entry. Its Context, Policy Memory, Template, and mounted project files remain.
+Workspace's authority record, container, network, private runtime directory,
+and principal-registry entry. Its Context Home, native state, Policy Memory,
+Template, and mounted project files remain.
 
 ### Attached → absent with `--force`
 
@@ -98,24 +99,24 @@ Durable journals cover interrupted creation and deletion so a partial file set i
 
 After that:
 
-| Operation              | Removes                                                                               | Preserves                                                                                        |
-| ---------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `cluster down`         | Shared Gateway, OPA containers and transient shared networks                          | Workspace Templates, policy sources, Workspace-owned homes, host-owned state, Gateway CA volumes |
-| `cluster down --purge` | The same shared runtime resources, shared CA volumes, and active policy-bundle volume | Workspace Templates, policy sources, Workspace-owned homes, host-owned lifecycle state           |
+| Operation              | Removes                                                                               | Preserves                                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `cluster down`         | Shared Gateway, OPA containers and transient shared networks                          | Workspace Templates, policy sources, Context Homes, host-owned state, Gateway CA volumes |
+| `cluster down --purge` | The same shared runtime resources, shared CA volumes, and active policy-bundle volume | Workspace Templates, policy sources, Context Homes, host-owned lifecycle state           |
 
 Purge means a later cluster start establishes new shared CA state. It does not
-delete Workspace-owned homes or project files. Provider login and logout remain
+delete Context Homes or project files. Provider login and logout remain
 the provider CLI's responsibility.
 
 ## Concrete example
 
 You enter `/work/service`, run a tool-native login, and then type `exit`.
 
-1. The tool's login files remain in that Workspace's persistent home.
+1. The tool's login files remain in the Context Home mounted into that Workspace.
 2. The project files and logical records remain.
 3. A later entry resumes the same Workspace and home.
 4. If the container was manually removed meanwhile, Tobari recreates it and remounts that home.
-5. If you instead run `workspace delete` while detached, the Workspace home is deleted. The project root remains.
+5. If you instead run `workspace delete` while detached, the replaceable Workspace is deleted while its Context Home and project root remain.
 
 ## Failure behavior
 
@@ -131,7 +132,7 @@ You enter `/work/service`, run a tool-native login, and then type `exit`.
 
 **Guaranteed:** session exit is not deletion; deletion targets one exact Workspace; project files are preserved; runtime resources can be recreated without changing logical identity; purge does not masquerade as logout.
 
-**Not guaranteed:** restoration of manually deleted project files or a manually deleted Workspace home; automatic migration after moving a root; preservation of tool-native login after Workspace deletion; remote provider revocation.
+**Not guaranteed:** restoration of manually deleted project files or a manually deleted Context Home; automatic migration after moving a root; remote provider revocation.
 
 ## Source evidence
 
@@ -144,7 +145,7 @@ You enter `/work/service`, run a tool-native login, and then type `exit`.
 
 ## Summary
 
-An attached session, a logical Workspace, its Docker runtime, the shared cluster, and Workspace-owned login state have different lifetimes. Use `exit` to leave, `workspace delete` to remove the Workspace, and `cluster down` to stop shared services after deletion.
+An attached session, a logical Workspace, its Docker runtime, the Context-owned login state, and the shared cluster have different lifetimes. Use `exit` to leave, `workspace delete` to remove the Workspace, `context delete` to retire its Home after blockers are absent, and `cluster down` to stop shared services after deletion.
 
 ## Check your understanding
 
@@ -169,7 +170,7 @@ You should now be able to predict what survives each lifecycle operation.
 
 <details>
   <summary>
-    Does `cluster down --purge` delete Workspace home and host-owned lifecycle
+    Does `cluster down --purge` delete Context Home and host-owned lifecycle
     state?
   </summary>
   No. It additionally removes shared CA and active policy-bundle volumes.

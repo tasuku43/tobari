@@ -253,8 +253,8 @@ is added explicitly.
 - **Tobari:** the product, executable, and ownership adjective. Tobari prepares,
   enforces, and manages Workspaces and installation-local shared services.
 - **Project:** the selected canonical host source directory and its contents.
-- **Workspace:** one replaceable isolated instance and home owned by one
-  Context. Its work container is recoverable runtime detail; the stable
+- **Workspace:** one replaceable isolated instance owned by one Context. Its
+  work container is recoverable runtime detail; the stable
   Workspace ID and permanent Context binding are authority rather than routine
   selection inputs.
 - **cluster:** the one installation-local Gateway, one OPA, aggregate policy,
@@ -277,8 +277,11 @@ is added explicitly.
   `read-only` or `read-write` source access. A root below the host home
   is mounted at the same relative path below `/var/lib/tobari`; a root outside
   the host home uses the mirrored `/workspace` path.
-- **Workspace home:** a per-Workspace persistent owner-only XDG state directory
-  mounted as the work user's home.
+- **Context Home:** a persistent owner-only XDG state directory owned by one
+  Context and mounted as its current Workspace's work-user home. It survives
+  Workspace replacement or deletion and is retired only with that Context.
+  “Workspace home” describes this mount from inside the current Workspace; it
+  is not a second Workspace-owned lifecycle resource.
 - **Tobari image:** the minimal built-in runtime or one locally available
   compatible OCI environment image selected by the Workspace's Context-bound
   Template revision for creation and later runtime-container reconciliation. Its tools and bootstrap
@@ -482,7 +485,10 @@ File edits never alter live authority and `cluster up` never applies them.
 Template Plan validates `template.yaml` and `policy.yaml` as one closed source
 pair and binds the exact active `base_revision`, source fingerprint, Runtime,
 Context/Memory set, and impact. Apply consumes that opaque plan unchanged,
-fences concurrent drift, and atomically advances the Template moving head.
+fences concurrent drift, and atomically advances the Template moving head. It
+publishes desired state only and preserves the independently active
+Template-policy and Policy-Memory receipts until Workspace entry or `cluster
+up` reconciles them.
 Context Plan/Apply performs the equivalent review for first activation; another
 binding requires a new Context ID. Creation and copy write drafts only. Missing
 or invalid source preserves last-known-good active authority. Logical deletion
@@ -521,6 +527,9 @@ authority already uses the current generation schema.
 
 Runtime configuration uses stable-ID directories and exact immutable revision
 bindings. Runtime source/build updates never propagate to a Template. No
+Template revert loses a previously selected standard Runtime: Plan may validate
+an exact standard binding from that Template's retained immutable revisions,
+without accepting a name, ordinal, or reconstructed selector. No
 installed source, user XDG root, or Workspace contains Rego; the fixed evaluator
 is embedded and Docker-managed.
 
@@ -732,6 +741,17 @@ review runs through `tobari review permissions` in a separate host terminal.
   concurrent entry converges on that Workspace; the same root may have
   independent Contexts for different Templates. Explicit Context actions never
   change the default Workspace Template.
+- Exact Workspace retirement preserves the last verified live policy axes and
+  removes only the target principal before retiring its runtime resources. If
+  an older binary left desired Template state with incomplete active receipts,
+  the verified live activation receipt is the only recovery source; deletion
+  never activates the desired Template or current Policy Memory implicitly.
+- If a durable authority mutation loses Gateway or OPA before its prepared
+  settlement publishes the policy fence, repeating that exact initiating
+  command may restart only the journaled containers after their identity,
+  image, mounts, network membership, aliases, and fixed Workspace addresses
+  still match. Missing or drifted resources remain blocked for explicit
+  reconciliation.
 - Project-root selection rejects the filesystem root, the user's home and its
   ancestors, and any path overlapping XDG Tobari configuration, state, or
   shared-profile management directories, Docker sockets, or Docker management
@@ -1408,9 +1428,9 @@ separate typed fact rather than inferring it from labels or presentation
 order. When several ancestor Workspaces exist,
 run the destructive command from a directory whose nearest Workspace is the
 one intended for removal. If that Workspace has an attached session, add
-`--force` only when terminating that session and removing its persistent home
-and tool-owned authentication state is intentional; the mounted project root
-and its files remain outside deletion.
+`--force` only when terminating that exact session is intentional. Workspace
+deletion preserves the Context-owned managed Home and tool-owned authentication
+state; the mounted project root and its files also remain outside deletion.
 
 | Exit | Meaning |
 |---:|---|
@@ -1702,6 +1722,16 @@ atomically refreshed, so cancellation cannot create a principal gap when no
 Docker mutation was needed. Drift still closes authority before repair and
 remains fail closed if interrupted; cancellation never retries entry or the
 child request.
+An ordinary authority revision is not Workspace-entry drift. Allowing or
+denying a permission, resetting a learned decision, changing cluster state, or
+creating or deleting an unrelated Context must not invalidate a matching
+Workspace entry plan. Each development release proves this product promise by
+creating persisted state with the nearest reachable annotated development
+release, switching to the candidate release surface, performing a real policy
+mutation and an unrelated Context mutation, and repeatedly entering the same
+Workspace through bare `tobari`. That journey also proves a deliberately
+replaced Workspace receives a new identity while the Context-owned native Home
+retains exact unrelated settings bytes.
 A cluster-wide policy update does not restart an intentionally stopped
 Workspace. It may retain that Workspace's last confirmed principal only when
 the stopped container's immutable ID, labels, applied spec, configured static
@@ -1714,8 +1744,10 @@ Workspace deletion: it returns the exact child exit status. A failed attachment
 cleanup is one additional bounded host-owned stderr diagnostic and never
 replaces that child status. `workspace delete --id WORKSPACE_REF
 --confirm=delete` is the separate lifecycle-ending operation and removes only
-that exact label-owned container, network, Workspace record, and home after
+that exact label-owned container, network, and Workspace record after
 confirming that no session is attached; `--force` overrides that one guard.
+The Context-owned managed Home and native tool state remain for a replacement
+Workspace; `context delete` is their retirement boundary.
 `cluster down` rejects while any
 Workspace remains
 and removes only exact shared resources; its `--purge` also removes shared CA
@@ -1848,5 +1880,6 @@ manifests may express another single static primary secret only through the
 exact HTTPS/header replacement contract and protected stdin import. V1 has no
 managed adapter, multiple provider accounts, provider-specific policy
 semantics, Git credential helper, manifest-selected helper, or general
-provider SDK/plugin executor. Standard tools authenticate natively inside their
-Workspace-owned home; that state is neither brokered nor a network grant.
+provider SDK/plugin executor. Standard tools authenticate natively inside the
+Context Home mounted into their Workspace; that state is neither brokered nor a
+network grant.

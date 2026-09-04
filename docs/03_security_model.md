@@ -174,11 +174,11 @@ The same stable Workspace Template advances every desired field, including its
 Boundary, behind one complete source-edit and Apply boundary. Each accepted
 change publishes a complete revision. One exact Runtime binding changes only through
 the same `template apply` boundary and affects bound Workspaces on next entry while
-preserving their identity and home. Shell and Git session defaults are resolved
-for later entry or child-session creation without writing the Workspace home.
-Typed bootstrap recipes affect only future Workspace creation. None of these
+preserving their identity and Context Home. Shell and Git session defaults are resolved
+for later entry or child-session creation without writing the Context Home.
+Typed bootstrap recipes affect only future Context Home creation. None of these
 paths changes source/network authority, retargets an existing Workspace, or
-changes standard Workspace-owned authentication.
+changes agent-owned authentication in the Context Home.
 
 Desired Template state, active Template policy, current and active Context
 Policy Memory, last-successful Workspace AppliedEntry, and currently observed
@@ -187,6 +187,8 @@ Workspace entry and `cluster up` reconcile. An attached pending adoption fails
 before Docker mutation. Failed or unknown reconciliation preserves the prior
 AppliedEntry and records one bounded attempted digest and change-state; a read
 never repairs or retries it.
+Template Apply therefore preserves the prior active receipts even when the
+desired revision changes; it cannot relabel desired authority as active.
 
 Only in the research surface, the reviewed GitHub, AWS, and Codex host-driver implementations and isolated pup and Claude
 Workspace Template-runtime drivers are trusted, purpose-limited CLI side effects. Host
@@ -267,12 +269,14 @@ packet filter is changed.
 
 - Host files outside the selected root.
 - Docker Engine and socket.
-- Workspace-owned authentication state and broker handles inside a Workspace home
-  or environment, plus brokered static/renewable credential records in
+- Context-owned authentication state in the managed Home mounted into its
+  Workspace, plus research-only broker handles in the Context's isolated state
+  and brokered static/renewable credential records in
   encrypted Context vaults and the installation root key.
 - One Context-owned complete managed Home and its isolation from other
   Contexts, host authentication,
-  Configurator output, logs, and cleanup mistakes.
+  Configurator output, logs, and cleanup mistakes. Workspace replacement or
+  deletion does not retire that Home; exact Context deletion does.
 - Non-authoritative task drafts and the guarantee that persistence, direct
   egress, copied evidence, labels, or agent prose cannot activate them.
 - OPA policy, decision API, and Gateway management surface.
@@ -333,6 +337,9 @@ unbounded container is recreated before reuse. These bounds do not provide a
 quota for the explicitly mounted project root or shape network bandwidth.
 The shared Gateway and OPA services use fixed JSON-file log rotation of 10 MiB
 per file and three files, plus fixed CPU, memory-plus-swap, and PID ceilings.
+OPA also receives a fixed Go heap limit below its memory-plus-swap ceiling;
+repeated watched-bundle activation must retain non-heap headroom rather than
+repeatedly OOM during final-authority recovery.
 The research Auth Broker follows the same bounds.
 Those ceilings bound shared-service exhaustion but do not provide per-project
 fairness inside one shared Gateway, OPA, or Auth Broker.
@@ -458,7 +465,9 @@ post-build check retains explicit partial recovery authority, while a fully
 rolled-back no-change drift reports no mutation. After an
 explicit planned Template Apply selecting another exact Runtime revision succeeds, only Contexts bound to that
 Template resolve it, and only their Workspaces observe it through the next
-trusted entry reconciliation.
+trusted entry reconciliation. A later revert may reuse an exact standard
+binding found in that same Template's retained immutable history; it cannot
+resolve a foreign Template, mutable name, or unrecorded revision.
 Docker/BuildKit build output is untrusted diagnostic text even though the
 complete Runtime source tree is owner-only host input. The explicit build forwards both Docker
 streams through visible projection, preserving line structure and concrete
@@ -977,6 +986,16 @@ retargeted, or registry-drifted container is not adopted. This narrow retention
 does not authorize a new endpoint; ordinary re-entry must revalidate the live
 container before any attached process starts.
 
+Release upgrade validation never imports a user's installation or native
+credentials. It reconstructs the nearest reachable annotated development
+release from the exact committed tree with that release's own packager, uses a
+run-owned absent XDG root and synthetic Project, creates only synthetic denied
+HTTPS evidence, and selects an explicit non-default Docker context. The
+candidate receives only that run-owned predecessor state. Cleanup is limited to
+the exact opaque Context/Workspace references and labeled shared resources
+created by the journey; logs assert semantic results and sentinel-byte equality
+without dumping managed Home contents.
+
 In standard passthrough, `Authorization`, `X-API-Key`, cookies, and other client
 authentication are forwarded only after allow; `Proxy-Authorization` and
 Tobari session control headers are removed. Cookie and Set-Cookie values may
@@ -1212,7 +1231,16 @@ collected.
   deletion also removes that Context from the shared aggregate projection, a
   fresh action proves generic Docker readiness before its durable settlement
   decision; exact recovery of an existing decision does not repeat or relabel
-  that preflight. An unpublished Context draft has no aggregate, Home, or
+  that preflight. Retirement removes the exact live principal while preserving
+  every other live policy axis. A legacy partial active-receipt collection may
+  use only the validated live activation receipt to recover that subtraction;
+  it cannot adopt desired Template or current Policy Memory authority. An
+  exact prepared-settlement replay may repair component liveness only when the
+  existing journaled Gateway/OPA container identities, images, mounts,
+  environment, network membership and aliases, and fixed Workspace addresses
+  still match. It never recreates an absent component or starts a drifted one;
+  a global zero-session fence precedes any restart. An
+  unpublished Context draft has no aggregate, Home, or
   credential authority and is deleted only after exact source validation under
   the same Catalog/Stage exclusion. `template delete` requires no default
   selection or Context reference.

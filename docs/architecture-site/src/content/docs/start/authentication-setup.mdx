@@ -4,7 +4,8 @@ description: Run the coding agent's native login inside its Workspace while keep
 ---
 
 The agent binary can exist without account credentials. On the release
-surface, the agent CLI owns its login state inside the Workspace.
+surface, the agent CLI owns its login state inside the Context Home mounted
+into the Workspace.
 
 ## Run native login
 
@@ -41,9 +42,9 @@ that credentials stay in this Workspace; direct commands rely on the client's
 native prompt. Tobari has no host login/setup stage and does not inspect
 credential state.
 
-The resulting state lives in this Workspace's persistent home. It survives
-ordinary `exit` and work-container replacement, but is not copied from the host
-or shared with another Workspace.
+The resulting state lives in the Context Home mounted into this Workspace. It
+survives ordinary `exit`, work-container replacement, and Workspace deletion,
+but is not copied from the host or shared with another Context.
 
 Attached native AWS SSO login relays its reviewed dynamic localhost callback to
 this Workspace. If that callback mode is unavailable, use
@@ -70,9 +71,10 @@ then retry in the existing Workspace.
 ## Credential lifetime
 
 - `exit` leaves the Workspace and its native login state intact.
-- Runtime rebuild or container recovery reuses the same Workspace home.
-- `tobari workspace delete --id <workspace-ref> --confirm=delete` removes that exact
-  Workspace home and its tool-owned credentials.
+- Runtime rebuild or container recovery reuses the same Context Home.
+- `tobari workspace delete --id <workspace-ref> --confirm=delete` preserves the
+  Context Home and tool-owned credentials for a replacement Workspace;
+  `context delete` retires them after no Workspace or attachment remains.
 - Host homes, Keychain, SSH agents, and host credential variables are never
   inherited.
 

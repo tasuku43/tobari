@@ -6,11 +6,13 @@
 - Scope: Product, architecture, security, and harness
 - Supersedes: None
 - Superseded by: None
+- Revised by: ADR 0084 and ADR 0092 at Context Home ownership
 
 ## Context
 
 The CWD-owned runtime already gives each Workspace `HOME=/var/lib/tobari` and
-one persistent home mount, but previously exposed every selected host root
+one persistent managed-Home mount. The later Context model owns that Home and
+the replaceable Workspace mounts it. The runtime previously exposed every selected host root
 under a mirrored `/workspace` path. A project below the host home should feel
 like the corresponding directory below the container home without weakening
 the selected-root boundary.
@@ -44,7 +46,7 @@ directories. Rejected by the host-home isolation boundary.
 ### Option C: Mount only the selected root below the container home
 
 Canonical roots below the host home map their relative suffix below
-`/var/lib/tobari`; the per-Workspace home is mounted first and the selected
+`/var/lib/tobari`; the Context Home is mounted first and the selected
 project root is mounted second. Other roots keep `/workspace`. Chosen.
 
 ## Decision
@@ -62,7 +64,7 @@ mount, the desired runtime spec hash, and the interactive nested CWD. The
 domain's generic `/workspace` mapper and retired named-Tobari compatibility
 path remain unchanged.
 
-`/var/lib/tobari` is a mutable per-Workspace home boundary. Official runtime
+`/var/lib/tobari` is a mutable Context Home boundary within the Workspace. Official runtime
 images keep executables and package resources in `/usr/local/bin` and
 `/opt/tobari`; custom compatible images must not require image-layer files
 below the home boundary. Tobari does not copy or remove files that a nested
@@ -80,7 +82,7 @@ mount masks.
 
 ### Negative
 
-- A nested project mount intentionally hides any unrelated per-Workspace home
+- A nested project mount intentionally hides any unrelated Context Home
   entries at the same relative destination while that project is attached.
 - The selected root and persistent home now have a nested mount relationship,
   which requires Docker integration coverage.
@@ -90,7 +92,7 @@ mount masks.
 ## Security and public-boundary impact
 
 The set of host paths mounted into a CWD-owned runtime does not expand: one
-selected root and one per-Workspace home remain the only writable host assets.
+selected root and one Context Home remain the only writable host assets.
 The public contract documents the conditional target path, and no credential,
 policy, or host-home value is copied into the container.
 

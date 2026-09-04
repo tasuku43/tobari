@@ -101,9 +101,9 @@ V1 has four concepts in this area:
 | Concept | Owner and scope | Lifetime | Mutability | Authority |
 |---|---|---|---|---|
 | Workspace Template | installation; reusable across Projects | until explicit Template deletion | stable identity with complete immutable revisions | WorkspaceTemplateID plus semantic revision digest |
-| Context | one location-free WorkspaceTemplateID binding | survives Workspace deletion; ends at Context deletion | binding is immutable | ContextID |
+| Context | one location-free WorkspaceTemplateID binding and one managed Home | survives Workspace deletion; ends at Context deletion | binding is immutable; Home contains tool-owned mutable state | ContextID |
 | Policy Memory | one Context | exactly the Context lifetime | complete immutable remembered-decision revisions | ContextID plus semantic Policy Memory digest |
-| Workspace | one Context's applied isolated instance and home | replaceable; ends at Workspace deletion | last-successful receipt and bounded reconciliation/observation change | WorkspaceID plus ContextID; observation is not authority |
+| Workspace | one Context's applied isolated instance that mounts the Context Home | replaceable; ends at Workspace deletion | last-successful receipt and bounded reconciliation/observation change | WorkspaceID plus ContextID; observation is not authority |
 
 `Workspace Template` is the public long noun and `template` is its CLI noun.
 `Context` is the durable location-free Template binding and owner of `Policy Memory`.

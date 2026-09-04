@@ -2,7 +2,7 @@
 
 This document defines Tobari's reviewed authentication boundary. ADR 0044
 supersedes the Broker-first release surface. The release surface remains native
-and Workspace-owned; the Broker implementation remains an unsupported
+and native to the agent inside its Context-owned managed Home; the Broker implementation remains an unsupported
 repository research capability. Managed profiles remain retired.
 
 ## Standard native Workspace authentication
@@ -10,17 +10,17 @@ repository research capability. Managed profiles remain retired.
 The release surface has no provider binding, normalized provider
 projection, credential handle, vault, root key, companion, Auth Broker service,
 or `auth` command. Claude Code, Codex, and other tools run their own supported
-login inside a persistent Workspace home. Host credentials and host CLI homes
+login inside the persistent Context Home mounted into that Workspace. Host credentials and host CLI homes
 are never inherited or copied.
 
 A typed Workspace Template bootstrap snapshot is not authentication state. The AWS
 adapter may project only reviewed non-secret IAM Identity Center configuration
-into a newly created Workspace home. A dependent EKS target may project a
+into a newly created Context Home before its first Workspace entry. A dependent EKS target may project a
 canonical kubeconfig whose only authentication mechanism is exact `aws eks
 get-token` bound to that same profile; Tobari imports no token, client key,
 credential helper, or arbitrary exec selection. It never reads or projects the
 host credentials file or SSO cache, and AWS CLI still creates and persists its
-own login state inside that Workspace.
+own login state inside that Context Home.
 
 A native credential is readable by every process in that Workspace. Gateway
 removes authentication and control headers from OPA input and audit evidence,

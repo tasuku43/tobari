@@ -29,15 +29,15 @@ active authority は state root の `authority/` 以下に、Template、Context�
 
 ## 永続するランタイム状態
 
-| state root 内のパス                       | 契約と寿命                                                                                                                        |
-| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `authority/`                              | concept ごとの immutable object、完全な generation manifest、検証済み `active.json`、tombstone、recovery journal                  |
-| `runtimes/<runtime-id>/`                  | immutable Runtime revision、build receipt、lifecycle state                                                                        |
-| Workspace owner が管理する Workspace home | native login と tool configuration。exit/recreation 後も残り、exact `workspace delete --id WORKSPACE_REF --confirm=delete` で削除 |
-| `state.json`                              | shared cluster state と active aggregate receipt。credential value や desired authority は含まない                                |
-| `workspace-authority-policy/`             | 内容アドレス方式の complete policy projection と bounded activation receipt/journal                                               |
-| `runtime/`                                | host-owned Gateway runtime directory。socket は service とともに再作成され、durable credential ではない                           |
-| `runtime/<asset-revision>/`               | materialized Compose、Gateway、OPA、runtime asset                                                                                 |
+| state root 内のパス             | 契約と寿命                                                                                                                                 |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `authority/`                    | concept ごとの immutable object、完全な generation manifest、検証済み `active.json`、tombstone、recovery journal                           |
+| `runtimes/<runtime-id>/`        | immutable Runtime revision、build receipt、lifecycle state                                                                                 |
+| Context が管理する Context Home | native login と tool configuration。exit/recreation/Workspace削除後も残り、exact `context delete --id CONTEXT_REF --confirm=delete` で削除 |
+| `state.json`                    | shared cluster state と active aggregate receipt。credential value や desired authority は含まない                                         |
+| `workspace-authority-policy/`   | 内容アドレス方式の complete policy projection と bounded activation receipt/journal                                                        |
+| `runtime/`                      | host-owned Gateway runtime directory。socket は service とともに再作成され、durable credential ではない                                    |
+| `runtime/<asset-revision>/`     | materialized Compose、Gateway、OPA、runtime asset                                                                                          |
 
 agent CLI の login 形式は Workspace home に残り、Tobari の共有サービスや公開 JSON の権限にはなりません。Tobari はホストのログイン情報を継承しません。
 
@@ -57,16 +57,16 @@ Docker は作業コンテナ、専用ネットワーク、共有サービス、G
 
 ## 各操作の後に残るもの
 
-| 操作                                                                    | 変わるもの                                                            | 残るもの                                                                                     |
-| ----------------------------------------------------------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `exit`                                                                  | 接続中の exec session                                                 | 論理 Workspace、home、policy、ランタイムリソース                                             |
-| `workspace delete`                                                      | 対象 Workspace の authority、container、network、home、runtime record | プロジェクトファイル、Context、Policy Memory、Workspace Template、クラスター、他の Workspace |
-| `workspace delete --id WORKSPACE_REF --confirm=delete --force`          | attached-session guard を一つだけ上書きした同じ削除                   | 対象外のリソースとプロジェクトファイル                                                       |
-| container/network loss                                                  | 次の entry で失われた管理対象 runtime を再調整                        | 論理 identity、Context binding、home、プロジェクトファイル                                   |
-| `cluster down`                                                          | 共有 container と一時 network                                         | Workspace Template、policy、Workspace home、host-owned lifecycle state、CA                   |
-| `cluster down --purge`                                                  | 共有 runtime、CA、active policy bundle                                | Workspace Template、policy、Workspace home、host-owned lifecycle state                       |
-| `runtime build --id REF`                                                | source snapshot、検証済み immutable revision                          | Workspace Template と Workspace の identity                                                  |
-| `template.yaml` 編集、`template plan`、`template apply --plan PLAN_REF` | exact Runtime ID+revision を含む Template 全体のレビュー済み revision | 既存Workspaceのhomeとcontainer（次回entryまで）                                              |
+| 操作                                                                    | 変わるもの                                                                        | 残るもの                                                                                                          |
+| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `exit`                                                                  | 接続中の exec session                                                             | 論理 Workspace、home、policy、ランタイムリソース                                                                  |
+| `workspace delete`                                                      | 対象 Workspace の authority、container、network、Workspace-private runtime record | プロジェクトファイル、Context Home と native state、Policy Memory、Workspace Template、クラスター、他の Workspace |
+| `workspace delete --id WORKSPACE_REF --confirm=delete --force`          | attached-session guard を一つだけ上書きした同じ削除                               | 対象外のリソースとプロジェクトファイル                                                                            |
+| container/network loss                                                  | 次の entry で失われた管理対象 runtime を再調整                                    | 論理 identity、Context binding、home、プロジェクトファイル                                                        |
+| `cluster down`                                                          | 共有 container と一時 network                                                     | Workspace Template、policy、Workspace home、host-owned lifecycle state、CA                                        |
+| `cluster down --purge`                                                  | 共有 runtime、CA、active policy bundle                                            | Workspace Template、policy、Workspace home、host-owned lifecycle state                                            |
+| `runtime build --id REF`                                                | source snapshot、検証済み immutable revision                                      | Workspace Template と Workspace の identity                                                                       |
+| `template.yaml` 編集、`template plan`、`template apply --plan PLAN_REF` | exact Runtime ID+revision を含む Template 全体のレビュー済み revision             | 既存Workspaceのhomeとcontainer（次回entryまで）                                                                   |
 
 標準 Runtime は、CLI に埋め込まれた固定 recipe から、必要な場合にローカルで構築します。release 由来の tag は recipe revision を示す表示・選択 evidence であり、不変 digest authority ではありません。管理対象 Runtime の成功した build は、検査した local image digest を installation-wide history に記録しますが、Workspace Template が保持するのは exact semantic revision binding だけです。
 

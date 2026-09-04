@@ -6,6 +6,7 @@
 - Scope: Product, architecture, security, authentication, release, and harness
 - Revises: ADR 0019, ADR 0025, ADR 0033, ADR 0035, ADR 0038, and ADR 0043
 - Superseded by: ADR 0045 for all Tobari-owned image publication and release-lock scope; native tool authentication readiness revised by ADR 0048
+- Revised by: ADR 0084 and ADR 0092 at Context ownership and Workspace lifetime
 
 ## Context
 
@@ -24,7 +25,8 @@ boundary.
 The release surface has no provider binding, provider projection, Auth Broker
 service, Broker socket, handle projection, root key, vault, companion, or
 `auth` command. Claude Code, Codex, and other tools authenticate natively inside
-one persistent Workspace home. Gateway redacts authentication before OPA and
+one persistent managed Home. The later Context model owns that Home and mounts
+it into its replaceable Workspace. Gateway redacts authentication before OPA and
 audit, then forwards the original header only after the ordinary exact HTTP
 effect is allowed. Host credentials are never inherited or copied.
 
@@ -49,8 +51,9 @@ release lock entry, and is never published.
   to distinguish the authenticating CLI from another same-Workspace process.
 - Native provider account metadata and client UX remain provider-owned; Tobari
   no longer decodes or re-encodes their credential schema in standard.
-- Deleting a Workspace deletes its persistent native auth state. Recreating or
-  switching Workspaces requires native login in that Workspace.
+- Deleting or replacing a Workspace preserves its Context-owned managed Home
+  and persistent native auth state. Exact Context deletion is their retirement
+  boundary; selecting a different Context selects a different Home.
 - The standard shared cluster has exactly Gateway and OPA. The release publishes
   exactly Gateway; the standard component lock is Gateway-only.
 

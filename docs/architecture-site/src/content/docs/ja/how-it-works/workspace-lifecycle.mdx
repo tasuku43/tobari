@@ -6,7 +6,7 @@ description: セッションと論理状態を混同せず、入室、終了、�
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
 Workspace の寿命は、接続中のシェルより長く続きます。`exit` が終了するのは実行
-セッションだけです。論理 Workspace、ホーム、ランタイムの記録、永続する Context binding は
+セッションだけです。論理 Workspace、Context Home、ランタイムの記録、永続する Context binding は
 次回の入室のために残ります。`workspace delete` は置換可能な一つの Workspace とその所有 state
 だけを削除し、Context と Policy Memory を保持します。クラスターの停止は別の操作で、すべての
 Workspace を削除した後にだけ実行できます。
@@ -23,7 +23,7 @@ Workspace を削除した後にだけ実行できます。
 
 ### 存在しない → 接続中
 
-選択したディレクトリから `tobari` を実行すると、正規化済み root の Workspace とその Context を解決するか、installation default Template の Context と、その root をbindする Workspaceを作成します。作成時には Workspace identity と home を最終 authority model へ保存し、専用 network と container を調整します。さらに Gateway と Workspace の閉じた network guard を適用し、exact Context/Workspace endpoint principal を登録し、利用可能になるまで待ってから、対話型の `docker exec` shell を開始します。
+選択したディレクトリから `tobari` を実行すると、正規化済み root の Workspace とその Context を解決するか、installation default Template の Context と、その root をbindする Workspaceを作成します。作成時には Workspace identity と Context Home の binding を最終 authority model へ保存し、専用 network と container を調整します。さらに Gateway と Workspace の閉じた network guard を適用し、exact Context/Workspace endpoint principal を登録し、利用可能になるまで待ってから、対話型の `docker exec` shell を開始します。
 
 接続中のシェルは一時的なプロセス状態であり、Workspace の寿命を決めるプロセスではありません。
 
@@ -33,7 +33,7 @@ Workspace を削除した後にだけ実行できます。
 
 - active authority generation と exact Workspace record
 - 永続的な Workspace-to-Context binding と Workspace ID
-- Workspace ごとのホームと、ツールが所有するログイン状態
+- Context Home と、ツールが所有するログイン状態
 - ランタイムコンテナと専用ネットワーク
 - 生存する Context が所有する Policy Memory
 - Template baseline policy と、exact Context/Workspace principal 登録
@@ -46,7 +46,7 @@ Workspace を削除した後にだけ実行できます。
 
 ### 切り離された状態 → 存在しない
 
-`workspace delete` は、まず接続中の実行 session がないことを確認します。exact opaque Workspace reference と owner label を検証してから、その Workspace の authority record、container、network、home、principal registry entry だけを削除します。Context、Policy Memory、Template、mount 済み project files は削除しません。
+`workspace delete` は、まず接続中の実行 session がないことを確認します。exact opaque Workspace reference と owner label を検証してから、その Workspace の authority record、container、network、private runtime directory、principal registry entry だけを削除します。Context Home、native state、Policy Memory、Template、mount 済み project files は削除しません。
 
 ### 接続中 → `--force` で存在しない
 
@@ -70,22 +70,22 @@ Workspace authority が一つでも残っている間、`cluster down` は拒否
 
 その後の違いは次のとおりです。
 
-| 操作                   | 削除するもの                                                                   | 保持するもの                                                                                |
-| ---------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| `cluster down`         | 共有 Gateway、OPA コンテナと一時的な共有ネットワーク                           | Workspace Template、ポリシーソース、Workspace home、host-owned state、Gateway CA ボリューム |
-| `cluster down --purge` | 同じ共有ランタイム資源、共有 CA ボリューム、有効なポリシーバンドルのボリューム | Workspace Template、ポリシーソース、Workspace home、host-owned state                        |
+| 操作                   | 削除するもの                                                                   | 保持するもの                                                                              |
+| ---------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `cluster down`         | 共有 Gateway、OPA コンテナと一時的な共有ネットワーク                           | Workspace Template、ポリシーソース、Context Home、host-owned state、Gateway CA ボリューム |
+| `cluster down --purge` | 同じ共有ランタイム資源、共有 CA ボリューム、有効なポリシーバンドルのボリューム | Workspace Template、ポリシーソース、Context Home、host-owned state                        |
 
-`--purge` の実行後にクラスターを起動すると、新しい共有 CA 状態が作られます。この操作は Workspace home やプロジェクトファイルを削除しません。外部サービスのログインとログアウトは、そのサービスの CLI が管理します。
+`--purge` の実行後にクラスターを起動すると、新しい共有 CA 状態が作られます。この操作は Context Home やプロジェクトファイルを削除しません。外部サービスのログインとログアウトは、そのサービスの CLI が管理します。
 
 ## 具体例
 
 `/work/service` の Workspace に入り、ツール固有のログインを行ってから `exit` したとします。
 
-1. ツールのログインファイルは、その Workspace の永続ホームに残ります。
+1. ツールのログインファイルは、その Workspace が使用する Context Home に残ります。
 2. プロジェクトファイルと論理記録は残ります。
 3. 後で入り直すと、同じ Workspace とホームを再利用します。
 4. 途中でコンテナが手動削除されていても、Tobari が再作成し、そのホームを再びマウントします。
-5. 切り離された状態で `workspace delete` すると、Workspace のホームは削除されます。プロジェクトルートは残ります。
+5. 切り離された状態で `workspace delete` すると、置換可能な Workspace は削除されますが、Context Home とプロジェクトルートは残ります。
 
 ## 失敗時の動作
 
@@ -101,7 +101,7 @@ Workspace authority が一つでも残っている間、`cluster down` は拒否
 
 **保証すること:** セッションからの退出は削除ではありません。削除は完全一致する一つの Workspace だけを対象とし、プロジェクトファイルは保持します。ランタイム資源は論理的な識別情報を変えずに再作成できます。`--purge` をログアウトとして扱うことはありません。
 
-**保証しないこと:** 手動削除したプロジェクトファイルまたは Workspace ホームの復元。ルートを移動した後の自動移行。Workspace 削除後のツール固有ログインの保持。ローカルでログアウトした後に、リモートの外部サービス側で認証情報を失効させること。
+**保証しないこと:** 手動削除したプロジェクトファイルまたは Context Home の復元。ルートを移動した後の自動移行。Context 削除後のツール固有ログインの保持。ローカルでログアウトした後に、リモートの外部サービス側で認証情報を失効させること。
 
 ## 根拠となるソース
 
@@ -114,7 +114,7 @@ Workspace authority が一つでも残っている間、`cluster down` は拒否
 
 ## まとめ
 
-接続中のセッション、論理 Workspace、Docker ランタイム、共有クラスター、Workspace home は、それぞれ寿命が異なります。退出には `exit`、Workspace の削除には `workspace delete`、削除後の共有サービス停止には `cluster down` を使います。
+接続中のセッション、論理 Workspace、Docker ランタイム、共有クラスター、Context Home は、それぞれ寿命が異なります。退出には `exit`、Workspace の削除には `workspace delete`、Home の廃止には `context delete`、削除後の共有サービス停止には `cluster down` を使います。
 
 ## 理解を確認する
 
@@ -140,11 +140,11 @@ Workspace authority が一つでも残っている間、`cluster down` は拒否
 
 <details>
   <summary>
-    <code>cluster down --purge</code> は Workspace home と host-owned lifecycle
+    <code>cluster down --purge</code> は Context Home と host-owned lifecycle
     state を削除しますか？
   </summary>
   いいえ。共有 CA と有効なポリシーバンドルのボリュームを追加で削除しますが、
-  Workspace home と host-owned lifecycle state は残ります。
+  Context Home と host-owned lifecycle state は残ります。
 </details>
 
 <details>

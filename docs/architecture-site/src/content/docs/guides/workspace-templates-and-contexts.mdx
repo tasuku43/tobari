@@ -128,7 +128,8 @@ tobari context delete --id CONTEXT_REF --confirm=delete
 tobari template delete --id TEMPLATE_REF --confirm=delete
 ```
 
-Workspace deletion removes its home and native credentials but preserves
-Context Policy Memory. Context deletion requires no Workspace, attachment, or
-research credential. Template deletion requires that it is neither the default
-nor referenced by a Context.
+Workspace deletion preserves the Context-owned managed Home, native
+credentials, and Context Policy Memory while removing the replaceable
+Workspace and runtime resources. Context deletion requires no Workspace,
+attachment, or research credential and retires that Home. Template deletion
+requires that it is neither the default nor referenced by a Context.

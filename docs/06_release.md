@@ -117,7 +117,8 @@ migration engine is dormant implementation history and is unreachable from
 the public command graph.
 
 The release V1 boundaries include command paths, exit meanings, Docker labels,
-configuration keys, and preservation of each Workspace home by default. Broker
+configuration keys, and preservation of each Context Home across Workspace
+replacement or deletion. Broker
 root-key identifiers, handles, sockets, and vault preservation belong only to
 the unpublished research surface. Pre-release research predecessor authority
 is neither migrated nor quarantined. A research user must reset or recreate the
@@ -177,7 +178,7 @@ independent proof of builder identity.
 
 Artifact preparation is a non-publishing, unprivileged operation. Main/pull-
 request CI runs `full`, `security`, `public`, `release`, `runtime-components`,
-and `first-use` as six independent parallel jobs. Before the first
+`first-use`, and `upgrade` as seven independent parallel jobs. Before the first
 public-distribution mutation, the
 maintainer selects one reviewed main revision whose main-push CI run completed successfully, validates
 the Gateway and local base construction, reviews the two independent archive
@@ -244,6 +245,7 @@ task public:check
 task policy:test
 task gateway:test
 TOBARI_INTEGRATION_DOCKER_CONTEXT=<isolated-context> task first-use:test
+TOBARI_INTEGRATION_DOCKER_CONTEXT=<isolated-context> task upgrade:test
 TOBARI_INTEGRATION_DOCKER_CONTEXT=<isolated-context> task runtime:release
 ```
 
@@ -251,7 +253,12 @@ CI closes the same `task runtime:release` aggregate through parallel
 `runtime-release-components` and `first-use` jobs, so policy/Gateway validation
 does not serialize the cold image build. The first-use row uses a
 release-surface binary with absent Tobari XDG roots and exact local image tags;
-it is not research integration. The `authbroker`, broader `integration`, and
+it is not research integration. The independent upgrade row rebuilds the
+nearest reachable annotated development predecessor with its own release
+packager, creates real predecessor state, then requires the candidate to
+survive policy and unrelated-Context authority mutations, repeated bare entry,
+and Workspace replacement without changing Context-owned settings. The
+`authbroker`, broader `integration`, and
 complete `runtime` profiles remain explicit research validation interfaces and
 are deferred; they are not standard release evidence until that boundary is
 deliberately re-enabled.

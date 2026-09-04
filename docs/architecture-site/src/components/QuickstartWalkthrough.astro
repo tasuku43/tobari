@@ -130,7 +130,7 @@ tobari workspace list
 tobari workspace delete --id <workspace-ref> --confirm=delete
 tobari cluster down`,
           expected:
-            "`workspace delete` は Workspace の永続 home、native auth、所有するランタイムリソースを削除しますが、練習用ディレクトリ、Context、Policy Memory は残します。`cluster down` は Workspace がゼロのときだけ共有保護を停止します。",
+            "`workspace delete` は Workspace とその所有ランタイムリソースを削除しますが、練習用ディレクトリ、Context Home、native auth、Policy Memory は残します。`cluster down` は Workspace がゼロのときだけ共有保護を停止します。",
           blocked:
             "`cluster_not_empty` の場合は `tobari workspace list` で exact ref を取得し、それぞれを明示的に削除してから再実行します。接続中のセッションを意図的に終了する場合だけ `workspace delete` に `--force` を追加します。",
         },
@@ -289,7 +289,7 @@ tobari workspace list
 tobari workspace delete --id <workspace-ref> --confirm=delete
 tobari cluster down`,
           expected:
-            "`workspace delete` removes the Workspace persistent home, native authentication, and owned runtime resources, but preserves the synthetic project files, Context, and Policy Memory. `cluster down` stops shared protection only after every Workspace is gone.",
+            "`workspace delete` removes the Workspace and its owned runtime resources, but preserves the synthetic project files, Context Home, native authentication, and Policy Memory. `cluster down` stops shared protection only after every Workspace is gone.",
           blocked:
             "For `cluster_not_empty`, use `tobari workspace list`, pass each exact reference to `workspace delete`, and retry. Add `--force` only when you intentionally want to terminate the exact attached session.",
         },

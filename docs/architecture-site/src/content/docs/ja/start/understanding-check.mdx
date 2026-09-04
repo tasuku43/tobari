@@ -82,7 +82,7 @@ HTTPS クライアントが Tobari 経由で `api.example.com` へ接続しま�
 <details>
 <summary>回答</summary>
 
-`exit` は接続中のシェルだけを終了し、論理 Workspace、ホーム、Workspace Template との結び付き、ランタイムリソース、ポリシーを残します。`workspace delete` は現在地に最も近い切断済み Workspace と、その Workspace が所有するホーム、コンテナ、ネットワーク、プリンシパル、状態を削除します。プロジェクトファイルと Workspace Template が所有する状態は残ります。[Workspace のライフサイクル](../../how-it-works/workspace-lifecycle/)を参照してください。
+`exit` は接続中のシェルだけを終了し、論理 Workspace、Context Home、Workspace Template との結び付き、ランタイムリソース、ポリシーを残します。`workspace delete` は現在地に最も近い切断済み Workspace と、そのコンテナ、ネットワーク、プリンシパル、runtime stateを削除します。プロジェクトファイル、Context Home と native state、Policy Memory、Workspace Template は残ります。[Workspace のライフサイクル](../../how-it-works/workspace-lifecycle/)を参照してください。
 
 </details>
 
