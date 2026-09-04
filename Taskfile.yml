@@ -49,6 +49,11 @@ tasks:
     cmds:
       - ./scripts/check.sh first-use
 
+  upgrade:test:
+    desc: Run the previous-development-release to candidate Workspace re-entry scenario.
+    cmds:
+      - ./scripts/check.sh upgrade
+
   authbroker:source:sync:
     desc: Synchronize the canonical Auth Broker source into the embedded snapshot.
     cmds:

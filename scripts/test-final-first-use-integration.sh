@@ -5,14 +5,24 @@ cd "$(dirname "$0")/.."
 host_docker_config=${DOCKER_CONFIG:-$HOME/.docker}
 host_docker_context=${TOBARI_INTEGRATION_DOCKER_CONTEXT:-${DOCKER_CONTEXT:-}}
 test_root=
-binary=${TOBARI_FIRST_USE_INTEGRATION_BINARY:-}
+binary=
+candidate_binary=${TOBARI_FIRST_USE_INTEGRATION_BINARY:-}
+predecessor_binary=${TOBARI_FIRST_USE_PREDECESSOR_BINARY:-}
 owns_shared_resources=false
 context_ref=
 workspace_ref=
 nested_context_ref=
 nested_workspace_ref=
+upgrade_context_ref=
+upgrade_prepared=false
+transition_runtime_image_id=
 standard_runtime_image=$(go run ./tools/runtimeassetid standard-runtime-image)
 gateway_image="tobari-gateway:base-$(go run ./tools/runtimeassetid gateway)"
+
+# shellcheck disable=SC1091
+source test/integration/release_upgrade_reentry.sh
+# shellcheck disable=SC1091
+source test/integration/workspace_entry_transition_matrix.sh
 
 docker() {
   [[ -n ${host_docker_context:-} && $host_docker_context != default ]] || {
@@ -59,7 +69,6 @@ import errno
 import fcntl
 import os
 import pty
-import re
 import select
 import struct
 import sys
@@ -78,7 +87,6 @@ review = bytearray()
 started = False
 selected = False
 entered = False
-sent_exit = False
 status = None
 while status is None:
     if time.monotonic() >= deadline:
@@ -102,10 +110,8 @@ while status is None:
             if mode in ("ancestor-use", "nested-create") and not selected and b"Create a new Workspace here" in review:
                 os.write(master, b"\r" if mode == "ancestor-use" else b"n")
                 selected = True
-            if not sent_exit and re.search(rb"tobari-[a-z0-9-]+-work:[^\r\n]*[$#] ", review):
+            if b"E2E_CWD=" in review:
                 entered = True
-                sent_exit = True
-                os.write(master, b"echo E2E_CWD=$PWD; exit\r")
             if len(review) > 131072:
                 del review[:-65536]
         elif mode == "fresh" and not started:
@@ -118,43 +124,56 @@ if mode == "fresh" and not started:
 if mode in ("ancestor-use", "nested-create") and not selected:
     raise SystemExit("ancestor selector was not observed")
 if not entered:
-    raise SystemExit("bare Tobari did not hand off to a Workspace shell")
+    raise SystemExit("bare Tobari did not run the deterministic Workspace child")
 if os.WIFEXITED(status):
     raise SystemExit(os.WEXITSTATUS(status))
 raise SystemExit(128 + os.WTERMSIG(status))
-' "$mode" "$binary"
-  )
+' "$mode" "$binary" -- /bin/bash -lc "printf 'E2E_CWD=%s\\n' \"\$PWD\""
+	)
 }
 
 cleanup() {
 	local status=$?
 	local cleanup_failed=false
+	local cleanup_log=
+	cleanup_step() {
+		local label=$1
+		shift
+		cleanup_log=$test_root/cleanup-${label}.log
+		if "$@" >"$cleanup_log" 2>&1; then return; fi
+		if grep -F 'final_authority_mutation_interrupted' "$cleanup_log" >/dev/null; then
+			mv -- "$cleanup_log" "${cleanup_log%.log}-interrupted.log"
+			if "$@" >"$cleanup_log" 2>&1; then echo "first-use integration: cleanup step $label recovered exact interrupted mutation"; return; fi
+		fi
+		echo "first-use integration: cleanup step $label failed" >&2
+		[[ ! -f ${cleanup_log%.log}-interrupted.log ]] || sed -n '1,240p' "${cleanup_log%.log}-interrupted.log" >&2
+		sed -n '1,240p' "$cleanup_log" >&2
+		cleanup_failed=true
+	}
 	trap - EXIT
-	if [[ $owns_shared_resources == true ]]; then
-		if [[ -n ${test_root:-} && -x ${binary:-} && -n ${nested_workspace_ref:-} ]]; then
-			run_tobari workspace delete --id "$nested_workspace_ref" --confirm=delete --force >/dev/null 2>&1 || cleanup_failed=true
-		fi
-		if [[ -n ${test_root:-} && -x ${binary:-} && -n ${nested_context_ref:-} ]]; then
-			run_tobari context delete --id "$nested_context_ref" --confirm=delete >/dev/null 2>&1 || cleanup_failed=true
-		fi
-		if [[ -n ${test_root:-} && -x ${binary:-} && -n ${workspace_ref:-} ]]; then
-			run_tobari workspace delete --id "$workspace_ref" --confirm=delete --force >/dev/null 2>&1 || cleanup_failed=true
-		fi
-		if [[ -n ${test_root:-} && -x ${binary:-} && -n ${context_ref:-} ]]; then
-			run_tobari context delete --id "$context_ref" --confirm=delete >/dev/null 2>&1 || cleanup_failed=true
-		fi
-		if [[ -n ${test_root:-} && -x ${binary:-} && -f $test_root/state/tobari/cluster-reconcile.json ]]; then
-			run_tobari cluster up >/dev/null 2>&1 || cleanup_failed=true
-		fi
-		if [[ -n ${test_root:-} && -x ${binary:-} ]]; then
-			run_tobari cluster down --purge >/dev/null 2>&1 || cleanup_failed=true
-		fi
+	if [[ $status != 0 && ${TOBARI_INTEGRATION_PRESERVE_FAILURE:-false} == true ]]; then
+		echo "first-use integration: preserved failed state at $test_root" >&2
+		exit "$status"
 	fi
-	if [[ -n ${test_root:-} && $test_root == "$PWD"/.tobari-final-first-use.* ]]; then
-    rm -rf -- "$test_root"
-  fi
+	if [[ $owns_shared_resources == true ]]; then
+		if [[ -n ${test_root:-} && -x ${binary:-} && -n ${nested_workspace_ref:-} ]]; then cleanup_step nested-workspace run_tobari workspace delete --id "$nested_workspace_ref" --confirm=delete --force; fi
+		if [[ -n ${test_root:-} && -x ${binary:-} && -n ${nested_context_ref:-} ]]; then cleanup_step nested-context run_tobari context delete --id "$nested_context_ref" --confirm=delete; fi
+		if [[ -n ${test_root:-} && -x ${binary:-} && -n ${upgrade_context_ref:-} ]]; then cleanup_step upgrade-context run_tobari context delete --id "$upgrade_context_ref" --confirm=delete; fi
+		if [[ -n ${test_root:-} && -x ${binary:-} && -n ${workspace_ref:-} ]]; then cleanup_step workspace run_tobari workspace delete --id "$workspace_ref" --confirm=delete --force; fi
+		if [[ -n ${test_root:-} && -x ${binary:-} && -n ${context_ref:-} ]]; then cleanup_step context run_tobari context delete --id "$context_ref" --confirm=delete; fi
+		if [[ -n ${test_root:-} && -x ${binary:-} && -f $test_root/state/tobari/cluster-reconcile.json ]]; then cleanup_step cluster-up run_tobari cluster up; fi
+		if [[ -n ${test_root:-} && -x ${binary:-} ]]; then cleanup_step cluster-down run_tobari cluster down --purge; fi
+		if [[ -n ${transition_runtime_image_id:-} ]]; then cleanup_step transition-runtime-image docker image rm "$transition_runtime_image_id"; fi
+	fi
 	if [[ $status == 0 && $cleanup_failed == true ]]; then
 		status=1
+	fi
+	if [[ $status != 0 && ${TOBARI_INTEGRATION_PRESERVE_FAILURE:-false} == true ]]; then
+		echo "first-use integration: preserved cleanup failure at $test_root" >&2
+		exit "$status"
+	fi
+	if [[ -n ${test_root:-} && $test_root == "$PWD"/.tobari-final-first-use.* ]]; then
+		rm -rf -- "$test_root"
 	fi
 	exit "$status"
 }
@@ -194,12 +213,14 @@ for volume in tobari-gateway-ca tobari-public-ca tobari-policy-bundle; do
 done
 owns_shared_resources=true
 
-for image in "$standard_runtime_image" "$gateway_image"; do
-	if docker image inspect "$image" >/dev/null 2>&1; then
-		echo "first-use integration: Tobari image $image must be absent; use an isolated cold Docker context" >&2
-    exit 1
-  fi
-done
+if [[ -z $predecessor_binary ]]; then
+	for image in "$standard_runtime_image" "$gateway_image"; do
+		if docker image inspect "$image" >/dev/null 2>&1; then
+			echo "first-use integration: Tobari image $image must be absent; use an isolated cold Docker context" >&2
+			exit 1
+		fi
+	done
+fi
 
 # Keep bind-mounted fixtures under the checkout: remote Linux Docker engines
 # such as Colima do not necessarily share the host's platform TMPDIR.
@@ -209,12 +230,17 @@ mkdir -p "$test_root/user/project"
   echo "first-use integration: XDG parent directories must not exist before the first command" >&2
   exit 1
 }
-if [[ -z $binary ]]; then
-  binary=$test_root/tobari
-  go build -buildvcs=false -trimpath -o "$binary" \
-    -ldflags "-X main.commit=$(git rev-parse --verify HEAD)" ./cmd/tobari
+if [[ -z $candidate_binary ]]; then
+	candidate_binary=$test_root/tobari-candidate
+	go build -buildvcs=false -trimpath -o "$candidate_binary" \
+		-ldflags "-X main.commit=$(git rev-parse --verify HEAD)" ./cmd/tobari
 fi
-[[ -x $binary ]] || { echo "first-use integration: binary is unavailable" >&2; exit 1; }
+[[ -x $candidate_binary ]] || { echo "first-use integration: candidate binary is unavailable" >&2; exit 1; }
+binary=$candidate_binary
+if [[ -n $predecessor_binary ]]; then
+	[[ -x $predecessor_binary ]] || { echo "first-use integration: predecessor binary is unavailable" >&2; exit 1; }
+	binary=$predecessor_binary
+fi
 
 first_entry_log=$test_root/first-entry.log
 if ! run_bare_tobari_pty_at fresh "$test_root/user/project" >"$first_entry_log" 2>&1; then
@@ -230,7 +256,9 @@ grep -F 'Prepare Workspace' "$first_entry_log" >/dev/null || {
   echo "first-use integration: Workspace preparation checkpoint was not rendered" >&2
   exit 1
 }
-docker image inspect "$standard_runtime_image" "$gateway_image" >/dev/null
+if [[ -z $predecessor_binary ]]; then
+	docker image inspect "$standard_runtime_image" "$gateway_image" >/dev/null
+fi
 
 template_list=$(run_tobari template list --format=json)
 python3 -c 'import json,sys; items=json.load(sys.stdin)["templates"]["items"]; assert len(items) == 1; assert items[0]["runtime_id"] == "builtin/standard"' <<<"$template_list"
@@ -238,6 +266,7 @@ context_list=$(run_tobari context list --format=json)
 context_ref=$(python3 -c 'import json,sys; items=json.load(sys.stdin)["contexts"]["items"]; assert len(items) == 1; print(items[0]["context_ref"])' <<<"$context_list")
 workspace_list=$(run_tobari workspace list --format=json)
 workspace_ref=$(python3 -c 'import json,sys; items=json.load(sys.stdin)["workspaces"]["items"]; assert len(items) == 1; print(items[0]["workspace_ref"])' <<<"$workspace_list")
+prepare_release_upgrade_reentry "$context_list" "$workspace_list"
 [[ -d $test_root/config/tobari/contexts ]] || {
   echo "first-use integration: Context source root was not created" >&2
   exit 1
@@ -275,6 +304,9 @@ python3 -c 'import json,sys; value=json.load(sys.stdin)["status"]; assert value[
 python3 -c 'import json,sys; assert len(json.load(sys.stdin)["templates"]["items"]) == 1' <<<"$(run_tobari template list --format=json)"
 python3 -c 'import json,sys; assert len(json.load(sys.stdin)["contexts"]["items"]) == 1' <<<"$(run_tobari context list --format=json)"
 python3 -c 'import json,sys; assert len(json.load(sys.stdin)["workspaces"]["items"]) == 1' <<<"$(run_tobari workspace list --format=json)"
+verify_release_upgrade_after_reentry
+
+verify_workspace_entry_transition_matrix
 
 mkdir -p "$test_root/user/project/child"
 ancestor_log=$test_root/ancestor-entry.log

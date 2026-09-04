@@ -112,6 +112,28 @@ jobs:
           DOCKER_CONTEXT: tobari-first-use-ci
         run: ./scripts/check.sh first-use
 
+  upgrade:
+    name: Previous-release Workspace upgrade gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Create isolated Docker context
+        run: docker context create tobari-upgrade-ci --docker "host=unix:///var/run/docker.sock"
+
+      - name: Run previous-release upgrade and re-entry
+        env:
+          DOCKER_CONTEXT: tobari-upgrade-ci
+        run: ./scripts/check.sh upgrade
+
   release:
     name: Release packaging and workflow gate
     runs-on: ubuntu-latest

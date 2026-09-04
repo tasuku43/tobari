@@ -191,9 +191,10 @@ task security
 task release:check
 task public:check
 TOBARI_INTEGRATION_DOCKER_CONTEXT=<isolated-context> task first-use:test
+TOBARI_INTEGRATION_DOCKER_CONTEXT=<isolated-context> task upgrade:test
 ```
 
-The underlying interface is `./scripts/check.sh fast|full|security|release|public`. Optional local automation must call that interface and must not claim equivalence to a profile it did not run.
+The underlying interface is `./scripts/check.sh fast|full|security|release|public|first-use|upgrade`. Optional local automation must call that interface and must not claim equivalence to a profile it did not run.
 
 Any change to root first use, final Template/Context initialization, standard
 Runtime preparation, shared-cluster bootstrap, Gateway topology, or Workspace
@@ -204,6 +205,14 @@ must use the release-surface binary and bare reviewed `tobari` entry. Unit or
 fake-backed first-use tests do not replace this evidence. The release runtime
 CI profile enforces the same cold scenario; research Auth Broker integration
 remains separately selectable.
+
+Any change to persisted final authority, release compatibility, Workspace
+entry receipts, or authority-changing operations must also finish with
+`task upgrade:test` against an explicit non-default Docker context. That gate
+must create the initial state with the nearest reachable annotated development
+release binary, switch only the executable to the candidate release surface,
+change authority, and prove repeated bare Workspace re-entry plus Context Home
+preservation. Focused store or fake-backed tests do not replace this evidence.
 
 Do not weaken a check merely to make a change pass. If a check encodes the wrong policy, update the governing document and test the new policy as part of the same reviewed change.
 

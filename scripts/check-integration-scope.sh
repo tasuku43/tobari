@@ -7,15 +7,18 @@ cd "$(dirname "$0")/.."
 
 scenario=scripts/test-integration.sh
 first_use_scenario=scripts/test-final-first-use-integration.sh
+upgrade_scenario=scripts/test-final-release-upgrade-integration.sh
+upgrade_helper=test/integration/release_upgrade_reentry.sh
+predecessor_builder=scripts/build-release-predecessor.sh
 workspace_service_helper=test/integration/workspace_service_exposure.sh
 gateway_fixture_helper=test/integration/gateway_fixture.sh
 runtime_image_cleanup_helper=test/integration/runtime_image_cleanup.sh
 permission_resume_helper=test/integration/permission_resume.sh
 
 first_use_line_count=$(wc -l <"$first_use_scenario" | tr -d ' ')
-if ((first_use_line_count > 320)); then
-  echo "integration scope: first-use scenario grew to $first_use_line_count lines (limit 320)" >&2
-  exit 1
+if ((first_use_line_count > 350)); then
+	echo "integration scope: first-use scenario grew to $first_use_line_count lines (limit 350)" >&2
+	exit 1
 fi
 for claim in \
   '[[ ! -e $test_root/config && ! -e $test_root/state && ! -e $test_root/data ]]' \
@@ -26,7 +29,7 @@ for claim in \
   'run_bare_tobari_pty_at ancestor-use "$test_root/user/project/child"' \
   'run_bare_tobari_pty_at nested-create "$test_root/user/project/child"' \
   'E2E_CWD=/var/lib/tobari/project/child' \
-  'echo E2E_CWD=$PWD; exit' \
+  'printf '\''E2E_CWD=%s\\n'\''' \
   'Tobari image $image must be absent' \
   'Context source root was not created' \
   'docker volume inspect --format' \
@@ -35,6 +38,46 @@ for claim in \
     echo "integration scope: missing real first-use canary: $claim" >&2
     exit 1
   fi
+done
+
+upgrade_scenario_line_count=$(wc -l <"$upgrade_scenario" | tr -d ' ')
+upgrade_helper_line_count=$(wc -l <"$upgrade_helper" | tr -d ' ')
+predecessor_builder_line_count=$(wc -l <"$predecessor_builder" | tr -d ' ')
+if ((upgrade_scenario_line_count > 30 || upgrade_helper_line_count > 170 || predecessor_builder_line_count > 110)); then
+	echo "integration scope: release upgrade scenario exceeded its reviewed size budget" >&2
+	exit 1
+fi
+for claim in \
+	'TOBARI_FIRST_USE_PREDECESSOR_BINARY' \
+	'prepare_release_upgrade_reentry "$context_list" "$workspace_list"' \
+	'verify_release_upgrade_after_reentry'; do
+	grep -F "$claim" "$first_use_scenario" >/dev/null || {
+		echo "integration scope: first-use scenario lost upgrade seam: $claim" >&2
+		exit 1
+	}
+done
+for claim in \
+	'git archive --format=tar "$predecessor_tag"' \
+	'./scripts/package-release.sh' \
+	'"resolver_channel": "embedded"' \
+	'"capability_surface": "release"'; do
+	grep -F "$claim" "$predecessor_builder" >/dev/null || {
+		echo "integration scope: predecessor build lost release identity evidence: $claim" >&2
+		exit 1
+	}
+done
+for claim in \
+	'https://upgrade-harness.example/reentry' \
+	'run_tobari policy allow --id "$upgrade_candidate_ref"' \
+	'"0 pending candidates" not in detail' \
+	'post-context-delete-reentry.log' \
+	'run_tobari help workspace delete --format agent' \
+	'run_tobari workspace delete --id "$old_workspace_ref"' \
+	'cmp "$test_root/expected-claude-settings.json" "$upgrade_settings_path"'; do
+	grep -F "$claim" "$upgrade_helper" >/dev/null || {
+		echo "integration scope: upgrade journey lost runtime assertion: $claim" >&2
+		exit 1
+	}
 done
 
 expected_phases=$'preflight\nbuild-fixtures\ntemplates-and-cluster\ncredentials-and-workspaces\ngateway-broker-and-transport\nlive-policy-activation\nattachment-scoped-host-loopback\nruntime-failure-boundaries\nlifecycle'
@@ -270,9 +313,10 @@ if ! awk '
   exit 1
 fi
 if ! grep -F './scripts/check.sh runtime-release-components' .github/workflows/ci.yml >/dev/null ||
-  ! grep -F './scripts/check.sh first-use' .github/workflows/ci.yml >/dev/null; then
-  echo "integration scope: CI does not run both release component and cold first-use profiles" >&2
-  exit 1
+	! grep -F './scripts/check.sh first-use' .github/workflows/ci.yml >/dev/null ||
+	! grep -F './scripts/check.sh upgrade' .github/workflows/ci.yml >/dev/null; then
+	echo "integration scope: CI does not run release component, cold first-use, and previous-release upgrade profiles" >&2
+	exit 1
 fi
 runtime_release_components_body=$(awk '
   /^run_runtime_release_components\(\)/ { in_runtime_release_components=1 }
