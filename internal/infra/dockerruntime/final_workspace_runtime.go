@@ -1598,7 +1598,8 @@ func (r *Runtime) PrepareWorkspaceRetirement(ctx context.Context, workspace toba
 
 // CompleteWorkspaceRetirement is called after the final Gateway/principal/OPA
 // settlement has removed the Workspace authority. It retires the now-detached
-// network and owner-only home, then publishes the secret-free terminal receipt.
+// network and Workspace-private runtime directory while preserving the
+// Context-owned managed Home, then publishes the secret-free terminal receipt.
 func (r *Runtime) CompleteWorkspaceRetirement(ctx context.Context, workspace tobari.WorkspaceBinding, force bool, decisionRef string) error {
 	if err := validateFinalWorkspaceBinding(workspace); err != nil {
 		return err

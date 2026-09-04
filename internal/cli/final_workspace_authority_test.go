@@ -325,6 +325,17 @@ func TestFinalContextPlanEmitsDeclaredLegacyReadFault(t *testing.T) {
 	}
 }
 
+func TestWorkspaceDeleteOutcomePreservesContextOwnedHome(t *testing.T) {
+	spec, found := DefaultCatalog().Lookup("workspace delete")
+	if !found {
+		t.Fatal("workspace delete is absent")
+	}
+	want := "Retire one exact Workspace and owned runtime resources while preserving Context Policy Memory and the complete Context-owned managed Home"
+	if spec.Agent.Outcome != want {
+		t.Fatalf("workspace delete outcome = %q, want %q", spec.Agent.Outcome, want)
+	}
+}
+
 func TestFinalAuthorityCRUDCatalogDeclaresApplicationFaultClassifications(t *testing.T) {
 	tests := []struct {
 		path   string
